@@ -190,8 +190,22 @@ def _load_json_file(path):
     return {}
 
 def _save_json_file(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+    """Write JSON atomically: write to a temp file then rename over the target.
+    If the process is killed mid-write the original file is never touched.
+    """
+    import tempfile as _tempfile
+    dir_ = os.path.dirname(os.path.abspath(path))
+    fd, tmp = _tempfile.mkstemp(dir=dir_, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+        os.replace(tmp, path)  # atomic on same filesystem
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 def _mc_username(discord_id, matches):
     """Look up the Minecraft username tied to a Discord ID."""
