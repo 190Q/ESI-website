@@ -184,10 +184,19 @@ def _require_role(allowed_roles: set):
     return user, None
 
 def _load_json_file(path):
-    if os.path.exists(path):
+    if not os.path.exists(path):
+        return {}
+    try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    return {}
+    except json.JSONDecodeError as e:
+        import sys
+        print(f"[ERROR] Malformed JSON in {path}: {e}", file=sys.stderr)
+        return {}
+    except OSError as e:
+        import sys
+        print(f"[ERROR] Cannot read {path}: {e}", file=sys.stderr)
+        return {}
 
 def _save_json_file(path, data):
     """Write JSON atomically: write to a temp file then rename over the target.
