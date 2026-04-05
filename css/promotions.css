@@ -1,0 +1,242 @@
+/* ═══════════════════════════════════════
+   Promotions Panel
+   ═══════════════════════════════════════ */
+
+/* Criteria cards row */
+.prom-criteria-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  pointer-events: none;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  transition: padding-top 0s ease;
+}
+
+.prom-criteria-card {
+  flex: 1;
+  min-width: 0;
+  pointer-events: all;
+  background: var(--surface);
+}
+
+.prom-criteria-body {
+  padding: 14px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.prom-criteria-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.92rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.prom-criteria-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.prom-criteria-note {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.prom-criteria-or {
+  font-family: 'Cinzel', serif;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 2px 0 2px 26px;
+}
+
+/* Tab bar */
+.prom-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.prom-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.prom-tab {
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.07em;
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.prom-tab:hover {
+  border-color: rgba(212,160,23,0.4);
+  color: var(--gold-light);
+}
+
+.prom-tab.active {
+  background: rgba(212,160,23,0.1);
+  border-color: var(--gold-light);
+  color: var(--gold-light);
+}
+
+/* Table */
+.prom-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.prom-th {
+  font-family: 'Cinzel', serif;
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 10px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.prom-th-stat {
+  text-align: center;
+}
+
+.prom-th-req {
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  text-transform: none;
+  letter-spacing: 0;
+  font-style: italic;
+}
+
+.prom-row {
+  transition: background var(--transition);
+}
+
+.prom-row:hover {
+  background: rgba(212,160,23,0.04);
+}
+
+.prom-row-eligible {
+  background: rgba(59,165,92,0.04);
+}
+
+.prom-row-eligible:hover {
+  background: rgba(59,165,92,0.08);
+}
+
+.prom-td {
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(212,160,23,0.06);
+  vertical-align: middle;
+}
+
+.prom-row:last-child .prom-td {
+  border-bottom: none;
+}
+
+.prom-name {
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  color: var(--text-main);
+}
+
+.prom-meta {
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  text-align: left;
+}
+
+.prom-td.prom-meta.prom-stat-cell {
+  text-align: center;
+}
+
+.prom-name-link {
+  cursor: pointer;
+  transition: color 0.12s;
+}
+.prom-name-link:hover {
+  color: var(--gold-light);
+  text-decoration: underline;
+  text-decoration-color: rgba(212,160,23,0.4);
+}
+
+/* Stat value (raids / wars) */
+.prom-stat {
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  display: inline-block;
+  min-width: 28px;
+  text-align: center;
+}
+
+.prom-stat.met {
+  color: #3BA55C;
+  font-weight: 700;
+}
+
+.prom-stat-link {
+  cursor: pointer;
+  transition: color 0.12s;
+}
+.prom-stat-link:hover {
+  color: var(--gold-light) !important;
+  text-decoration: underline;
+  text-decoration-color: rgba(212,160,23,0.4);
+}
+
+/* Status badge */
+.prom-status {
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+.prom-status.eligible {
+  color: #3BA55C;
+  font-weight: 700;
+}
+
+.prom-status.soon {
+  color: #FAA61A;
+  font-weight: 600;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .prom-criteria-row {
+    flex-direction: column;
+  }
+
+  #promTableWrap {
+    overflow-x: auto;
+  }
+
+  .prom-table {
+    min-width: 480px;
+  }
+}

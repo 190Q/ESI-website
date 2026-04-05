@@ -1,0 +1,517 @@
+.guild-profile-card {
+  display: flex;
+  gap: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 24px;
+  align-items: flex-start;
+  position: relative;
+  overflow: hidden;
+}
+.guild-profile-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+}
+
+.guild-profile-emblem-wrap {
+  flex-shrink: 0;
+  width: 80px;
+  height: 80px;
+  border: 2px solid var(--border-mid);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.guild-profile-emblem {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.guild-profile-info { flex: 1; min-width: 0; }
+
+.guild-profile-name-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.guild-profile-name {
+  font-family: 'Cinzel Decorative', serif;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--gold-light);
+  text-shadow: 0 0 14px var(--gold-glow);
+  line-height: 1.3;
+}
+.guild-profile-prefix {
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--gold-dim);
+  background: var(--gold-glow);
+  color: var(--gold-dim);
+}
+
+.guild-profile-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.guild-profile-meta-item {
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.guild-profile-meta-item strong {
+  color: var(--gold-light);
+}
+
+.status-pill.has-online-tooltip {
+  position: relative;
+  cursor: pointer;
+}
+
+.guild-online-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 180px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.45);
+  z-index: 30;
+}
+
+.status-pill.has-online-tooltip:hover .guild-online-tooltip,
+.status-pill.has-online-tooltip:focus-within .guild-online-tooltip {
+  display: flex;
+}
+
+.guild-online-tooltip-title {
+  font-family: 'Cinzel', serif;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 2px;
+}
+
+.guild-online-tooltip-item {
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  color: var(--gold-light);
+  line-height: 1.25;
+}
+
+.guild-profile-xp-row {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-dim);
+  font-style: italic;
+  margin-bottom: 8px;
+}
+
+.guild-profile-details-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.guild-profile-detail {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.guild-profile-detail strong {
+  color: var(--gold-light);
+}
+
+.guild-profile-owner-row {
+  margin-top: 2px;
+}
+.guild-profile-owner {
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+.guild-profile-owner strong {
+  color: var(--gold-light);
+  font-weight: 700;
+}
+
+/* Layout */
+.guild-split-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+.guild-views-col {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .guild-split-layout { flex-direction: column; }
+}
+
+/* Guild rank badges */
+.guild-rank-badge {
+  font-family: 'Cinzel', serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  margin-left: 5px;
+  margin-right: 5px;
+}
+.guild-rank-owner      { border-color: #F0C040; color: #F0C040; background: rgba(240,192,64,0.12); }
+.guild-rank-chief      { border-color: #D4A017; color: #D4A017; background: rgba(212,160,23,0.10); }
+.guild-rank-strategist { border-color: #9B59B6; color: #C39BD3; background: rgba(155,89,182,0.10); }
+.guild-rank-captain    { border-color: #3498DB; color: #7FB3D3; background: rgba(52,152,219,0.10); }
+.guild-rank-recruiter  { border-color: #2ECC71; color: #7DCEA0; background: rgba(46,204,113,0.10); }
+.guild-rank-recruit    { border-color: #7F8C8D; color: #AAB7B8; background: rgba(127,140,141,0.10); }
+
+/* Members list */
+.guild-member-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  border-bottom: 1px solid rgba(212,160,23,0.06);
+  transition: background var(--transition);
+  flex-wrap: wrap;
+}
+.guild-member-row:last-child { border-bottom: none; }
+.guild-member-row:hover { background: rgba(212,160,23,0.04); }
+
+.guild-member-rank-num {
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-faint);
+  min-width: 28px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.guild-member-rank-num.top1 { color: #FFD700; text-shadow: 0 0 8px rgba(255,215,0,0.4); }
+.guild-member-rank-num.top2 { color: #C0C0C0; }
+.guild-member-rank-num.top3 { color: #CD7F32; }
+
+.guild-member-name {
+  flex: 1;
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  color: var(--text-main);
+  min-width: 80px;
+}
+
+.guild-member-contrib {
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.guild-member-raids {
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  color: var(--gold-dim);
+  min-width: 60px;
+  text-align: right;
+}
+
+/* Guild logs entries */
+.guild-log-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 20px;
+  border-bottom: 1px solid rgba(212,160,23,0.06);
+  transition: background var(--transition);
+}
+.guild-log-entry:last-child { border-bottom: none; }
+.guild-log-entry:hover { background: rgba(212,160,23,0.04); }
+
+.guild-log-icon {
+  font-size: 1rem;
+  width: 22px;
+  text-align: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.guild-log-body { flex: 1; }
+
+.guild-log-desc {
+  font-size: 0.88rem;
+  color: var(--text-main);
+  line-height: 1.5;
+}
+.guild-log-name {
+  font-family: 'Cinzel', serif;
+  color: var(--gold-light);
+}
+.guild-log-time {
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--text-faint);
+  font-style: italic;
+  margin-top: 3px;
+}
+
+.guild-log-entry.log-join    .guild-log-icon { color: var(--online); }
+.guild-log-entry.log-leave   .guild-log-icon { color: var(--danger); }
+.guild-log-entry.log-promote .guild-log-icon { color: var(--gold-light); }
+.guild-log-entry.log-demote  .guild-log-icon { color: var(--warn); }
+.guild-log-entry.log-levelup .guild-log-icon { color: #a78bfa; }
+
+.guild-log-name-link {
+  cursor: pointer;
+  transition: color 0.12s;
+}
+.guild-log-name-link:hover {
+  color: var(--gold-light);
+  text-decoration: underline;
+  text-decoration-color: rgba(212,160,23,0.4);
+}
+
+.guild-online-tooltip-item {
+  transition: color 0.12s;
+}
+.guild-online-tooltip-item:hover {
+  color: var(--gold-light);
+  text-decoration: underline;
+  text-decoration-color: rgba(212,160,23,0.4);
+}
+
+/* Aspects owed popup */
+.owed-card-clickable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.owed-aspects-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(2px);
+}
+.owed-aspects-overlay.open {
+  display: block;
+}
+
+.owed-aspects-popup {
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 9999;
+  width: 420px;
+  max-width: 92vw;
+  background: var(--surface-2);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.75);
+  flex-direction: column;
+  overflow: hidden;
+}
+.owed-aspects-popup.open {
+  display: flex;
+}
+
+.owed-aspects-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--border-mid);
+}
+
+.owed-aspects-popup-title {
+  font-family: 'Cinzel', serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--gold-light);
+  letter-spacing: 0.04em;
+}
+
+.owed-aspects-popup-close {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+  transition: color var(--transition);
+}
+.owed-aspects-popup-close:hover {
+  color: var(--gold-light);
+}
+
+.owed-aspects-popup-list {
+  padding: 8px 0;
+  max-height: 460px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gold-dim) var(--surface-3);
+}
+.owed-aspects-popup-list::-webkit-scrollbar {
+  width: 6px;
+}
+.owed-aspects-popup-list::-webkit-scrollbar-track {
+  background: var(--surface-3);
+}
+.owed-aspects-popup-list::-webkit-scrollbar-thumb {
+  background: var(--gold-dim);
+  border-radius: 3px;
+}
+.owed-aspects-popup-list::-webkit-scrollbar-thumb:hover {
+  background: var(--gold-light);
+}
+
+.owed-aspects-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  border-bottom: 1px solid rgba(212, 160, 23, 0.06);
+  transition: background var(--transition);
+  gap: 12px;
+}
+.owed-aspects-row:last-child {
+  border-bottom: none;
+}
+.owed-aspects-row:hover {
+  background: rgba(212, 160, 23, 0.04);
+}
+
+.owed-aspects-player-name {
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  color: var(--gold-light);
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+.owed-aspects-player-name:hover {
+  text-decoration: underline;
+  text-decoration-color: rgba(212, 160, 23, 0.4);
+}
+
+.owed-aspects-player-count {
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.owed-aspects-empty {
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  font-style: italic;
+  text-align: center;
+  padding: 14px 20px;
+}
+
+body.popup-scroll-lock {
+  overflow: hidden;
+}
+
+.owed-aspects-popup-count {
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  font-weight: 400;
+  margin-left: 6px;
+  opacity: 0.9;
+}
+
+.owed-aspects-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.owed-aspects-clear-btn {
+  font-family: 'Cinzel', serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  padding: 3px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--gold-dim);
+  background: transparent;
+  color: var(--gold-dim);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.owed-aspects-clear-btn:hover:not(:disabled) {
+  background: rgba(212, 160, 23, 0.12);
+  color: var(--gold-light);
+  border-color: var(--gold-light);
+}
+.owed-aspects-clear-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.owed-aspects-clear-btn--error {
+  border-color: #e74c3c;
+  color: #e74c3c;
+}
+
+.territory-name {
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  color: var(--gold-light);
+  flex: 1;
+  min-width: 0;
+}
+
+.xp-bar-track {
+  cursor: help;
+}
+
+.xp-bar-tooltip {
+  position: fixed;
+  background: rgba(13, 21, 13, 0.96);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+  z-index: 9999;
+  display: none;
+}

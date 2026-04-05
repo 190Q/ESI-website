@@ -1,0 +1,21 @@
+.graph-legend-player-pair {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.graph-legend-player-pair--right {
+  margin-left: auto;
+}
+
+.legend-line-player-solid {
+  background: var(--gold-dim);
+}
+
+.legend-line-player-dashed {
+  border-top-color: var(--gold-dim);
+}
+
+.player-line-sample-solid {
+  background: var(--gold-dim);
+}

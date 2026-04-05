@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Empire of Sindria dashboard</title>
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/graph-shared.css" />
+  <link rel="stylesheet" href="css/player.css" />
+  <link rel="stylesheet" href="css/guild.css" />
+  <link rel="stylesheet" href="css/bot.css" />
+  <link rel="stylesheet" href="css/inactivity.css" />
+  <link rel="stylesheet" href="css/promotions.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- navbar -->
+  <header class="navbar">
+    <div class="navbar-left">
+      <div class="guild-logo">
+        <img src="guild_emblem.avif" alt="ESI Emblem" class="emblem-img" />
+        <div class="guild-title">
+          <span class="guild-acronym">ESI</span>
+          <span class="guild-fullname">Empire of Sindria</span>
+        </div>
+      </div>
+    </div>
+
+    <nav class="navbar-center">
+      <span class="navbar-tagline">꧁⎝ 𓆩༺ &nbsp; Dashboard Portal &nbsp; ༻𓆪 ⎠꧂</span>
+    </nav>
+
+    <div class="navbar-right">
+      <button class="btn-help" id="helpBtn" title="Contact Support">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Support
+      </button>
+      <button class="btn-discord" id="loginBtn">
+        <svg width="20" height="20" viewBox="0 0 127.14 96.36" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/></svg>
+        Login with Discord
+      </button>
+    </div>
+  </header>
+
+  <!-- main layout -->
+  <div class="layout">
+
+    <!-- sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-ornament top"></div>
+
+      <button class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+      </button>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section">
+          <span class="nav-section-label">General</span>
+          <ul>
+            <li>
+              <a href="#" class="nav-item active" data-panel="player">
+                <span class="nav-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                </span>
+                <span class="nav-label">Player Stats</span>
+              </a>
+            </li>
+            <li>
+              <a href="#" class="nav-item" data-panel="guild">
+                <span class="nav-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                </span>
+                <span class="nav-label">Guild Stats</span>
+              </a>
+            </li>
+            <li>
+              <a href="#" class="nav-item" data-panel="bot">
+                <span class="nav-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>
+                </span>
+                <span class="nav-label">Bot Panel</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+
+        <!-- management section, hidden until logged in -->
+        <div class="nav-section" id="manageSection" style="display:none;">
+          <span class="nav-section-label">Management</span>
+          <ul>
+            <li>
+              <a href="#" class="nav-item" data-panel="inactivity">
+                <span class="nav-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </span>
+                <span class="nav-label">Inactivity</span>
+              </a>
+            </li>
+            <li>
+              <a href="#" class="nav-item" data-panel="promotions">
+                <span class="nav-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+                </span>
+                <span class="nav-label">Promotions</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+      </nav>
+
+      <div class="sidebar-ornament bottom"></div>
+    </aside>
+
+    <!-- content area -->
+    <main class="content-area" id="contentArea">
+
+      <!-- player stats panel -->
+      <section class="panel active" id="panel-player">
+        <div class="panel-header">
+          <h1 class="panel-title">Player Stats</h1>
+          <p class="panel-subtitle">Live data from the Wynncraft API</p>
+        </div>
+
+        <!-- search -->
+        <div class="player-search-row">
+          <div class="player-search-wrap">
+            <label for="playerInput" class="sr-only">Wynncraft username</label>
+            <input type="text" id="playerInput" class="player-search-input" placeholder="Enter Wynncraft username..." value="190Q" aria-label="Wynncraft username" />
+            <button class="btn-search" id="searchPlayerBtn">🔍︎ Look Up</button>
+          </div>
+        </div>
+
+        <div id="playerLoading" class="loading-state" style="display:none;font-weight:500;">
+          <div class="loading-spinner"></div>
+          <span>Fetching the Wynncraft API...</span>
+        </div>
+        <div id="playerError" class="error-state" style="display:none;"></div>
+
+        <!-- player content (hidden until data loads) -->
+        <div id="playerContent" style="display:none;">
+
+          <!-- profile card -->
+          <div class="profile-card">
+            <div class="profile-avatar-wrap">
+              <img id="playerSkin" src="" alt="skin" class="profile-skin" />
+            </div>
+            <div class="profile-info">
+              <div class="profile-name-row">
+                <span id="playerName" class="profile-username"></span>
+                <span id="playerRankBadge" class="profile-rank-badge"></span>
+              </div>
+              <div class="profile-meta-row">
+                <span id="playerOnlineStatus" class="status-pill"></span>
+                <span id="playerLastSeen" class="profile-meta-item"></span>
+                <span id="playerFirstJoin" class="profile-meta-item"></span>
+              </div>
+              <div class="profile-guild-row">
+                <span id="playerGuild" class="profile-guild-tag"></span>
+                <span id="playerGuildRank" class="profile-guild-rank"></span>
+              </div>
+              <div class="profile-guild-xp-row" id="guildXpRow"></div>
+            </div>
+          </div>
+
+
+          <div class="player-split-layout">
+
+            <!-- graphs -->
+            <div class="graph-panels-col">
+
+              <div class="graph-panel" id="graphPanelCompare">
+                <div class="graph-panel-header">
+                  <span>Activity Comparison</span>
+                  <span class="compare-area" id="compareArea">
+                    <span class="compare-trigger" id="compareTrigger">𓍝 Compare</span>
+                    <span class="compare-input-area" id="compareInputArea" style="display:none;">
+                      <label for="comparePlayerInput" class="sr-only">Compare username</label>
+                      <input type="text" id="comparePlayerInput" class="compare-inline-input" placeholder="Username..." aria-label="Compare username" />
+                      <span class="compare-status" id="compareStatus"></span>
+                    </span>
+                    <span class="compare-pill" id="comparePill" style="display:none;">
+                      vs <strong id="comparePillName"></strong>
+                      <button class="compare-pill-x" id="btnCompareClear">✕</button>
+                    </span>
+                  </span>
+                </div>
+                <div class="graph-controls">
+                  <div id="graphMetricRows"></div>
+                  <button class="btn-add-metric" id="btnAddMetric">+ Add Metric</button>
+                  <div class="graph-control-row">
+                    <label class="graph-ctrl-label" for="graphDaysRange">Range</label>
+                    <input type="range" id="graphDaysRange" min="2" max="60" value="30" class="graph-range" aria-label="Player graph range in days" />
+                    <span id="graphDaysLabel" class="graph-days-val">?</span>
+                  </div>
+                </div>
+                <div class="graph-canvas-wrap">
+                  <canvas id="graphCanvas"></canvas>
+                </div>
+                <div class="graph-legend" id="graphLegend"></div>
+                <div id="graphSummaries"></div>
+              </div>
+
+            </div>
+
+            <!-- views -->
+            <div class="player-views-col">
+
+              <!-- view toggle -->
+              <div class="view-selector">
+                <button class="view-btn active" id="viewGlobal">Global Data</button>
+                <button class="view-btn" id="viewCharacter">Character View</button>
+                <button class="view-btn" id="viewRankHistory" style="display:none">Rank History</button>
+              </div>
+
+              <!-- global view -->
+              <div id="globalView">
+                <div class="owed-cards" id="owedCards"></div>
+
+                <div class="global-stats-list" id="globalStatsGrid"></div>
+
+                <!-- raids -->
+                <div class="info-card" id="globalRaidsCard">
+                  <div class="collapsible-header" onclick="toggleCollapse(this)">
+                    Raids &nbsp;<span id="globalRaidsTotal" style="color:var(--text-faint);font-size:0.85em"></span>
+                    <span class="collapsible-arrow">▼</span>
+                  </div>
+                  <div class="collapsible-body">
+                    <div id="globalRaids"></div>
+                  </div>
+                </div>
+
+                <!-- dungeons -->
+                <div class="info-card" id="globalDungeonsCard">
+                  <div class="collapsible-header" onclick="toggleCollapse(this)">
+                    Dungeons &nbsp;<span id="globalDungeonsTotal" style="color:var(--text-faint);font-size:0.85em"></span>
+                    <span class="collapsible-arrow">▼</span>
+                  </div>
+                  <div class="collapsible-body">
+                    <div id="globalDungeons"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- character view -->
+              <div id="characterView" style="display:none;">
+                <div class="char-selector-row">
+                  <label class="char-selector-label" for="charSelect">Character:</label>
+                  <select id="charSelect" class="char-select" aria-label="Character selection"></select>
+                </div>
+                <div id="charDetails"></div>
+              </div>
+
+              <!-- rank history -->
+              <div id="rankHistoryView" style="display:none;">
+                <div id="rankHistoryContent"></div>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- guild panel -->
+      <section class="panel" id="panel-guild">
+        <div class="panel-header">
+          <h1 class="panel-title">Guild Stats</h1>
+          <p class="panel-subtitle">The standing of the Empire of Sindria</p>
+        </div>
+
+        <div id="guildLoading" class="loading-state" style="display:none;font-weight:500;">
+          <div class="loading-spinner"></div>
+          <span>Fetching the Wynncraft API...</span>
+        </div>
+        <div id="guildError" class="error-state" style="display:none;"></div>
+
+        <div id="guildContent" style="display:none;">
+
+          <!-- guild profile card -->
+          <div class="guild-profile-card">
+            <div class="guild-profile-emblem-wrap">
+              <img src="guild_emblem.avif" alt="Guild Emblem" class="guild-profile-emblem" />
+            </div>
+            <div class="guild-profile-info">
+              <div class="guild-profile-name-row">
+                <span id="guildCardName" class="guild-profile-name"></span>
+                <span id="guildCardPrefix" class="guild-profile-prefix"></span>
+              </div>
+              <div class="guild-profile-meta-row">
+                <span id="guildCardLevel" class="guild-profile-meta-item"></span>
+                <span id="guildCardOnline" class="status-pill"></span>
+              </div>
+              <div class="guild-profile-xp-row" id="guildCardXpRow"></div>
+              <div class="guild-profile-details-row">
+                <span id="guildCardMembers" class="guild-profile-detail"></span>
+                <span id="guildCardWars" class="guild-profile-detail"></span>
+                <span id="guildCardFounded" class="guild-profile-detail"></span>
+              </div>
+              <div class="guild-profile-owner-row">
+                <span id="guildCardOwner" class="guild-profile-owner"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="owed-cards" id="guildOwedCards"></div>
+
+          <div class="guild-split-layout">
+
+            <!-- graph -->
+            <div class="graph-panels-col">
+              <div class="graph-panel">
+                <div class="graph-panel-header">
+                  <span>Activity Comparison</span>
+                  <span class="compare-area">
+                    <span class="compare-trigger" id="guildCompareTrigger">𓍝 Compare</span>
+                    <span class="compare-input-area" id="guildCompareInputArea" style="display:none;">
+                      <label for="guildComparePlayerInput" class="sr-only">Compare guild member username</label>
+                      <input type="text" id="guildComparePlayerInput" class="compare-inline-input" placeholder="Username..." aria-label="Compare guild member username" />
+                      <span class="compare-status" id="guildCompareStatus"></span>
+                    </span>
+                    <span class="compare-pill" id="guildComparePill" style="display:none;">
+                      vs <strong id="guildComparePillName"></strong>
+                      <button class="compare-pill-x" id="guildBtnCompareClear">✕</button>
+                    </span>
+                  </span>
+                </div>
+                <div class="graph-controls">
+                  <div id="guildGraphMetricRows"></div>
+                  <button class="btn-add-metric" id="guildBtnAddMetric">+ Add Metric</button>
+                  <div class="graph-control-row">
+                    <label class="graph-ctrl-label" for="guildGraphRange">Range</label>
+                    <input type="range" id="guildGraphRange" min="2" max="60" value="30" class="graph-range" aria-label="Guild graph range in days" />
+                    <span id="guildGraphDaysLabel" class="graph-days-val">30d</span>
+                  </div>
+                </div>
+                <div class="graph-canvas-wrap">
+                  <canvas id="guildGraphCanvas"></canvas>
+                </div>
+                <div class="graph-legend" id="guildGraphLegend"></div>
+                <div id="guildGraphSummaries"></div>
+              </div>
+            </div>
+
+            <!-- views -->
+            <div class="guild-views-col">
+
+              <div class="view-selector">
+                <button class="view-btn active" id="guildViewGlobal">Global Data</button>
+                <button class="view-btn" id="guildViewLogs">Guild Logs</button>
+              </div>
+
+              <!-- global -->
+              <div id="guildGlobalView">
+                <div class="global-stats-list" id="guildStatsGrid"></div>
+
+                <div class="info-card" id="guildRaidsCard" style="display:none;">
+                  <div class="collapsible-header" onclick="toggleCollapse(this)">
+                    Guild Raids &nbsp;<span id="guildRaidsTotal" style="color:var(--text-faint);font-size:0.85em"></span>
+                    <span class="collapsible-arrow">&#x25BC;</span>
+                  </div>
+                  <div class="collapsible-body">
+                    <div id="guildRaidsList"></div>
+                  </div>
+                </div>
+
+                <div class="info-card">
+                  <div class="collapsible-header" onclick="toggleCollapse(this)">
+                    Members &nbsp;<span id="guildMembersTotal" style="color:var(--text-faint);font-size:0.85em"></span>
+                    <span class="collapsible-arrow">&#x25BC;</span>
+                  </div>
+                  <div class="collapsible-body">
+                    <div id="guildMembersList"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- logs -->
+              <div id="guildLogsView" style="display:none;">
+                <div class="info-card">
+                  <div class="info-card-header">Recent Guild Activity</div>
+                  <div id="guildLogsList"></div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PANEL: Bot Panel -->
+      <section class="panel" id="panel-bot">
+        <div class="panel-header">
+          <h1 class="panel-title">Bot Panel</h1>
+          <p class="panel-subtitle">Monitor ESI's unpaid intern</p>
+        </div>
+
+        <div id="botLoading" class="loading-state" style="display:none;font-weight:500;">
+          <div class="loading-spinner"></div>
+          <span>Connecting to the bot...</span>
+        </div>
+        <div id="botError" class="error-state" style="display:none;"></div>
+
+        <div id="botContent" style="display:none;">
+
+          <!-- Bot profile card -->
+          <div class="bot-profile-card">
+            <div class="bot-avatar-wrap">
+              <img id="botAvatar" src="" alt="Bot" class="bot-avatar" />
+            </div>
+            <div class="bot-info">
+              <div class="bot-name-row">
+                <span id="botName" class="bot-username"></span>
+                <span id="botIdBadge" class="bot-id-badge"></span>
+              </div>
+              <div class="bot-meta-row">
+                <span id="botStatusPill" class="status-pill"></span>
+                <span id="botLatency" class="bot-meta-item"></span>
+                <span id="botUptime" class="bot-meta-item"></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="bot-split-layout">
+
+            <!-- LEFT: Activity Graph + Trackers -->
+            <div class="bot-left-col">
+
+              <div class="info-card" id="botHealthCard"></div>
+                <div class="info-card" id="botGuildSnapshot"></div>
+
+              <div class="info-card">
+                <div class="info-card-header tracker-card-header">
+                  <span>Tracker Countdowns</span>
+                  <span class="tracker-header-status">
+                    <span class="status-pill online">● Online</span>
+                    <span class="tracker-uptime" id="trackerHeaderUptime">0s</span>
+                  </span>
+                </div>
+                <div class="tracker-list" id="trackerList"></div>
+              </div>
+
+            </div>
+
+            <!-- RIGHT: Database + Console -->
+            <div class="bot-right-col">
+
+              <div class="info-card bot-console-card">
+                <div class="info-card-header" style="display:flex;align-items:center;justify-content:space-between;">
+                  Console
+                  <div class="console-filters" id="consoleFilters">
+                    <button class="console-filter-btn active" data-level="all">All</button>
+                    <button class="console-filter-btn" data-level="info">Info</button>
+                    <button class="console-filter-btn" data-level="warn">Warn</button>
+                    <button class="console-filter-btn" data-level="error">Error</button>
+                  </div>
+                </div>
+                <div class="bot-console" id="botConsole"></div>
+              </div>
+
+              <div class="info-card">
+                <div class="collapsible-header" onclick="toggleCollapse(this)">
+                  Database Storage &nbsp;<span id="dbTotalSize" style="color:var(--text-faint);font-size:0.85em"></span>
+                  <span class="collapsible-arrow">▼</span>
+                </div>
+                <div class="collapsible-body">
+                  <div id="dbContent"></div>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+      </section>
+
+      <!-- PANEL: Inactivity (login-gated — content injected by inactivity.js) -->
+      <section class="panel" id="panel-inactivity"></section>
+
+      <!-- PANEL: Promotions (login-gated — content injected by promotions.js) -->
+      <section class="panel" id="panel-promotions"></section>
+
+    </main>
+  </div>
+
+  <!-- ACCOUNT MODAL -->
+  <div class="modal-backdrop" id="accountModalBackdrop">
+    <div class="modal account-modal">
+      <button class="modal-close" id="accountModalClose">✕</button>
+      <img class="account-modal-avatar" id="accountModalAvatar" src="" alt="" />
+      <div class="account-modal-name" id="accountModalName"></div>
+      <div class="account-modal-sub" id="accountModalSub"></div>
+      <div class="account-modal-roles" id="accountModalRoles"></div>
+      <div class="account-modal-divider"></div>
+      <button class="account-modal-logout" id="logoutBtn">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Log Out
+      </button>
+    </div>
+  </div>
+
+  <!-- SUPPORT MODAL -->
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal" id="supportModal">
+      <button class="modal-close" id="modalClose">✕</button>
+
+      <!-- Links view -->
+      <div id="supportLinksView">
+        <div class="modal-emblem">
+          <img src="guild_emblem.avif" alt="ESI" />
+        </div>
+        <h2 class="modal-title">Contact Support</h2>
+        <p class="modal-sub">Get in touch with members of the Empire of Sindria</p>
+        <ul class="support-links">
+          <li>
+            <a href="https://discord.gg/sindria" target="_blank" rel="noopener" class="support-link discord">
+              <svg width="20" height="20" viewBox="0 0 127.14 96.36" fill="currentColor"><path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/></svg>
+              Join our Discord
+            </a>
+          </li>
+          <li>
+            <a href="#" class="support-link ticket" id="openTicketBtn">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+              Open a Support Ticket
+            </a>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Ticket form view -->
+      <div id="ticketFormView" style="display:none;">
+        <h2 class="modal-title">Open a Ticket</h2>
+        <p class="modal-sub">Describe your issue and we'll get back to you</p>
+        <div class="ticket-form">
+          <label class="ticket-label" for="ticketCategory">Category</label>
+          <select class="ticket-select" id="ticketCategory" aria-label="Ticket category">
+            <option value="">Select a category...</option>
+            <option value="bug">Bug Report</option>
+            <option value="suggestion">Suggestion</option>
+            <option value="help">Help</option>
+            <option value="other">Other</option>
+          </select>
+          <label class="ticket-label" for="ticketSubject">Subject</label>
+          <input type="text" class="ticket-input" id="ticketSubject" placeholder="Brief summary..." aria-label="Ticket subject" />
+          <label class="ticket-label" for="ticketMessage">Message</label>
+          <textarea class="ticket-textarea" id="ticketMessage" rows="4" placeholder="Describe your issue or suggestion in detail..." aria-label="Ticket message"></textarea>
+          <div class="ticket-actions">
+            <button class="ticket-back" id="ticketBack">← Back</button>
+            <button class="btn-post" id="ticketSubmit">↪ &nbsp; Submit Ticket</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Cinzel:wght@400;600;700&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap" rel="stylesheet" />
+  <script>
+    document.documentElement.classList.add('no-transitions');
+    if (localStorage.getItem('sidebarCollapsed') === 'true') {
+      document.documentElement.classList.add('sidebar-pre-collapsed');
+    }
+  </script>
+  <script src="js/data-cache.js"></script>
+  <script src="js/toast.js"></script>
+  <script>
+    window.aspectsDataPromise = DataCache.cachedFetch('/api/guild/aspects')
+    .then(function (result) { window.aspectsData = result.data; })
+    .catch(function () { window.aspectsData = { total_aspects: 0, members: {} }; });
+  </script>
+  <script src="js/activity_prefetch.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/graph-shared.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/guild.js"></script>
+  <script src="js/bot.js"></script>
+  <script src="js/inactivity.js"></script>
+  <script src="js/promotions.js"></script>
+</body>
+</html>
