@@ -323,7 +323,13 @@ def _gate_requests():
     #     Postman do not send it at all
     if not session.get('user'):
         abort(403)
-    if request.headers.get('Sec-Fetch-Mode') != 'same-origin':
+    # Sec-Fetch-Site is browser-enforced and cannot be set by JavaScript:
+    #   'same-origin' → JS fetch() from our own pages (dashboard)
+    #   'none'        → top-level navigation (user typed the URL)
+    #   absent        → curl / Postman / Python requests
+    # Note: Sec-Fetch-Mode is 'cors' by default for fetch(), NOT 'same-origin',
+    # so Mode is the wrong header to check here.
+    if request.headers.get('Sec-Fetch-Site') != 'same-origin':
         abort(403)
 
 @app.route("/")
