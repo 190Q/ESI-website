@@ -290,32 +290,58 @@ _BLOCKED_STATIC_RE = _re.compile(
     _re.IGNORECASE,
 )
 
-# public API routes anyone can type in (new URLs, always return limited data)
-_PUBLIC_API_RE = [
-    _re.compile(r'^/api/player/rank-history/[^/]+$'),
-    _re.compile(r'^/api/player/playtime/[^/]+$'),
-    _re.compile(r'^/api/player/metrics/[^/]+$'),
-    _re.compile(r'^/api/guild/activity$'),
-    _re.compile(r'^/api/guild/territories$'),
-]
-
-def _is_from_dashboard():
-    ref = request.referrer or ""
-    return ref.startswith(request.host_url)
+# Routes that are accessible to anyone without a session
+# The Referer header is trivially spoofable so it cannot be a security boundary
+# Instead every non-public /api/ route is gated by a real session check below
+#
+# Explicitly listed public endpoints (separate routes with limited data):
+#   /api/player/rank-history/<user>   /api/player/playtime/<user>
+#   /api/player/metrics/<user>        /api/guild/activity
+#   /api/guild/territories
+#
+# Dashboard endpoints that work without login (Wynncraft proxies, bot info, etc.):
+#   /api/player/<user>  /api/player/<user>/rank-history
+#   /api/guild/prefix/<prefix>  /api/guild/name/<name>
+#   /api/guild/member-history   /api/guild/levels   /api/guild/stats-totals
+#   /api/aspects  /api/bot/status  /api/bot/info  /api/bot/health  /api/bot/discord
+_PUBLIC_API_RE = _re.compile(
+    r"^/api/(?:"
+    r"player/rank-history/[^/]+"
+    r"|player/playtime/[^/]+"
+    r"|player/metrics/[^/]+"
+    r"|player/[^/]+/rank-history"
+    r"|player/[^/]+"
+    r"|guild/activity"
+    r"|guild/territories"
+    r"|guild/prefix/[^/]+"
+    r"|guild/name/[^/]+"
+    r"|guild/member-history"
+    r"|guild/levels"
+    r"|guild/stats-totals"
+    r"|guild-levels"
+    r"|guild-territories"
+    r"|aspects"
+    r"|bot/status"
+    r"|bot/info"
+    r"|bot/health"
+    r"|bot/discord"
+    r")$"
+)
 
 @app.before_request
 def _gate_requests():
     path = request.path
+    # Always block sensitive static files and dot-files
     if _BLOCKED_STATIC_RE.match(path):
         abort(403)
     if path.startswith('/.'):
         abort(403)
-    # internal /api/ routes only work when called from the dashboard's own JS
-    # (browser fetch always sends Referer, typing a URL doesn't)
+    # For /api/ routes: public allowlist passes through; everything else requires
+    # a real Flask session (cannot be faked by setting a header)
     if path.startswith('/api/'):
-        if _is_from_dashboard():
-            return  # dashboard JS, let everything through
-        if not any(p.match(path) for p in _PUBLIC_API_RE):
+        if _PUBLIC_API_RE.match(path):
+            return
+        if not session.get('user'):
             abort(403)
 
 @app.route("/")
@@ -1215,23 +1241,7 @@ def _bulk_playtime_loop():
 
 @app.route("/api/guild/activity")
 def guild_activity_bulk():
-    """Cached bulk playtime for all guild members."""
-    if not _is_from_dashboard():
-        # public access: filtered guild metrics only
-        with _bulk_playtime_lock:
-            _data = _bulk_playtime_cache["data"]
-        if not _data:
-            return jsonify({"guild": {}, "members": {}})
-        guild_full = _data.get("guild") or {}
-        return jsonify({
-            "guild": {
-                "playerCount": guild_full.get("playerCount", []),
-                "wars":        guild_full.get("wars", []),
-                "guildRaids":  guild_full.get("guildRaids", []),
-                "newMembers":  guild_full.get("newMembers", []),
-            },
-            "members": _data.get("members", {}),
-        })
+    """Public bulk playtime endpoint — rate-limited, no session required."""
     def _make():
         with _bulk_playtime_lock:
             _data = _bulk_playtime_cache["data"]
@@ -1661,18 +1671,16 @@ def guild_levels_get():
 
 @app.route("/api/guild/territories")
 def guild_territories_get():
+    """Public territories endpoint"""
     data = _load_json_file(_GUILD_TERRITORIES_JSON)
     if not data:
         return jsonify({})
-    if not _is_from_dashboard():
-        # public access: filtered fields only
-        return jsonify({
-            "guild":       data.get("guild"),
-            "territories": data.get("territories", {}),
-            "history":     data.get("history", []),
-            "last_update": data.get("last_update"),
-        })
-    return jsonify(data)
+    return jsonify({
+        "guild":       data.get("guild"),
+        "territories": data.get("territories", {}),
+        "history":     data.get("history", []),
+        "last_update": data.get("last_update"),
+    })
 
 # ---- public API routes (accessible without the dashboard) ----
 
