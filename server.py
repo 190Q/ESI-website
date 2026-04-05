@@ -290,20 +290,8 @@ _BLOCKED_STATIC_RE = _re.compile(
     _re.IGNORECASE,
 )
 
-# Routes that are accessible to anyone without a session
-# The Referer header is trivially spoofable so it cannot be a security boundary
-# Instead every non-public /api/ route is gated by a real session check below
-#
-# Explicitly listed public endpoints (separate routes with limited data):
-#   /api/player/rank-history/<user>   /api/player/playtime/<user>
-#   /api/player/metrics/<user>        /api/guild/activity
-#   /api/guild/territories
-#
-# Dashboard endpoints that work without login (Wynncraft proxies, bot info, etc.):
-#   /api/player/<user>  /api/player/<user>/rank-history
-#   /api/guild/prefix/<prefix>  /api/guild/name/<name>
-#   /api/guild/member-history   /api/guild/levels   /api/guild/stats-totals
-#   /api/aspects  /api/bot/status  /api/bot/info  /api/bot/health  /api/bot/discord
+# Only these five routes are accessible without a session.
+# Every other /api/ route requires a valid logged-in session.
 _PUBLIC_API_RE = _re.compile(
     r"^/api/(?:"
     r"player/rank-history/[^/]+"
@@ -322,13 +310,21 @@ def _gate_requests():
         abort(403)
     if path.startswith('/.'):
         abort(403)
-    # For /api/ routes: public allowlist passes through; everything else requires
-    # a real Flask session (cannot be faked by setting a header)
-    if path.startswith('/api/'):
-        if _PUBLIC_API_RE.match(path):
-            return
-        if not session.get('user'):
-            abort(403)
+    if not path.startswith('/api/'):
+        return
+    # Public allowlist
+    if _PUBLIC_API_RE.match(path):
+        return
+    # Everything else requires:
+    #  1. A valid signed session (proves the user logged in through Discord OAuth)
+    #  2. Sec-Fetch-Mode: same-origin — a browser-enforced header browsers ALWAYS
+    #     set to 'navigate' for direct URL typing/link clicks and 'same-origin' for
+    #     same-origin JS fetch() calls.  JavaScript cannot override it; curl and
+    #     Postman do not send it at all
+    if not session.get('user'):
+        abort(403)
+    if request.headers.get('Sec-Fetch-Mode') != 'same-origin':
+        abort(403)
 
 @app.route("/")
 def index():
