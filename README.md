@@ -1,6 +1,6 @@
 # ESI Dashboard
 
-A guild management dashboard for **[Empire of Sindria](discord.gg/sindria)**, a guild on the MMORPG [Wynncraft](https://wynncraft.com/). It pulls live and historical data from the Wynncraft API, tracks player and guild activity over time, and gives higher-ranked members the tools they need to manage the guild without having to dig through spreadsheets.
+A guild management dashboard for **Empire of Sindria**, a guild on the MMORPG [Wynncraft](https://wynncraft.com/). It pulls live and historical data from the Wynncraft API, tracks player and guild activity over time, and gives higher-ranked members the tools they need to manage the guild without having to dig through spreadsheets.
 
 ---
 
