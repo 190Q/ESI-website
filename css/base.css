@@ -646,6 +646,10 @@ button { cursor: pointer; border: none; font-family: inherit; }
   transform: translateX(4px);
 }
 .support-link.discord { border-left: 3px solid var(--discord); }
+.support-link.github {
+  border-left: 3px solid #f0f6fc;
+  border-color: #30363d;
+}
 .support-link.ticket  { border-left: 3px solid var(--online); }
 
 /* Ticket form */
