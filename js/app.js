@@ -101,7 +101,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: '914186153995927623' }),
     }).then(r => r.json()).then(function(data) {
-      if (data.user) {
+        if (data.user) {
         // user came back directly
         localStorage.setItem('esi_user', JSON.stringify(data.user));
         applyLogin(data.user);

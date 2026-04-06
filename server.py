@@ -290,48 +290,13 @@ _BLOCKED_STATIC_RE = _re.compile(
     _re.IGNORECASE,
 )
 
-# Only these five routes are accessible without a session.
-# Every other /api/ route requires a valid logged-in session.
-_PUBLIC_API_RE = _re.compile(
-    r"^/api/(?:"
-    r"player/rank-history/[^/]+"
-    r"|player/playtime/[^/]+"
-    r"|player/metrics/[^/]+"
-    r"|guild/activity"
-    r"|guild/territories"
-    r")$"
-)
-
 @app.before_request
 def _gate_requests():
     path = request.path
-    # Always block sensitive static files and dot-files
     if _BLOCKED_STATIC_RE.match(path):
         abort(403)
     if path.startswith('/.'):
         abort(403)
-    if not path.startswith('/api/'):
-        return
-    # Public allowlist
-    if _PUBLIC_API_RE.match(path):
-        return
-    # Everything else requires:
-    #  1. A valid signed session (proves the user logged in through Discord OAuth)
-    #  2. Sec-Fetch-Mode: same-origin — a browser-enforced header browsers ALWAYS
-    #     set to 'navigate' for direct URL typing/link clicks and 'same-origin' for
-    #     same-origin JS fetch() calls.  JavaScript cannot override it; curl and
-    #     Postman do not send it at all
-    if not session.get('user'):
-        abort(403)
-    # Sec-Fetch-Site is browser-enforced and cannot be set by JavaScript:
-    #   'same-origin' → JS fetch() from our own pages (dashboard)
-    #   'none'        → top-level navigation (user typed the URL)
-    #   absent        → curl / Postman / Python requests
-    # Note: Sec-Fetch-Mode is 'cors' by default for fetch(), NOT 'same-origin',
-    # so Mode is the wrong header to check here.
-    if request.headers.get('Sec-Fetch-Site') != 'same-origin':
-        abort(403)
-
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
@@ -433,7 +398,6 @@ def auth_callback():
         "roles":         roles,
         "role_objects":  role_objects,
     }
-
     return redirect("/?auth=success")
 
 
