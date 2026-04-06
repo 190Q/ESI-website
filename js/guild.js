@@ -569,17 +569,17 @@
 
     document.getElementById('guildOwedCards').innerHTML = `
       <div class="owed-card owed-card-clickable" id="owedAspectsCard">
-        <div class="owed-icon"><img src=images/aspect_icon.avif" alt="aspect" style="width:32px;height:32px;image-rendering:pixelated"></div>
+        <div class="owed-icon"><img src="images/aspect_icon.avif" alt="aspect" style="width:32px;height:32px;image-rendering:pixelated"></div>
         <div class="owed-value">${owedAspects}<span style="font-size:1rem;color:var(--text-dim)"> / 40</span></div>
         <div class="owed-label">Aspects Owed</div>
       </div>
       <div class="owed-card">
-        <div class="owed-icon"><img src="images/guild_emblem.avif" alt="point" style="width:32px;height:32px;image-rendering:pixelated"></div>
+        <div class="owed-icon"><img src="images/point_icon.png" alt="point" style="width:32px;height:32px;image-rendering:pixelated"></div>
         <div class="owed-value">${fmt(esiPoints)}</div>
         <div class="owed-label">ESI Points</div>
       </div>
       <div class="owed-card owed-card-clickable" id="territoriesCard">
-        <div class="owed-icon"><img src="images/guild_emblem.avif" alt="territory" style="width:32px;height:32px;image-rendering:pixelated"></div>
+        <div class="owed-icon"><img src="images/territory_icon.png" alt="territory" style="width:32px;height:32px;image-rendering:pixelated"></div>
         <div class="owed-value">${fmt(territories)}</div>
         <div class="owed-label">Territories</div>
       </div>`;
@@ -627,7 +627,7 @@
       const players = getOwedPlayers();
       popup.innerHTML = `
         <div class="owed-aspects-popup-header">
-          <img src=images/aspect_icon.avif" alt="aspect" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">Aspects Owed
+          <img src="images/aspect_icon.avif" alt="aspect" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">Aspects Owed
             <span class="owed-aspects-popup-count" style="color:${owedColor(total)}">${total}/40</span>
           </span>
           <button class="owed-aspects-popup-close" id="owedAspectsClose">✕</button>
@@ -749,7 +749,7 @@
 
       terrPopup.innerHTML = `
         <div class="owed-aspects-popup-header">
-          <img src="images/guild_emblem.avif" alt="territory" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">
+          <img src="images/territory_icon.png" alt="territory" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">
           Territories
           <span class="owed-aspects-popup-count" style="color:var(--text-dim);font-size:0.85rem;margin-left:0.4rem">· ${fmt(Object.keys(current).length)} held · updated ${lastUpdate}</span>
           <button class="owed-aspects-popup-close" id="territoriesClose">✕</button>
