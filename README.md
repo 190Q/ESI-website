@@ -103,28 +103,65 @@ ESI-website/
 
 ## API routes
 
-The server exposes both internal routes (dashboard-only, checked via `Referer` header) and a set of public routes usable without the dashboard:
+Routes marked 🔒 require a valid Discord login session. Routes marked 👑 additionally require a specific guild role.
+
+### Auth
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| GET | `/api/player/<username>` | Player data from Wynncraft API |
-| GET | `/api/player/<username>/rank-history` | Historical rank data |
-| GET | `/api/player/<username>/playtime-history` | Playtime over time |
-| GET | `/api/player/<username>/metrics-history` | Stats over time (wars, dungeons, etc.) |
-| GET | `/api/guild/stats` | Current guild statistics |
-| GET | `/api/guild/activity` | Bulk guild activity data |
-| GET | `/api/guild/member-history` | Member count over time |
-| GET | `/api/guild/levels` | Guild level data |
-| GET | `/api/guild/territories` | Territory data |
-| GET | `/api/bot/info` | Bot tracker info |
-| GET | `/api/bot/health` | Bot health check |
-| GET | `/api/bot/status` | Public bot status |
-| GET | `/api/inactivity` | List inactivity entries *(auth required)* |
-| POST | `/api/inactivity` | Add inactivity entry *(Parliament / Valaendor only)* |
-| PATCH | `/api/inactivity/<discord_id>` | Edit inactivity entry *(Parliament / Valaendor only)* |
-| DELETE | `/api/inactivity/<discord_id>` | Remove inactivity entry *(Parliament / Valaendor only)* |
+| GET | `/auth/login` | Redirect to Discord OAuth2 |
+| GET | `/auth/callback` | OAuth2 callback, sets session |
+| GET | `/auth/session` | Returns current session state |
+| GET | `/auth/refresh` | Re-fetches roles/profile from Discord |
+| GET | `/auth/logout` | Clears session |
+| POST | `/auth/mock-login` | Dev-only mock login (skips OAuth) |
 
-Public routes (accessible without the dashboard being the referrer) live under `/api/player/rank-history/<username>`, `/api/player/playtime/<username>`, `/api/player/metrics/<username>`, and `/api/bot/status`.
+### Player
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/player/<username>` | Live player data from Wynncraft API 🔒 |
+| GET | `/api/player/<username>/rank-history` | Rank changes from tracked guild data 🔒 |
+| GET | `/api/player/<username>/playtime-history` | Playtime over time (last 60 days) 🔒 |
+| GET | `/api/player/<username>/metrics-history` | Stat deltas over time (wars, dungeons, etc.) 🔒 |
+| GET | `/api/player/rank-history/<username>` | Public rank history (no auth required) |
+| GET | `/api/player/playtime/<username>` | Public playtime history (no auth required) |
+| GET | `/api/player/metrics/<username>` | Public metrics snapshot (no auth required) |
+
+### Guild
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/guild/stats` | Summed stats across all members from latest snapshot 🔒 |
+| GET | `/api/guild/activity` | Bulk playtime + metric deltas for all members (rate-limited, public) |
+| GET | `/api/guild/member-history` | Member join/leave event history 🔒 |
+| GET | `/api/guild/levels` | Guild level data 🔒 |
+| GET | `/api/guild/territories` | Territory holdings and history (public) |
+| GET | `/api/guild/aspects` | Aspect debt data 🔒 |
+| POST | `/api/guild/aspects/clear` | Clear a member's aspect debt 👑 Parliament+ |
+| GET | `/api/guild/prefix/<prefix>` | Live guild data by tag from Wynncraft API 🔒 |
+| GET | `/api/guild/name/<name>` | Live guild data by full name from Wynncraft API 🔒 |
+| GET | `/api/guild/prefix/<prefix>/metrics-history` | Guild-wide metric deltas over time 🔒 |
+
+### Inactivity
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/inactivity` | List inactivity entries 👑 Parliament+ |
+| POST | `/api/inactivity` | Add inactivity entry 👑 Parliament+ |
+| PATCH | `/api/inactivity/<discord_id>` | Edit inactivity entry 👑 Parliament+ |
+| DELETE | `/api/inactivity/<discord_id>` | Remove inactivity entry 👑 Parliament+ |
+| GET | `/api/inactivity/players` | List all guild members from DB 👑 Juror+ |
+
+### Bot
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/bot/status` | Online/offline status and latency (public) |
+| GET | `/api/bot/info` | Bot Discord profile 🔒 |
+| GET | `/api/bot/health` | Memory, CPU, and command stats 🔒 |
+| GET | `/api/bot/discord` | Discord guild member/channel counts 🔒 |
+| GET | `/api/bot/databases` | Database folder sizes and date ranges 🔒 |
 
 ---
 
