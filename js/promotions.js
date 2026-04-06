@@ -171,7 +171,7 @@
       window.playtimePrefetchReady || Promise.resolve(),
     ])
       .then(function (rs) {
-        if (!rs[0].ok) { if (!hasExistingData) renderGate(); if (_promToast) _promToast.finish(_promMsgs); return null; }
+        if (!rs[0].ok) { if (!hasExistingData) renderGate(rs[0].status); if (_promToast) _promToast.finish(_promMsgs); return null; }
         return [rs[0].data || [], rs[1]];
       })
       .then(function (results) {
@@ -183,18 +183,24 @@
         if (_promToast) _promToast.finish(_promMsgs);
         _promFetched = true;
       })
-      .catch(function () { if (_promToast) _promToast.finish(_promMsgs); if (!hasExistingData) renderGate(); })
+      .catch(function () { if (_promToast) _promToast.finish(_promMsgs); if (!hasExistingData) renderGate(0); })
       .finally(function () { _promLoading = false; });
   }
 
   /* --- login gate --- */
-  function renderGate() {
+  function renderGate(status) {
+    var loggedIn = window.state && window.state.loggedIn;
+    var msg = !loggedIn
+      ? 'You must be logged in to access this page.'
+      : (status === 403
+          ? 'You do not have permission to view this page.'
+          : 'Failed to load data. Please try again.');
     panel.innerHTML =
       '<div class="panel-header">' +
         '<h1 class="panel-title">&#x2B06; Promotions</h1>' +
         '<p class="panel-subtitle">Track member promotion eligibility</p>' +
       '</div>' +
-      '<div class="inac-empty">You must be logged in to access this page.</div>';
+      '<div class="inac-empty">' + msg + '</div>';
   }
 
   /* --- shell --- */

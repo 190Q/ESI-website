@@ -110,7 +110,7 @@
       fetch('/api/inactivity?all=1', { credentials: 'same-origin' }),
     ])
     .then(function (rs) {
-      if (rs[0].status === 401) { if (!hasExistingData) renderGate(); if (_inacToast) { _inacToast.updateItem('api', 'error'); _inacToast.finish(_inacMsgs); } return null; }
+      if (!rs[0].ok) { if (!hasExistingData) renderGate(rs[0].status); if (_inacToast) { _inacToast.updateItem('api', 'error'); _inacToast.finish(_inacMsgs); } return null; }
       if (!rs[0].ok || !rs[1].ok) throw new Error('Server error');
       return Promise.all([rs[0].json(), rs[1].json()]).then(function (data) {
         DataCache.writeCache('/api/inactivity', data[0]);
@@ -143,7 +143,7 @@
         updateDatalist();
         renderList(cachedMain);
       } else if (!hasExistingData) {
-        renderGate();
+        renderGate(0);
       }
     })
     .finally(function () { _inacLoading = false; });
@@ -151,13 +151,19 @@
 
   /* --- login gate --- */
 
-  function renderGate() {
+  function renderGate(status) {
+    var loggedIn = window.state && window.state.loggedIn;
+    var msg = !loggedIn
+      ? 'You must be logged in to access this page.'
+      : (status === 403
+          ? 'You do not have permission to view this page.'
+          : 'Failed to load data. Please try again.');
     panel.innerHTML =
       '<div class="panel-header">' +
         '<h1 class="panel-title">&#x23F1; Inactivity</h1>' +
         '<p class="panel-subtitle">Manage member inactivity records</p>' +
       '</div>' +
-      '<div class="inac-empty">You must be logged in to access this page.</div>';
+      '<div class="inac-empty">' + msg + '</div>';
   }
 
   /* --- shell --- */
