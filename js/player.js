@@ -1859,9 +1859,15 @@
     const parts    = hash.split('/');
     const panel    = parts[0] || 'player';
     const username = parts[1] ? decodeURIComponent(parts[1]) : null;
-    // Set input BEFORE switchToPanel so MutationObserver picks up the correct username
-    if (panel === 'player') {
-      playerInput.value = username || '';
+    if (panel === 'player' && username) {
+      var currentPlayer = state.playerData ? state.playerData.username : '';
+      playerInput.value = username;
+      // look up if it's a different player than what's already loaded
+      if (username.toLowerCase() !== currentPlayer.toLowerCase()) {
+        lookupPlayer(username);
+      }
+    } else if (panel === 'player') {
+      playerInput.value = '';
     }
     if (window.switchToPanel) window.switchToPanel(panel);
   }
