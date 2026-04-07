@@ -79,7 +79,11 @@
 
   loginBtn.addEventListener('click', () => {
     if (state.loggedIn) openAccountModal();
-    else mockLogin();
+    else {
+      // save current page state so we can restore it after the OAuth redirect
+      sessionStorage.setItem('esi_auth_return', window.location.hash || '');
+      window.location.href = '/auth/login';
+    }
   });
 
   document.getElementById('logoutBtn').addEventListener('click', () => {
@@ -87,48 +91,26 @@
     logout();
   });
 
-  function mockLogin() {
-    loginBtn.disabled = true;
-    loginBtn.innerHTML = `
-      <span class="loading-spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,0.3);border-top-color:#fff;"></span>
-      Logging in...`;
-    loginBtn.style.background = '#4752c4';
-    loginBtn.style.boxShadow = 'none';
-
-    fetch('/auth/mock-login', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: '967867229410574340' }),
-    }).then(r => r.json()).then(function(data) {
-        if (data.user) {
-        // user came back directly
-        localStorage.setItem('esi_user', JSON.stringify(data.user));
-        applyLogin(data.user);
-        showToast('Welcome back, ' + (data.user.nick || data.user.username) + '!', 'success');
-      } else if (data.ok) {
-        // older server path if session was set but no user in response
-        return fetch('/auth/session', { credentials: 'same-origin' })
-          .then(r => r.json())
-          .then(function(session) {
-            if (session.loggedIn && session.user) {
-              localStorage.setItem('esi_user', JSON.stringify(session.user));
-              applyLogin(session.user);
-              showToast('Welcome back, ' + (session.user.nick || session.user.username) + '!', 'success');
-            } else {
-              updateLoginButton();
-            }
-          });
-      } else {
-        throw new Error('Login failed');
-      }
-    }).catch(function() {
-      showToast('\u26a0 Login failed. Please try again.', 'warn');
-      updateLoginButton();
-    }).finally(function() {
-      loginBtn.disabled = false;
-    });
-  }
+  /* handle ?auth= query param after OAuth redirect */
+  var _authJustCompleted = false;
+  (function handleAuthRedirect() {
+    var params = new URLSearchParams(window.location.search);
+    var authResult = params.get('auth');
+    if (!authResult) return;
+    // restore the hash the user was on before the redirect
+    var savedHash = sessionStorage.getItem('esi_auth_return') || '';
+    sessionStorage.removeItem('esi_auth_return');
+    // clean the URL so refreshing doesn't re-trigger the toast
+    params.delete('auth');
+    var clean = window.location.pathname + (params.toString() ? '?' + params.toString() : '') + (savedHash || window.location.hash);
+    history.replaceState(null, '', clean);
+    if (authResult === 'success') {
+      _authJustCompleted = true;
+    } else if (authResult === 'error') {
+      // window.showToast — the local var isn't assigned yet at this point in the IIFE
+      window.showToast('\u26a0 Login failed. Please try again.', 'warn');
+    }
+  })();
 
   function logout() {
     fetch('/auth/logout', { credentials: 'same-origin' }).catch(function () {});
@@ -306,6 +288,10 @@ fetch('/auth/session', { credentials: 'same-origin' })
         if (data.loggedIn) {
             localStorage.setItem('esi_user', JSON.stringify(data.user));
             applyLogin(data.user);
+            if (_authJustCompleted) {
+                _authJustCompleted = false;
+                showToast('Welcome back, ' + (data.user.nick || data.user.username) + '!', 'success');
+            }
             // also refresh in the background so it catches role changes
             fetch('/auth/refresh', { credentials: 'same-origin' })
                 .then(r => r.json())

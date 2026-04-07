@@ -258,6 +258,11 @@ DISCORD_GUILD_ID   = os.environ.get("DISCORD_GUILD_ID", "")
 DISCORD_REDIRECT_URI = os.environ.get(
     "DISCORD_REDIRECT_URI", "http://localhost:5000/auth/callback"
 )
+
+# session cookie security
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = DISCORD_REDIRECT_URI.startswith("https://")
 HEADERS = {"User-Agent": "ESI-Dashboard/1.0"}
 
 _cache: dict = {}
@@ -309,15 +314,16 @@ def index():
 # oauth2, send user off to discord
 @app.route("/auth/login")
 def auth_login():
+    from urllib.parse import urlencode as _urlencode
     state = secrets.token_urlsafe(16)
     session["oauth_state"] = state
-    params = (
-        f"client_id={DISCORD_CLIENT_ID}"
-        f"&redirect_uri={DISCORD_REDIRECT_URI}"
-        f"&response_type=code"
-        f"&scope=identify+guilds.members.read"
-        f"&state={state}"
-    )
+    params = _urlencode({
+        "client_id":     DISCORD_CLIENT_ID,
+        "redirect_uri":  DISCORD_REDIRECT_URI,
+        "response_type": "code",
+        "scope":         "identify guilds.members.read",
+        "state":         state,
+    })
     return redirect(f"https://discord.com/oauth2/authorize?{params}")
 
 
@@ -335,31 +341,42 @@ def auth_callback():
     if state != session.pop("oauth_state", None):
         return redirect("/?auth=error")
 
-    # swap the code for an access token
-    token_resp = requests.post(
-        f"{DISCORD_API}/oauth2/token",
-        data={
-            "client_id":     DISCORD_CLIENT_ID,
-            "client_secret": DISCORD_CLIENT_SECRET,
-            "grant_type":    "authorization_code",
-            "code":          code,
-            "redirect_uri":  DISCORD_REDIRECT_URI,
-        },
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        timeout=10,
-    )
-    token_resp.raise_for_status()
-    tokens = token_resp.json()
-    access_token = tokens["access_token"]
+    try:
+        # swap the code for an access token (server-to-server, secret never touches the browser)
+        token_resp = requests.post(
+            f"{DISCORD_API}/oauth2/token",
+            data={
+                "client_id":     DISCORD_CLIENT_ID,
+                "client_secret": DISCORD_CLIENT_SECRET,
+                "grant_type":    "authorization_code",
+                "code":          code,
+                "redirect_uri":  DISCORD_REDIRECT_URI,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=10,
+        )
+        if not token_resp.ok:
+            import sys
+            print(f"[AUTH] Token exchange failed: {token_resp.status_code} {token_resp.text[:200]}", file=sys.stderr)
+        token_resp.raise_for_status()
+        tokens = token_resp.json()
+        access_token = tokens["access_token"]
 
-    # grab their discord profile
-    user_resp = requests.get(
-        f"{DISCORD_API}/users/@me",
-        headers={"Authorization": f"Bearer {access_token}"},
-        timeout=10,
-    )
-    user_resp.raise_for_status()
-    user = user_resp.json()
+        # grab their discord profile
+        user_resp = requests.get(
+            f"{DISCORD_API}/users/@me",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10,
+        )
+        if not user_resp.ok:
+            import sys
+            print(f"[AUTH] User fetch failed: {user_resp.status_code} {user_resp.text[:200]}", file=sys.stderr)
+        user_resp.raise_for_status()
+        user = user_resp.json()
+    except Exception as exc:
+        import sys
+        print(f"[AUTH] OAuth callback error: {exc}", file=sys.stderr)
+        return redirect("/?auth=error")
 
     # use the bot token to get their guild member info (has their roles)
     member_resp = requests.get(
