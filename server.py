@@ -1,3 +1,7 @@
+import mimetypes
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
+
 import re as _re
 import secrets
 import requests
