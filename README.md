@@ -40,13 +40,28 @@ Authentication is done through Discord OAuth2. The management sections are gated
 ### Requirements
 
 - Python 3.10+
-- Flask and the `requests` library
+- Node.js 18+ and npm
+
+### Installation
+
+1. **Install Python dependencies**
 
 ```bash
 pip install flask requests
 ```
 
-### Environment variables
+2. **Install and build the frontend**
+
+```bash
+cd frontend
+npm install
+npm run build
+cd ..
+```
+
+This compiles the React app and outputs the bundled assets (`index.html`, `assets/`) into the project root, where `server.py` serves them.
+
+3. **Configure environment variables**
 
 Create a `.env` file at the project root. You need a Discord application set up at [discord.com/developers](https://discord.com/developers/applications):
 
@@ -62,7 +77,7 @@ DISCORD_REDIRECT_URI=http://localhost:5000/auth/callback
 
 There is also a `.flask_secret` file used to sign sessions, which is auto-generated on first run if it doesn't exist. Don't commit that either.
 
-### Running locally
+4. **Run the server**
 
 ```bash
 python server.py
