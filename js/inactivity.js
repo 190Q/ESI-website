@@ -5,9 +5,13 @@
   var _allUsers    = {};
   var _exemptions  = [];
   var _editingId   = null;
-  var _settingsCheckerType  = (window.esiSettings && window.esiSettings.get('checkerType'))  || 'first';
-  var _settingsCheckerHours = (window.esiSettings && window.esiSettings.get('checkerHours'));
-  var _settingsCheckerTab   = (window.esiSettings && window.esiSettings.get('checkerTab'))   || 'inactive';
+  function _readSetting(key) {
+    try { var s = JSON.parse(localStorage.getItem('esi_settings')); return s && key in s ? s[key] : undefined; }
+    catch (e) { return undefined; }
+  }
+  var _settingsCheckerType  = _readSetting('checkerType')  || 'first';
+  var _settingsCheckerHours = _readSetting('checkerHours');
+  var _settingsCheckerTab   = _readSetting('checkerTab')   || 'inactive';
   var _checkerType  = _settingsCheckerType;
   var _checkerWeek  = null;
   var _checkerHours = _settingsCheckerHours != null ? _settingsCheckerHours : 2;
@@ -336,6 +340,13 @@
   /* --- checker --- */
 
   function initChecker() {
+    /* apply saved checker type to the toggle buttons */
+    var btnFirst  = document.getElementById('inacBtnFirst');
+    var btnSecond = document.getElementById('inacBtnSecond');
+    if (_checkerType === 'second') {
+      btnFirst.classList.remove('active');
+      btnSecond.classList.add('active');
+    }
     renderCheckerWeeks();
     Promise.all([
       DataCache.cachedFetch('/api/inactivity/players', { credentials: 'same-origin' })

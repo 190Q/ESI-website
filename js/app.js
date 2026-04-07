@@ -629,13 +629,13 @@ fetch('/auth/session', { credentials: 'same-origin' })
     el.addEventListener('input', _updateSaveBtn);
   });
 
-  /* save button — persist all current form values */
+  /* save button — persist all current form values, then apply live */
   settingsSaveBtn.addEventListener('click', function () {
     var values = _readFormValues();
     _writeAllSettings(values);
     _settingsSnapshot = values;
     _updateSaveBtn();
-    showToast('\u2713 Settings saved.', 'success');
+    showToast('\u2713 Settings saved. Reload the page to fully apply all changes.', 'success');
   });
 
   /* reset button */

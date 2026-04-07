@@ -1,8 +1,12 @@
 ﻿(function () {
   'use strict';
 
-  var _settingsToastDur = (window.esiSettings && window.esiSettings.get('toastDuration'));
-  var _settingsToastMax = (window.esiSettings && window.esiSettings.get('toastMax'));
+  function _readSetting(key) {
+    try { var s = JSON.parse(localStorage.getItem('esi_settings')); return s && key in s ? s[key] : undefined; }
+    catch (e) { return undefined; }
+  }
+  var _settingsToastDur = _readSetting('toastDuration');
+  var _settingsToastMax = _readSetting('toastMax');
   var TOAST_DURATION  = (_settingsToastDur != null ? Math.max(1, Math.min(30, _settingsToastDur)) : 7) * 1000;
   var _toastContainer = null;
   var _toastQueue     = [];

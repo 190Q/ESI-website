@@ -137,7 +137,7 @@ export default function SettingsModal() {
               <div className="settings-row-control settings-multi-control">
                 <select className="settings-select settings-select-sm" id="settingCheckerType" aria-label="Checker type">
                   <option value="first">First Check</option>
-                  <option value="last">Last Check</option>
+                  <option value="second">Second Check</option>
                 </select>
                 <div className="settings-inline-group">
                   <input
@@ -153,7 +153,8 @@ export default function SettingsModal() {
                 </div>
                 <select className="settings-select settings-select-sm" id="settingCheckerTab" aria-label="Default tab">
                   <option value="inactive">Inactive</option>
-                  <option value="onleave">On-leave</option>
+                  <option value="acive">Active</option>
+                  <option value="exempt">Exempt</option>
                 </select>
               </div>
             </div>

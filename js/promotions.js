@@ -9,7 +9,11 @@
 
   var _members   = [];
   var _filter    = '';
-  var _settingsPromTab = (window.esiSettings && window.esiSettings.get('promotionsTab')) || 'recruiter';
+  function _readSetting(key) {
+    try { var s = JSON.parse(localStorage.getItem('esi_settings')); return s && key in s ? s[key] : undefined; }
+    catch (e) { return undefined; }
+  }
+  var _settingsPromTab = _readSetting('promotionsTab') || 'recruiter';
   var _activeTab = (_settingsPromTab === 'captain') ? 'captain' : 'recruiter';
   var _promActiveToast = null;
   var _promLoading = false;
