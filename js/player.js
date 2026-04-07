@@ -713,7 +713,7 @@
           <div class="owed-label">Owed Aspects</div>
         </div>
         <div class="owed-card">
-          <div class="owed-icon"><img src="images/guild_emblem.avif" alt="point" style="width:32px;height:32px;image-rendering:pixelated"></div>
+          <div class="owed-icon"><img src="images/point_icon.png" alt="point" style="width:32px;height:32px;image-rendering:pixelated"></div>
           <div class="owed-value">${fmt(ESIPoints)}</div>
           <div class="owed-label">ESI Points</div>
         </div>`;
