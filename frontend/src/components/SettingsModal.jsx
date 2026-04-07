@@ -12,10 +12,29 @@ export default function SettingsModal() {
           <div className="settings-section">
             <div className="settings-section-label">General</div>
 
-            {/* Default graph metric */}
+            {/* Default player lookup */}
             <div className="settings-row">
               <div className="settings-row-info">
-                <div className="settings-row-title">Default graph metric</div>
+                <div className="settings-row-title">Default player lookup</div>
+                <div className="settings-row-desc">
+                  Pre-fill the username search box when the dashboard loads
+                </div>
+              </div>
+              <div className="settings-row-control">
+                <input
+                  type="text"
+                  className="settings-input"
+                  id="settingDefaultPlayer"
+                  placeholder="Username..."
+                  aria-label="Default player"
+                />
+              </div>
+            </div>
+
+            {/* Default player graph metric */}
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <div className="settings-row-title">Default player metric</div>
                 <div className="settings-row-desc">
                   Pre-select a metric when the Activity Comparison graph opens
                 </div>
@@ -38,10 +57,28 @@ export default function SettingsModal() {
               </div>
             </div>
 
-            {/* Default graph range */}
+            {/* Default guild graph metric */}
             <div className="settings-row">
               <div className="settings-row-info">
-                <div className="settings-row-title">Default graph range</div>
+                <div className="settings-row-title">Default guild metric</div>
+                <div className="settings-row-desc">
+                  Pre-select a metric for the Guild Stats graph
+                </div>
+              </div>
+              <div className="settings-row-control">
+                <select className="settings-select" id="settingGuildMetric" aria-label="Guild default metric">
+                  <option value="playerCount">Active Players</option>
+                  <option value="wars">Wars</option>
+                  <option value="guildRaids">Guild Raids</option>
+                  <option value="newMembers">New Members</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Default player graph range */}
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <div className="settings-row-title">Default player range</div>
                 <div className="settings-row-desc">
                   Set the default day range for the graph slider (2–60)
                 </div>
@@ -60,22 +97,25 @@ export default function SettingsModal() {
               </div>
             </div>
 
-            {/* Default player lookup */}
+            {/* Default guild graph range */}
             <div className="settings-row">
               <div className="settings-row-info">
-                <div className="settings-row-title">Default player lookup</div>
+                <div className="settings-row-title">Default guild range</div>
                 <div className="settings-row-desc">
-                  Pre-fill the username search box when the dashboard loads
+                  Set the default day range for the guild graph slider (2–60)
                 </div>
               </div>
-              <div className="settings-row-control">
+              <div className="settings-row-control settings-range-control">
                 <input
-                  type="text"
-                  className="settings-input"
-                  id="settingDefaultPlayer"
-                  placeholder="Username..."
-                  aria-label="Default player"
+                  type="range"
+                  className="settings-range"
+                  id="settingGuildRange"
+                  min="2"
+                  max="60"
+                  defaultValue="30"
+                  aria-label="Guild default range"
                 />
+                <span className="settings-range-val" id="settingGuildRangeVal">30</span>
               </div>
             </div>
           </div>

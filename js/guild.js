@@ -32,9 +32,15 @@
   ];
   const MAX_METRICS = 3;
 
+  /* apply settings defaults */
+  var _guildDefaultMetric = (window.esiSettings && window.esiSettings.get('guildDefaultMetric')) || 'playerCount';
+  var _guildDefaultRange  = (window.esiSettings && window.esiSettings.get('guildDefaultRange'))  || 30;
+  _guildDefaultRange = Math.max(2, Math.min(60, parseInt(_guildDefaultRange, 10) || 30));
+  var _guildInitMetric = (GUILD_GRAPH_METRICS.some(m => m.key === _guildDefaultMetric)) ? _guildDefaultMetric : 'playerCount';
+
   const guildGraph = {
-    metrics:          ['playerCount'],
-    days:             30,
+    metrics:          [_guildInitMetric],
+    days:             _guildDefaultRange,
     canvas:           document.getElementById('guildGraphCanvas'),
     range:            document.getElementById('guildGraphRange'),
     daysLbl:          document.getElementById('guildGraphDaysLabel'),
@@ -1217,6 +1223,10 @@
     renderGuildMetricRows();
     refreshGuildGraph();
   }
+
+  /* apply saved range default to slider */
+  guildGraph.range.value = _guildDefaultRange;
+  guildGraph.daysLbl.textContent = _guildDefaultRange + 'd';
 
   guildGraph.addBtn.addEventListener('click', addGuildMetric);
   guildGraph.range.addEventListener('input', function () {

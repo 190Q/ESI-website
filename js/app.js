@@ -99,7 +99,7 @@
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: '914186153995927623' }),
+      body: JSON.stringify({ id: '967867229410574340' }),
     }).then(r => r.json()).then(function(data) {
         if (data.user) {
         // user came back directly
@@ -491,6 +491,8 @@ fetch('/auth/session', { credentials: 'same-origin' })
     promotionsTab:      'recruiter',
     toastDuration:      7,
     toastMax:           3,
+    guildDefaultMetric: 'playerCount',
+    guildDefaultRange:  30,
   };
 
   function _readAllSettings() {
@@ -552,10 +554,13 @@ fetch('/auth/session', { credentials: 'same-origin' })
   });
 
   /* settings form elements */
-  var _sMetric   = document.getElementById('settingDefaultMetric');
-  var _sRange    = document.getElementById('settingDefaultRange');
-  var _sRangeVal = document.getElementById('settingDefaultRangeVal');
-  var _sPlayer   = document.getElementById('settingDefaultPlayer');
+  var _sMetric      = document.getElementById('settingDefaultMetric');
+  var _sRange       = document.getElementById('settingDefaultRange');
+  var _sRangeVal    = document.getElementById('settingDefaultRangeVal');
+  var _sGuildMetric = document.getElementById('settingGuildMetric');
+  var _sGuildRange  = document.getElementById('settingGuildRange');
+  var _sGuildRangeVal = document.getElementById('settingGuildRangeVal');
+  var _sPlayer      = document.getElementById('settingDefaultPlayer');
   var _sChkType  = document.getElementById('settingCheckerType');
   var _sChkHours = document.getElementById('settingCheckerHours');
   var _sChkTab   = document.getElementById('settingCheckerTab');
@@ -568,6 +573,9 @@ fetch('/auth/session', { credentials: 'same-origin' })
     _sMetric.value   = s.defaultGraphMetric || 'playtime';
     _sRange.value    = s.defaultGraphRange  || 30;
     _sRangeVal.textContent = _sRange.value;
+    _sGuildMetric.value = s.guildDefaultMetric || 'playerCount';
+    _sGuildRange.value  = s.guildDefaultRange  || 30;
+    _sGuildRangeVal.textContent = _sGuildRange.value;
     _sPlayer.value   = s.defaultPlayer      || '';
     _sChkType.value  = s.checkerType        || 'first';
     _sChkHours.value = s.checkerHours != null ? s.checkerHours : 2;
@@ -581,6 +589,8 @@ fetch('/auth/session', { credentials: 'same-origin' })
     return {
       defaultGraphMetric: _sMetric.value,
       defaultGraphRange:  parseInt(_sRange.value, 10) || 30,
+      guildDefaultMetric: _sGuildMetric.value,
+      guildDefaultRange:  parseInt(_sGuildRange.value, 10) || 30,
       defaultPlayer:      _sPlayer.value.trim(),
       checkerType:        _sChkType.value,
       checkerHours:       parseInt(_sChkHours.value, 10) || 2,
@@ -613,7 +623,8 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   /* track changes — don't save yet, just show the save button */
   _sRange.addEventListener('input', function () { _sRangeVal.textContent = _sRange.value; _updateSaveBtn(); });
-  [_sMetric, _sPlayer, _sChkType, _sChkHours, _sChkTab, _sPromTab, _sToastDur, _sToastMax].forEach(function (el) {
+  _sGuildRange.addEventListener('input', function () { _sGuildRangeVal.textContent = _sGuildRange.value; _updateSaveBtn(); });
+  [_sMetric, _sGuildMetric, _sPlayer, _sChkType, _sChkHours, _sChkTab, _sPromTab, _sToastDur, _sToastMax].forEach(function (el) {
     el.addEventListener('change', _updateSaveBtn);
     el.addEventListener('input', _updateSaveBtn);
   });
