@@ -245,8 +245,8 @@
       '<div class="info-card">' +
         '<div class="info-card-header prom-table-header">' +
           '<div class="prom-tabs">' +
-            '<button class="prom-tab active" data-tab="recruiter">&#x2192; Recruiter</button>' +
-            '<button class="prom-tab" data-tab="captain">&#x2192; Captain</button>' +
+            '<button class="prom-tab' + (_activeTab === 'recruiter' ? ' active' : '') + '" data-tab="recruiter">&#x2192; Recruiter</button>' +
+            '<button class="prom-tab' + (_activeTab === 'captain' ? ' active' : '') + '" data-tab="captain">&#x2192; Captain</button>' +
           '</div>' +
           '<div style="display:flex;gap:8px;align-items:center">' +
             '<label for="promSearch" class="sr-only">Search members</label>' +
