@@ -18,7 +18,7 @@ export default function PlayerPanel() {
             id="playerInput"
             className="player-search-input"
             placeholder="Enter Wynncraft username..."
-            defaultValue="190Q"
+            defaultValue=""
             aria-label="Wynncraft username"
           />
           <button className="btn-search" id="searchPlayerBtn">{'\uD83D\uDD0D\uFE0E'} Look Up</button>

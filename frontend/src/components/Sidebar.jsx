@@ -1,4 +1,4 @@
-import { UserIcon, GroupIcon, BotIcon, ClockIcon, TrendIcon, SidebarToggleIcon } from './Icons'
+import { UserIcon, GroupIcon, BotIcon, ClockIcon, TrendIcon, SidebarToggleIcon, SettingsIcon } from './Icons'
 
 export default function Sidebar() {
   return (
@@ -54,7 +54,13 @@ export default function Sidebar() {
         </div>
       </nav>
 
-      <div className="sidebar-ornament bottom" />
+      <div className="sidebar-bottom">
+        <div className="sidebar-ornament bottom" />
+        <button className="nav-item sidebar-settings-btn" id="settingsBtn" title="Settings">
+          <span className="nav-icon"><SettingsIcon /></span>
+          <span className="nav-label">Settings</span>
+        </button>
+      </div>
     </aside>
   )
 }

@@ -1,10 +1,12 @@
 ﻿(function () {
   'use strict';
 
-  var TOAST_DURATION  = 7000;
+  var _settingsToastDur = (window.esiSettings && window.esiSettings.get('toastDuration'));
+  var _settingsToastMax = (window.esiSettings && window.esiSettings.get('toastMax'));
+  var TOAST_DURATION  = (_settingsToastDur != null ? Math.max(1, Math.min(30, _settingsToastDur)) : 7) * 1000;
   var _toastContainer = null;
   var _toastQueue     = [];
-  var MAX_TOASTS      = 3;
+  var MAX_TOASTS      = _settingsToastMax != null ? Math.max(1, Math.min(6, _settingsToastMax)) : 3;
   var _queueBadge     = null;
   var _toastStates    = [];
   var _rafHandle      = null;

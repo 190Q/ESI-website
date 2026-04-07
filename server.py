@@ -1849,6 +1849,20 @@ def bot_databases():
     })
 
 
+@app.route("/api/settings/default-player")
+def settings_default_player():
+    """Return the MC username for the logged-in user from username_matches.json."""
+    user, err = _require_login()
+    if err:
+        return err
+    discord_id = user.get("id", "")
+    if not discord_id:
+        return jsonify({"username": None})
+    matches = _load_json_file(_USERNAME_MATCHES_JSON)
+    mc_name = _mc_username(discord_id, matches)
+    return jsonify({"username": mc_name})
+
+
 @app.errorhandler(404)
 def not_found(e):
     msg = getattr(e, "description", None) or "Not found."

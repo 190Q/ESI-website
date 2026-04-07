@@ -9,7 +9,8 @@
 
   var _members   = [];
   var _filter    = '';
-  var _activeTab = 'recruiter'; // 'recruiter' | 'captain'
+  var _settingsPromTab = (window.esiSettings && window.esiSettings.get('promotionsTab')) || 'recruiter';
+  var _activeTab = (_settingsPromTab === 'captain') ? 'captain' : 'recruiter';
   var _promActiveToast = null;
   var _promLoading = false;
   var _promFetched = false;

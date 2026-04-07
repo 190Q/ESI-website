@@ -30,6 +30,11 @@
   const searchBtn   = document.getElementById('searchPlayerBtn');
   const playerInput = document.getElementById('playerInput');
 
+  /* apply default player from settings */
+  var _defaultPlayer = (window.esiSettings && window.esiSettings.get('defaultPlayer')) || '';
+  if (_defaultPlayer) playerInput.value = _defaultPlayer;
+  else if (!playerInput.value) playerInput.value = '190Q';
+
   /* events */
   searchBtn.addEventListener('click', () => {
     const username = playerInput.value.trim();
@@ -1215,9 +1220,15 @@
   ];
   const MAX_METRICS = 3;
 
+  /* apply settings defaults */
+  var _defaultMetric = (window.esiSettings && window.esiSettings.get('defaultGraphMetric')) || '';
+  var _defaultRange  = (window.esiSettings && window.esiSettings.get('defaultGraphRange'))  || 30;
+  _defaultRange = Math.max(2, Math.min(60, parseInt(_defaultRange, 10) || 30));
+  var _initMetric = (_defaultMetric && GRAPH_METRICS.some(m => m.key === _defaultMetric)) ? _defaultMetric : 'playtime';
+
   const compareGraph = {
-    metrics:       ['playtime'],
-    days:          30,
+    metrics:       [_initMetric],
+    days:          _defaultRange,
     canvas:        document.getElementById('graphCanvas'),
     range:         document.getElementById('graphDaysRange'),
     daysLbl:       document.getElementById('graphDaysLabel'),
@@ -1253,6 +1264,10 @@
 
   initCompareGraphHover();
   setPlayerCompareEnabled(false, 'Loading activity data…');
+
+  /* apply saved range default to the slider */
+  compareGraph.range.value = _defaultRange;
+  compareGraph.daysLbl.textContent = _defaultRange + 'd';
 
   function getAvailableMetrics() {
     const compareLocksToPlaytime = isComparing() && graphState.compareInGuild === false;
@@ -1593,7 +1608,7 @@
     compareGraph.addBtn.style.display = 'none';
     compareGraph.rowsWrap.innerHTML   = '';
 
-    compareGraph.metrics = ['playtime'];
+    compareGraph.metrics = [_initMetric];
     compareGraph.selectedDayOffset = null;
     clearComparePlayer();
     setPlayerCompareEnabled(false, 'Loading activity data…');
@@ -1603,7 +1618,7 @@
       graphState.data = await fetchGraphData(username || '', state.playerInGuild);
       applyPendingGraphFocus(
         graphFocus,
-        graphState.data && graphState.data.playtime ? graphState.data.playtime.length : 60,
+        graphState.data && graphState.playtime ? graphState.data.playtime.length : 60,
         username || ''
       );
       if (requestedMetrics && requestedMetrics.length) {
@@ -1631,7 +1646,7 @@
     if (!isRefetch) {
       graphState.graphReady = false;
       graphState.data = null;
-      compareGraph.metrics = ['playtime'];
+      compareGraph.metrics = [_initMetric];
       compareGraph.selectedDayOffset = null;
       compareGraph.addBtn.style.display = 'none';
       compareGraph.rowsWrap.innerHTML = '';

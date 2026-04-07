@@ -5,10 +5,13 @@
   var _allUsers    = {};
   var _exemptions  = [];
   var _editingId   = null;
-  var _checkerType  = 'first';
+  var _settingsCheckerType  = (window.esiSettings && window.esiSettings.get('checkerType'))  || 'first';
+  var _settingsCheckerHours = (window.esiSettings && window.esiSettings.get('checkerHours'));
+  var _settingsCheckerTab   = (window.esiSettings && window.esiSettings.get('checkerTab'))   || 'inactive';
+  var _checkerType  = _settingsCheckerType;
   var _checkerWeek  = null;
-  var _checkerHours = 2;
-  var _checkerTab   = 'inactive';
+  var _checkerHours = _settingsCheckerHours != null ? _settingsCheckerHours : 2;
+  var _checkerTab   = _settingsCheckerTab;
   var _players      = []; // all guild members from player_stats
   var _metricsFetchPromises = {};
   var _inacActiveToast = null;

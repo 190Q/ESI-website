@@ -254,6 +254,7 @@ function renderAccountModalRoles(userRoles, userId) {
 }
 
 // apply a verified user object and lock down permissions accordingly
+var _defaultPlayerFetched = false;
 function applyLogin(user) {
     state.loggedIn = true;
     state.user     = user;
@@ -261,6 +262,26 @@ function applyLogin(user) {
     updateLoginButton();
     applyPermissions();
     renderProfile(user);
+
+    // auto-populate default player from server if user hasn't set one manually
+    if (!_defaultPlayerFetched && window.esiSettings) {
+      _defaultPlayerFetched = true;
+      var manualPlayer = window.esiSettings.get('defaultPlayer');
+      if (!manualPlayer) {
+        fetch('/api/settings/default-player', { credentials: 'same-origin' })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (data && data.username) {
+              window.esiSettings.set('defaultPlayer', data.username);
+              var input = document.getElementById('playerInput');
+              if (input && (!input.value || input.value === '190Q')) {
+                input.value = data.username;
+              }
+            }
+          })
+          .catch(function () {});
+      }
+    }
 }
 
 // restore name/avatar from localStorage instantly, but don't grant any roles yet
@@ -457,5 +478,162 @@ fetch('/auth/session', { credentials: 'same-origin' })
   /* expose globals */
   window.switchToPanel     = switchToPanel;
   applyPermissions();
+
+  /* settings infrastructure */
+  var SETTINGS_KEY = 'esi_settings';
+  var SETTINGS_DEFAULTS = {
+    defaultGraphMetric: 'playtime',
+    defaultGraphRange:  30,
+    defaultPlayer:      '',
+    checkerType:        'first',
+    checkerHours:       2,
+    checkerTab:         'inactive',
+    promotionsTab:      'recruiter',
+    toastDuration:      7,
+    toastMax:           3,
+  };
+
+  function _readAllSettings() {
+    try { return Object.assign({}, SETTINGS_DEFAULTS, JSON.parse(localStorage.getItem(SETTINGS_KEY))); }
+    catch (e) { return Object.assign({}, SETTINGS_DEFAULTS); }
+  }
+  function _writeAllSettings(obj) {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(obj));
+  }
+
+  var esiSettings = {
+    get: function (key) {
+      var all = _readAllSettings();
+      return key in all ? all[key] : SETTINGS_DEFAULTS[key];
+    },
+    set: function (key, val) {
+      var all = _readAllSettings();
+      all[key] = val;
+      _writeAllSettings(all);
+    },
+    read:     _readAllSettings,
+    write:    _writeAllSettings,
+    defaults: SETTINGS_DEFAULTS,
+    reset: function () {
+      _writeAllSettings(Object.assign({}, SETTINGS_DEFAULTS));
+    },
+  };
+  window.esiSettings = esiSettings;
+
+  /* settings modal open/close */
+  var settingsBackdrop = document.getElementById('settingsModalBackdrop');
+  var settingsCloseBtn = document.getElementById('settingsModalClose');
+  var settingsBtn      = document.getElementById('settingsBtn');
+  var settingsResetBtn = document.getElementById('settingsResetBtn');
+  var settingsSaveBtn  = document.getElementById('settingsSaveBtn');
+
+  var _settingsSnapshot = null; // saved state when modal opened
+
+  function openSettings() {
+    _populateSettingsForm();
+    _settingsSnapshot = _readFormValues();
+    _updateLoginRows();
+    _updateSaveBtn();
+    settingsBackdrop.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeSettings() {
+    settingsBackdrop.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  settingsBtn.addEventListener('click', openSettings);
+  settingsCloseBtn.addEventListener('click', closeSettings);
+  settingsBackdrop.addEventListener('click', function (e) {
+    if (e.target === settingsBackdrop) closeSettings();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && settingsBackdrop.classList.contains('open')) closeSettings();
+  });
+
+  /* settings form elements */
+  var _sMetric   = document.getElementById('settingDefaultMetric');
+  var _sRange    = document.getElementById('settingDefaultRange');
+  var _sRangeVal = document.getElementById('settingDefaultRangeVal');
+  var _sPlayer   = document.getElementById('settingDefaultPlayer');
+  var _sChkType  = document.getElementById('settingCheckerType');
+  var _sChkHours = document.getElementById('settingCheckerHours');
+  var _sChkTab   = document.getElementById('settingCheckerTab');
+  var _sPromTab  = document.getElementById('settingPromotionsTab');
+  var _sToastDur = document.getElementById('settingToastDuration');
+  var _sToastMax = document.getElementById('settingToastMax');
+
+  function _populateSettingsForm() {
+    var s = _readAllSettings();
+    _sMetric.value   = s.defaultGraphMetric || 'playtime';
+    _sRange.value    = s.defaultGraphRange  || 30;
+    _sRangeVal.textContent = _sRange.value;
+    _sPlayer.value   = s.defaultPlayer      || '';
+    _sChkType.value  = s.checkerType        || 'first';
+    _sChkHours.value = s.checkerHours != null ? s.checkerHours : 2;
+    _sChkTab.value   = s.checkerTab         || 'inactive';
+    _sPromTab.value  = s.promotionsTab      || 'recruiter';
+    _sToastDur.value = s.toastDuration != null ? s.toastDuration : 7;
+    _sToastMax.value = s.toastMax != null    ? s.toastMax : 3;
+  }
+
+  function _readFormValues() {
+    return {
+      defaultGraphMetric: _sMetric.value,
+      defaultGraphRange:  parseInt(_sRange.value, 10) || 30,
+      defaultPlayer:      _sPlayer.value.trim(),
+      checkerType:        _sChkType.value,
+      checkerHours:       parseInt(_sChkHours.value, 10) || 2,
+      checkerTab:         _sChkTab.value,
+      promotionsTab:      _sPromTab.value,
+      toastDuration:      Math.max(1, Math.min(30, parseInt(_sToastDur.value, 10) || 7)),
+      toastMax:           Math.max(1, Math.min(6, parseInt(_sToastMax.value, 10) || 3)),
+    };
+  }
+
+  function _isDirty() {
+    if (!_settingsSnapshot) return false;
+    var current = _readFormValues();
+    for (var key in current) {
+      if (current[key] !== _settingsSnapshot[key]) return true;
+    }
+    return false;
+  }
+
+  function _updateSaveBtn() {
+    settingsSaveBtn.style.display = _isDirty() ? '' : 'none';
+  }
+
+  function _updateLoginRows() {
+    var locked = !state.loggedIn;
+    document.querySelectorAll('.settings-row-login').forEach(function (row) {
+      row.classList.toggle('disabled', locked);
+    });
+  }
+
+  /* track changes — don't save yet, just show the save button */
+  _sRange.addEventListener('input', function () { _sRangeVal.textContent = _sRange.value; _updateSaveBtn(); });
+  [_sMetric, _sPlayer, _sChkType, _sChkHours, _sChkTab, _sPromTab, _sToastDur, _sToastMax].forEach(function (el) {
+    el.addEventListener('change', _updateSaveBtn);
+    el.addEventListener('input', _updateSaveBtn);
+  });
+
+  /* save button — persist all current form values */
+  settingsSaveBtn.addEventListener('click', function () {
+    var values = _readFormValues();
+    _writeAllSettings(values);
+    _settingsSnapshot = values;
+    _updateSaveBtn();
+    showToast('\u2713 Settings saved.', 'success');
+  });
+
+  /* reset button */
+  settingsResetBtn.addEventListener('click', function () {
+    esiSettings.reset();
+    _populateSettingsForm();
+    _settingsSnapshot = _readFormValues();
+    _updateSaveBtn();
+    showToast('Settings reset to defaults.', 'info');
+  });
 
 })();

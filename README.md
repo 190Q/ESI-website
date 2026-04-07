@@ -13,6 +13,7 @@ The dashboard is split into a few main sections, accessible from a collapsible s
 - **Bot Panel**: shows the status and health of the four background trackers (API, Playtime, Guild, Claim), along with their last-run times and database info.
 - **Inactivity** *(Parliament and above)*: track which members have declared inactivity, with start/end dates and reasons. Add, edit, or remove entries.
 - **Promotions** *(Juror and above)*: promotion tracking tools.
+- **Settings**: persistent preferences for graph defaults, player lookup, and toast notifications... Stored in `localStorage` and accessible from the sidebar.
 
 Authentication is done through Discord OAuth2. The management sections are gated by guild role, regular members only see the public stats panels.
 
@@ -112,6 +113,7 @@ ESI-website/
 │           ├── LoadingState.jsx
 │           ├── Navbar.jsx
 │           ├── PlayerPanel.jsx
+│           ├── SettingsModal.jsx
 │           ├── Sidebar.jsx
 │           └── SupportModal.jsx
 ├── js/                      # shared vanilla JS modules
@@ -198,6 +200,12 @@ Routes marked 🔒 require a valid Discord login session. Routes marked 👑 add
 | GET | `/api/bot/health` | Memory, CPU, and command stats 🔒 |
 | GET | `/api/bot/discord` | Discord guild member/channel counts 🔒 |
 | GET | `/api/bot/databases` | Database folder sizes and date ranges 🔒 |
+
+### Settings
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/settings/default-player` | Returns the logged-in user's Minecraft username from `username_matches.json` 🔒 |
 
 ---
 

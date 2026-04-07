@@ -5,6 +5,7 @@ import GuildPanel from './components/GuildPanel'
 import BotPanel from './components/BotPanel'
 import AccountModal from './components/AccountModal'
 import SupportModal from './components/SupportModal'
+import SettingsModal from './components/SettingsModal'
 import useScriptLoader from './useScriptLoader'
 
 export default function App() {
@@ -33,6 +34,7 @@ export default function App() {
       {/* Modals */}
       <AccountModal />
       <SupportModal />
+      <SettingsModal />
     </>
   )
 }
