@@ -232,8 +232,16 @@ button { cursor: pointer; border: none; font-family: inherit; }
 
 .sidebar-nav { flex: 1; padding: 0 12px 20px; transition: padding var(--transition); }
 
-.sidebar-pre-collapsed #sidebar { width: var(--sidebar-collapsed-w); }
-.sidebar-pre-collapsed .content-area { margin-left: var(--sidebar-collapsed-w); }
+.sidebar-pre-collapsed #sidebar { width: var(--sidebar-w-compact); }
+.sidebar-pre-collapsed .content-area { margin-left: var(--sidebar-w-compact); }
+.sidebar-pre-collapsed #sidebar .nav-label,
+.sidebar-pre-collapsed #sidebar .nav-badge { display: none; }
+.sidebar-pre-collapsed #sidebar .nav-section-label { max-height: 0; opacity: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0; }
+.sidebar-pre-collapsed #sidebar .sidebar-nav { padding: 0 6px 20px; }
+.sidebar-pre-collapsed #sidebar .nav-item { justify-content: center; padding: 10px; gap: 0; }
+.sidebar-pre-collapsed #sidebar .nav-item.active::before { left: -6px; }
+.sidebar-pre-collapsed #sidebar .sidebar-toggle { margin: 0 6px 16px; }
+.sidebar-pre-collapsed #sidebar .sidebar-toggle svg { transform: rotate(180deg); }
 
 .no-transitions * { transition: none !important; }
 
