@@ -633,6 +633,9 @@
     /* track guild membership for metric filtering */
     state.playerInGuild = isEsiGuildMember(p);
 
+    /* re-render metric rows now that guild membership is known */
+    if (graphState.graphReady) renderMetricRows();
+
     /* rank history button (ESI members only) */
     const rankHistBtn = document.getElementById('viewRankHistory');
     if (rankHistBtn) {
