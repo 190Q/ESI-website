@@ -145,7 +145,7 @@ export default function SettingsModal() {
                     className="settings-input settings-input-sm"
                     id="settingCheckerHours"
                     min="0"
-                    max="168"
+                    max="10"
                     defaultValue="2"
                     aria-label="Hours threshold"
                   />
@@ -190,7 +190,7 @@ export default function SettingsModal() {
                     className="settings-input settings-input-sm"
                     id="settingToastDuration"
                     min="1"
-                    max="30"
+                    max="15"
                     defaultValue="7"
                     aria-label="Toast duration in seconds"
                   />

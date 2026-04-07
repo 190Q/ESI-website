@@ -593,7 +593,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
       guildDefaultRange:  parseInt(_sGuildRange.value, 10) || 30,
       defaultPlayer:      _sPlayer.value.trim(),
       checkerType:        _sChkType.value,
-      checkerHours:       parseInt(_sChkHours.value, 10) || 2,
+      checkerHours:       Math.max(0, Math.min(10, parseFloat(_sChkHours.value) || 2)),
       checkerTab:         _sChkTab.value,
       promotionsTab:      _sPromTab.value,
       toastDuration:      Math.max(1, Math.min(30, parseInt(_sToastDur.value, 10) || 7)),
@@ -620,6 +620,19 @@ fetch('/auth/session', { credentials: 'same-origin' })
       row.classList.toggle('disabled', locked);
     });
   }
+
+  /* clamp number inputs on blur */
+  function _clampOnBlur(el, min, max, fallback) {
+    el.addEventListener('blur', function () {
+      var v = parseFloat(this.value);
+      if (isNaN(v)) { this.value = fallback; }
+      else { this.value = Math.max(min, Math.min(max, v)); }
+      _updateSaveBtn();
+    });
+  }
+  _clampOnBlur(_sChkHours, 0, 10, 2);
+  _clampOnBlur(_sToastDur, 1, 15, 7);
+  _clampOnBlur(_sToastMax, 1, 6, 3);
 
   /* track changes — don't save yet, just show the save button */
   _sRange.addEventListener('input', function () { _sRangeVal.textContent = _sRange.value; _updateSaveBtn(); });
