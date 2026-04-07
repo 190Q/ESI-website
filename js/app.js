@@ -185,7 +185,6 @@ const ESI_RANK_ROLES = [
   { id: '681030746651230351', name: 'Squire',      color: '#c7edc0' },
 ];
 const ESI_ECHELON_ROLES = [
-  { id: '728858956575014964', name: 'Valaendor', colour: '#7744b6' },
   { id: '600185623474601995', name: 'Parliament', color: '#afb3d1' }, // Parli Colour role
   { id: '1346436714901536858', name: 'Congress',  color: '#7289da' },
   { id: '954566591520063510', name: 'Juror',       color: '#ffc332' },
