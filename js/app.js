@@ -299,6 +299,16 @@ fetch('/auth/session', { credentials: 'same-origin' })
             if (_authJustCompleted) {
                 _authJustCompleted = false;
                 showToast('Welcome back, ' + (data.user.nick || data.user.username) + '!', 'success');
+                // warn Firefox users about cookie clearing on first login only
+                if (/Firefox/.test(navigator.userAgent) && !localStorage.getItem('esi_ff_warned')) {
+                  localStorage.setItem('esi_ff_warned', '1');
+                  setTimeout(function () {
+                    showToast(
+                      '\u26a0 Firefox may clear your session when closed. To stay logged in, go to Settings \u2192 Privacy & Security and uncheck \u201cDelete cookies and site data when Firefox is closed\u201d.',
+                      'warn'
+                    );
+                  }, 2000);
+                }
             }
             // also refresh in the background so it catches role changes / deauthorization
             _refreshSession();

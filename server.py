@@ -301,10 +301,11 @@ _BLOCKED_STATIC_RE = _re.compile(
 
 @app.before_request
 def _gate_requests():
+    session.permanent = True
     path = request.path
     if _BLOCKED_STATIC_RE.match(path):
         abort(403)
-    if path.startswith('/.'):
+    if path.startswith('.'):
         abort(403)
 @app.route("/")
 def index():
