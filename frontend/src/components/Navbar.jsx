@@ -24,7 +24,7 @@ export default function Navbar() {
           <HelpIcon />
           Support
         </button>
-        <button className="btn-discord" id="loginBtn">
+        <button className="btn-discord" id="loginBtn" style={{ opacity: 0 }}>
           <DiscordIcon />
           Login with Discord
         </button>
