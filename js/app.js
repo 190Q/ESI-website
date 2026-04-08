@@ -80,6 +80,13 @@
   loginBtn.addEventListener('click', () => {
     if (state.loggedIn) openAccountModal();
     else {
+      // show loading state and disable the button while redirecting
+      loginBtn.disabled = true;
+      loginBtn.innerHTML =
+        '<span class="loading-spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,0.3);border-top-color:#fff;"></span>' +
+        ' Logging in\u2026';
+      loginBtn.style.background = '#4752c4';
+      loginBtn.style.boxShadow = 'none';
       // save current page state so we can restore it after the OAuth redirect
       sessionStorage.setItem('esi_auth_return', window.location.hash || '');
       window.location.href = '/auth/login';
@@ -106,6 +113,14 @@
     history.replaceState(null, '', clean);
     if (authResult === 'success') {
       _authJustCompleted = true;
+      // show the same loading state while the session check confirms the login
+      loginBtn.disabled = true;
+      loginBtn.innerHTML =
+        '<span class="loading-spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,0.3);border-top-color:#fff;"></span>' +
+        ' Logging in\u2026';
+      loginBtn.style.opacity = '1';
+      loginBtn.style.background = '#4752c4';
+      loginBtn.style.boxShadow = 'none';
     } else if (authResult === 'error') {
       // window.showToast — the local var isn't assigned yet at this point in the IIFE
       window.showToast('\u26a0 Login failed. Please try again.', 'warn');
@@ -318,6 +333,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
     .catch(function () { /* server unreachable, just keep what there is */ });
 
   function updateLoginButton() {
+    loginBtn.disabled = false;
     if (state.loggedIn && state.user) {
       const u = state.user;
       const avatarSrc = u.avatar
