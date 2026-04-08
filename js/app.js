@@ -5,7 +5,6 @@
   const state = window.state = {
     loggedIn: false,
     user: null,
-    role: 'member',
     currentView: 'global',
     playerData: null,
     guildData: null,
@@ -136,7 +135,6 @@
         localStorage.removeItem('esi_user');
         state.loggedIn = false;
         state.user = null;
-        state.role = 'member';
         updateLoginButton();
         applyPermissions();
         showToast('You have left the portal.', 'info');
@@ -179,13 +177,7 @@
   }
 
 
-function resolveRole(discordRoles) {
-    if (discordRoles.includes('YOUR_ADMIN_ROLE_ID')) return 'admin';
-    if (discordRoles.includes('YOUR_MOD_ROLE_ID'))   return 'mod';
-    return 'member';
-}
-
-// staff roles (hardcoded member IDs until I get them from the Unpaid Labour Discord server)
+// staff roles
 const ESI_STAFF_ROLES = [
   { name: 'Bot Owner',    color: '#ec00ad', members: ['967867229410574340'] },
   { name: 'Developer',    color: '#0896d3', members: ['454260696172068879'] },
@@ -258,7 +250,6 @@ var _defaultPlayerFetched = false;
 function applyLogin(user) {
     state.loggedIn = true;
     state.user     = user;
-    state.role     = resolveRole(user.roles || []);
     updateLoginButton();
     applyPermissions();
     renderProfile(user);
@@ -292,7 +283,6 @@ if (savedUser) {
         var _cachedUser = JSON.parse(savedUser);
         state.loggedIn = true;
         state.user = Object.assign({}, _cachedUser, { roles: [] });
-        state.role = 'member';
         updateLoginButton();
     } catch (e) {
         localStorage.removeItem('esi_user');
@@ -318,7 +308,6 @@ fetch('/auth/session', { credentials: 'same-origin' })
                 localStorage.removeItem('esi_user');
                 state.loggedIn = false;
                 state.user     = null;
-                state.role     = 'member';
                 applyPermissions();
             }
             updateLoginButton();
@@ -358,7 +347,6 @@ fetch('/auth/session', { credentials: 'same-origin' })
           localStorage.removeItem('esi_user');
           state.loggedIn = false;
           state.user = null;
-          state.role = 'member';
           updateLoginButton();
           applyPermissions();
           showToast('Your session has ended.', 'info');
