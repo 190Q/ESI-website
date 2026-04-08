@@ -113,14 +113,19 @@
   })();
 
   function logout() {
-    fetch('/auth/logout', { credentials: 'same-origin' }).catch(function () {});
-    localStorage.removeItem('esi_user');
-    state.loggedIn = false;
-    state.user = null;
-    state.role = 'member';
-    updateLoginButton();
-    applyPermissions();
-    showToast('You have left the portal.', 'info');
+    // wait for the server to clear the session cookie before updating the UI,
+    // otherwise a quick refresh still sees a valid session
+    fetch('/auth/logout', { credentials: 'same-origin' })
+      .catch(function () {})
+      .then(function () {
+        localStorage.removeItem('esi_user');
+        state.loggedIn = false;
+        state.user = null;
+        state.role = 'member';
+        updateLoginButton();
+        applyPermissions();
+        showToast('You have left the portal.', 'info');
+      });
   }
 
   function renderProfile(user) {
