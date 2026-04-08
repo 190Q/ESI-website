@@ -175,7 +175,6 @@ const ESI_STAFF_ROLES = [
 // rank roles shown in the account modal
 const ESI_RANK_ROLES = [
   { id: '554506531949772812', name: 'Emperor',    color: '#5c11ad' },
-  { id: '728858956575014964', name: 'Valaendor',  color: '#c2b2ea' },
   { id: '554514823191199747', name: 'Archduke',   color: '#b5fff6' },
   { id: '1396112289832243282', name: 'Grand Duke', color: '#74cac0' },
   { id: '591765870272053261', name: 'Duke',        color: '#35deac' },
@@ -216,7 +215,7 @@ function renderAccountModalRoles(userRoles, userId) {
   var hasCongress   = userRoles.includes('1346436714901536858');
   var hasJuror      = userRoles.includes('954566591520063510');
   if (hasValaendor) {
-    html += _esiRoleBadge('🏛️ Valaendor', '#7744b6', true);
+    html += _esiRoleBadge('👑 Valaendor', '#7744b6', true);
   } else if (hasParliament) {
     html += _esiRoleBadge('🏛️ Parliament', '#afb3d1', true);
   } else if (hasCongress) {
