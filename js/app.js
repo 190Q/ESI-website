@@ -310,16 +310,8 @@ fetch('/auth/session', { credentials: 'same-origin' })
                 _authJustCompleted = false;
                 showToast('Welcome back, ' + (data.user.nick || data.user.username) + '!', 'success');
             }
-            // also refresh in the background so it catches role changes
-            fetch('/auth/refresh', { credentials: 'same-origin' })
-                .then(r => r.json())
-                .then(function(fresh) {
-                    if (fresh.loggedIn && fresh.user) {
-                        localStorage.setItem('esi_user', JSON.stringify(fresh.user));
-                        applyLogin(fresh.user);
-                    }
-                })
-                .catch(function() {});
+            // also refresh in the background so it catches role changes / deauthorization
+            _refreshSession();
         } else {
             // not logged in (or session expired) — clear any stale local state
             if (state.loggedIn) {
@@ -342,6 +334,38 @@ fetch('/auth/session', { credentials: 'same-origin' })
   window.addEventListener('pageshow', function (e) {
     if (e.persisted) updateLoginButton();
   });
+
+  // re-verify the session when the tab regains focus
+  // (catches deauthorization, guild kicks, etc. that happened while the tab was in the background)
+  var _lastVerify = 0;
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible' || !state.loggedIn) return;
+    var now = Date.now();
+    if (now - _lastVerify < 30000) return; // at most once per 30s
+    _lastVerify = now;
+    _refreshSession();
+  });
+
+  function _refreshSession() {
+    fetch('/auth/refresh', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (fresh) {
+        if (fresh.loggedIn && fresh.user) {
+          localStorage.setItem('esi_user', JSON.stringify(fresh.user));
+          applyLogin(fresh.user);
+        } else if (!fresh.loggedIn && state.loggedIn) {
+          // server invalidated the session (deauthorized, kicked, etc.)
+          localStorage.removeItem('esi_user');
+          state.loggedIn = false;
+          state.user = null;
+          state.role = 'member';
+          updateLoginButton();
+          applyPermissions();
+          showToast('Your session has ended.', 'info');
+        }
+      })
+      .catch(function () {});
+  }
 
   function updateLoginButton() {
     loginBtn.disabled = false;

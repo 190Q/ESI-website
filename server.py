@@ -410,7 +410,7 @@ def auth_callback():
         ]
 
     session.permanent = True
-    session["user"] = {
+    user_data = {
         "id":            user["id"],
         "username":      user["username"],
         "nick":          nick,
@@ -419,6 +419,7 @@ def auth_callback():
         "roles":         roles,
         "role_objects":  role_objects,
     }
+    session["user"] = user_data
     return redirect("/?auth=success")
 
 
@@ -507,6 +508,10 @@ def auth_refresh():
             headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
             timeout=10,
         )
+        if member_resp.status_code == 404:
+            # if user is no longer in the server then invalidate the session
+            session.pop("user", None)
+            return jsonify({"loggedIn": False})
         if not member_resp.ok:
             return jsonify({"loggedIn": True, "user": user})
 
