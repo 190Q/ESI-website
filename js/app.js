@@ -99,6 +99,7 @@
 
   /* handle ?auth= query param after OAuth redirect */
   var _authJustCompleted = false;
+  var _authFailed = false;
   (function handleAuthRedirect() {
     var params = new URLSearchParams(window.location.search);
     var authResult = params.get('auth');
@@ -121,8 +122,7 @@
       loginBtn.style.background = '#4752c4';
       loginBtn.style.boxShadow = 'none';
     } else if (authResult === 'error') {
-      // window.showToast — the local var isn't assigned yet at this point in the IIFE
-      window.showToast('\u26a0 Login failed. Please try again.', 'warn');
+      _authFailed = true;
     }
   })();
 
@@ -311,6 +311,10 @@ fetch('/auth/session', { credentials: 'same-origin' })
                 applyPermissions();
             }
             updateLoginButton();
+            if (_authFailed) {
+                _authFailed = false;
+                showToast('\u26a0 Login failed. Please try again.', 'warn');
+            }
         }
     })
     .catch(function () {
