@@ -337,6 +337,12 @@ fetch('/auth/session', { credentials: 'same-origin' })
         updateLoginButton();
     });
 
+  // if the user navigates back (e.g. closes the Discord auth page),
+  // the browser restores the page from bfcache with the spinner still showing
+  window.addEventListener('pageshow', function (e) {
+    if (e.persisted) updateLoginButton();
+  });
+
   function updateLoginButton() {
     loginBtn.disabled = false;
     if (state.loggedIn && state.user) {
