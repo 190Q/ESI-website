@@ -320,17 +320,22 @@ fetch('/auth/session', { credentials: 'same-origin' })
                     }
                 })
                 .catch(function() {});
-        } else if (state.loggedIn) {
-            // server says user is not logged in anymore
-            localStorage.removeItem('esi_user');
-            state.loggedIn = false;
-            state.user     = null;
-            state.role     = 'member';
+        } else {
+            // not logged in (or session expired) — clear any stale local state
+            if (state.loggedIn) {
+                localStorage.removeItem('esi_user');
+                state.loggedIn = false;
+                state.user     = null;
+                state.role     = 'member';
+                applyPermissions();
+            }
             updateLoginButton();
-            applyPermissions();
         }
     })
-    .catch(function () { /* server unreachable, just keep what there is */ });
+    .catch(function () {
+        // server unreachable, still reveal the button with whatever state we have
+        updateLoginButton();
+    });
 
   function updateLoginButton() {
     loginBtn.disabled = false;
