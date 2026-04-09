@@ -453,8 +453,9 @@ fetch('/auth/session', { credentials: 'same-origin' })
   modalBackdrop.addEventListener('click', e => { if (e.target === modalBackdrop) closeModal(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-  var linksView  = document.getElementById('supportLinksView');
-  var ticketView = document.getElementById('ticketFormView');
+  var linksView    = document.getElementById('supportLinksView');
+  var ticketView   = document.getElementById('ticketFormView');
+  var supportModal = document.getElementById('supportModal');
 
   function openModal()  { modalBackdrop.classList.add('open');    document.body.style.overflow = 'hidden'; }
   function closeModal() {
@@ -463,30 +464,75 @@ fetch('/auth/session', { credentials: 'same-origin' })
     /* go back to links view */
     if (ticketView) ticketView.style.display = 'none';
     if (linksView)  linksView.style.display  = 'block';
+    supportModal.classList.remove('modal--ticket');
   }
 
   /* ticket form */
   document.getElementById('openTicketBtn').addEventListener('click', function (e) {
     e.preventDefault();
+    if (!state.loggedIn) {
+      showToast('\u26a0 Please log in with Discord to open a ticket.', 'warn');
+      return;
+    }
     linksView.style.display  = 'none';
     ticketView.style.display = 'block';
+    supportModal.classList.add('modal--ticket');
   });
   document.getElementById('ticketBack').addEventListener('click', function () {
     ticketView.style.display = 'none';
     linksView.style.display  = 'block';
+    supportModal.classList.remove('modal--ticket');
   });
+
+  /* label pill toggle */
+  document.getElementById('ticketLabels').addEventListener('click', function (e) {
+    var pill = e.target.closest('.ticket-label-pill');
+    if (pill) pill.classList.toggle('selected');
+  });
+
   document.getElementById('ticketSubmit').addEventListener('click', function () {
-    var cat  = document.getElementById('ticketCategory').value;
-    var subj = document.getElementById('ticketSubject').value.trim();
-    var msg  = document.getElementById('ticketMessage').value.trim();
-    if (!cat)  { showToast('\u26a0 Please select a category.', 'warn'); return; }
-    if (!subj) { showToast('\u26a0 Please enter a subject.', 'warn'); return; }
-    if (!msg)  { showToast('\u26a0 Please enter a message.', 'warn'); return; }
-    showToast('\u2713 Ticket submitted! We\'ll get back to you soon.', 'success');
-    document.getElementById('ticketCategory').value = '';
-    document.getElementById('ticketSubject').value  = '';
-    document.getElementById('ticketMessage').value  = '';
-    closeModal();
+    var titleEl  = document.getElementById('issueTitle');
+    var bodyEl   = document.getElementById('ticketBody');
+    var submitBtn = document.getElementById('ticketSubmit');
+    var title = titleEl.value.trim();
+    var body  = bodyEl.value.trim();
+    if (!title) { showToast('\u26a0 Please enter a title.', 'warn'); return; }
+    if (!body)  { showToast('\u26a0 Please enter a description.', 'warn'); return; }
+
+    var labels = [];
+    document.querySelectorAll('.ticket-label-pill.selected').forEach(function (p) {
+      labels.push(p.getAttribute('data-label'));
+    });
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submitting\u2026';
+
+    fetch('/api/ticket', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: title, body: body, labels: labels }),
+    })
+    .then(function (resp) { return resp.json().then(function (d) { return { ok: resp.ok, data: d }; }); })
+    .then(function (result) {
+      if (result.ok) {
+        var msg = '\u2713 Issue created!';
+        if (result.data.issue_url) msg += ' <a href="' + result.data.issue_url + '" target="_blank" style="color:var(--gold-light);text-decoration:underline;">View on GitHub</a>';
+        showToast(msg, 'success');
+        titleEl.value = '';
+        bodyEl.value = '';
+        document.querySelectorAll('.ticket-label-pill.selected').forEach(function (p) { p.classList.remove('selected'); });
+        closeModal();
+      } else {
+        showToast('\u26a0 ' + (result.data.error || 'Failed to create issue.'), 'warn');
+      }
+    })
+    .catch(function () {
+      showToast('\u26a0 Network error. Please try again.', 'warn');
+    })
+    .finally(function () {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit new ticket';
+    });
   });
 
   /* toast */

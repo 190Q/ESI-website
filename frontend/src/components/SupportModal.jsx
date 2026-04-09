@@ -25,7 +25,7 @@ export default function SupportModal() {
             <li>
               <a href="#" className="support-link ticket" id="openTicketBtn">
                 <TicketIcon />
-                Open a Support Ticket
+                Open a Ticket
               </a>
             </li>
             <li>
@@ -39,36 +39,44 @@ export default function SupportModal() {
 
         {/* Ticket form view */}
         <div id="ticketFormView" style={{ display: 'none' }}>
-          <h2 className="modal-title">Open a Ticket</h2>
-          <p className="modal-sub">Describe your issue and we{"'"}ll get back to you</p>
+          <h2 className="modal-title" style={{ textAlign: 'left' }}>New Issue</h2>
+          <p className="modal-sub" style={{ textAlign: 'left', fontWeight: 500 }}>
+            Create a new issue to report bugs, request features, or ask questions
+          </p>
           <div className="ticket-form">
-            <label className="ticket-label" htmlFor="ticketCategory">Category</label>
-            <select className="ticket-select" id="ticketCategory" aria-label="Ticket category" defaultValue="">
-              <option value="">Select a category...</option>
-              <option value="bug">Bug Report</option>
-              <option value="suggestion">Suggestion</option>
-              <option value="help">Help</option>
-              <option value="other">Other</option>
-            </select>
-            <label className="ticket-label" htmlFor="ticketSubject">Subject</label>
-            <input
-              type="text"
-              className="ticket-input"
-              id="ticketSubject"
-              placeholder="Brief summary..."
-              aria-label="Ticket subject"
-            />
-            <label className="ticket-label" htmlFor="ticketMessage">Message</label>
-            <textarea
-              className="ticket-textarea"
-              id="ticketMessage"
-              rows="4"
-              placeholder="Describe your issue or suggestion in detail..."
-              aria-label="Ticket message"
-            />
+            <div className="ticket-field">
+              <label className="ticket-label" htmlFor="issueTitle">Title</label>
+              <input
+                type="text"
+                className="ticket-input"
+                id="issueTitle"
+                placeholder="Title"
+                aria-label="Ticket title"
+              />
+            </div>
+            <div className="ticket-field">
+              <label className="ticket-label" htmlFor="ticketBody">Description</label>
+              <textarea
+                className="ticket-textarea ticket-body"
+                id="ticketBody"
+                rows="8"
+                placeholder="Add a description..."
+                aria-label="Ticket description"
+              />
+            </div>
+            <div className="ticket-field">
+              <label className="ticket-label">Labels</label>
+              <div className="ticket-labels" id="ticketLabels">
+                <button type="button" className="ticket-label-pill" data-label="bug" style={{ '--pill-color': '#d73a4a' }}>bug</button>
+                <button type="button" className="ticket-label-pill" data-label="enhancement" style={{ '--pill-color': '#a2eeef' }}>enhancement</button>
+                <button type="button" className="ticket-label-pill" data-label="question" style={{ '--pill-color': '#d876e3' }}>question</button>
+                <button type="button" className="ticket-label-pill" data-label="documentation" style={{ '--pill-color': '#0075ca' }}>documentation</button>
+                <button type="button" className="ticket-label-pill" data-label="help wanted" style={{ '--pill-color': '#008672' }}>help wanted</button>
+              </div>
+            </div>
             <div className="ticket-actions">
               <button className="ticket-back" id="ticketBack">{'\u2190'} Back</button>
-              <button className="btn-post" id="ticketSubmit">{'\u21AA\u00A0\u00A0'}Submit Ticket</button>
+              <button className="btn-post" id="ticketSubmit">Submit new ticket</button>
             </div>
           </div>
         </div>

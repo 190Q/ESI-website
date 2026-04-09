@@ -1886,6 +1886,76 @@ def settings_default_player():
     return jsonify({"username": mc_name})
 
 
+# ---- GitHub issue creation ----
+
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+GITHUB_REPO  = os.environ.get("GITHUB_REPO", "190Q/ESI-website")
+
+_ticket_rate: dict = {}  # keyed by discord user id
+_ticket_rate_lock = _threading.Lock()
+_TICKET_COOLDOWN  = 300.0  # 5 minute between submissions per user
+
+@app.route("/api/ticket", methods=["POST"])
+def create_ticket():
+    user, err = _require_login()
+    if err:
+        return err
+
+    # per-user rate limit
+    uid = user.get("id", "")
+    now = time()
+    with _ticket_rate_lock:
+        last = _ticket_rate.get(uid, 0)
+        if now - last < _TICKET_COOLDOWN:
+            return jsonify({"error": "Please wait before submitting another ticket."}), 429
+        _ticket_rate[uid] = now
+
+    body = request.get_json(silent=True) or {}
+    title  = (body.get("title") or "").strip()
+    desc   = (body.get("body") or "").strip()
+    labels = body.get("labels") or []
+
+    if not title:
+        return jsonify({"error": "Title is required"}), 400
+    if not desc:
+        return jsonify({"error": "Description is required"}), 400
+    if not isinstance(labels, list):
+        labels = []
+
+    discord_name = user.get("nick") or user.get("username") or "Unknown"
+    discord_id   = user.get("id", "")
+    issue_body   = f"{desc}\n\n---\n*Submitted via ESI Dashboard by **{discord_name}** (`{discord_id}`)*"
+
+    if not GITHUB_TOKEN:
+        return jsonify({"error": "GitHub integration not configured"}), 503
+
+    try:
+        resp = requests.post(
+            f"https://api.github.com/repos/{GITHUB_REPO}/issues",
+            headers={
+                "Authorization": f"token {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": "ESI-Dashboard/1.0",
+            },
+            json={
+                "title": title,
+                "body":  issue_body,
+                "labels": labels,
+            },
+            timeout=10,
+        )
+        if not resp.ok:
+            import sys
+            print(f"[TICKET] GitHub API error: {resp.status_code} {resp.text[:200]}", file=sys.stderr)
+            return jsonify({"error": "Failed to create issue on GitHub"}), 502
+        data = resp.json()
+        return jsonify({"ok": True, "issue_url": data.get("html_url"), "issue_number": data.get("number")})
+    except requests.RequestException as e:
+        import sys
+        print(f"[TICKET] GitHub request failed: {e}", file=sys.stderr)
+        return jsonify({"error": "Failed to reach GitHub"}), 502
+
+
 @app.errorhandler(404)
 def not_found(e):
     msg = getattr(e, "description", None) or "Not found."

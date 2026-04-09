@@ -660,12 +660,24 @@ button { cursor: pointer; border: none; font-family: inherit; }
 }
 .support-link.ticket  { border-left: 3px solid var(--online); }
 
+/* Wider modal for ticket form */
+.modal--ticket {
+  max-width: 680px;
+  width: 92%;
+  text-align: left;
+}
+
 /* Ticket form */
 .ticket-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   text-align: left;
+}
+.ticket-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .ticket-label {
   font-family: 'Cinzel', serif;
@@ -673,9 +685,7 @@ button { cursor: pointer; border: none; font-family: inherit; }
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-faint);
-  margin-bottom: -6px;
 }
-.ticket-select,
 .ticket-input,
 .ticket-textarea {
   background: var(--surface-3);
@@ -689,10 +699,8 @@ button { cursor: pointer; border: none; font-family: inherit; }
   transition: border-color var(--transition);
   width: 100%;
 }
-.ticket-select { cursor: pointer; font-size: 0.92rem; }
-.ticket-select option { background: var(--surface); }
 .ticket-textarea { resize: vertical; min-height: 80px; }
-.ticket-select:focus,
+.ticket-body { min-height: 160px; }
 .ticket-input:focus,
 .ticket-textarea:focus {
   border-color: var(--gold-dim);
@@ -700,6 +708,43 @@ button { cursor: pointer; border: none; font-family: inherit; }
 }
 .ticket-input::placeholder,
 .ticket-textarea::placeholder { color: var(--text-faint); }
+
+/* Label pills */
+.ticket-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ticket-label-pill {
+  background: transparent;
+  border: 1px solid var(--pill-color, var(--border));
+  color: var(--pill-color, var(--text-dim));
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all var(--transition);
+  line-height: 1.4;
+}
+.ticket-label-pill:hover {
+  background: color-mix(in srgb, var(--pill-color, var(--border)) 15%, transparent);
+}
+.ticket-label-pill::after {
+  content: attr(data-label);
+  display: block;
+  font-weight: 600;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+.ticket-label-pill.selected {
+  background: color-mix(in srgb, var(--pill-color, var(--border)) 25%, transparent);
+  border-color: var(--pill-color, var(--border));
+  color: #fff;
+  font-weight: 600;
+}
+
 .ticket-actions {
   display: flex;
   align-items: center;
