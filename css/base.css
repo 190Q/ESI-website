@@ -840,6 +840,9 @@ button { cursor: pointer; border: none; font-family: inherit; }
 .settings-section {
   margin-bottom: 28px;
 }
+.settings-section:last-child {
+  margin-bottom: 0;
+}
 .settings-section-label {
   font-family: 'Cinzel', serif;
   font-size: 0.68rem;

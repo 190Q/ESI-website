@@ -118,6 +118,42 @@ export default function SettingsModal() {
                 <span className="settings-range-val" id="settingGuildRangeVal">30</span>
               </div>
             </div>
+
+            {/* Toast notification customization */}
+            <div className="settings-row" id="settingToastRow">
+              <div className="settings-row-info">
+                <div className="settings-row-title">Toast notifications</div>
+                <div className="settings-row-desc">
+                  Duration, maximum visible, and color scheme
+                </div>
+              </div>
+              <div className="settings-row-control settings-multi-control">
+                <div className="settings-inline-group">
+                  <input
+                    type="number"
+                    className="settings-input settings-input-sm"
+                    id="settingToastDuration"
+                    min="1"
+                    max="15"
+                    defaultValue="7"
+                    aria-label="Toast duration in seconds"
+                  />
+                  <span className="settings-input-suffix">sec</span>
+                </div>
+                <div className="settings-inline-group">
+                  <label className="settings-inline-label" htmlFor="settingToastMax">Max</label>
+                  <input
+                    type="number"
+                    className="settings-input settings-input-sm"
+                    id="settingToastMax"
+                    min="1"
+                    max="6"
+                    defaultValue="3"
+                    aria-label="Maximum visible toasts"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Login-required settings */}
@@ -175,41 +211,6 @@ export default function SettingsModal() {
               </div>
             </div>
 
-            {/* Toast notification customization */}
-            <div className="settings-row settings-row-login" id="settingToastRow">
-              <div className="settings-row-info">
-                <div className="settings-row-title">Toast notifications</div>
-                <div className="settings-row-desc">
-                  Duration, maximum visible, and color scheme
-                </div>
-              </div>
-              <div className="settings-row-control settings-multi-control">
-                <div className="settings-inline-group">
-                  <input
-                    type="number"
-                    className="settings-input settings-input-sm"
-                    id="settingToastDuration"
-                    min="1"
-                    max="15"
-                    defaultValue="7"
-                    aria-label="Toast duration in seconds"
-                  />
-                  <span className="settings-input-suffix">sec</span>
-                </div>
-                <div className="settings-inline-group">
-                  <label className="settings-inline-label" htmlFor="settingToastMax">Max</label>
-                  <input
-                    type="number"
-                    className="settings-input settings-input-sm"
-                    id="settingToastMax"
-                    min="1"
-                    max="6"
-                    defaultValue="3"
-                    aria-label="Maximum visible toasts"
-                  />
-                </div>
-              </div>
-            </div>
           </div>
 
         </div>

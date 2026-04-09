@@ -704,15 +704,12 @@ fetch('/auth/session', { credentials: 'same-origin' })
   function _updateLoginRows() {
     var canInactivity = hasParliamentPlus();
     var canPromotions = hasJurorPlus();
-    var isLoggedIn    = state.loggedIn;
 
     // remove rows the user can't access
     var inacRow  = document.getElementById('settingInactivityRow');
     var promRow  = document.getElementById('settingPromotionsRow');
-    var toastRow = document.getElementById('settingToastRow');
     if (inacRow  && !canInactivity) inacRow.remove();
     if (promRow  && !canPromotions) promRow.remove();
-    if (toastRow && !isLoggedIn)    toastRow.remove();
 
     // remove the entire section if nothing remains
     var loginSection = document.getElementById('settingsLoginSection');
