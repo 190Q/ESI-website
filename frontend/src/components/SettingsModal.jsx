@@ -71,6 +71,7 @@ export default function SettingsModal() {
                   <option value="wars">Wars</option>
                   <option value="guildRaids">Guild Raids</option>
                   <option value="newMembers">New Members</option>
+                  <option value="totalMembers">Total Members</option>
                 </select>
               </div>
             </div>
