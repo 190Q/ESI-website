@@ -130,7 +130,7 @@
       'max-width:340px;pointer-events:auto;position:relative;overflow:hidden;';
 
     var msgSpan = document.createElement('span');
-    msgSpan.textContent = message;
+    msgSpan.innerHTML = message;
     toast.appendChild(msgSpan);
 
     var closeBtn = document.createElement('button');
@@ -157,7 +157,7 @@
   function _isDuplicateToast(message) {
     var spans = _ensureToastContainer().querySelectorAll('.esi-toast > span');
     for (var i = 0; i < spans.length; i++) {
-      if (spans[i].textContent === message) return true;
+      if (spans[i].innerHTML === message) return true;
     }
     for (var j = 0; j < _toastQueue.length; j++) {
       if (_toastQueue[j].message === message) return true;

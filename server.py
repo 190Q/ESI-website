@@ -1893,7 +1893,7 @@ GITHUB_REPO  = os.environ.get("GITHUB_REPO", "190Q/ESI-website")
 
 _ticket_rate: dict = {}  # keyed by discord user id
 _ticket_rate_lock = _threading.Lock()
-_TICKET_COOLDOWN  = 300.0  # 5 minute between submissions per user
+_TICKET_COOLDOWN  = 60.0  # 1 minute between submissions per user
 
 @app.route("/api/ticket", methods=["POST"])
 def create_ticket():
@@ -1917,14 +1917,13 @@ def create_ticket():
 
     if not title:
         return jsonify({"error": "Title is required"}), 400
-    if not desc:
-        return jsonify({"error": "Description is required"}), 400
     if not isinstance(labels, list):
         labels = []
 
     discord_name = user.get("nick") or user.get("username") or "Unknown"
     discord_id   = user.get("id", "")
-    issue_body   = f"{desc}\n\n---\n*Submitted via ESI Dashboard by **{discord_name}** (`{discord_id}`)*"
+    attribution  = f"*Submitted via ESI Dashboard by **{discord_name}** (`{discord_id}`)*"
+    issue_body   = f"{desc}\n\n---\n{attribution}" if desc else f"---\n{attribution}"
 
     if not GITHUB_TOKEN:
         return jsonify({"error": "GitHub integration not configured"}), 503

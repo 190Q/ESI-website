@@ -497,7 +497,6 @@ fetch('/auth/session', { credentials: 'same-origin' })
     var title = titleEl.value.trim();
     var body  = bodyEl.value.trim();
     if (!title) { showToast('\u26a0 Please enter a title.', 'warn'); return; }
-    if (!body)  { showToast('\u26a0 Please enter a description.', 'warn'); return; }
 
     var labels = [];
     document.querySelectorAll('.ticket-label-pill.selected').forEach(function (p) {
