@@ -84,6 +84,7 @@ GUILD_BULK_METRIC_KEYS = [
     "wars",
     "guildRaids",
     "newMembers",
+    "totalMembers",
 ]
 
 def _safe_number(value):
@@ -1155,6 +1156,18 @@ def _compute_bulk_playtime():
 
     guild_raids = [max(0, (int(v) // 4)) for v in guild_raids]
 
+    # total members = count of ESI members in each snapshot
+    total_members = [0] * num_mk_days
+    if api_snapshots and num_mk_days:
+        for i in range(1, len(api_snapshots)):
+            day_idx = i - 1
+            if day_idx >= num_mk_days:
+                break
+            total_members[day_idx] = sum(
+                1 for snap in api_snapshots[i].values()
+                if (snap.get("guildPrefix") or "").upper() == "ESI"
+            )
+
     # new members = first time a username is seen in a snapshot
     new_members = [0] * num_mk_days
     if os.path.isdir(os.path.join(_ESI_BOT_DIR, "databases", "api_tracking")):
@@ -1178,6 +1191,7 @@ def _compute_bulk_playtime():
         "wars":        guild_wars,
         "guildRaids":  guild_raids,
         "newMembers":  new_members,
+        "totalMembers": total_members,
     }
 
     # swap in the new data all at once

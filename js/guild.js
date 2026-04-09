@@ -12,10 +12,11 @@
   /* graph config */
   const guildGraphState = { data: null, compareData: null, compareUsername: null, compareLoading: false, graphReady: false, compareCache: {}, debugLogged: false, compareDebugLogged: {}, memberLookup: {} };
   const GUILD_GRAPH_METRICS = [
-    { key: 'playerCount', label: 'Active Players',  decimals: 0 },
-    { key: 'wars',        label: 'Wars',            decimals: 0 },
-    { key: 'guildRaids',  label: 'Guild Raids',     decimals: 0 },
-    { key: 'newMembers',  label: 'New Members',     decimals: 0 },
+    { key: 'playerCount',  label: 'Active Players',  decimals: 0 },
+    { key: 'wars',         label: 'Wars',            decimals: 0 },
+    { key: 'guildRaids',   label: 'Guild Raids',     decimals: 0 },
+    { key: 'newMembers',   label: 'New Members',     decimals: 0 },
+    { key: 'totalMembers', label: 'Total Members',   decimals: 0 },
   ];
   const GUILD_COMPARE_METRICS = [
     { key: 'wars',       label: 'Wars',        decimals: 0 },
