@@ -1203,6 +1203,13 @@ def _compute_bulk_playtime():
 
     guild_raids = [max(0, (int(v) // 4)) for v in guild_raids]
 
+    # player graid delta cannot be higher than guild graid delta
+    for _m in members.values():
+        _mr = _m.get("guildRaids", [])
+        for _di in range(min(len(_mr), len(guild_raids))):
+            if _mr[_di] > guild_raids[_di]:
+                guild_raids[_di] = 0
+
     # total members = count of ESI members in each snapshot
     total_members = [0] * num_mk_days
     if api_snapshots and num_mk_days:
