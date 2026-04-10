@@ -62,6 +62,14 @@
     if (v === 'rankHistory') renderRankHistory();
   }
 
+  function _updateViewSelector() {
+    var sel = document.querySelector('#playerContent .view-selector');
+    if (!sel) return;
+    var visible = Array.from(sel.querySelectorAll('.view-btn'))
+      .filter(function (b) { return b.style.display !== 'none'; }).length;
+    sel.style.display = visible > 1 ? '' : 'none';
+  }
+
   function renderRankHistory() {
     const el = document.getElementById('rankHistoryContent');
     const data = state.rankHistory;
@@ -652,6 +660,7 @@
           .then(data => {
             if (data.rank_changes && data.rank_changes.length) {
               rankHistBtn.style.display = '';
+              _updateViewSelector();
               state.rankHistory = data;
             } else {
               state.rankHistory = null;
@@ -833,13 +842,12 @@
     const chars   = isFallback ? {} : (p.characters || {});
     const hasChars = Object.keys(chars).length > 0;
     if (isFallback) {
-      document.querySelector('.view-selector').style.display = '';
       document.getElementById('viewCharacter').style.display = 'none';
       document.getElementById('characterView').style.display = 'none';
     } else {
-      document.querySelector('.view-selector').style.display = hasChars ? '' : 'none';
-      document.getElementById('viewCharacter').style.display = '';
+      document.getElementById('viewCharacter').style.display = hasChars ? '' : 'none';
     }
+    _updateViewSelector();
     buildCharSelect(chars);
 
     document.getElementById('playerContent').style.display = 'block';
