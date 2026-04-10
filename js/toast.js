@@ -31,7 +31,7 @@
     _toastContainer.className = 'esi-toast-container';
     _toastContainer.style.cssText =
       'position:fixed;bottom:28px;right:28px;display:flex;flex-direction:column-reverse;' +
-      'z-index:999;max-width:340px;pointer-events:none;overflow-y:auto;max-height:calc(100vh - 56px);';
+      'z-index:999;max-width:340px;pointer-events:none;overflow-y:auto;max-height:calc(100vh - 56px);contain:layout style;';
     document.body.appendChild(_toastContainer);
     return _toastContainer;
   }
@@ -48,19 +48,20 @@
     toast.style.height = h + 'px';
     toast.style.overflow = 'hidden';
     toast.style.animation = 'none';
-    toast.offsetHeight;
-    toast.style.transition =
-      'height 0.3s ease, padding-top 0.3s ease, padding-bottom 0.3s ease, ' +
-      'margin-bottom 0.3s ease, border-width 0.3s ease, opacity 0.3s ease, transform 0.3s ease';
-    toast.style.height = '0';
-    toast.style.paddingTop = '0';
-    toast.style.paddingBottom = '0';
-    toast.style.marginBottom = '0';
-    toast.style.borderWidth = '0';
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateY(12px)';
+    requestAnimationFrame(function () {
+      toast.style.transition =
+        'height 0.3s ease, padding-top 0.3s ease, padding-bottom 0.3s ease, ' +
+        'margin-bottom 0.3s ease, border-width 0.3s ease, opacity 0.3s ease, transform 0.3s ease';
+      toast.style.height = '0';
+      toast.style.paddingTop = '0';
+      toast.style.paddingBottom = '0';
+      toast.style.marginBottom = '0';
+      toast.style.borderWidth = '0';
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(12px)';
+    });
     _drainQueue();
-    setTimeout(function () { toast.remove(); }, 300);
+    setTimeout(function () { toast.remove(); }, 350);
   }
 
   function _ensureLoop() {

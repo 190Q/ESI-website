@@ -622,7 +622,7 @@
         } else {
           guildXpRow.innerHTML = '';
         }
-      } else {
+      } else if (guild) {
         guildXpRow.innerHTML = '';
       }
     } else {
