@@ -258,6 +258,25 @@
     const isRefetch = !!(state.playerData && state.playerData.username &&
       state.playerData.username.toLowerCase() === username.toLowerCase());
 
+    // same player and graph already loaded then just switch the metric/focus, skip all fetches
+    if (isRefetch && graphState.graphReady && graphState.data && (pendingGraphFocus || pendingGraphMetrics)) {
+      var focus   = consumePendingGraphFocus();
+      var metrics = consumePendingGraphMetrics();
+      if (focus) {
+        applyPendingGraphFocus(focus, graphState.data.playtime ? graphState.data.playtime.length : 60, username);
+      }
+      if (metrics && metrics.length) {
+        var available = getAvailableMetrics();
+        var valid = metrics.filter(function (k) { return available.some(function (m) { return m.key === k; }); });
+        if (valid.length) compareGraph.metrics = valid;
+      }
+      renderMetricRows();
+      refreshCompareGraph();
+      searchBtn.disabled = false;
+      searchBtn.textContent = '\uD83D\uDD0D\uFE0E Look Up';
+      return;
+    }
+
     // check sessionStorage first (survives page refresh)
     const playerCacheUrl = '/api/player/' + encodeURIComponent(username);
     const cachedPlayer = !isRefetch ? DataCache.readCache(playerCacheUrl) : null;
@@ -1687,6 +1706,22 @@
           if (valid.length) compareGraph.metrics = valid;
         }
         renderMetricRows();
+      } else {
+        var hasNewFocus = !! graphFocus;
+        var hasNewMetrics = !! (requestedMetrics && requestedMetrics.length);
+        if (hasNewFocus) {
+          applyPendingGraphFocus(
+            graphFocus,
+            data && data.playtime ? data.playtime.length : 60,
+            username
+          )
+        }
+        if (hasNewMetrics) {
+          var available = getAvailableMetrics();
+          var valid = requestedMetrics.filter(function (k) { return available.some(function (m) { return m.key === k; }); });
+          if (valid.length) compareGraph.metrics = valid;
+        }
+        if (hasNewFocus || hasNewMetrics) renderMetricRows();
       }
       refreshCompareGraph();
       graphState.graphReady = true;
