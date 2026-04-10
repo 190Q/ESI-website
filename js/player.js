@@ -612,7 +612,8 @@
       const isRecruit   = (p.guild.rank || '').toLowerCase() === 'recruit';
       const isRecruiter = (p.guild.rank || '').toLowerCase() === 'recruiter';
 
-      if (isEsi && (isRecruit || isRecruiter)) {
+      var canViewPromotions = typeof window.hasJurorPlus === 'function' && window.hasJurorPlus();
+      if (isEsi && (isRecruit || isRecruiter) && canViewPromotions) {
         guildRankEl.style.cursor = 'pointer';
         guildRankEl.style.textDecorationColor = 'rgba(212,160,23,0.4)';
         guildRankEl.onclick = function() {

@@ -563,6 +563,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   /* expose globals */
   window.switchToPanel     = switchToPanel;
+  window.hasJurorPlus      = hasJurorPlus;
   applyPermissions();
 
   /* settings infrastructure */
