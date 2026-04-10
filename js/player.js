@@ -241,6 +241,8 @@
 
   async function lookupPlayer(username, options) {
     if (!username) return;
+    searchBtn.disabled = true;
+    searchBtn.textContent = '\uD83D\uDD0D\uFE0E Looking up\u2026';
     pendingGraphFocus = normalizeGraphFocus(options && options.graphFocus);
     pendingGraphMetrics = options && Array.isArray(options.graphMetrics) ? options.graphMetrics : null;
 
@@ -386,6 +388,9 @@
           window.showToast('\u26a0 ' + friendlyPlayerLookupError(err.message, username), 'error', { persistent: true });
         }
       }
+    } finally {
+      searchBtn.disabled = false;
+      searchBtn.textContent = '\uD83D\uDD0D\uFE0E Look Up';
     }
   }
 
@@ -477,8 +482,8 @@
     if (!text) return 'Could not fetch ' + label + '. Please try again.';
     if (lower.includes('not found') || lower.includes('404'))
       return label.charAt(0).toUpperCase() + label.slice(1) + ' was not found. Check the name and try again.';
-    if (lower.includes('429') || lower.includes('rate limit'))
-      return 'Wynncraft is rate-limiting requests. Please wait a moment.';
+    if (lower.includes('too many requests') || lower.includes('rate limit') || lower.includes('429'))
+      return 'Too many requests. Please slow down and try again.';
     if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('too long'))
       return 'Wynncraft took too long to respond. Try again shortly.';
     if (lower.includes('could not reach') || lower.includes('network') || lower.includes('failed to fetch') || lower.includes('max retries') || lower.includes('connectionpool'))

@@ -40,6 +40,12 @@
   transform: translateY(-1px);
   box-shadow: 0 6px 18px rgba(212,160,23,0.4);
 }
+.btn-search:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
 
 /* Loading/Error */
 .loading-state {

@@ -23,6 +23,49 @@ BULK_PLAYTIME_REFRESH = 600  # 10 minutes
 _ACTIVITY_RATE: dict = {}
 _ACTIVITY_RATE_INTERVAL = 30.0
 
+# sliding-window rate limiter
+# _RATE_LIMIT_STORE: { (ip, endpoint) -> deque of call timestamps }
+import collections as _collections
+import functools as _functools
+_RATE_LIMIT_STORE: dict = {}
+_rate_limit_lock = _threading.Lock()
+
+def rate_limit(calls: int, period: float = 60.0):
+    """Decorator: allow at most *calls* requests per *period* seconds per IP.
+
+    Returns HTTP 429 with a JSON error when the limit is exceeded.
+    Usage::
+
+        @app.route("/api/something")
+        @rate_limit(30)           # 30 calls/minute
+        def something(): ...
+    """
+    def decorator(fn):
+        @_functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            ip  = request.remote_addr or "unknown"
+            key = (ip, request.endpoint or request.path)
+            now = time()
+            with _rate_limit_lock:
+                bucket = _RATE_LIMIT_STORE.setdefault(key, _collections.deque())
+                # evict timestamps outside the window
+                while bucket and now - bucket[0] >= period:
+                    bucket.popleft()
+                if len(bucket) >= calls:
+                    retry_after = int(period - (now - bucket[0])) + 1
+                    resp = jsonify({
+                        "error": "Rate limit exceeded",
+                        "message": f"Too many requests. Please wait {retry_after} second{'s' if retry_after != 1 else ''} and try again.",
+                        "retry_after": retry_after,
+                    })
+                    resp.status_code = 429
+                    resp.headers["Retry-After"] = str(retry_after)
+                    return resp
+                bucket.append(now)
+            return fn(*args, **kwargs)
+        return wrapper
+    return decorator
+
 # one lock per shared dict so threads don't stomp each other
 _cache_lock          = _threading.Lock()
 _playtime_cache_lock = _threading.Lock()
@@ -315,6 +358,7 @@ def index():
 
 # oauth2, send user off to discord
 @app.route("/auth/login")
+@rate_limit(30)
 def auth_login():
     from urllib.parse import urlencode as _urlencode
     state = secrets.token_urlsafe(16)
@@ -495,6 +539,7 @@ def auth_mock_login():
 
 # re-pull roles/name/avatar from discord
 @app.route("/auth/refresh")
+@rate_limit(60)
 def auth_refresh():
     user = session.get("user")
     if not user:
@@ -593,6 +638,7 @@ def _get_latest_api_db():
 # ---- rank history (from tracked_guild.json) ----
 
 @app.route("/api/player/<username>/rank-history")
+@rate_limit(10)
 def player_rank_history(username: str):
     """Rank changes pulled from tracked_guild.json."""
     data = _load_json_file(_TRACKED_GUILD_JSON)
@@ -642,6 +688,7 @@ def aspects_clear():
 # ---- playtime/metrics from sqlite snapshots ----
 
 @app.route("/api/player/<username>/playtime-history")
+@rate_limit(10)
 def player_playtime_history(username: str):
     from datetime import datetime as _dt
     from concurrent.futures import ThreadPoolExecutor
@@ -1233,6 +1280,7 @@ def _bulk_playtime_loop():
 
 
 @app.route("/api/guild/activity")
+@rate_limit(60)
 def guild_activity_bulk():
     """Public bulk playtime endpoint — rate-limited, no session required."""
     def _make():
@@ -1244,6 +1292,7 @@ def guild_activity_bulk():
     return _activity_rate_response(_make)
 
 @app.route("/api/player/<username>/metrics-history")
+@rate_limit(10)
 def player_metrics_history(username: str):
     def _make():
         ulow = username.lower()
@@ -1271,6 +1320,7 @@ def player_metrics_history(username: str):
     return _activity_rate_response(_make)
 
 @app.route("/api/guild/prefix/<prefix>/metrics-history")
+@rate_limit(60)
 def guild_metrics_history(prefix: str):
     def _make():
         with _bulk_playtime_lock:
@@ -1292,6 +1342,7 @@ def guild_metrics_history(prefix: str):
 # stored in inactivity_exemptions.json
 
 @app.route("/api/inactivity")
+@rate_limit(60)
 def inactivity_get():
     user, err = _require_role(_PARLIAMENT_PLUS)
     if err:
@@ -1331,6 +1382,7 @@ def inactivity_get():
 
 
 @app.route("/api/inactivity", methods=["POST"])
+@rate_limit(60)
 def inactivity_add():
     user, err = _require_role(_PARLIAMENT_PLUS)
     if err:
@@ -1384,6 +1436,7 @@ def inactivity_add():
 
 
 @app.route("/api/inactivity/<discord_id>", methods=["PATCH"])
+@rate_limit(60)
 def inactivity_edit(discord_id):
     user, err = _require_role(_PARLIAMENT_PLUS)
     if err:
@@ -1410,6 +1463,7 @@ def inactivity_edit(discord_id):
 
 
 @app.route("/api/inactivity/players")
+@rate_limit(60)
 def inactivity_players():
     """All guild members from the player_stats DB."""
     user, err = _require_role(_JUROR_PLUS)
@@ -1448,6 +1502,7 @@ def inactivity_players():
 
 
 @app.route("/api/inactivity/<discord_id>", methods=["DELETE"])
+@rate_limit(60)
 def inactivity_delete(discord_id):
     user, err = _require_role(_PARLIAMENT_PLUS)
     if err:
@@ -1462,6 +1517,7 @@ def inactivity_delete(discord_id):
 # ---- guild stats ----
 
 @app.route("/api/guild/stats")
+@rate_limit(60)
 def guild_stats():
     """Sum key stats across all members using the latest api_tracking snapshot."""
     import glob as _glob
@@ -1514,6 +1570,7 @@ def guild_stats():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/player/<username>")
+@rate_limit(10)
 def player(username: str):
     """Full Wynncraft player data. Tries ?fullResult first, falls back without it."""
     def _friendly_http_error(e):
@@ -1551,6 +1608,7 @@ def player(username: str):
 
 
 @app.route("/api/guild/prefix/<prefix>")
+@rate_limit(10)
 def guild_by_prefix(prefix: str):
     """Guild data by tag/prefix (e.g. ESI)."""
     try:
@@ -1564,6 +1622,7 @@ def guild_by_prefix(prefix: str):
 
 
 @app.route("/api/guild/name/<name>")
+@rate_limit(60)
 def guild_by_name(name: str):
     """Guild data by full name (e.g. Empire of Sindria)."""
     try:
@@ -1577,6 +1636,7 @@ def guild_by_name(name: str):
 
 
 @app.route("/api/bot/info")
+@rate_limit(30)
 def bot_info():
     """Bot user profile from the Discord API."""
     if not DISCORD_TOKEN:
@@ -1597,6 +1657,7 @@ def bot_info():
 
 
 @app.route("/api/bot/health")
+@rate_limit(30)
 def bot_health():
     """Memory/CPU/command stats from bot_status.json."""
     status_path = os.path.join(_BASE_DIR, "bot_status.json")
@@ -1621,6 +1682,7 @@ def bot_health():
 
 
 @app.route("/api/bot/discord")
+@rate_limit(30)
 def bot_discord_snapshot():
     """Discord guild member/channel counts."""
     if not DISCORD_TOKEN or not DISCORD_GUILD_ID:
@@ -1649,6 +1711,7 @@ _GUILD_LEVELS_JSON      = os.path.join(_ESI_BOT_DIR, "guild_levels.json")
 _GUILD_TERRITORIES_JSON = os.path.join(_ESI_BOT_DIR, "guild_territories.json")
 
 @app.route("/api/guild/member-history")
+@rate_limit(60)
 def guild_member_history():
     data = _load_json_file(_TRACKED_GUILD_JSON)
     if not data:
@@ -1656,6 +1719,7 @@ def guild_member_history():
     return jsonify(data.get("event_history", []))
 
 @app.route("/api/guild/levels")
+@rate_limit(60)
 def guild_levels_get():
     data = _load_json_file(_GUILD_LEVELS_JSON)
     if not data:
@@ -1663,6 +1727,7 @@ def guild_levels_get():
     return jsonify(data)
 
 @app.route("/api/guild/territories")
+@rate_limit(60)
 def guild_territories_get():
     """Public territories endpoint"""
     data = _load_json_file(_GUILD_TERRITORIES_JSON)
@@ -1678,6 +1743,7 @@ def guild_territories_get():
 # ---- public API routes (accessible without the dashboard) ----
 
 @app.route("/api/player/rank-history/<username>")
+@rate_limit(10)
 def public_rank_history(username: str):
     data = _load_json_file(_TRACKED_GUILD_JSON)
     member_history = data.get("member_history", {})
@@ -1695,6 +1761,7 @@ def public_rank_history(username: str):
     return jsonify({"username": username, "rank_changes": []})
 
 @app.route("/api/player/playtime/<username>")
+@rate_limit(10)
 def public_playtime(username: str):
     from datetime import datetime as _dt
     from concurrent.futures import ThreadPoolExecutor
@@ -1771,6 +1838,7 @@ def public_metrics(username: str):
 _bot_status_cache = {"data": None, "ts": 0}
 
 @app.route("/api/bot/status")
+@rate_limit(30)
 def bot_status():
     """Bot online/offline status, latency, uptime."""
     # check the status file the bot writes first
@@ -1821,6 +1889,7 @@ def bot_status():
 
 
 @app.route("/api/bot/databases")
+@rate_limit(30)
 def bot_databases():
     """Folder sizes under ESI-Bot/databases/."""
     from datetime import datetime as _dt, date as _date
@@ -1887,6 +1956,7 @@ def bot_databases():
 
 
 @app.route("/api/settings/default-player")
+@rate_limit(60)
 def settings_default_player():
     """Return the MC username for the logged-in user from username_matches.json."""
     user, err = _require_login()
@@ -1910,6 +1980,7 @@ _ticket_rate_lock = _threading.Lock()
 _TICKET_COOLDOWN  = 60.0  # 1 minute between submissions per user
 
 @app.route("/api/ticket", methods=["POST"])
+@rate_limit(30)
 def create_ticket():
     user, err = _require_login()
     if err:
