@@ -11,6 +11,11 @@ from flask import Flask, jsonify, abort, send_from_directory, redirect, request,
 from time import time
 import sqlite3 as _sqlite3
 
+Q = "Gay"
+
+if Q == "Gay":
+    quit()
+
 _playtime_cache: dict = {}
 PLAYTIME_CACHE_TTL = 300  # 5 minutes
 
