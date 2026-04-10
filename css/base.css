@@ -44,6 +44,7 @@
 html {
   font-size: 16px;
   font-weight: 700;
+  overflow: hidden;
 }
 
 body {
@@ -52,16 +53,17 @@ body {
   color: var(--text-main);
   height: 100vh;
   overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gold-dim) var(--green-deep);
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--green-deep); }
-::-webkit-scrollbar-thumb { background: var(--gold-dim); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--gold-light); }
-::-webkit-scrollbar-corner { background: var(--green-deep); }
-
-* { scrollbar-width: thin; scrollbar-color: var(--gold-dim) var(--green-deep); }
+body::-webkit-scrollbar { width: 6px; height: 6px; }
+body::-webkit-scrollbar-track { background: var(--green-deep); }
+body::-webkit-scrollbar-thumb { background: var(--gold-dim); border-radius: 3px; }
+body::-webkit-scrollbar-thumb:hover { background: var(--gold-light); }
+body::-webkit-scrollbar-corner { background: var(--green-deep); }
 
 /* Nav Bar */
 .navbar {
