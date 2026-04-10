@@ -72,9 +72,6 @@
     if (e.target === accountModalBackdrop) closeAccountModal();
   });
   document.getElementById('accountModalClose').addEventListener('click', closeAccountModal);
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') closeAccountModal();
-  });
 
   loginBtn.addEventListener('click', () => {
     if (state.loggedIn) openAccountModal();
@@ -451,7 +448,6 @@ fetch('/auth/session', { credentials: 'same-origin' })
   helpBtn.addEventListener('click', () => openModal());
   modalClose.addEventListener('click', () => closeModal());
   modalBackdrop.addEventListener('click', e => { if (e.target === modalBackdrop) closeModal(); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
   var linksView    = document.getElementById('supportLinksView');
   var ticketView   = document.getElementById('ticketFormView');
@@ -459,12 +455,15 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   function openModal()  { modalBackdrop.classList.add('open');    document.body.style.overflow = 'hidden'; }
   function closeModal() {
+    /* if the ticket form is showing, go back to links view instead of closing */
+    if (supportModal.classList.contains('modal--ticket')) {
+      ticketView.style.display = 'none';
+      linksView.style.display  = 'block';
+      supportModal.classList.remove('modal--ticket');
+      return;
+    }
     modalBackdrop.classList.remove('open');
     document.body.style.overflow = '';
-    /* go back to links view */
-    if (ticketView) ticketView.style.display = 'none';
-    if (linksView)  linksView.style.display  = 'block';
-    supportModal.classList.remove('modal--ticket');
   }
 
   /* ticket form */
@@ -637,7 +636,10 @@ fetch('/auth/session', { credentials: 'same-origin' })
     if (e.target === settingsBackdrop) closeSettings();
   });
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && settingsBackdrop.classList.contains('open')) closeSettings();
+    if (e.key !== 'Escape') return;
+    if (settingsBackdrop.classList.contains('open')) closeSettings();
+    else if (accountModalBackdrop.classList.contains('open')) closeAccountModal();
+    else if (modalBackdrop.classList.contains('open')) closeModal();
   });
 
   /* settings form elements */
