@@ -116,7 +116,7 @@ PLAYER_BULK_METRIC_KEYS = [
     "playtime",
     "wars",
     "guildRaids",
-    "mobsKilled",
+    "EsiMembersTouched",
     "chestsFound",
     "questsDone",
     "totalLevel",
