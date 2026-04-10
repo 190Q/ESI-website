@@ -183,14 +183,14 @@ const ESI_STAFF_ROLES = [
 
 // rank roles shown in the account modal
 const ESI_RANK_ROLES = [
-  { id: '554506531949772812', name: 'Emperor',    color: '#5c11ad' },
-  { id: '554514823191199747', name: 'Archduke',   color: '#b5fff6' },
-  { id: '1396112289832243282', name: 'Grand Duke', color: '#74cac0' },
-  { id: '591765870272053261', name: 'Duke',        color: '#35deac' },
-  { id: '1391424890938195998', name: 'Count',      color: '#3ac770' },
-  { id: '591769392828776449', name: 'Viscount',    color: '#59e365' },
-  { id: '688438690137243892', name: 'Knight',      color: '#93e688' },
-  { id: '681030746651230351', name: 'Squire',      color: '#c7edc0' },
+  { id: '554506531949772812',  name: 'Emperor',     color: '#5c11ad' },
+  { id: '554514823191199747',  name: 'Archduke',    color: '#b5fff6' },
+  { id: '1396112289832243282', name: 'Grand Duke',  color: '#74cac0' },
+  { id: '591765870272053261',  name: 'Duke',        color: '#35deac' },
+  { id: '1391424890938195998', name: 'Count',       color: '#3ac770' },
+  { id: '591769392828776449',  name: 'Viscount',    color: '#59e365' },
+  { id: '688438690137243892',  name: 'Knight',      color: '#93e688' },
+  { id: '681030746651230351',  name: 'Squire',      color: '#c7edc0' },
 ];
 const ESI_ECHELON_ROLES = [
   { id: '600185623474601995', name: 'Parliament', color: '#afb3d1' }, // Parli Colour role

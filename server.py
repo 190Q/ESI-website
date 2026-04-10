@@ -218,8 +218,12 @@ _ROLE_PARLIAMENT = "600185623474601995"
 _ROLE_CONGRESS   = "1346436714901536858"
 _ROLE_JUROR      = "954566591520063510"
 
+_ROLE_GRAND_DUKE = "1396112289832243282"
+_ROLE_ARCHDUKE   = "554514823191199747"
+
 _PARLIAMENT_PLUS = {_ROLE_PARLIAMENT, _ROLE_VALAENDOR}
 _JUROR_PLUS      = {_ROLE_JUROR, _ROLE_CONGRESS, _ROLE_PARLIAMENT, _ROLE_VALAENDOR}
+_CHIEF_PLUS      = {_ROLE_GRAND_DUKE, _ROLE_ARCHDUKE}
 
 def _require_role(allowed_roles: set):
     """Checks that the user is logged in and has at least one of the given roles."""
@@ -607,10 +611,11 @@ def auth_logout():
 
 bot_root                = os.path.dirname(_BASE_DIR)
 _ESI_BOT_DIR            = os.path.join(bot_root, "ESI-Bot")
-_ASPECTS_JSON           = os.path.join(_ESI_BOT_DIR, "aspects_data.json")
-_INACTIVITY_JSON        = os.path.join(_ESI_BOT_DIR, "inactivity_exemptions.json")
-_USERNAME_MATCHES_JSON  = os.path.join(_ESI_BOT_DIR, "username_matches.json")
-_TRACKED_GUILD_JSON     = os.path.join(_ESI_BOT_DIR, "tracked_guild.json")
+_DATA_FOLDER            = os.path.join(_ESI_BOT_DIR, "data")
+_ASPECTS_JSON           = os.path.join(_DATA_FOLDER, "aspects.json")
+_INACTIVITY_JSON        = os.path.join(_DATA_FOLDER, "inactivity_exemptions.json")
+_USERNAME_MATCHES_JSON  = os.path.join(_DATA_FOLDER, "username_matches.json")
+_TRACKED_GUILD_JSON     = os.path.join(_DATA_FOLDER, "tracked_guild.json")
 _API_TRACKING_DIR       = os.path.join(_ESI_BOT_DIR, "databases", "api_tracking")
 
 def _get_latest_api_db():
@@ -669,7 +674,7 @@ def aspects_get():
 
 @app.route("/api/guild/aspects/clear", methods=["POST"])
 def aspects_clear():
-    user, err = _require_role(_PARLIAMENT_PLUS)
+    user, err = _require_role(_CHIEF_PLUS)
     if err:
         return err
     body = request.get_json(silent=True) or {}
@@ -1714,8 +1719,8 @@ def bot_discord_snapshot():
     except requests.RequestException as e:
         abort(502, description=f"Could not reach Discord API: {e}")
 
-_GUILD_LEVELS_JSON      = os.path.join(_ESI_BOT_DIR, "guild_levels.json")
-_GUILD_TERRITORIES_JSON = os.path.join(_ESI_BOT_DIR, "guild_territories.json")
+_GUILD_LEVELS_JSON      = os.path.join(_DATA_FOLDER, "guild_levels.json")
+_GUILD_TERRITORIES_JSON = os.path.join(_DATA_FOLDER, "guild_territories.json")
 
 @app.route("/api/guild/member-history")
 @rate_limit(60)

@@ -5,6 +5,9 @@
   const GraphShared = window.GraphShared;
   const GUILD_PREFIX = 'ESI';
 
+  const _userRoles = (window.state && window.state.user && window.state.user.roles) || [];
+  const canClear = _userRoles.includes('1396112289832243282') || _userRoles.includes('554514823191199747');
+
   // preload guild levels + territories (cached for offline)
   DataCache.cachedFetch('/api/guild/levels').then(function (r) { window.guildLevels = r.data; }).catch(function () {});
   DataCache.cachedFetch('/api/guild/territories').then(function (r) { window.guildTerritories = r.data; }).catch(function () {});
@@ -558,7 +561,7 @@
 
     /* owed cards */
     const aspectsData = window.aspectsData || { total_aspects: 0, members: {} };
-    const owedAspects = aspectsData.total_aspects || 0;
+    const owedAspects = Object.values(aspectsData.members || {}).reduce((s, m) => s + (flatMembers.some(fm => fm.name === m.name) ? (m.owed || 0) : 0), 0);
     const esiPoints   = Math.floor(Math.random() * 50000) + 1000; // 1k–51k
     const territories = Object.keys((window.guildTerritories || {}).territories || {}).length;
     // only show ESI members in the owed list
@@ -577,7 +580,7 @@
     document.getElementById('guildOwedCards').innerHTML = `
       <div class="owed-card owed-card-clickable" id="owedAspectsCard">
         <div class="owed-icon"><img src="images/aspect_icon.avif" alt="aspect" style="width:32px;height:32px;image-rendering:pixelated"></div>
-        <div class="owed-value">${owedAspects}<span style="font-size:1rem;color:var(--text-dim)"> / 40</span></div>
+        <div class="owed-value">${owedAspects}<span style="font-size:1rem;color:var(--text-dim)"> / 120</span></div>
         <div class="owed-label">Aspects Owed</div>
       </div>
       <div class="owed-card">
@@ -612,11 +615,11 @@
     }
 
     function getTotalOwed() {
-      return Object.values(localAspectsData.members || {}).reduce((s, m) => s + (m.owed || 0), 0);
+      return Object.values(localAspectsData.members || {}).reduce((s, m) => s + (guildMemberNames.has(m.name) ? (m.owed || 0) : 0), 0);
     }
 
     function owedColor(n) {
-      return n >= 35 ? '#e74c3c' : n >= 20 ? '#e67e22' : n >= 10 ? '#f1c40f' : 'var(--online)';
+      return n >= 105 ? '#e74c3c' : n >= 60 ? '#e67e22' : n >= 30 ? '#f1c40f' : 'var(--online)';
     }
 
     const popup = document.createElement('div');
@@ -635,7 +638,7 @@
       popup.innerHTML = `
         <div class="owed-aspects-popup-header">
           <img src="images/aspect_icon.avif" alt="aspect" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">Aspects Owed
-            <span class="owed-aspects-popup-count" style="color:${owedColor(total)}">${total}/40</span>
+            <span class="owed-aspects-popup-count" style="color:${owedColor(total)}">${total}/120</span>
           </span>
           <button class="owed-aspects-popup-close" id="owedAspectsClose">✕</button>
         </div>
@@ -650,7 +653,7 @@
                   <span class="owed-aspects-player-name guild-log-name-link" data-username="${m.name}">${m.name}</span>${badge}
                   <div class="owed-aspects-right">
                     <span class="owed-aspects-player-count">${m.owed} owed</span>
-                    <button class="owed-aspects-clear-btn" data-uuid="${uuid}" title="Clear aspects for ${m.name}">Clear</button>
+                    ${canClear ? `<button class="owed-aspects-clear-btn" data-uuid="${uuid}" title="Clear aspects for ${m.name}">Clear</button>` : ''}
                   </div>
                 </div>`;
               }).join('')
@@ -673,7 +676,7 @@
           btn.textContent = '...';
 
           try {
-            const res = await fetch('/api/aspects/clear', {
+            const res = await fetch('/api/guild/aspects/clear', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ uuid }),
@@ -687,7 +690,7 @@
 
             // update the card
             const cardVal = document.querySelector('#owedAspectsCard .owed-value');
-            if (cardVal) cardVal.innerHTML = `${localAspectsData.total_aspects}<span style="font-size:1rem;color:var(--text-dim)"> / 40</span>`;
+            if (cardVal) cardVal.innerHTML = `${localAspectsData.total_aspects}<span style="font-size:1rem;color:var(--text-dim)"> / 120</span>`;
 
             renderOwedPopup();
           } catch (err) {

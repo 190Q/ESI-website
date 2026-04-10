@@ -4,6 +4,9 @@
   const state = window.state;
   const GraphShared = window.GraphShared;
 
+  const _userRoles = (window.state && window.state.user && window.state.user.roles) || [];
+  const canClear = _userRoles.includes('1396112289832243282') || _userRoles.includes('554514823191199747');
+
   /* graph config */
   const graphState = { data: null, compareData: null, compareUsername: null, compareInGuild: null, compareLoading: false, graphReady: false, graphCache: {}, debugLogged: {}, debugFetchTried: {} };
   const GRAPH_METRICS = [
@@ -736,7 +739,7 @@
       }
 
       function owedColor(n) {
-        return n >= 35 ? '#e74c3c' : n >= 20 ? '#e67e22' : n >= 10 ? '#f1c40f' : 'var(--online)';
+        return n >= 105 ? '#e74c3c' : n >= 60 ? '#e67e22' : n >= 30 ? '#f1c40f' : 'var(--online)';
       }
 
       owedEl.innerHTML = `
@@ -784,7 +787,7 @@
                     <span class="owed-aspects-player-name">${name}</span>
                     <div class="owed-aspects-right">
                       <span class="owed-aspects-player-count">${owed} owed</span>
-                      <button class="owed-aspects-clear-btn" id="playerOwedClearBtn" title="Clear aspects for ${name}">Clear</button>
+                      ${canClear ? `<button class="owed-aspects-clear-btn" id="playerOwedClearBtn" title="Clear aspects for ${name}">Clear</button>` : ''}
                     </div>
                   </div>`
               : '<div class="owed-aspects-empty">No aspects owed</div>'
