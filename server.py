@@ -2335,7 +2335,7 @@ def create_ticket():
     title  = (body.get("title") or "").strip()
     desc   = (body.get("body") or "").strip()
     VALID_LABELS = {"bug", "enhancement", "question", "documentation", "help wanted"}
-    labels = body.get("labels") or []
+    labels = [l for l in (body.get("labels") or []) if l in VALID_LABELS]
 
     if not title:
         return jsonify({"error": "Title is required"}), 400
