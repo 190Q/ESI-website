@@ -1860,6 +1860,7 @@ def public_playtime(username: str):
     return jsonify({"username": username, "data": daily})
 
 @app.route("/api/player/metrics/<username>")
+@rate_limit(30)
 def public_metrics(username: str):
     ulow = username.lower()
     with _bulk_playtime_lock:
