@@ -214,17 +214,8 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def _load_env():
-    env_path = os.path.join(_BASE_DIR, '.env')
-    if os.path.exists(env_path):
-        with open(env_path) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#') and '=' in line:
-                    key, _, val = line.partition('=')
-                    os.environ.setdefault(key.strip(), val.strip())
-
-_load_env()
+from dotenv import load_dotenv
+load_dotenv(os.path.join(_BASE_DIR, '.env'))
 
 def _require_login():
     user = session.get("user")
