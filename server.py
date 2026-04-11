@@ -506,7 +506,7 @@ def cached_get(url: str) -> dict:
 def after_request(response):
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'sha256-ZcKinPTE0IEcBn4hHbqEikOw2x8h4OweeMeXEJ25TS8='; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src https://fonts.gstatic.com; "
         "img-src 'self' https://cdn.discordapp.com https://visage.surgeplay.com https://crafatar.com https://mc-heads.net data:; "
