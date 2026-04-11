@@ -502,15 +502,8 @@ def cached_get(url: str) -> dict:
         _cache[url] = (data, now)
     return data
 
-def _cors(response):
-    response.headers["Access-Control-Allow-Origin"]  = "*"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    return response
-
 @app.after_request
 def after_request(response):
-    _cors(response)
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline'; "
