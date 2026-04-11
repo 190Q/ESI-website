@@ -1607,4 +1607,9 @@
 
   window.addEventListener('resize', () => { if (guildGraphState.data) refreshGuildGraph(); });
 
+  // init share buttons for all graph panels
+  if (window.GraphShared && window.GraphShared.initShareButtons) {
+    window.GraphShared.initShareButtons();
+  }
+
 })();

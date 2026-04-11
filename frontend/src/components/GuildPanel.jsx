@@ -46,7 +46,9 @@ export default function GuildPanel() {
 
           {/* Graph */}
           <div className="graph-panels-col">
-            <div className="graph-panel">
+            <div className="graph-panel" style={{ position: 'relative', overflow: 'hidden' }}>
+              <div className="graph-share-zone" />
+              <button className="graph-share-btn" id="guildGraphShareBtn" title="Share graph">{"\uD83D\uDDD2"}</button>
               <div className="graph-panel-header">
                 <span>Activity Comparison</span>
                 <span className="compare-area">

@@ -58,7 +58,9 @@ export default function PlayerPanel() {
 
           {/* Graphs */}
           <div className="graph-panels-col">
-            <div className="graph-panel" id="graphPanelCompare">
+            <div className="graph-panel" id="graphPanelCompare" style={{ position: 'relative', overflow: 'hidden' }}>
+              <div className="graph-share-zone" />
+              <button className="graph-share-btn" id="playerGraphShareBtn" title="Share graph">{"\uD83D\uDDD2"}</button>
               <div className="graph-panel-header">
                 <span>Activity Comparison</span>
                 <span className="compare-area" id="compareArea">

@@ -678,6 +678,48 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+  position: relative;
+}
+/* Invisible hover zone in top-left corner that triggers the share button */
+.graph-share-zone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 60px;
+  height: 50px;
+  z-index: 9;
+}
+.graph-share-btn {
+  position: absolute;
+  top: -28px;
+  left: 12px;
+  z-index: 10;
+  background: radial-gradient(circle, rgba(15,34,16,0.85) 40%, transparent 70%);
+  border: none;
+  color: var(--text-faint);
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  border-radius: 50%;
+  backdrop-filter: blur(4px);
+  transition: top 0.25s ease, opacity 0.25s ease, color var(--transition), transform var(--transition);
+  opacity: 0;
+  pointer-events: none;
+}
+.graph-share-zone:hover ~ .graph-share-btn,
+.graph-share-btn:hover {
+  top: 8px;
+  opacity: 1;
+  pointer-events: auto;
+}
+.graph-share-btn:hover {
+  color: var(--gold-light);
+  transform: scale(1.1);
 }
 .player-views-col {
   flex: 1;

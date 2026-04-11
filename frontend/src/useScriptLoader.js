@@ -22,6 +22,8 @@ export default function useScriptLoader() {
         .catch(function () { window.aspectsData = { total_aspects: 0, members: {} } })
 
       await loadScript('/js/activity_prefetch.js')
+      await loadScript('/js/purify.min.js')
+      await loadScript('/js/html2canvas.min.js')
       await loadScript('/js/app.js')
       await loadScript('/js/graph-shared.js')
       await loadScript('/js/player.js')

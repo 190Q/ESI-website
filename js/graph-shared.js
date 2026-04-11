@@ -416,6 +416,77 @@
     };
   }
 
+  /**
+   * Attach a share button to every .graph-panel that contains a .graph-share-btn.
+   * On click it captures the panel (hiding controls, metric rows, legend, add-metric
+   * button, and the share button itself), then copies to clipboard or downloads.
+   */
+  function initShareButtons() {
+    var btns = document.querySelectorAll('.graph-share-btn');
+    btns.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var panel = btn.closest('.graph-panel');
+        if (!panel) return;
+
+        // clone the panel off-screen so the user never sees changes
+        var clone = panel.cloneNode(true);
+        clone.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + panel.offsetWidth + 'px;z-index:-1;overflow:hidden;';
+        document.body.appendChild(clone);
+
+        // remove unwanted elements from the clone
+        clone.querySelectorAll('.graph-controls, .graph-legend, .btn-add-metric, .graph-share-zone, .graph-share-btn, .graph-hover-tooltip, .graph-hover-vline, .graph-hover-xbadge, .graph-selected-vline, .graph-selected-xbadge, .compare-area, .graph-loader').forEach(function (el) {
+          el.remove();
+        });
+
+        // strip IDs from clone to avoid duplicate-ID issues with html2canvas
+        clone.querySelectorAll('[id]').forEach(function (el) { el.removeAttribute('id'); });
+
+        // copy the canvas content (cloneNode doesn't copy canvas pixels)
+        var srcCanvas = panel.querySelector('canvas');
+        var cloneCanvas = clone.querySelector('canvas');
+        if (srcCanvas && cloneCanvas) {
+          cloneCanvas.width = srcCanvas.width;
+          cloneCanvas.height = srcCanvas.height;
+          cloneCanvas.style.width = srcCanvas.style.width;
+          cloneCanvas.style.height = srcCanvas.style.height;
+          var cloneCtx = cloneCanvas.getContext('2d');
+          if (cloneCtx) cloneCtx.drawImage(srcCanvas, 0, 0);
+        }
+
+        if (typeof html2canvas !== 'undefined') {
+          html2canvas(clone, { backgroundColor: '#0D1A0D', scale: 2, useCORS: true, allowTaint: true }).then(function (c) {
+            clone.remove();
+            _copyOrDownload(c);
+          }).catch(function () {
+            clone.remove();
+            _copyOrDownload(srcCanvas);
+          });
+        } else {
+          clone.remove();
+          _copyOrDownload(srcCanvas);
+        }
+
+        function _copyOrDownload(c) {
+          if (!c) return;
+          c.toBlob(function (blob) {
+            if (!blob) return;
+            if (navigator.clipboard && typeof ClipboardItem !== 'undefined') {
+              navigator.clipboard.write([
+                new ClipboardItem({ 'image/png': blob })
+              ]).then(function () {
+                if (window.showToast) window.showToast('\u2713 Graph copied to clipboard', 'success');
+              }).catch(function () {
+                if (window.showToast) window.showToast('\u26a0 Failed to copy graph', 'warn');
+              });
+            } else {
+              if (window.showToast) window.showToast('\u26a0 Clipboard not supported in this browser', 'warn');
+            }
+          }, 'image/png');
+        }
+      });
+    });
+  }
+
   window.GraphShared = Object.freeze({
     ensureTooltip: ensureTooltip,
     ensureHoverGuides: ensureHoverGuides,
@@ -426,5 +497,6 @@
     positionTooltip: positionTooltip,
     drawGraphCanvas: drawGraphCanvas,
     computeSummaryStats: computeSummaryStats,
+    initShareButtons: initShareButtons,
   });
 })();
