@@ -245,6 +245,16 @@ function renderAccountModalRoles(userRoles, userId) {
   el.style.display = html ? '' : 'none';
 }
 
+// strip sensitive data before caching to localStorage
+function _userForCache(user) {
+  return {
+    id:       user.id,
+    username: user.username,
+    nick:     user.nick,
+    avatar:   user.avatar,
+  };
+}
+
 // apply a verified user object and lock down permissions accordingly
 var _defaultPlayerFetched = false;
 function applyLogin(user) {
@@ -297,7 +307,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
     .then(r => r.json())
     .then(function(data) {
         if (data.loggedIn) {
-            localStorage.setItem('esi_user', JSON.stringify(data.user));
+            localStorage.setItem('esi_user', JSON.stringify(_userForCache(data.user)));
             applyLogin(data.user);
             if (_authJustCompleted) {
                 _authJustCompleted = false;
@@ -357,7 +367,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
       .then(function (r) { return r.json(); })
       .then(function (fresh) {
         if (fresh.loggedIn && fresh.user) {
-          localStorage.setItem('esi_user', JSON.stringify(fresh.user));
+          localStorage.setItem('esi_user', JSON.stringify(_userForCache(fresh.user)));
           applyLogin(fresh.user);
         } else if (!fresh.loggedIn && state.loggedIn) {
           // server invalidated the session (deauthorized, kicked, etc.)
