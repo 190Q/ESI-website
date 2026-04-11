@@ -490,6 +490,9 @@ def after_request(response):
         "img-src 'self' https://cdn.discordapp.com https://visage.surgeplay.com https://crafatar.com https://mc-heads.net data:; "
         "connect-src 'self';"
     )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
 
 # block direct access to sensitive files in the static root
