@@ -2314,7 +2314,7 @@ def create_ticket():
         )
         if not resp.ok:
             import sys
-            print(f"[TICKET] GitHub API error: {resp.status_code} {resp.text[:200]}", file=sys.stderr)
+            print(f"[TICKET] GitHub API error: {resp.status_code}", file=sys.stderr)
             return jsonify({"error": "Failed to create issue on GitHub"}), 502
         data = resp.json()
         # clean up uploaded files that were embedded in the ticket
