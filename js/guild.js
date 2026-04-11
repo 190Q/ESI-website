@@ -247,19 +247,6 @@
 
   function maybeLogGuildDebug() {
     if (!METRICS_DEBUG_ENABLED || guildGraphState.debugLogged) return;
-    const guildDebug = window.guildStatsDebugCache || ((window.playtimeDebugCache || {}).guild || null);
-    if (typeof console !== 'undefined' && console.info) {
-      if (!guildDebug) {
-        console.info('[metricsDebug][guild]', 'No guild debug payload available.');
-      } else {
-        const intervals = Array.isArray(guildDebug.intervals) ? guildDebug.intervals : [];
-        console.info('[metricsDebug][guild]', {
-          totalIntervals: intervals.length,
-          intervals: intervals.slice(-80),
-          dailyGuildRaids: Array.isArray(guildDebug.dailyGuildRaids) ? guildDebug.dailyGuildRaids : [],
-        });
-      }
-    }
     guildGraphState.debugLogged = true;
   }
 
@@ -267,22 +254,6 @@
     if (!METRICS_DEBUG_ENABLED || !username) return;
     const key = username.toLowerCase();
     if (guildGraphState.compareDebugLogged[key]) return;
-    const memberDebug = (((window.playtimeDebugCache || {}).members || {})[key] || null);
-    if (typeof console !== 'undefined' && console.info) {
-      if (!memberDebug) {
-        console.info('[metricsDebug][guild-compare]', username, 'No member debug payload available.');
-      } else {
-        const intervals = Array.isArray(memberDebug.guildRaids) ? memberDebug.guildRaids : [];
-        const interesting = intervals.filter(row =>
-          row.reason !== 'applied' || (typeof row.rawDelta === 'number' && row.rawDelta >= 25)
-        );
-        console.info('[metricsDebug][guild-compare]', username, {
-          totalGuildRaidIntervals: intervals.length,
-          interestingGuildRaidIntervals: interesting.length,
-          intervals: interesting.length ? interesting : intervals.slice(-30),
-        });
-      }
-    }
     guildGraphState.compareDebugLogged[key] = true;
   }
   let guildLoaded = false;

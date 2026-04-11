@@ -1554,26 +1554,6 @@
     if (!METRICS_DEBUG_ENABLED || !username) return;
     const key = username.toLowerCase();
     if (graphState.debugLogged[key]) return;
-    const allDebug = window.playtimeDebugCache || {};
-    const memberDebug = (allDebug.members || {})[key];
-    if (!memberDebug) {
-      if (typeof console !== 'undefined' && console.info) {
-        console.info('[metricsDebug][player]', username, 'No member debug payload available.');
-      }
-      graphState.debugLogged[key] = true;
-      return;
-    }
-    const intervals = Array.isArray(memberDebug.guildRaids) ? memberDebug.guildRaids : [];
-    const interesting = intervals.filter(row =>
-      row.reason !== 'applied' || (typeof row.rawDelta === 'number' && row.rawDelta >= 25)
-    );
-    if (typeof console !== 'undefined' && console.info) {
-      console.info('[metricsDebug][player]', username, {
-        totalGuildRaidIntervals: intervals.length,
-        interestingGuildRaidIntervals: interesting.length,
-        intervals: interesting.length ? interesting : intervals.slice(-25),
-      });
-    }
     graphState.debugLogged[key] = true;
   }
 

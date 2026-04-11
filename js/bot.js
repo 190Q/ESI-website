@@ -11,7 +11,7 @@
 
   var trackerTimers = {};
   var botInitialized = false;
-  var botStartTime = Date.now();
+  var botUptimeSeconds = 0;
 
   /* ── Observe panel activation ── */
   var panel = document.getElementById('panel-bot');
@@ -59,9 +59,10 @@
       _botToast = window.showProgressToast('Fetching bot data\u2026');
       _botToast.addItem('info',     'Bot Info');
       _botToast.addItem('status',   'Bot Status');
+      _botToast.addItem('trackers', 'Trackers');
       _botToast.addItem('snapshot', 'Discord Server');
       _botToast.addItem('db',       'Databases');
-      _bTotal = 4;
+      _bTotal = 5;
     }
     var _bMsgs = { success: '\u2713 Bot data loaded', fail: '\u2715 Failed to load bot data', partial: '\u26a0 Bot data partially loaded' };
     function _bCheckDone() { _bDone++; if (_bDone >= _bTotal && _botToast) _botToast.finish(_bMsgs); }
@@ -98,6 +99,11 @@
       .then(function(data) { if (_botToast) _botToast.updateItem('snapshot', 'success'); _bCheckDone(); return data; })
       .catch(function() { if (_botToast) _botToast.updateItem('snapshot', 'error'); _bCheckDone(); return null; });
 
+    var trackersP = fetch('/api/bot/trackers', { cache: 'no-store' })
+      .then(function(r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function(data) { if (_botToast) _botToast.updateItem('trackers', 'success'); _bCheckDone(); return data; })
+      .catch(function() { if (_botToast) _botToast.updateItem('trackers', 'error'); _bCheckDone(); return { trackers: [] }; });
+
     // Render each section as its data arrives
     Promise.all([infoP, statusP]).then(function(results) {
       avatarEl.style.visibility = '';
@@ -112,8 +118,11 @@
       renderDatabases(data);
     });
 
+    trackersP.then(function(payload) {
+      initTrackers(payload && payload.trackers);
+    });
+
     // These don't need data
-    initTrackers();
     startUptimeTicker();
   }
 
@@ -163,11 +172,16 @@
     var statusEl  = document.getElementById('botStatusPill');
     var latencyEl = document.getElementById('botLatency');
     var uptimeEl  = document.getElementById('botUptime');
-
-    statusEl.className   = 'status-pill online';
-    statusEl.textContent = '● Online';
-    latencyEl.textContent = 'Latency: ' + status.latency + 'ms';
-    uptimeEl.textContent  = 'Uptime: ' + formatDuration(Date.now() - botStartTime);
+    var isOnline = !!(status && status.online);
+    var latency = status && typeof status.latency === 'number' ? status.latency : null;
+    var uptime = status && typeof status.uptime_seconds === 'number' ? status.uptime_seconds : null;
+    if (uptime !== null && uptime >= 0) {
+      botUptimeSeconds = Math.floor(uptime);
+    }
+    statusEl.className   = 'status-pill ' + (isOnline ? 'online' : 'offline');
+    statusEl.textContent = isOnline ? '● Online' : '● Offline';
+    latencyEl.textContent = 'Latency: ' + (latency === null ? '—' : latency + 'ms');
+    uptimeEl.textContent  = 'Uptime: ' + formatDuration(Math.max(0, botUptimeSeconds) * 1000);
   }
 
   function formatDuration(ms) {
@@ -184,8 +198,8 @@
 
   function startUptimeTicker() {
     setInterval(function () {
-      var elapsed = Date.now() - botStartTime;
-      var str = formatDuration(elapsed);
+      botUptimeSeconds = Math.max(0, botUptimeSeconds + 1);
+      var str = formatDuration(botUptimeSeconds * 1000);
       var uptimeEl = document.getElementById('botUptime');
       if (uptimeEl) uptimeEl.textContent = 'Uptime: ' + str;
       var tEl = document.getElementById('trackerHeaderUptime');
@@ -255,13 +269,36 @@
      Tracker Countdowns
      ══════════════════════════════════ */
 
-  function initTrackers() {
+  function normalizeRemaining(remaining, interval) {
+    var n = Number(remaining);
+    if (!isFinite(n)) return interval;
+    n = Math.floor(n);
+    if (n <= 0) return interval;
+    if (n > interval) {
+      n = n % interval;
+      if (n === 0) n = interval;
+    }
+    return n;
+  }
+
+  function initTrackers(serverTrackers) {
     var list = document.getElementById('trackerList');
     var html = '';
+    var remoteByName = {};
+
+    if (Array.isArray(serverTrackers)) {
+      for (var j = 0; j < serverTrackers.length; j++) {
+        var row = serverTrackers[j];
+        if (!row || !row.name) continue;
+        remoteByName[String(row.name).toLowerCase()] = row;
+      }
+    }
 
     for (var i = 0; i < TRACKERS.length; i++) {
       var t = TRACKERS[i];
-      trackerTimers[i] = 0; // all start at the same time
+      var remote = remoteByName[t.name.toLowerCase()];
+      var remaining = remote && remote.remaining_seconds;
+      trackerTimers[i] = normalizeRemaining(remaining, t.interval);
       html += '<div class="tracker-item">' +
         '<div class="tracker-header">' +
         '<span class="tracker-name">' + t.name + '</span>' +
@@ -279,16 +316,16 @@
   function tickTrackers() {
     for (var i = 0; i < TRACKERS.length; i++) {
       var t = TRACKERS[i];
-      trackerTimers[i]--;
-      if (trackerTimers[i] <= 0) {
-        trackerTimers[i] = t.interval;
-      }
-      var remaining = trackerTimers[i];
+      var remaining = Number(trackerTimers[i]);
+      if (!isFinite(remaining) || remaining <= 0) remaining = t.interval;
       var pct = ((t.interval - remaining) / t.interval) * 100;
       var timeEl = document.getElementById('trackerTime' + i);
       var barEl  = document.getElementById('trackerBar' + i);
       if (timeEl) timeEl.textContent = formatCountdown(remaining);
       if (barEl)  barEl.style.width  = pct + '%';
+      remaining = remaining - 1;
+      if (remaining <= 0) remaining = t.interval;
+      trackerTimers[i] = remaining;
     }
   }
 

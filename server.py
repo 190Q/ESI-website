@@ -7,6 +7,8 @@ import secrets
 import requests
 import os
 import json
+import subprocess
+import tempfile
 from flask import Flask, jsonify, abort, send_from_directory, redirect, request, session, g
 from time import time
 import sqlite3 as _sqlite3
@@ -1902,12 +1904,228 @@ def public_metrics(username: str):
     })
 
 
+_BOT_SCREEN_SESSION = (os.environ.get("ESI_BOT_SCREEN_NAME") or "esi-bot").strip()
+_TRACKER_SCREEN_SESSION = (os.environ.get("ESI_TRACKERS_SCREEN_NAME") or "esi-bot-trackers").strip()
+_TRACKER_SCREEN_SPECS = [
+    {"name": "API Tracker", "interval": 300, "keywords": ("api tracker", "api_tracking")},
+    {"name": "Playtime Tracker", "interval": 300, "keywords": ("playtime tracker", "playtime_tracking")},
+    {"name": "Guild Tracker", "interval": 30, "keywords": ("guild tracker", "guild_tracking")},
+    {"name": "Claim Tracker", "interval": 3, "keywords": ("claim tracker", "claim_tracking")},
+]
+_DURATION_UNITS_RE = _re.compile(
+    r"(\d+)\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b",
+    _re.IGNORECASE,
+)
+_DURATION_CLOCK_RE = _re.compile(r"(?<!\d)(\d{1,2}):(\d{2})(?::(\d{2}))?(?!\d)")
+
+
+def _run_capture(args, timeout=4):
+    try:
+        proc = subprocess.run(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        return proc.returncode, proc.stdout or "", proc.stderr or ""
+    except (OSError, subprocess.SubprocessError):
+        return None, "", ""
+
+
+def _screen_session_pid(session_name):
+    if not session_name:
+        return None
+    code, out, err = _run_capture(["screen", "-ls"], timeout=4)
+    if code is None:
+        return None
+    text = (out or "") + "\n" + (err or "")
+    m = _re.search(rf"^\s*(\d+)\.{_re.escape(session_name)}\s", text, _re.MULTILINE)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except (TypeError, ValueError):
+        return None
+
+
+def _screen_session_uptime_seconds(session_name):
+    pid = _screen_session_pid(session_name)
+    if not pid:
+        return None
+    code, out, _ = _run_capture(["ps", "-o", "etimes=", "-p", str(pid)], timeout=4)
+    if code is None:
+        return None
+    m = _re.search(r"\d+", out or "")
+    if not m:
+        return None
+    try:
+        return int(m.group(0))
+    except (TypeError, ValueError):
+        return None
+
+
+def _read_screen_hardcopy(session_name):
+    if not session_name:
+        return ""
+    fd, tmp_path = tempfile.mkstemp(prefix="esi_screen_", suffix=".log")
+    os.close(fd)
+    try:
+        code, _, _ = _run_capture(["screen", "-S", session_name, "-X", "hardcopy", "-h", tmp_path], timeout=5)
+        if code != 0:
+            return ""
+        with open(tmp_path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read()
+    except OSError:
+        return ""
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
+def _parse_duration_seconds(text):
+    if not text:
+        return None
+    total = 0
+    found_units = False
+    for amt, unit in _DURATION_UNITS_RE.findall(text):
+        try:
+            n = int(amt)
+        except (TypeError, ValueError):
+            continue
+        u = (unit or "").lower()
+        if u.startswith("h"):
+            total += n * 3600
+        elif u.startswith("m"):
+            total += n * 60
+        else:
+            total += n
+        found_units = True
+    if found_units and total > 0:
+        return total
+
+    lower = text.lower()
+    if not any(hint in lower for hint in ("left", "remaining", "next", "eta", " in ")):
+        return None
+    m = _DURATION_CLOCK_RE.search(text)
+    if not m:
+        return None
+    try:
+        a = int(m.group(1))
+        b = int(m.group(2))
+        c = m.group(3)
+        if c is None:
+            return (a * 60) + b
+        return (a * 3600) + (b * 60) + int(c)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_remaining(seconds, interval):
+    try:
+        s = int(seconds)
+    except (TypeError, ValueError):
+        return None
+    if s <= 0:
+        return interval
+    if interval <= 0:
+        return s
+    if s > interval:
+        s = s % interval
+        if s == 0:
+            s = interval
+    return s
+
+
+def _extract_tracker_countdowns(console_text):
+    lines = (console_text or "").splitlines()
+    by_name = {}
+    for line in reversed(lines):
+        low = line.lower()
+        for spec in _TRACKER_SCREEN_SPECS:
+            name = spec["name"]
+            if name in by_name:
+                continue
+            if not any(k in low for k in spec["keywords"]):
+                continue
+            seconds = _parse_duration_seconds(line)
+            if seconds is None:
+                continue
+            remaining = _normalize_remaining(seconds, spec["interval"])
+            if remaining is None:
+                continue
+            by_name[name] = remaining
+        if len(by_name) == len(_TRACKER_SCREEN_SPECS):
+            break
+    return by_name
+
+def _remaining_from_last_update(last_update_ts, interval, now_ts=None):
+    if last_update_ts is None:
+        return None
+    try:
+        interval = int(interval)
+    except (TypeError, ValueError):
+        return None
+    if interval <= 0:
+        return None
+    if now_ts is None:
+        now_ts = time()
+    elapsed = int(max(0, now_ts - float(last_update_ts)))
+    stale_after = max(interval * 20, interval + 120)
+    if elapsed > stale_after:
+        return None
+    remaining = interval - (elapsed % interval)
+    if remaining <= 0 or remaining > interval:
+        remaining = interval
+    return remaining
+
+
+def _safe_mtime(path):
+    if not path:
+        return None
+    try:
+        if os.path.isfile(path):
+            return os.path.getmtime(path)
+    except OSError:
+        return None
+    return None
+
+
+def _first_existing_mtime(paths):
+    for p in paths:
+        mt = _safe_mtime(p)
+        if mt is not None:
+            return mt
+    return None
+
+
+def _estimate_tracker_countdowns_from_files():
+    now_ts = time()
+    api_latest = _get_latest_api_db()
+    playtime_db = os.path.join(_ESI_BOT_DIR, "databases", "playtime_tracking.db")
+    tracked_guild_root = os.path.join(_ESI_BOT_DIR, "tracked_guild.json")
+    territories_root = os.path.join(_ESI_BOT_DIR, "guild_territories.json")
+    guild_mtime = _first_existing_mtime([_TRACKED_GUILD_JSON, tracked_guild_root])
+    claim_mtime = _first_existing_mtime([_GUILD_TERRITORIES_JSON, territories_root])
+    return {
+        "API Tracker": _remaining_from_last_update(_safe_mtime(api_latest), 300, now_ts=now_ts),
+        "Playtime Tracker": _remaining_from_last_update(_safe_mtime(playtime_db), 300, now_ts=now_ts),
+        "Guild Tracker": _remaining_from_last_update(guild_mtime, 30, now_ts=now_ts),
+        "Claim Tracker": _remaining_from_last_update(claim_mtime, 3, now_ts=now_ts),
+    }
+
+
 _bot_status_cache = {"data": None, "ts": 0}
 
 @app.route("/api/bot/status")
 @rate_limit(30)
 def bot_status():
     """Bot online/offline status, latency, uptime."""
+    now = time()
+    screen_uptime = _screen_session_uptime_seconds(_BOT_SCREEN_SESSION)
     # check the status file the bot writes first
     status_path = os.path.join(_BASE_DIR, "bot_status.json")
     if os.path.exists(status_path):
@@ -1917,16 +2135,22 @@ def bot_status():
             last_hb = data.get("last_heartbeat", 0)
             if time() - last_hb > 60:
                 data["online"] = False
+            if screen_uptime is not None:
+                data["uptime_seconds"] = int(screen_uptime)
+                data["uptime_since"] = int(now - screen_uptime)
             return jsonify(data)
         except (json.JSONDecodeError, IOError):
             pass
 
     # no status file, fall back to pinging discord (cached 60s)
-    now = time()
     with _bot_status_lock:
         _bsc = (_bot_status_cache["data"], _bot_status_cache["ts"])
     if now - _bsc[1] < 60 and _bsc[0] is not None:
-        return jsonify(_bsc[0])
+        cached = dict(_bsc[0])
+        if screen_uptime is not None:
+            cached["uptime_seconds"] = int(screen_uptime)
+            cached["uptime_since"] = int(now - screen_uptime)
+        return jsonify(cached)
 
     if DISCORD_TOKEN:
         try:
@@ -1938,21 +2162,60 @@ def bot_status():
             )
             latency_ms = round((time() - start) * 1000)
             if resp.ok:
-                result = {"online": True, "latency": latency_ms,
-                          "uptime_since": None, "last_heartbeat": None}
+                result = {
+                    "online": True,
+                    "latency": latency_ms,
+                    "uptime_since": int(now - screen_uptime) if screen_uptime is not None else None,
+                    "uptime_seconds": int(screen_uptime) if screen_uptime is not None else None,
+                    "last_heartbeat": None,
+                }
                 with _bot_status_lock:
                     _bot_status_cache["data"] = result
                     _bot_status_cache["ts"] = now
                 return jsonify(result)
         except requests.RequestException:
             pass
-
-    offline = {"online": False, "latency": None,
-               "uptime_since": None, "last_heartbeat": None}
+    offline = {
+        "online": bool(screen_uptime),
+        "latency": None,
+        "uptime_since": int(now - screen_uptime) if screen_uptime is not None else None,
+        "uptime_seconds": int(screen_uptime) if screen_uptime is not None else None,
+        "last_heartbeat": None,
+    }
     with _bot_status_lock:
         _bot_status_cache["data"] = offline
         _bot_status_cache["ts"] = now
     return jsonify(offline)
+
+@app.route("/api/bot/trackers")
+@rate_limit(30)
+def bot_trackers():
+    """Tracker countdowns parsed from the tracker screen session console."""
+    console_text = _read_screen_hardcopy(_TRACKER_SCREEN_SESSION)
+    by_name = _extract_tracker_countdowns(console_text)
+    by_file = _estimate_tracker_countdowns_from_files()
+    trackers = []
+    screen_has_values = any(v is not None for v in by_name.values())
+    file_has_values = any(v is not None for v in by_file.values())
+    for spec in _TRACKER_SCREEN_SPECS:
+        screen_value = by_name.get(spec["name"])
+        file_value = by_file.get(spec["name"])
+        trackers.append({
+            "name": spec["name"],
+            "interval": spec["interval"],
+            "remaining_seconds": screen_value if screen_value is not None else file_value,
+        })
+    source = "fallback"
+    if screen_has_values:
+        source = "screen"
+    elif file_has_values:
+        source = "file"
+    elif console_text:
+        source = "screen-unparsed"
+    return jsonify({
+        "trackers": trackers,
+        "source": source,
+    })
 
 
 @app.route("/api/bot/databases")
