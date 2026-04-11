@@ -321,6 +321,18 @@ app.permanent_session_lifetime = timedelta(days=30)
 
 _USER_DB_PATH = os.path.join(_BASE_DIR, "user_data.db")
 
+# thread-local connection pool, one connection per thread, reused across requests
+_db_local = _threading.local()
+
+def _get_db():
+    """Return a thread-local SQLite connection (reused, not opened per request)."""
+    conn = getattr(_db_local, "conn", None)
+    if conn is None:
+        conn = _sqlite3.connect(_USER_DB_PATH, timeout=10, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _db_local.conn = conn
+    return conn
+
 def _init_user_db():
     conn = _sqlite3.connect(_USER_DB_PATH)
     conn.execute("""
@@ -352,7 +364,7 @@ def _remember_create(user_data):
     """Create a remember-me token for the given user. Returns the token string."""
     token = secrets.token_urlsafe(64)
     now = time()
-    conn = _sqlite3.connect(_USER_DB_PATH)
+    conn = _get_db()
     # one token per user — delete any old ones
     conn.execute("DELETE FROM remember_tokens WHERE discord_id = ?", (user_data["id"],))
     conn.execute(
@@ -363,7 +375,6 @@ def _remember_create(user_data):
     # periodically prune expired tokens from all users
     conn.execute("DELETE FROM remember_tokens WHERE expires_at < ?", (now,))
     conn.commit()
-    conn.close()
     return token
 
 
@@ -372,7 +383,7 @@ def _remember_restore(token):
     if not token:
         return None
     now = time()
-    conn = _sqlite3.connect(_USER_DB_PATH)
+    conn = _get_db()
     row = conn.execute(
         "SELECT user_data, expires_at FROM remember_tokens WHERE token = ?", (token,)
     ).fetchone()
@@ -380,7 +391,6 @@ def _remember_restore(token):
         # expired or missing — clean up
         conn.execute("DELETE FROM remember_tokens WHERE token = ?", (token,))
         conn.commit()
-        conn.close()
         return None
     # extend expiry (sliding window)
     conn.execute(
@@ -388,7 +398,6 @@ def _remember_restore(token):
         (now + _REMEMBER_MAX_AGE, token),
     )
     conn.commit()
-    conn.close()
     try:
         return json.loads(row[0])
     except (json.JSONDecodeError, TypeError):
@@ -397,24 +406,22 @@ def _remember_restore(token):
 
 def _remember_update(discord_id, user_data):
     """Update the cached user data on all tokens for this user."""
-    conn = _sqlite3.connect(_USER_DB_PATH)
+    conn = _get_db()
     conn.execute(
         "UPDATE remember_tokens SET user_data = ? WHERE discord_id = ?",
         (json.dumps(user_data), discord_id),
     )
     conn.commit()
-    conn.close()
 
 
 def _remember_delete(token=None, discord_id=None):
     """Delete a specific token or all tokens for a user."""
-    conn = _sqlite3.connect(_USER_DB_PATH)
+    conn = _get_db()
     if token:
         conn.execute("DELETE FROM remember_tokens WHERE token = ?", (token,))
     if discord_id:
         conn.execute("DELETE FROM remember_tokens WHERE discord_id = ?", (discord_id,))
     conn.commit()
-    conn.close()
 
 
 def _set_remember_cookie(response, token):
@@ -2086,11 +2093,10 @@ def settings_get():
     if err:
         return err
     discord_id = user.get("id", "")
-    conn = _sqlite3.connect(_USER_DB_PATH)
+    conn = _get_db()
     row = conn.execute(
         "SELECT settings FROM user_settings WHERE discord_id = ?", (discord_id,)
     ).fetchone()
-    conn.close()
     if row:
         try:
             return jsonify(json.loads(row[0]))
@@ -2112,7 +2118,7 @@ def settings_put():
         return jsonify({"error": "Invalid settings"}), 400
     now = time()
     settings_str = json.dumps(body)
-    conn = _sqlite3.connect(_USER_DB_PATH)
+    conn = _get_db()
     conn.execute(
         "INSERT INTO user_settings (discord_id, settings, updated_at) VALUES (?, ?, ?)"
         " ON CONFLICT(discord_id) DO UPDATE SET settings = excluded.settings,"
@@ -2120,7 +2126,6 @@ def settings_put():
         (discord_id, settings_str, now),
     )
     conn.commit()
-    conn.close()
     return jsonify({"ok": True})
 
 
