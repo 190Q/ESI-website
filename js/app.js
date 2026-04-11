@@ -68,8 +68,11 @@
     document.body.style.overflow = '';
   }
 
-  accountModalBackdrop.addEventListener('click', function (e) {
-    if (e.target === accountModalBackdrop) closeAccountModal();
+  var _acctMouseDownOnBackdrop = false;
+  accountModalBackdrop.addEventListener('mousedown', function (e) { _acctMouseDownOnBackdrop = e.target === accountModalBackdrop; });
+  accountModalBackdrop.addEventListener('mouseup', function (e) {
+    if (_acctMouseDownOnBackdrop && e.target === accountModalBackdrop) closeAccountModal();
+    _acctMouseDownOnBackdrop = false;
   });
   document.getElementById('accountModalClose').addEventListener('click', closeAccountModal);
 
@@ -450,7 +453,12 @@ fetch('/auth/session', { credentials: 'same-origin' })
   /* support modal */
   helpBtn.addEventListener('click', () => openModal());
   modalClose.addEventListener('click', () => closeModal());
-  modalBackdrop.addEventListener('click', e => { if (e.target === modalBackdrop) closeModal(); });
+  var _modalMouseDownOnBackdrop = false;
+  modalBackdrop.addEventListener('mousedown', e => { _modalMouseDownOnBackdrop = e.target === modalBackdrop; });
+  modalBackdrop.addEventListener('mouseup', e => {
+    if (_modalMouseDownOnBackdrop && e.target === modalBackdrop) closeModal();
+    _modalMouseDownOnBackdrop = false;
+  });
 
   var linksView    = document.getElementById('supportLinksView');
   var ticketView   = document.getElementById('ticketFormView');
@@ -1095,8 +1103,11 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   settingsBtn.addEventListener('click', openSettings);
   settingsCloseBtn.addEventListener('click', closeSettings);
-  settingsBackdrop.addEventListener('click', function (e) {
-    if (e.target === settingsBackdrop) closeSettings();
+  var _settingsMouseDownOnBackdrop = false;
+  settingsBackdrop.addEventListener('mousedown', function (e) { _settingsMouseDownOnBackdrop = e.target === settingsBackdrop; });
+  settingsBackdrop.addEventListener('mouseup', function (e) {
+    if (_settingsMouseDownOnBackdrop && e.target === settingsBackdrop) closeSettings();
+    _settingsMouseDownOnBackdrop = false;
   });
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
