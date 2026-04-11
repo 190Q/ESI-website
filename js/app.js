@@ -15,7 +15,7 @@
   const helpBtn         = document.getElementById('helpBtn');
   const modalBackdrop   = document.getElementById('modalBackdrop');
   const modalClose      = document.getElementById('modalClose');
-  const manageSection    = document.getElementById('manageSection');
+  const manageSection   = document.getElementById('manageSection');
   const navItems        = document.querySelectorAll('.nav-item');
   const sidebar         = document.getElementById('sidebar');
   const sidebarToggle   = document.getElementById('sidebarToggle');
@@ -165,14 +165,26 @@
     idEl.textContent  = 'ID: ' + user.id;
 
     var roles = user.role_objects || [];
+    rolesEl.innerHTML = '';
     if (roles.length === 0) {
-      rolesEl.innerHTML = '<div style="padding:16px 20px;color:var(--text-faint);font-style:italic">No roles</div>';
+      var empty = document.createElement('div');
+      empty.style.cssText = 'padding:16px 20px;color:var(--text-faint);font-style:italic';
+      empty.textContent = 'No roles';
+      rolesEl.appendChild(empty);
     } else {
-      rolesEl.innerHTML = roles.map(function (r) {
-        return '<div class="profile-role-row">' +
-          '<span class="profile-role-name">' + r.name + '</span>' +
-          '<span class="profile-role-id">' + r.id + '</span></div>';
-      }).join('');
+      roles.forEach(function (r) {
+        var row = document.createElement('div');
+        row.className = 'profile-role-row';
+        var nameSpan = document.createElement('span');
+        nameSpan.className = 'profile-role-name';
+        nameSpan.textContent = r.name;
+        var idSpan = document.createElement('span');
+        idSpan.className = 'profile-role-id';
+        idSpan.textContent = r.id;
+        row.appendChild(nameSpan);
+        row.appendChild(idSpan);
+        rolesEl.appendChild(row);
+      });
     }
   }
 
@@ -186,7 +198,7 @@ var _PARLIAMENT_PLUS  = [];
 var _JUROR_PLUS       = [];
 var _configLoaded     = false;
 
-fetch('/api/config')
+var _configPromise = fetch('/api/config')
   .then(function (r) { return r.json(); })
   .then(function (cfg) {
     ESI_STAFF_ROLES   = cfg.staffRoles   || [];
@@ -199,27 +211,28 @@ fetch('/api/config')
   })
   .catch(function () {});
 
-function _esiRoleBadge(name, color, large) {
-  var s = 'color:' + color + ';background:' + color + '22;border-color:' + color + '66;';
-  if (large) s += 'font-size:0.78rem;font-weight:600;padding:5px 18px;';
-  else        s += 'font-size:0.67rem;padding:3px 12px;';
-  return '<span class="account-role-badge" style="' + s + '">' + name + '</span>';
+function _esiRoleBadgeEl(name, color, large) {
+  var span = document.createElement('span');
+  span.className = 'account-role-badge';
+  span.style.cssText = 'color:' + color + ';background:' + color + '22;border-color:' + color + '66;'
+    + (large ? 'font-size:0.78rem;font-weight:600;padding:5px 18px;' : 'font-size:0.67rem;padding:3px 12px;');
+  span.textContent = name;
+  return span;
 }
 
 function renderAccountModalRoles(userRoles, userId) {
   var el = document.getElementById('accountModalRoles');
   if (!el) return;
-  var html = '';
+  el.innerHTML = '';
 
   // Staff badges (set manually by user ID)
   if (userId) {
     ESI_STAFF_ROLES.forEach(function(role) {
-      if (role.members.includes(userId)) html += _esiRoleBadge(role.name, role.color, true);
+      if (role.members.includes(userId)) el.appendChild(_esiRoleBadgeEl(role.name, role.color, true));
     });
   }
 
   // Upper Echelon: Parliament supersedes Congress; Juror shown independently
-  // Valaendor is the first entry in parliamentPlus that isn't in echelonRoles
   var _echelonIds = ESI_ECHELON_ROLES.map(function(r) { return r.id; });
   var _valaendorId = _PARLIAMENT_PLUS.find(function(id) { return !_echelonIds.includes(id); }) || '';
   var _parli = ESI_ECHELON_ROLES.find(function(r) { return r.name === 'Parliament'; });
@@ -230,22 +243,21 @@ function renderAccountModalRoles(userRoles, userId) {
   var hasCongress   = _cong  ? userRoles.includes(_cong.id)  : false;
   var hasJuror      = _jur   ? userRoles.includes(_jur.id)   : false;
   if (hasValaendor) {
-    html += _esiRoleBadge('👑 Valaendor', '#7744b6', true);
+    el.appendChild(_esiRoleBadgeEl('\ud83d\udc51 Valaendor', '#7744b6', true));
   } else if (hasParliament) {
-    html += _esiRoleBadge('🏛️ Parliament', '#afb3d1', true);
+    el.appendChild(_esiRoleBadgeEl('\ud83c\udfdb\ufe0f Parliament', '#afb3d1', true));
   } else if (hasCongress) {
-    html += _esiRoleBadge('🏵️ Congress', '#7289da', true);
+    el.appendChild(_esiRoleBadgeEl('\ud83c\udff5\ufe0f Congress', '#7289da', true));
   }
   if (hasJuror && !hasParliament && !hasCongress) {
-    html += _esiRoleBadge('⚖ Juror', '#ffc332', true);
+    el.appendChild(_esiRoleBadgeEl('\u2696 Juror', '#ffc332', true));
   }
 
   // Highest rank only (shown below Upper Echelon)
   var rank = ESI_RANK_ROLES.find(function(r) { return userRoles.includes(r.id); });
-  if (rank) html += _esiRoleBadge(rank.name, rank.color, false);
+  if (rank) el.appendChild(_esiRoleBadgeEl(rank.name, rank.color, false));
 
-  el.innerHTML = html;
-  el.style.display = html ? '' : 'none';
+  el.style.display = el.children.length ? '' : 'none';
 }
 
 // strip sensitive data before caching to localStorage
@@ -264,8 +276,12 @@ function applyLogin(user) {
     state.loggedIn = true;
     state.user     = user;
     updateLoginButton();
-    applyPermissions();
-    renderProfile(user);
+    // wait for config to load before applying role-dependent UI
+    _configPromise.then(function () {
+      applyPermissions();
+      renderProfile(user);
+      renderAccountModalRoles(user.roles || [], user.id);
+    });
 
     // sync settings from server (first login on this device restores them)
     _syncSettingsFromServer();
@@ -588,6 +604,13 @@ fetch('/auth/session', { credentials: 'same-origin' })
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  function _safeUrl(url) {
+    try {
+      var u = new URL(url, window.location.origin);
+      return (u.protocol === 'https:' || u.protocol === 'http:') ? url : '#';
+    } catch (e) { return '#'; }
+  }
+
   function _inline(text) {
     // handle escape sequences: \* \_ \` \# etc.
     // replace escaped chars with placeholders, process, then restore
@@ -602,9 +625,13 @@ fetch('/auth/session', { credentials: 'same-origin' })
       return '<code>' + _esc(code) + '</code>';
     });
     // images  ![alt](url)
-    text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />');
+    text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function (_, alt, url) {
+      return '<img src="' + _esc(_safeUrl(url)) + '" alt="' + _esc(alt) + '" />';
+    });
     // links  [text](url)
-    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function (_, label, url) {
+      return '<a href="' + _esc(_safeUrl(url)) + '" target="_blank" rel="noopener">' + label + '</a>';
+    });
     // bold **text**
     text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     // italic _text_
