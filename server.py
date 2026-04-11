@@ -2125,7 +2125,7 @@ _UPLOAD_DIR = os.path.join(_BASE_DIR, "uploads")
 os.makedirs(_UPLOAD_DIR, exist_ok=True)
 _UPLOAD_MAX_SIZE = 5 * 1024 * 1024  # 5 MB
 _UPLOAD_ALLOWED_EXT = {
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif",
     ".pdf", ".txt", ".log", ".json", ".csv",
 }
 
@@ -2215,7 +2215,7 @@ def _upload_cleanup_loop():
 @app.route("/uploads/<path:filename>")
 def serve_upload(filename):
     """Serve uploaded files."""
-    return send_from_directory(_UPLOAD_DIR, filename)
+    return send_from_directory(_UPLOAD_DIR, filename, as_attachment=True)
 
 
 # ---- GitHub issue creation ----
