@@ -424,7 +424,11 @@
   function initShareButtons() {
     var btns = document.querySelectorAll('.graph-share-btn');
     btns.forEach(function (btn) {
+      var _busy = false;
       btn.addEventListener('click', function () {
+        if (_busy) return;
+        _busy = true;
+        setTimeout(function () { _busy = false; }, 3000);
         var panel = btn.closest('.graph-panel');
         if (!panel) return;
 
@@ -434,7 +438,7 @@
         document.body.appendChild(clone);
 
         // remove unwanted elements from the clone
-        clone.querySelectorAll('.graph-controls, .graph-legend, .btn-add-metric, .graph-share-zone, .graph-share-btn, .graph-hover-tooltip, .graph-hover-vline, .graph-hover-xbadge, .graph-selected-vline, .graph-selected-xbadge, .compare-area, .graph-loader').forEach(function (el) {
+        clone.querySelectorAll('.graph-controls, .graph-legend, .btn-add-metric, .graph-share-zone, .graph-share-btn, .graph-hover-tooltip, .graph-hover-vline, .graph-hover-xbadge, .compare-area, .graph-loader').forEach(function (el) {
           el.remove();
         });
 

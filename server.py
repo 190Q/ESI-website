@@ -1315,7 +1315,7 @@ def _compute_bulk_playtime():
         _mr = _m.get("guildRaids", [])
         for _di in range(min(len(_mr), len(guild_raids))):
             if _mr[_di] > guild_raids[_di]:
-                guild_raids[_di] = 0
+                _mr[_di] = 0
 
     # total members = count of ESI members in each snapshot
     total_members = [0] * num_mk_days
