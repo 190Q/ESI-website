@@ -833,6 +833,8 @@ button { cursor: pointer; border: none; font-family: inherit; }
   flex: 1;
   height: auto;
   min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gold-dim) var(--green-deep);
 }
 .ticket-write-pane .ticket-textarea:focus {
   border: none;
