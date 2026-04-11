@@ -192,6 +192,11 @@ def _is_reactivation_spike(prev_value, curr_value, seen_non_zero, metric_key=Non
 
 app = Flask(__name__, static_folder=".", static_url_path="")
 
+# trust X-Forwarded-For from reverse proxies (Nginx, Cloudflare, etc.)
+# so request.remote_addr reflects the real client IP for rate limiting
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def _load_env():
