@@ -2225,47 +2225,86 @@ def serve_upload(filename):
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO  = os.environ.get("GITHUB_REPO", "190Q/ESI-website")
 
-import base64 as _base64
+_ATTACH_RELEASE_TAG = "ticket-attachments"
 
 
-def _upload_attachments_to_github(text):
-    """Find /uploads/... references, upload each file to the GitHub repo
-    under ticket-uploads/, and replace the local URL with the raw GitHub URL.
-    Requires contents:write on the fine-grained token."""
-    if not GITHUB_TOKEN or not text:
-        return text
+def _get_or_create_attach_release():
+    """Get or create a hidden draft release used to host ticket file attachments.
+    Returns the release upload_url template, or None."""
     gh_headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json",
         "User-Agent": "ESI-Dashboard/1.0",
     }
-    for match in _re.finditer(r'/uploads/([^\s)"]+)', text):
+    # check if release exists
+    r = requests.get(
+        f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/{_ATTACH_RELEASE_TAG}",
+        headers=gh_headers, timeout=10,
+    )
+    if r.ok:
+        return r.json().get("upload_url", "").split("{")[0]
+    # create it
+    r = requests.post(
+        f"https://api.github.com/repos/{GITHUB_REPO}/releases",
+        headers=gh_headers,
+        json={
+            "tag_name": _ATTACH_RELEASE_TAG,
+            "name": "Ticket Attachments",
+            "body": "Automatically managed — hosts files attached to support tickets.",
+            "draft": False,
+            "prerelease": True,
+        },
+        timeout=10,
+    )
+    if r.ok:
+        return r.json().get("upload_url", "").split("{")[0]
+    import sys
+    print(f"[TICKET] Failed to create attachments release: {r.status_code} {r.text[:200]}", file=sys.stderr)
+    return None
+
+
+def _upload_attachments_to_github(text):
+    """Find /uploads/... references, upload each file as a GitHub release asset,
+    and replace the local URL with the permanent download URL.
+    No commits are created — files live only as release assets."""
+    if not GITHUB_TOKEN or not text:
+        return text
+    matches = list(_re.finditer(r'/uploads/([^\s)"]+)', text))
+    if not matches:
+        return text
+    upload_base = _get_or_create_attach_release()
+    if not upload_base:
+        return text
+    for match in matches:
         filename = match.group(1)
         clean_name = filename.split("?")[0]
         local_path = os.path.join(_UPLOAD_DIR, clean_name)
         if not os.path.isfile(local_path):
             continue
+        # detect content type
+        import mimetypes as _mt
+        content_type = _mt.guess_type(clean_name)[0] or "application/octet-stream"
         try:
             with open(local_path, "rb") as f:
-                content_b64 = _base64.b64encode(f.read()).decode()
-            gh_path = f"ticket-uploads/{clean_name}"
-            put_resp = requests.put(
-                f"https://api.github.com/repos/{GITHUB_REPO}/contents/{gh_path}",
-                headers=gh_headers,
-                json={
-                    "message": f"Ticket attachment: {clean_name}",
-                    "content": content_b64,
+                file_data = f.read()
+            resp = requests.post(
+                f"{upload_base}?name={clean_name}",
+                headers={
+                    "Authorization": f"token {GITHUB_TOKEN}",
+                    "Content-Type": content_type,
+                    "User-Agent": "ESI-Dashboard/1.0",
                 },
-                timeout=15,
+                data=file_data,
+                timeout=30,
             )
-            if put_resp.ok:
-                dl_url = put_resp.json().get("content", {}).get("download_url", "")
+            if resp.ok:
+                dl_url = resp.json().get("browser_download_url", "")
                 if dl_url:
                     text = text.replace(match.group(0), dl_url)
             else:
                 import sys
-                print(f"[TICKET] GitHub upload failed for {clean_name}: "
-                      f"{put_resp.status_code} {put_resp.text[:200]}", file=sys.stderr)
+                print(f"[TICKET] Release asset upload failed for {clean_name}: "
+                      f"{resp.status_code} {resp.text[:200]}", file=sys.stderr)
         except Exception as exc:
             import sys
             print(f"[TICKET] Failed to upload {clean_name}: {exc}", file=sys.stderr)
