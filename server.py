@@ -2212,9 +2212,11 @@ def _upload_cleanup_loop():
         _cleanup_orphaned_uploads()
 
 
-@app.route("/uploads/<path:filename>")
+@app.route("/uploads/<string:filename>")
 def serve_upload(filename):
-    """Serve uploaded files."""
+    safe = os.path.basename(filename)
+    if safe != filename:
+        abort(400)
     return send_from_directory(_UPLOAD_DIR, filename, as_attachment=True)
 
 
@@ -2222,6 +2224,53 @@ def serve_upload(filename):
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO  = os.environ.get("GITHUB_REPO", "190Q/ESI-website")
+
+import base64 as _base64
+
+
+def _upload_attachments_to_github(text):
+    """Find /uploads/... references, upload each file to the GitHub repo
+    under ticket-uploads/, and replace the local URL with the raw GitHub URL.
+    Requires contents:write on the fine-grained token."""
+    if not GITHUB_TOKEN or not text:
+        return text
+    gh_headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "ESI-Dashboard/1.0",
+    }
+    for match in _re.finditer(r'/uploads/([^\s)"]+)', text):
+        filename = match.group(1)
+        clean_name = filename.split("?")[0]
+        local_path = os.path.join(_UPLOAD_DIR, clean_name)
+        if not os.path.isfile(local_path):
+            continue
+        try:
+            with open(local_path, "rb") as f:
+                content_b64 = _base64.b64encode(f.read()).decode()
+            gh_path = f"ticket-uploads/{clean_name}"
+            put_resp = requests.put(
+                f"https://api.github.com/repos/{GITHUB_REPO}/contents/{gh_path}",
+                headers=gh_headers,
+                json={
+                    "message": f"Ticket attachment: {clean_name}",
+                    "content": content_b64,
+                },
+                timeout=15,
+            )
+            if put_resp.ok:
+                dl_url = put_resp.json().get("content", {}).get("download_url", "")
+                if dl_url:
+                    text = text.replace(match.group(0), dl_url)
+            else:
+                import sys
+                print(f"[TICKET] GitHub upload failed for {clean_name}: "
+                      f"{put_resp.status_code} {put_resp.text[:200]}", file=sys.stderr)
+        except Exception as exc:
+            import sys
+            print(f"[TICKET] Failed to upload {clean_name}: {exc}", file=sys.stderr)
+    return text
+
 
 _ticket_rate: dict = {}  # keyed by discord user id
 _ticket_rate_lock = _threading.Lock()
@@ -2246,6 +2295,7 @@ def create_ticket():
     body = request.get_json(silent=True) or {}
     title  = (body.get("title") or "").strip()
     desc   = (body.get("body") or "").strip()
+    VALID_LABELS = {"bug", "enhancement", "question", "documentation", "help wanted"}
     labels = body.get("labels") or []
 
     if not title:
@@ -2256,10 +2306,14 @@ def create_ticket():
     discord_name = user.get("nick") or user.get("username") or "Unknown"
     discord_id   = user.get("id", "")
     attribution  = f"*Submitted via ESI Dashboard by **{discord_name}** (`{discord_id}`)*"
-    issue_body   = f"{desc}\n\n---\n{attribution}" if desc else f"---\n{attribution}"
 
     if not GITHUB_TOKEN:
         return jsonify({"error": "GitHub integration not configured"}), 503
+
+    # upload attached files to the GitHub repo so they persist
+    desc = _upload_attachments_to_github(desc)
+
+    issue_body = f"{desc}\n\n---\n{attribution}" if desc else f"---\n{attribution}"
 
     try:
         resp = requests.post(
