@@ -731,8 +731,7 @@ def auth_logout():
     return resp
 
 
-bot_root                = os.path.dirname(_BASE_DIR)
-_ESI_BOT_DIR            = os.path.join(bot_root, "ESI-Bot")
+_ESI_BOT_DIR = os.environ.get("ESI_BOT_DIR") or os.path.join(os.path.dirname(_BASE_DIR), "ESI-Bot")
 _DATA_FOLDER            = os.path.join(_ESI_BOT_DIR, "data")
 _ASPECTS_JSON           = os.path.join(_DATA_FOLDER, "aspects.json")
 _INACTIVITY_JSON        = os.path.join(_DATA_FOLDER, "inactivity_exemptions.json")
@@ -817,81 +816,18 @@ def aspects_clear():
 @app.route("/api/player/<username>/playtime-history")
 @rate_limit(10)
 def player_playtime_history(username: str):
-    from datetime import datetime as _dt
-    from concurrent.futures import ThreadPoolExecutor
-
-    now = time()
-    cache_key = username.lower()
-    with _playtime_cache_lock:
-        _pt_entry = _playtime_cache.get(cache_key)
-    if _pt_entry:
-        data, ts = _pt_entry
-        if now - ts < PLAYTIME_CACHE_TTL:
-            return jsonify(data)
-
-    tracking_folder = os.path.join(_ESI_BOT_DIR, "databases", "playtime_tracking")
-
-    if not os.path.isdir(tracking_folder):
-        return jsonify({"username": username, "data": []})
-
-    # gather every snapshot
-    all_snapshots = []
-    for day_folder_name in os.listdir(tracking_folder):
-        if not day_folder_name.startswith("playtime_"):
-            continue
-        day_folder_path = os.path.join(tracking_folder, day_folder_name)
-        if not os.path.isdir(day_folder_path):
-            continue
-        date_str = day_folder_name.replace("playtime_", "")
-        try:
-            day_dt = _dt.strptime(date_str, "%d-%m-%Y")
-        except ValueError:
-            continue
-        for fname in os.listdir(day_folder_path):
-            if not fname.endswith(".db"):
-                continue
-            all_snapshots.append((day_dt, fname, os.path.join(day_folder_path, fname)))
-
-    if not all_snapshots:
-        return jsonify({"username": username, "data": []})
-
-    all_snapshots.sort(key=lambda x: (x[0], x[1]))
-
-    def read_hours(db_path):
-        try:
-            conn = _sqlite3.connect(db_path, check_same_thread=False)
-            row  = conn.execute(
-                "SELECT playtime_seconds FROM playtime WHERE username = ? COLLATE NOCASE",
-                (username,)
-            ).fetchone()
-            conn.close()
-            return round(row[0] / 3600, 1) if row else 0.0
-        except Exception:
-            return 0.0
-
-    # group by day, only keep the last snapshot per day
-    day_groups = {}
-    for day_dt, fname, db_path in all_snapshots:
-        day_key = day_dt.date()
-        day_groups.setdefault(day_key, []).append((fname, db_path))
-
-    sorted_days = sorted(day_groups.keys())[-60:]
-
-    # only read the last file per day
-    daily_paths = [day_groups[d][-1][1] for d in sorted_days]
-    recent_days = sorted_days[-7:]
-    recent_set  = set(recent_days)
-
-    # read them in parallel
-    all_needed_paths = list(dict.fromkeys(daily_paths))  # deduplicated, ordered
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        results = dict(zip(all_needed_paths, ex.map(read_hours, all_needed_paths)))
-
-    daily  = [results[p] for p in daily_paths]
-    result = {"username": username, "data": daily, "dates": [d.isoformat() for d in sorted_days]}
-    with _playtime_cache_lock:
-        _playtime_cache[cache_key] = (result, now)
-    return jsonify(result)
+    """Return playtime history from the pre-computed bulk cache."""
+    ulow = username.lower()
+    with _bulk_playtime_lock:
+        bulk = _bulk_playtime_cache.get("data") or {}
+    member = (bulk.get("members") or {}).get(ulow)
+    if member:
+        return jsonify({
+            "username": member.get("username", username),
+            "data":     list(member.get("data", [])),
+            "dates":    list(member.get("dates", [])),
+        })
+    return jsonify({"username": username, "data": [], "dates": []})
 
 
 def _compute_bulk_playtime():
