@@ -486,20 +486,30 @@ def after_request(response):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
 
-# block direct access to sensitive files in the static root
-_BLOCKED_STATIC_RE = _re.compile(
-    r'^/[^/]*\.(json|db|py|pyc|env|cfg|ini|log)$',
-    _re.IGNORECASE,
-)
+# only serve static files from these directories (allowlist)
+_ALLOWED_STATIC_PREFIXES = ('/css/', '/js/', '/images/', '/assets/', '/uploads/')
+_ALLOWED_STATIC_FILES = ('/index.html', '/favicon.ico')
 
 @app.before_request
 def _gate_requests():
     session.permanent = True
     path = request.path
-    if _BLOCKED_STATIC_RE.match(path):
+    # block dotfiles
+    if '/.' in path or path.startswith('.'):
         abort(403)
-    if path.startswith('.'):
-        abort(403)
+    # API routes and auth routes are handled by their own handlers
+    if path.startswith(('/api/', '/auth/')):
+        return
+    # allow root and known static prefixes
+    if path == '/':
+        return
+    if path in _ALLOWED_STATIC_FILES:
+        return
+    if any(path.startswith(p) for p in _ALLOWED_STATIC_PREFIXES):
+        return
+    # block everything else (server.py, .env, .db, data files, __pycache__, etc.)
+    abort(403)
+
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
