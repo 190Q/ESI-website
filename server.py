@@ -2173,6 +2173,105 @@ def settings_default_player():
     return jsonify({"username": mc_name})
 
 
+# ---- file uploads (for ticket attachments) ----
+
+_UPLOAD_DIR = os.path.join(_BASE_DIR, "uploads")
+os.makedirs(_UPLOAD_DIR, exist_ok=True)
+_UPLOAD_MAX_SIZE = 5 * 1024 * 1024  # 5 MB
+_UPLOAD_ALLOWED_EXT = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg",
+    ".pdf", ".txt", ".log", ".json", ".csv",
+}
+
+
+@app.route("/api/upload", methods=["POST"])
+@rate_limit(30)
+def upload_file():
+    """Accept a file upload from a logged-in user and return its URL."""
+    user, err = _require_login()
+    if err:
+        return err
+
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    f = request.files["file"]
+    if not f or not f.filename:
+        return jsonify({"error": "Empty file"}), 400
+
+    # check extension
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in _UPLOAD_ALLOWED_EXT:
+        return jsonify({"error": f"File type '{ext}' is not allowed"}), 400
+
+    # check size (read into memory to enforce limit)
+    data = f.read()
+    if len(data) > _UPLOAD_MAX_SIZE:
+        return jsonify({"error": "File too large (max 5 MB)"}), 400
+
+    # generate a unique filename to prevent collisions
+    unique = secrets.token_hex(8)
+    safe_name = _re.sub(r"[^\w.-]", "_", f.filename)
+    filename = f"{unique}_{safe_name}"
+    filepath = os.path.join(_UPLOAD_DIR, filename)
+
+    with open(filepath, "wb") as out:
+        out.write(data)
+
+    url = f"/uploads/{filename}"
+    return jsonify({"ok": True, "url": url, "filename": filename})
+
+
+_UPLOAD_MAX_AGE = 3600  # orphaned uploads deleted after 1 hour
+
+
+def _delete_upload(filename):
+    """Silently delete a single file from the uploads directory."""
+    try:
+        path = os.path.join(_UPLOAD_DIR, os.path.basename(filename))
+        if os.path.isfile(path):
+            os.unlink(path)
+    except OSError:
+        pass
+
+
+def _delete_uploads_in_text(text):
+    """Find all /uploads/... references in text and delete those files."""
+    for match in _re.finditer(r'/uploads/([^\s)"]+)', text or ""):
+        _delete_upload(match.group(1))
+
+
+def _cleanup_orphaned_uploads():
+    """Delete uploaded files older than _UPLOAD_MAX_AGE seconds."""
+    now = time()
+    try:
+        for name in os.listdir(_UPLOAD_DIR):
+            path = os.path.join(_UPLOAD_DIR, name)
+            if not os.path.isfile(path):
+                continue
+            age = now - os.path.getmtime(path)
+            if age > _UPLOAD_MAX_AGE:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+    except OSError:
+        pass
+
+
+def _upload_cleanup_loop():
+    """Background thread that purges orphaned uploads every 10 minutes."""
+    while True:
+        _threading.Event().wait(600)
+        _cleanup_orphaned_uploads()
+
+
+@app.route("/uploads/<path:filename>")
+def serve_upload(filename):
+    """Serve uploaded files."""
+    return send_from_directory(_UPLOAD_DIR, filename)
+
+
 # ---- GitHub issue creation ----
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
@@ -2236,6 +2335,8 @@ def create_ticket():
             print(f"[TICKET] GitHub API error: {resp.status_code} {resp.text[:200]}", file=sys.stderr)
             return jsonify({"error": "Failed to create issue on GitHub"}), 502
         data = resp.json()
+        # clean up uploaded files that were embedded in the ticket
+        _delete_uploads_in_text(desc)
         return jsonify({"ok": True, "issue_url": data.get("html_url"), "issue_number": data.get("number")})
     except requests.RequestException as e:
         import sys
@@ -2283,6 +2384,7 @@ if __name__ == "__main__":
     except Exception as _e:
         print(f" failed: {_e}")
     _threading.Thread(target=_bulk_playtime_loop, daemon=True).start()
+    _threading.Thread(target=_upload_cleanup_loop, daemon=True).start()
     print("  http://localhost:5000")
     print("  Press Ctrl+C to stop")
     print()

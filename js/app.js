@@ -536,6 +536,430 @@ fetch('/auth/session', { credentials: 'same-origin' })
     });
   });
 
+  /* ticket preview (Write / Preview tabs) */
+  var tabWrite   = document.getElementById('tabWrite');
+  var tabPreview = document.getElementById('tabPreview');
+  var writePane  = document.getElementById('ticketWritePane');
+  var previewPane = document.getElementById('ticketPreviewPane');
+  var previewContent = document.getElementById('ticketPreviewContent');
+
+  tabWrite.addEventListener('click', function () {
+    tabWrite.classList.add('active');
+    tabPreview.classList.remove('active');
+    writePane.style.display  = '';
+    previewPane.style.display = 'none';
+  });
+  tabPreview.addEventListener('click', function () {
+    tabPreview.classList.add('active');
+    tabWrite.classList.remove('active');
+    writePane.style.display  = 'none';
+    previewPane.style.display = '';
+    var body = document.getElementById('ticketBody').value;
+    previewContent.innerHTML = body.trim() ? renderMarkdown(body) : '';
+  });
+
+  /* markdown renderer */
+  var ALERT_ICONS = {
+    NOTE:      '\u2139\ufe0f',
+    TIP:       '\ud83d\udca1',
+    IMPORTANT: '\ud83d\udcdd',
+    WARNING:   '\u26a0\ufe0f',
+    CAUTION:   '\u26d4',
+  };
+
+  function _esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function _inline(text) {
+    // handle escape sequences: \* \_ \` \# etc.
+    // replace escaped chars with placeholders, process, then restore
+    var escapes = [];
+    text = text.replace(/\\([\\`*_{}\[\]()#+\-.!|>~])/g, function (_, ch) {
+      escapes.push(ch);
+      return '\x00ESC' + (escapes.length - 1) + '\x00';
+    });
+
+    // inline code (must be before other inline formatting)
+    text = text.replace(/`([^`]+)`/g, function (_, code) {
+      return '<code>' + _esc(code) + '</code>';
+    });
+    // images  ![alt](url)
+    text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />');
+    // links  [text](url)
+    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    // bold **text**
+    text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // italic _text_
+    text = text.replace(/(?<![\w])_(.+?)_(?![\w])/g, '<em>$1</em>');
+    // mentions @user
+    text = text.replace(/@([\w.-]+)/g, '<span class="md-mention">@$1</span>');
+    // issue references #123
+    text = text.replace(/#(\d+)/g, '<span class="md-issue-ref">#$1</span>');
+
+    // restore escaped characters
+    text = text.replace(/\x00ESC(\d+)\x00/g, function (_, idx) {
+      return _esc(escapes[parseInt(idx, 10)]);
+    });
+    return text;
+  }
+
+  function renderMarkdown(src) {
+    var lines = src.replace(/\r\n/g, '\n').split('\n');
+    var html = [];
+    var i = 0;
+
+    while (i < lines.length) {
+      var line = lines[i];
+
+      // fenced code blocks ```lang
+      var codeMatch = line.match(/^```(\w*)\s*$/);
+      if (codeMatch) {
+        var lang = codeMatch[1] || '';
+        var codeLines = [];
+        i++;
+        while (i < lines.length && !lines[i].match(/^```\s*$/)) {
+          codeLines.push(_esc(lines[i]));
+          i++;
+        }
+        i++; // skip closing ```
+        html.push('<pre><code' + (lang ? ' class="language-' + _esc(lang) + '"' : '') + '>' + codeLines.join('\n') + '</code></pre>');
+        continue;
+      }
+
+      // HTML details/summary (pass through)
+      if (line.match(/^<details>/i)) {
+        var detailLines = [line];
+        i++;
+        while (i < lines.length && !lines[i].match(/<\/details>/i)) {
+          detailLines.push(lines[i]);
+          i++;
+        }
+        if (i < lines.length) { detailLines.push(lines[i]); i++; }
+        html.push(detailLines.join('\n'));
+        continue;
+      }
+
+      // tables: | Header | Header |
+      if (line.match(/^\|(.+)\|\s*$/) && i + 1 < lines.length && lines[i + 1].match(/^\|[\s:|-]+\|\s*$/)) {
+        var headerCells = line.split('|').slice(1, -1).map(function (c) { return c.trim(); });
+        i += 2; // skip header + separator
+        var rows = [];
+        while (i < lines.length && lines[i].match(/^\|(.+)\|\s*$/)) {
+          rows.push(lines[i].split('|').slice(1, -1).map(function (c) { return c.trim(); }));
+          i++;
+        }
+        var tableHtml = '<table><thead><tr>' + headerCells.map(function (c) { return '<th>' + _inline(_esc(c)) + '</th>'; }).join('') + '</tr></thead><tbody>';
+        rows.forEach(function (row) {
+          tableHtml += '<tr>' + row.map(function (c) { return '<td>' + _inline(_esc(c)) + '</td>'; }).join('') + '</tr>';
+        });
+        tableHtml += '</tbody></table>';
+        html.push(tableHtml);
+        continue;
+      }
+
+      // GitHub alerts: > [!NOTE] / > [!TIP] / etc.
+      var alertMatch = line.match(/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$/i);
+      if (alertMatch) {
+        var alertType = alertMatch[1].toUpperCase();
+        var alertBody = [];
+        i++;
+        while (i < lines.length && lines[i].match(/^>/)) {
+          alertBody.push(lines[i].replace(/^>\s?/, ''));
+          i++;
+        }
+        var icon = ALERT_ICONS[alertType] || '';
+        var typeLower = alertType.toLowerCase();
+        html.push(
+          '<div class="md-alert md-alert-' + typeLower + '">' +
+          '<div class="md-alert-title">' + icon + ' ' + alertType.charAt(0) + alertType.slice(1).toLowerCase() + '</div>' +
+          alertBody.filter(function (l) { return l.trim(); }).map(function (l) { return '<p>' + _inline(_esc(l)) + '</p>'; }).join('') +
+          '</div>'
+        );
+        continue;
+      }
+
+      // blockquotes
+      if (line.match(/^>\s?/)) {
+        var quoteLines = [];
+        while (i < lines.length && lines[i].match(/^>/)) {
+          quoteLines.push(lines[i].replace(/^>\s?/, ''));
+          i++;
+        }
+        html.push('<blockquote>' + quoteLines.map(function (l) { return '<p>' + _inline(_esc(l)) + '</p>'; }).join('') + '</blockquote>');
+        continue;
+      }
+
+      // headings
+      var headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
+      if (headingMatch) {
+        var level = headingMatch[1].length;
+        html.push('<h' + level + '>' + _inline(_esc(headingMatch[2])) + '</h' + level + '>');
+        i++;
+        continue;
+      }
+
+      // task list: - [ ] or - [x]
+      if (line.match(/^-\s+\[[ xX]\]\s/)) {
+        var taskItems = [];
+        while (i < lines.length && lines[i].match(/^-\s+\[[ xX]\]\s/)) {
+          var checked = lines[i].match(/^-\s+\[[xX]\]/) ? ' checked disabled' : ' disabled';
+          var taskText = lines[i].replace(/^-\s+\[[ xX]\]\s*/, '');
+          taskItems.push('<li><input type="checkbox"' + checked + ' />' + _inline(_esc(taskText)) + '</li>');
+          i++;
+        }
+        html.push('<ul style="list-style:none;padding-left:4px;">' + taskItems.join('') + '</ul>');
+        continue;
+      }
+
+      // unordered list: - item
+      if (line.match(/^-\s+\S/)) {
+        var ulItems = [];
+        while (i < lines.length && lines[i].match(/^-\s+\S/)) {
+          ulItems.push('<li>' + _inline(_esc(lines[i].replace(/^-\s+/, ''))) + '</li>');
+          i++;
+        }
+        html.push('<ul>' + ulItems.join('') + '</ul>');
+        continue;
+      }
+
+      // ordered list: 1. item
+      if (line.match(/^\d+\.\s+/)) {
+        var olItems = [];
+        while (i < lines.length && lines[i].match(/^\d+\.\s+/)) {
+          olItems.push('<li>' + _inline(_esc(lines[i].replace(/^\d+\.\s+/, ''))) + '</li>');
+          i++;
+        }
+        html.push('<ol>' + olItems.join('') + '</ol>');
+        continue;
+      }
+
+      // empty line
+      if (!line.trim()) {
+        i++;
+        continue;
+      }
+
+      // paragraph
+      html.push('<p>' + _inline(_esc(line)) + '</p>');
+      i++;
+    }
+
+    return html.join('\n');
+  }
+
+  /* ── slash commands ── */
+  var SLASH_COMMANDS = [
+    { name: '/alert',   desc: 'Insert an alert callout',       sub: ['NOTE', 'TIP', 'IMPORTANT', 'WARNING', 'CAUTION'] },
+    { name: '/code',    desc: 'Insert a code block',           sub: ['No Syntax','JavaScript','CSS','Python','HTML','C','C#','C++','CoffeeScript','Dart','DM','Elixir','Go','Groovy','Java','Kotlin','Objective-C','Perl','PHP','PowerShell','Ruby','Rust','Scala','Shell','Swift','TypeScript'] },
+    { name: '/details', desc: 'Insert a collapsible section' },
+    { name: '/table',   desc: 'Insert a table' },
+  ];
+  var slashDropdown = document.getElementById('slashDropdown');
+  var _slashFocusIdx = -1;
+  var _slashFiltered = [];
+  var _slashSubMenu = null; // when showing sub-options
+
+  function _showSlashDropdown(items, onClick) {
+    _slashFocusIdx = 0;
+    slashDropdown.innerHTML = items.map(function (item, idx) {
+      return '<div class="slash-item' + (idx === 0 ? ' focused' : '') + '" data-idx="' + idx + '">' +
+        '<span class="slash-item-name">' + _esc(item.name || item) + '</span>' +
+        (item.desc ? '<span class="slash-item-desc">' + _esc(item.desc) + '</span>' : '') +
+        '</div>';
+    }).join('');
+    slashDropdown.style.display = '';
+    slashDropdown.querySelectorAll('.slash-item').forEach(function (el) {
+      el.addEventListener('click', function () {
+        onClick(parseInt(el.dataset.idx, 10));
+      });
+    });
+  }
+
+  function _hideSlashDropdown() {
+    slashDropdown.style.display = 'none';
+    slashDropdown.innerHTML = '';
+    _slashSubMenu = null;
+    _slashFocusIdx = -1;
+  }
+
+  function _insertAtCursor(textarea, text, selectRange) {
+    var start = textarea.selectionStart;
+    var end   = textarea.selectionEnd;
+    var before = textarea.value.substring(0, start);
+    var after  = textarea.value.substring(end);
+    // remove the slash command text from the current line
+    var lineStart = before.lastIndexOf('\n') + 1;
+    before = before.substring(0, lineStart);
+    textarea.value = before + text + after;
+    var cursorPos = before.length + text.length;
+    textarea.selectionStart = textarea.selectionEnd = cursorPos;
+    textarea.focus();
+  }
+
+  function _handleSlashSelect(idx) {
+    var textarea = document.getElementById('ticketBody');
+    if (_slashSubMenu) {
+      // sub-option selected
+      var cmd = _slashSubMenu;
+      var option = _slashFiltered[idx];
+      if (typeof option === 'object') option = option.name || option;
+      if (cmd.name === '/alert') {
+        _insertAtCursor(textarea, '> [!' + option + ']\n> ');
+      } else if (cmd.name === '/code') {
+        var lang = option === 'No Syntax' ? '' : option.toLowerCase().replace('#', 'sharp').replace('++', 'pp').replace(/[^a-z]/g, '');
+        _insertAtCursor(textarea, '```' + lang + '\n\n```');
+      }
+      _hideSlashDropdown();
+      return;
+    }
+    var command = _slashFiltered[idx];
+    if (command.sub) {
+      // show sub-menu
+      _slashSubMenu = command;
+      _slashFiltered = command.sub;
+      _showSlashDropdown(command.sub.map(function (s) { return { name: s }; }), _handleSlashSelect);
+      return;
+    }
+    // no sub — insert directly
+    if (command.name === '/details') {
+      _insertAtCursor(textarea, '<details><summary>Details</summary>\n<p>\n\n</p>\n</details>');
+    } else if (command.name === '/table') {
+      _insertAtCursor(textarea, '| Header | Header |\n|--------|--------|\n| Cell | Cell |\n| Cell | Cell |');
+    }
+    _hideSlashDropdown();
+  }
+
+  document.getElementById('ticketBody').addEventListener('input', function () {
+    var textarea = this;
+    var val = textarea.value;
+    var pos = textarea.selectionStart;
+    // get text from start of current line to cursor
+    var lineStart = val.lastIndexOf('\n', pos - 1) + 1;
+    var lineText  = val.substring(lineStart, pos);
+
+    if (lineText.startsWith('/') && !_slashSubMenu) {
+      var query = lineText.toLowerCase();
+      _slashFiltered = SLASH_COMMANDS.filter(function (c) {
+        return c.name.indexOf(query) === 0;
+      });
+      if (_slashFiltered.length) {
+        _showSlashDropdown(_slashFiltered, _handleSlashSelect);
+      } else {
+        _hideSlashDropdown();
+      }
+    } else if (!lineText.startsWith('/')) {
+      _hideSlashDropdown();
+    }
+  });
+
+  document.getElementById('ticketBody').addEventListener('keydown', function (e) {
+    if (slashDropdown.style.display === 'none') return;
+    var items = slashDropdown.querySelectorAll('.slash-item');
+    if (!items.length) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      items[_slashFocusIdx].classList.remove('focused');
+      _slashFocusIdx = (_slashFocusIdx + 1) % items.length;
+      items[_slashFocusIdx].classList.add('focused');
+      items[_slashFocusIdx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      items[_slashFocusIdx].classList.remove('focused');
+      _slashFocusIdx = (_slashFocusIdx - 1 + items.length) % items.length;
+      items[_slashFocusIdx].classList.add('focused');
+      items[_slashFocusIdx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      _handleSlashSelect(_slashFocusIdx);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      _hideSlashDropdown();
+    }
+  });
+
+  /* ── file upload ── */
+  var ticketFileArea  = document.getElementById('ticketFileArea');
+  var ticketFileBtn   = document.getElementById('ticketFileBtn');
+  var ticketFileInput = document.getElementById('ticketFileInput');
+
+  ticketFileBtn.addEventListener('click', function () {
+    ticketFileInput.click();
+  });
+
+  ticketFileInput.addEventListener('change', function () {
+    if (this.files && this.files.length) _uploadFiles(this.files);
+    this.value = '';
+  });
+
+  // drag & drop on the file area
+  ticketFileArea.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    ticketFileArea.classList.add('dragover');
+  });
+  ticketFileArea.addEventListener('dragleave', function () {
+    ticketFileArea.classList.remove('dragover');
+  });
+  ticketFileArea.addEventListener('drop', function (e) {
+    e.preventDefault();
+    ticketFileArea.classList.remove('dragover');
+    if (e.dataTransfer && e.dataTransfer.files.length) {
+      _uploadFiles(e.dataTransfer.files);
+    }
+  });
+
+  // paste on the textarea
+  document.getElementById('ticketBody').addEventListener('paste', function (e) {
+    var items = (e.clipboardData || e.originalEvent.clipboardData || {}).items;
+    if (!items) return;
+    var files = [];
+    for (var k = 0; k < items.length; k++) {
+      if (items[k].kind === 'file') files.push(items[k].getAsFile());
+    }
+    if (files.length) {
+      e.preventDefault();
+      _uploadFiles(files);
+    }
+  });
+
+  function _uploadFiles(fileList) {
+    var textarea = document.getElementById('ticketBody');
+    Array.from(fileList).forEach(function (file) {
+      // show uploading indicator
+      var placeholder = '![Uploading ' + file.name + '\u2026]()';
+      var pos = textarea.selectionStart;
+      textarea.value = textarea.value.substring(0, pos) + placeholder + textarea.value.substring(pos);
+      textarea.selectionStart = textarea.selectionEnd = pos + placeholder.length;
+
+      var formData = new FormData();
+      formData.append('file', file);
+
+      fetch('/api/upload', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: formData,
+      })
+      .then(function (resp) { return resp.json().then(function (d) { return { ok: resp.ok, data: d }; }); })
+      .then(function (result) {
+        if (result.ok && result.data.url) {
+          var isImage = /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(file.name);
+          var mdLink = isImage
+            ? '![' + file.name + '](' + result.data.url + ')'
+            : '[' + file.name + '](' + result.data.url + ')';
+          textarea.value = textarea.value.replace(placeholder, mdLink);
+        } else {
+          textarea.value = textarea.value.replace(placeholder, '');
+          showToast('\u26a0 ' + (result.data.error || 'Upload failed.'), 'warn');
+        }
+      })
+      .catch(function () {
+        textarea.value = textarea.value.replace(placeholder, '');
+        showToast('\u26a0 Upload failed. Please try again.', 'warn');
+      });
+    });
+  }
+
   /* toast */
   var showToast = window.showToast;
 

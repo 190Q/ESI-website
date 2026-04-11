@@ -218,3 +218,6 @@ frontend/node_modules/
 
 # Vite build output
 assets/
+
+# User uploads
+uploads/

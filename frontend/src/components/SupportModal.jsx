@@ -56,13 +56,34 @@ export default function SupportModal() {
             </div>
             <div className="ticket-field">
               <label className="ticket-label" htmlFor="ticketBody">Description</label>
-              <textarea
-                className="ticket-textarea ticket-body"
-                id="ticketBody"
-                rows="8"
-                placeholder="Add a description..."
-                aria-label="Ticket description"
-              />
+              <div className="ticket-editor">
+                <div className="ticket-tabs">
+                  <button type="button" className="ticket-tab active" id="tabWrite" data-tab="write">Write</button>
+                  <button type="button" className="ticket-tab" id="tabPreview" data-tab="preview">Preview</button>
+                </div>
+                <div className="ticket-write-pane" id="ticketWritePane">
+                  <div className="ticket-slash-dropdown" id="slashDropdown" style={{ display: 'none' }}></div>
+                  <textarea
+                    className="ticket-textarea ticket-body"
+                    id="ticketBody"
+                    rows="8"
+                    placeholder="Add a description..."
+                    aria-label="Ticket description"
+                  />
+                  <div className="ticket-file-area" id="ticketFileArea">
+                    <button type="button" className="ticket-file-btn" id="ticketFileBtn">
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M12.5 1a3.5 3.5 0 0 1 .59 6.95L13 8v5.5a2.5 2.5 0 0 1-2.336 2.495L10.5 16h-5a2.5 2.5 0 0 1-2.495-2.336L3 13.5V4a2 2 0 0 1 1.85-1.995L5 2h3.5a.5.5 0 0 1 0 1H5a1 1 0 0 0-.993.883L4 4v9.5a1.5 1.5 0 0 0 1.356 1.493L5.5 15h5a1.5 1.5 0 0 0 1.493-1.356L12 13.5V8a2.5 2.5 0 0 1-2.336-2.495L9.5 5.5v-1a.5.5 0 0 1 1 0v1a1.5 1.5 0 0 0 1.356 1.493L12 7a2.5 2.5 0 0 0 .164-4.995L12.5 2h-1a.5.5 0 0 1 0-1h1z"/></svg>
+                      Attach files by dragging &amp; dropping, pasting, or clicking here.
+                    </button>
+                    <input type="file" id="ticketFileInput" style={{ display: 'none' }} multiple accept="image/*,.pdf,.txt,.log,.json,.csv" />
+                  </div>
+                </div>
+                <div className="ticket-preview-pane" id="ticketPreviewPane" style={{ display: 'none' }}>
+                  <div className="ticket-preview-content" id="ticketPreviewContent">
+                    <p className="ticket-preview-empty">Nothing to preview</p>
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="ticket-field">
               <label className="ticket-label">Labels</label>
