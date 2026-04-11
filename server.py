@@ -236,6 +236,7 @@ _ROLE_ARCHDUKE   = "554514823191199747"
 _PARLIAMENT_PLUS = {_ROLE_PARLIAMENT, _ROLE_VALAENDOR}
 _JUROR_PLUS      = {_ROLE_JUROR, _ROLE_CONGRESS, _ROLE_PARLIAMENT, _ROLE_VALAENDOR}
 _CHIEF_PLUS      = {_ROLE_GRAND_DUKE, _ROLE_ARCHDUKE}
+_CITIZEN_PLUS    = {_ROLE_CITIZEN}
 
 # all role/config data exposed to the frontend via /api/config
 _CLIENT_CONFIG = {
@@ -826,7 +827,11 @@ def player_rank_history(username: str):
 # ---- aspects ----
 
 @app.route("/api/guild/aspects")
+@rate_limit(60)
 def aspects_get():
+    user, err = _require_role(_CITIZEN_PLUS)
+    if err:
+        return err
     data = _load_json_file(_ASPECTS_JSON)
     if not data:
         return jsonify({"total_aspects": 0, "members": {}})
