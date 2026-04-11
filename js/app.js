@@ -588,7 +588,10 @@ fetch('/auth/session', { credentials: 'same-origin' })
     writePane.style.display  = 'none';
     previewPane.style.display = '';
     var body = document.getElementById('ticketBody').value;
-    previewContent.innerHTML = body.trim() ? renderMarkdown(body) : '';
+    var rendered = body.trim() ? renderMarkdown(body) : '';
+    previewContent.innerHTML = typeof DOMPurify !== 'undefined'
+      ? DOMPurify.sanitize(rendered, { ADD_TAGS: ['details', 'summary'], ADD_ATTR: ['target', 'rel', 'style'] })
+      : rendered;
   });
 
   /* markdown renderer */
@@ -671,16 +674,29 @@ fetch('/auth/session', { credentials: 'same-origin' })
         continue;
       }
 
-      // HTML details/summary (pass through)
+      // HTML details/summary, only allow safe structure, escape inner content
       if (line.match(/^<details>/i)) {
-        var detailLines = [line];
+        var summaryText = 'Details';
+        var detailBody = [];
         i++;
+        if (i < lines.length) {
+          var sumMatch = lines[i].match(/^<summary>(.*?)<\/summary>$/i);
+          if (sumMatch) {
+            summaryText = _esc(sumMatch[1]);
+            i++;
+          }
+        }
         while (i < lines.length && !lines[i].match(/<\/details>/i)) {
-          detailLines.push(lines[i]);
+          var dl = lines[i].replace(/^<\/?p>$/i, '').trim();
+          if (dl) detailBody.push(_esc(dl));
           i++;
         }
-        if (i < lines.length) { detailLines.push(lines[i]); i++; }
-        html.push(detailLines.join('\n'));
+        if (i < lines.length) i++;
+        html.push(
+          '<details><summary>' + summaryText + '</summary>' +
+          (detailBody.length ? '<p>' + detailBody.join('<br>') + '</p>' : '') +
+          '</details>'
+        );
         continue;
       }
 
