@@ -197,7 +197,6 @@ Routes marked 🔒 require a valid Discord login session. Routes marked 👑 add
 |--------|-------|-------------|
 | GET | `/api/bot/status` | Online/offline status and latency (public) |
 | GET | `/api/bot/info` | Bot Discord profile 🔒 |
-| GET | `/api/bot/health` | Memory, CPU, and command stats 🔒 |
 | GET | `/api/bot/discord` | Discord guild member/channel counts 🔒 |
 | GET | `/api/bot/databases` | Database folder sizes and date ranges 🔒 |
 

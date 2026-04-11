@@ -1747,31 +1747,6 @@ def bot_info():
         abort(502, description=f"Could not reach Discord API: {e}")
 
 
-@app.route("/api/bot/health")
-@rate_limit(30)
-def bot_health():
-    """Memory/CPU/command stats from bot_status.json."""
-    status_path = os.path.join(_BASE_DIR, "bot_status.json")
-    if os.path.exists(status_path):
-        try:
-            with open(status_path) as f:
-                data = json.load(f)
-            return jsonify({
-        "memory_used":  data.get("memory_used"),
-                "memory_total": data.get("memory_total"),
-                "cpu_percent":  data.get("cpu_percent"),
-                "commands_today": data.get("commands_today", 0),
-                "commands_total": data.get("commands_total", 0),
-                "ping_history":   data.get("ping_history", []),
-            })
-        except (json.JSONDecodeError, IOError):
-            pass
-    return jsonify({
-        "memory_used": None, "memory_total": None, "cpu_percent": None,
-        "commands_today": 0, "commands_total": 0, "ping_history": [],
-    })
-
-
 @app.route("/api/bot/discord")
 @rate_limit(30)
 def bot_discord_snapshot():

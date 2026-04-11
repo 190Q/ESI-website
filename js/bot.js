@@ -48,9 +48,6 @@
     document.getElementById('botStatusPill').textContent = '';
     document.getElementById('botLatency').textContent = '';
     document.getElementById('botUptime').textContent = '';
-    document.getElementById('botHealthCard').innerHTML =
-      '<div class="info-card-header">System Health</div>' +
-      '<div style="padding:16px 20px;color:var(--text-faint);font-style:italic;font-weight:500;">Loading\u2026</div>';
     document.getElementById('botGuildSnapshot').innerHTML =
       '<div class="info-card-header">Discord Server</div>' +
       '<div style="padding:16px 20px;color:var(--text-faint);font-style:italic;font-weight:500;">Loading\u2026</div>';
@@ -62,10 +59,9 @@
       _botToast = window.showProgressToast('Fetching bot data\u2026');
       _botToast.addItem('info',     'Bot Info');
       _botToast.addItem('status',   'Bot Status');
-      _botToast.addItem('health',   'System Health');
       _botToast.addItem('snapshot', 'Discord Server');
       _botToast.addItem('db',       'Databases');
-      _bTotal = 5;
+      _bTotal = 4;
     }
     var _bMsgs = { success: '\u2713 Bot data loaded', fail: '\u2715 Failed to load bot data', partial: '\u26a0 Bot data partially loaded' };
     function _bCheckDone() { _bDone++; if (_bDone >= _bTotal && _botToast) _botToast.finish(_bMsgs); }
@@ -74,10 +70,6 @@
     var statusP = DataCache.cachedFetch('/api/bot/status')
       .then(function(r) { if (_botToast) _botToast.updateItem('status', 'success'); _bCheckDone(); return r.data || { online: true, latency: 42 }; })
       .catch(function() { if (_botToast) _botToast.updateItem('status', 'error'); _bCheckDone(); return { online: true, latency: 42 }; });
-
-    var healthP = DataCache.cachedFetch('/api/bot/health')
-      .then(function(r) { if (_botToast) _botToast.updateItem('health', 'success'); _bCheckDone(); return r.data; })
-      .catch(function() { if (_botToast) _botToast.updateItem('health', 'error'); _bCheckDone(); return null; });
 
     var dbP = DataCache.cachedFetch('/api/bot/databases')
       .then(function(r) { if (_botToast) _botToast.updateItem('db', 'success'); _bCheckDone(); return r.data || { total_size: 0, folders: {} }; })
@@ -112,10 +104,6 @@
       renderBotProfile(results[0], results[1]);
     });
 
-    Promise.all([healthP, statusP]).then(function(results) {
-      renderHealthStats(results[0], results[1]);
-    });
-
     snapshotP.then(function(snapshot) {
       renderGuildSnapshot(snapshot);
     });
@@ -133,44 +121,6 @@
   /* ══════════════════════════════════
      Bot Profile
      ══════════════════════════════════ */
-
-  function renderHealthStats(health, status) {
-    var el = document.getElementById('botHealthCard');
-    if (!el) return;
-
-    var latency   = status ? (status.latency || '—') : '—';
-    var memUsed   = health && health.memory_used   ? formatBytes(health.memory_used)  : '—';
-    var memTotal  = health && health.memory_total  ? formatBytes(health.memory_total) : '—';
-    var cpu       = health && health.cpu_percent   != null ? health.cpu_percent.toFixed(1) + '%' : '—';
-    var cmdToday  = health ? (health.commands_today || 0) : 0;
-    var cmdTotal  = health ? (health.commands_total || 0) : 0;
-
-    // Sparkline for ping history
-    var pings = (health && health.ping_history) ? health.ping_history.slice(-20) : [];
-    var sparkline = '';
-    if (pings.length > 1) {
-      var max = Math.max.apply(null, pings) || 1;
-      var min = Math.min.apply(null, pings);
-      var W = 120, H = 28;
-      var pts = pings.map(function(v, i) {
-        var x = (i / (pings.length - 1)) * W;
-        var y = H - ((v - min) / (max - min || 1)) * H;
-        return x.toFixed(1) + ',' + y.toFixed(1);
-      }).join(' ');
-      sparkline = '<svg width="' + W + '" height="' + H + '" style="vertical-align:middle;margin-left:8px">' +
-        '<polyline points="' + pts + '" fill="none" stroke="var(--gold-dim)" stroke-width="1.5"/></svg>';
-    }
-
-    el.innerHTML =
-      '<div class="info-card-header">System Health</div>' +
-      '<div class="bot-health-grid">' +
-        '<div class="bot-health-item"><span class="bot-health-label">Latency</span><span class="bot-health-value">' + latency + 'ms' + sparkline + '</span></div>' +
-        '<div class="bot-health-item"><span class="bot-health-label">Memory</span><span class="bot-health-value">' + memUsed + ' / ' + memTotal + '</span></div>' +
-        '<div class="bot-health-item"><span class="bot-health-label">CPU</span><span class="bot-health-value">' + cpu + '</span></div>' +
-        '<div class="bot-health-item"><span class="bot-health-label">Commands Today</span><span class="bot-health-value">' + cmdToday.toLocaleString() + '</span></div>' +
-        '<div class="bot-health-item"><span class="bot-health-label">Commands Total</span><span class="bot-health-value">' + cmdTotal.toLocaleString() + '</span></div>' +
-      '</div>';
-  }
 
   function renderGuildSnapshot(snapshot) {
     var el = document.getElementById('botGuildSnapshot');
@@ -353,45 +303,5 @@
     return s + ' seconds';
   }
 
-
-  /* ══════════════════════════════════
-     Console
-     ══════════════════════════════════ */
-
-  var _consoleLines = [];
-  var _consoleFilter = 'all';
-
-  function pushConsoleLine(level, msg) {
-    var now = new Date();
-    var time = now.toTimeString().slice(0, 8);
-    _consoleLines.push({ time: time, level: level, msg: msg });
-    if (_consoleLines.length > 200) _consoleLines.shift();
-    renderConsole();
-  }
-
-  function renderConsole() {
-    var el = document.getElementById('botConsole');
-    if (!el) return;
-    var lines = _consoleFilter === 'all'
-      ? _consoleLines
-      : _consoleLines.filter(function(l) { return l.level === _consoleFilter; });
-    el.innerHTML = lines.map(function(l) {
-      return '<div class="console-line">' +
-        '<span class="console-time">' + l.time + '</span>' +
-        '<span class="console-level ' + l.level + '">[' + l.level.toUpperCase() + ']</span>' +
-        '<span class="console-msg">' + l.msg + '</span>' +
-      '</div>';
-    }).join('');
-    el.scrollTop = el.scrollHeight;
-  }
-
-  // Wire filter buttons
-  document.addEventListener('click', function(e) {
-    if (!e.target.classList.contains('console-filter-btn')) return;
-    document.querySelectorAll('.console-filter-btn').forEach(function(b) { b.classList.remove('active'); });
-    e.target.classList.add('active');
-    _consoleFilter = e.target.dataset.level;
-    renderConsole();
-  });
 
 })();

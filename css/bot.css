@@ -104,22 +104,6 @@
   gap: 20px;
 }
 
-#botHealthCard {
-  flex: 1;
-}
-
-.bot-console-card {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 228px;
-}
-
-.bot-console {
-  flex: 1;
-  min-height: 0;
-  max-height: none;
-}
 
 /* Tracker Countdowns */
 .tracker-list {
@@ -193,39 +177,6 @@
   font-style: italic;
 }
 
-/* Console */
-.bot-console {
-  background: #0a0f0a;
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 0.78rem;
-  line-height: 1.6;
-  padding: 16px;
-  min-height: 186px;
-  max-height: 360px;
-  overflow-y: auto;
-  color: #8a9a6a;
-}
-.console-line {
-  display: flex;
-  gap: 10px;
-  padding: 1px 0;
-}
-.console-time {
-  color: var(--text-faint);
-  flex-shrink: 0;
-}
-.console-level {
-  flex-shrink: 0;
-  min-width: 48px;
-}
-.console-level.info  { color: #3BA55C; }
-.console-level.warn  { color: #FAA61A; }
-.console-level.error { color: #ED4245; }
-.console-level.debug { color: #5865F2; }
-.console-msg {
-  color: #c0d0a0;
-  word-break: break-word;
-}
 
 /* Database section */
 .db-total-bar {
@@ -355,27 +306,6 @@
   color: var(--gold-light);
 }
 
-/* Console filter buttons */
-.console-filters {
-  display: flex;
-  gap: 4px;
-}
-
-.console-filter-btn {
-  font-family: 'Cinzel', serif;
-  font-size: 0.65rem;
-  letter-spacing: 0.06em;
-  padding: 3px 10px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-faint);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.console-filter-btn:hover { color: var(--gold-light); border-color: var(--border-mid); }
-.console-filter-btn.active { background: rgba(212,160,23,0.1); border-color: var(--gold-light); color: var(--gold-light); }
 
 /* Responsive */
 @media (max-width: 768px) {

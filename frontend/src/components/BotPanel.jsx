@@ -34,9 +34,8 @@ export default function BotPanel() {
 
         <div className="bot-split-layout">
 
-          {/* Left: Health + Trackers */}
+          {/* Left: Discord + Trackers */}
           <div className="bot-left-col">
-            <div className="info-card" id="botHealthCard" />
             <div className="info-card" id="botGuildSnapshot" />
 
             <div className="info-card">
@@ -51,21 +50,8 @@ export default function BotPanel() {
             </div>
           </div>
 
-          {/* Right: Console + Database */}
+          {/* Right: Database */}
           <div className="bot-right-col">
-            <div className="info-card bot-console-card">
-              <div className="info-card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                Console
-                <div className="console-filters" id="consoleFilters">
-                  <button className="console-filter-btn active" data-level="all">All</button>
-                  <button className="console-filter-btn" data-level="info">Info</button>
-                  <button className="console-filter-btn" data-level="warn">Warn</button>
-                  <button className="console-filter-btn" data-level="error">Error</button>
-                </div>
-              </div>
-              <div className="bot-console" id="botConsole" />
-            </div>
-
             <CollapsibleCard label="Database Storage" totalId="dbTotalSize" bodyId="dbContent" />
           </div>
 
