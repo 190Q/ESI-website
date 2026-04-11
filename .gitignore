@@ -148,6 +148,7 @@ venv.bak/
 instance/
 .webassets-cache
 .flask_secret
+user_data.db
 
 # Spyder project settings
 .spyderproject

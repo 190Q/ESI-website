@@ -193,9 +193,9 @@ const ESI_RANK_ROLES = [
   { id: '681030746651230351',  name: 'Squire',      color: '#c7edc0' },
 ];
 const ESI_ECHELON_ROLES = [
-  { id: '600185623474601995', name: 'Parliament', color: '#afb3d1' }, // Parli Colour role
-  { id: '1346436714901536858', name: 'Congress',  color: '#7289da' },
-  { id: '954566591520063510', name: 'Juror',       color: '#ffc332' },
+  { id: '600185623474601995',  name: 'Parliament', color: '#afb3d1' }, // Parli Colour role
+  { id: '1346436714901536858', name: 'Congress',   color: '#7289da' },
+  { id: '954566591520063510',  name: 'Juror',      color: '#ffc332' },
 ];
 const ESI_CITIZEN_ROLE = { id: '554889169705500672', name: 'Sindrian Citizen', color: '#4acf5e' };
 
@@ -250,6 +250,9 @@ function applyLogin(user) {
     updateLoginButton();
     applyPermissions();
     renderProfile(user);
+
+    // sync settings from server (first login on this device restores them)
+    _syncSettingsFromServer();
 
     // auto-populate default player from server if user hasn't set one manually
     if (!_defaultPlayerFetched && window.esiSettings) {
@@ -599,15 +602,50 @@ fetch('/auth/session', { credentials: 'same-origin' })
       var all = _readAllSettings();
       all[key] = val;
       _writeAllSettings(all);
+      _pushSettingsToServer(all);
     },
     read:     _readAllSettings,
     write:    _writeAllSettings,
     defaults: SETTINGS_DEFAULTS,
     reset: function () {
-      _writeAllSettings(Object.assign({}, SETTINGS_DEFAULTS));
+      var defaults = Object.assign({}, SETTINGS_DEFAULTS);
+      _writeAllSettings(defaults);
+      _pushSettingsToServer(defaults);
     },
   };
   window.esiSettings = esiSettings;
+
+  /* server-side settings sync */
+  var _settingsSyncDone = false;
+
+  function _syncSettingsFromServer() {
+    if (_settingsSyncDone) return;
+    _settingsSyncDone = true;
+    fetch('/api/settings', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (serverSettings) {
+        if (!serverSettings || typeof serverSettings !== 'object') return;
+        if (Object.keys(serverSettings).length === 0) {
+          // no server settings yet — push current local settings up
+          _pushSettingsToServer(_readAllSettings());
+          return;
+        }
+        // merge: server settings win over local
+        var merged = Object.assign({}, SETTINGS_DEFAULTS, _readAllSettings(), serverSettings);
+        _writeAllSettings(merged);
+      })
+      .catch(function () {});
+  }
+
+  function _pushSettingsToServer(settings) {
+    if (!state.loggedIn) return;
+    fetch('/api/settings', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    }).catch(function () {});
+  }
 
   /* settings modal open/close */
   var settingsBackdrop = document.getElementById('settingsModalBackdrop');
@@ -747,6 +785,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
   settingsSaveBtn.addEventListener('click', function () {
     var values = _readFormValues();
     _writeAllSettings(values);
+    _pushSettingsToServer(values);
     _settingsSnapshot = values;
     _updateSaveBtn();
     showToast('\u2713 Settings saved. Reload the page to fully apply all changes.', 'success');

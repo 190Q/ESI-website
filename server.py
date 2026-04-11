@@ -297,6 +297,121 @@ app.secret_key = _get_secret_key()
 from datetime import timedelta
 app.permanent_session_lifetime = timedelta(days=30)
 
+# ---- user data database (settings + remember-me tokens) ----
+
+_USER_DB_PATH = os.path.join(_BASE_DIR, "user_data.db")
+
+def _init_user_db():
+    conn = _sqlite3.connect(_USER_DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_settings (
+            discord_id TEXT PRIMARY KEY,
+            settings   TEXT NOT NULL DEFAULT '{}',
+            updated_at REAL NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS remember_tokens (
+            token      TEXT PRIMARY KEY,
+            discord_id TEXT NOT NULL,
+            user_data  TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_remember_discord ON remember_tokens(discord_id)")
+    conn.commit()
+    conn.close()
+
+_init_user_db()
+
+_REMEMBER_COOKIE  = "esi_remember"
+_REMEMBER_MAX_AGE = 30 * 24 * 3600  # 30 days
+
+def _remember_create(user_data):
+    """Create a remember-me token for the given user. Returns the token string."""
+    token = secrets.token_urlsafe(64)
+    now = time()
+    conn = _sqlite3.connect(_USER_DB_PATH)
+    # one token per user — delete any old ones
+    conn.execute("DELETE FROM remember_tokens WHERE discord_id = ?", (user_data["id"],))
+    conn.execute(
+        "INSERT INTO remember_tokens (token, discord_id, user_data, created_at, expires_at)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (token, user_data["id"], json.dumps(user_data), now, now + _REMEMBER_MAX_AGE),
+    )
+    # periodically prune expired tokens from all users
+    conn.execute("DELETE FROM remember_tokens WHERE expires_at < ?", (now,))
+    conn.commit()
+    conn.close()
+    return token
+
+
+def _remember_restore(token):
+    """Validate a remember token. Returns cached user_data dict or None."""
+    if not token:
+        return None
+    now = time()
+    conn = _sqlite3.connect(_USER_DB_PATH)
+    row = conn.execute(
+        "SELECT user_data, expires_at FROM remember_tokens WHERE token = ?", (token,)
+    ).fetchone()
+    if not row or now > row[1]:
+        # expired or missing — clean up
+        conn.execute("DELETE FROM remember_tokens WHERE token = ?", (token,))
+        conn.commit()
+        conn.close()
+        return None
+    # extend expiry (sliding window)
+    conn.execute(
+        "UPDATE remember_tokens SET expires_at = ? WHERE token = ?",
+        (now + _REMEMBER_MAX_AGE, token),
+    )
+    conn.commit()
+    conn.close()
+    try:
+        return json.loads(row[0])
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _remember_update(discord_id, user_data):
+    """Update the cached user data on all tokens for this user."""
+    conn = _sqlite3.connect(_USER_DB_PATH)
+    conn.execute(
+        "UPDATE remember_tokens SET user_data = ? WHERE discord_id = ?",
+        (json.dumps(user_data), discord_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _remember_delete(token=None, discord_id=None):
+    """Delete a specific token or all tokens for a user."""
+    conn = _sqlite3.connect(_USER_DB_PATH)
+    if token:
+        conn.execute("DELETE FROM remember_tokens WHERE token = ?", (token,))
+    if discord_id:
+        conn.execute("DELETE FROM remember_tokens WHERE discord_id = ?", (discord_id,))
+    conn.commit()
+    conn.close()
+
+
+def _set_remember_cookie(response, token):
+    response.set_cookie(
+        _REMEMBER_COOKIE, token,
+        max_age=_REMEMBER_MAX_AGE,
+        httponly=True,
+        samesite="Lax",
+        secure=DISCORD_REDIRECT_URI.startswith("https://"),
+    )
+    return response
+
+
+def _clear_remember_cookie(response):
+    response.delete_cookie(_REMEMBER_COOKIE, samesite="Lax")
+    return response
+
 WYNN_BASE          = "https://api.wynncraft.com/v3"
 DISCORD_API        = "https://discord.com/api/v10"
 DISCORD_TOKEN      = os.environ.get("DISCORD_TOKEN", "")
@@ -470,16 +585,28 @@ def auth_callback():
         "role_objects":  role_objects,
     }
     session["user"] = user_data
-    return redirect("/?auth=success")
+    token = _remember_create(user_data)
+    resp = redirect("/?auth=success")
+    _set_remember_cookie(resp, token)
+    return resp
 
 
 # session check - frontend polls this to know if we're logged in
 @app.route("/auth/session")
 def auth_session():
     user = session.get("user")
-    if not user:
-        return jsonify({"loggedIn": False})
-    return jsonify({"loggedIn": True, "user": user})
+    if user:
+        return jsonify({"loggedIn": True, "user": user})
+    # try remember-me token
+    token = request.cookies.get(_REMEMBER_COOKIE)
+    cached_user = _remember_restore(token)
+    if cached_user:
+        session.permanent = True
+        session["user"] = cached_user
+        resp = jsonify({"loggedIn": True, "user": cached_user})
+        _set_remember_cookie(resp, token)  # refresh cookie expiry
+        return resp
+    return jsonify({"loggedIn": False})
 
 
 # dev-only mock login (skips oauth, just give it a user ID)
@@ -538,7 +665,10 @@ def auth_mock_login():
         "role_objects":  role_objects,
     }
     session["user"] = user
-    return jsonify({"ok": True, "user": user})
+    token = _remember_create(user)
+    resp = jsonify({"ok": True, "user": user})
+    _set_remember_cookie(resp, token)
+    return resp
 
 
 # re-pull roles/name/avatar from discord
@@ -547,7 +677,14 @@ def auth_mock_login():
 def auth_refresh():
     user = session.get("user")
     if not user:
-        return jsonify({"loggedIn": False})
+        # try remember-me token
+        token = request.cookies.get(_REMEMBER_COOKIE)
+        user = _remember_restore(token)
+        if user:
+            session.permanent = True
+            session["user"] = user
+        else:
+            return jsonify({"loggedIn": False})
 
     user_id = user.get("id", "")
     if not user_id or not DISCORD_TOKEN or not DISCORD_GUILD_ID:
@@ -562,7 +699,10 @@ def auth_refresh():
         if member_resp.status_code == 404:
             # if user is no longer in the server then invalidate the session
             session.pop("user", None)
-            return jsonify({"loggedIn": False})
+            _remember_delete(discord_id=user_id)
+            resp = jsonify({"loggedIn": False})
+            _clear_remember_cookie(resp)
+            return resp
         if not member_resp.ok:
             return jsonify({"loggedIn": True, "user": user})
 
@@ -597,6 +737,7 @@ def auth_refresh():
             "role_objects":  role_objects,
         }
         session["user"] = updated
+        _remember_update(user_id, updated)
         return jsonify({"loggedIn": True, "user": updated})
     except Exception:
         return jsonify({"loggedIn": True, "user": user})
@@ -606,7 +747,11 @@ def auth_refresh():
 @app.route("/auth/logout")
 def auth_logout():
     session.pop("user", None)
-    return jsonify({"loggedIn": False})
+    token = request.cookies.get(_REMEMBER_COOKIE)
+    _remember_delete(token=token)
+    resp = jsonify({"loggedIn": False})
+    _clear_remember_cookie(resp)
+    return resp
 
 
 bot_root                = os.path.dirname(_BASE_DIR)
@@ -1965,6 +2110,52 @@ def bot_databases():
             },
         },
     })
+
+
+@app.route("/api/settings", methods=["GET"])
+@rate_limit(60)
+def settings_get():
+    """Return stored settings for the logged-in user."""
+    user, err = _require_login()
+    if err:
+        return err
+    discord_id = user.get("id", "")
+    conn = _sqlite3.connect(_USER_DB_PATH)
+    row = conn.execute(
+        "SELECT settings FROM user_settings WHERE discord_id = ?", (discord_id,)
+    ).fetchone()
+    conn.close()
+    if row:
+        try:
+            return jsonify(json.loads(row[0]))
+        except json.JSONDecodeError:
+            pass
+    return jsonify({})
+
+
+@app.route("/api/settings", methods=["PUT"])
+@rate_limit(60)
+def settings_put():
+    """Save settings for the logged-in user."""
+    user, err = _require_login()
+    if err:
+        return err
+    discord_id = user.get("id", "")
+    body = request.get_json(silent=True)
+    if body is None or not isinstance(body, dict):
+        return jsonify({"error": "Invalid settings"}), 400
+    now = time()
+    settings_str = json.dumps(body)
+    conn = _sqlite3.connect(_USER_DB_PATH)
+    conn.execute(
+        "INSERT INTO user_settings (discord_id, settings, updated_at) VALUES (?, ?, ?)"
+        " ON CONFLICT(discord_id) DO UPDATE SET settings = excluded.settings,"
+        " updated_at = excluded.updated_at",
+        (discord_id, settings_str, now),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/settings/default-player")
