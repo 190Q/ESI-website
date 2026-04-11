@@ -223,11 +223,12 @@ def _require_login():
         return None, (jsonify({"error": "Authentication required"}), 401)
     return user, None
 
-# discord role IDs used for page access checks
+# discord role IDs used for page access checks (single source of truth)
 _ROLE_VALAENDOR  = "728858956575014964"
 _ROLE_PARLIAMENT = "600185623474601995"
 _ROLE_CONGRESS   = "1346436714901536858"
 _ROLE_JUROR      = "954566591520063510"
+_ROLE_CITIZEN    = "554889169705500672"
 
 _ROLE_GRAND_DUKE = "1396112289832243282"
 _ROLE_ARCHDUKE   = "554514823191199747"
@@ -235,6 +236,42 @@ _ROLE_ARCHDUKE   = "554514823191199747"
 _PARLIAMENT_PLUS = {_ROLE_PARLIAMENT, _ROLE_VALAENDOR}
 _JUROR_PLUS      = {_ROLE_JUROR, _ROLE_CONGRESS, _ROLE_PARLIAMENT, _ROLE_VALAENDOR}
 _CHIEF_PLUS      = {_ROLE_GRAND_DUKE, _ROLE_ARCHDUKE}
+
+# all role/config data exposed to the frontend via /api/config
+_CLIENT_CONFIG = {
+    "roles": {
+        "valaendor":  _ROLE_VALAENDOR,
+        "parliament": _ROLE_PARLIAMENT,
+        "congress":   _ROLE_CONGRESS,
+        "juror":      _ROLE_JUROR,
+        "citizen":    _ROLE_CITIZEN,
+    },
+    "permissions": {
+        "parliamentPlus": list(_PARLIAMENT_PLUS),
+        "jurorPlus":      list(_JUROR_PLUS),
+    },
+    "staffRoles": [
+        {"name": "Bot Owner",    "color": "#ec00ad", "members": ["967867229410574340"]},
+        {"name": "Developer",    "color": "#0896d3", "members": ["454260696172068879"]},
+        {"name": "User Support", "color": "#4933c5", "members": ["516954338225160195"]},
+    ],
+    "rankRoles": [
+        {"id": "554506531949772812",  "name": "Emperor",    "color": "#5c11ad"},
+        {"id": "554514823191199747",  "name": "Archduke",   "color": "#b5fff6"},
+        {"id": "1396112289832243282", "name": "Grand Duke", "color": "#74cac0"},
+        {"id": "591765870272053261",  "name": "Duke",       "color": "#35deac"},
+        {"id": "1391424890938195998", "name": "Count",      "color": "#3ac770"},
+        {"id": "591769392828776449",  "name": "Viscount",   "color": "#59e365"},
+        {"id": "688438690137243892",  "name": "Knight",     "color": "#93e688"},
+        {"id": "681030746651230351",  "name": "Squire",     "color": "#c7edc0"},
+    ],
+    "echelonRoles": [
+        {"id": _ROLE_PARLIAMENT, "name": "Parliament", "color": "#afb3d1"},
+        {"id": _ROLE_CONGRESS,  "name": "Congress",   "color": "#7289da"},
+        {"id": _ROLE_JUROR,     "name": "Juror",      "color": "#ffc332"},
+    ],
+    "citizenRole": {"id": _ROLE_CITIZEN, "name": "Sindrian Citizen", "color": "#4acf5e"},
+}
 
 def _require_role(allowed_roles: set):
     """Checks that the user is logged in and has at least one of the given roles."""
@@ -513,6 +550,14 @@ def _gate_requests():
 @app.route("/")
 def index():
     return send_from_directory(".", "index.html")
+
+
+# ---- public config endpoint (role IDs, permissions) ----
+
+@app.route("/api/config")
+def client_config():
+    """Expose role IDs and permission groups so the frontend doesn't hardcode them."""
+    return jsonify(_CLIENT_CONFIG)
 
 
 # oauth2, send user off to discord

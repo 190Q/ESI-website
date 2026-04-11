@@ -177,30 +177,27 @@
   }
 
 
-// staff roles
-const ESI_STAFF_ROLES = [
-  { name: 'Bot Owner',    color: '#ec00ad', members: ['967867229410574340'] },
-  { name: 'Developer',    color: '#0896d3', members: ['454260696172068879'] },
-  { name: 'User Support', color: '#4933c5', members: ['516954338225160195'] },
-];
+// role config — loaded from /api/config (single source of truth on the server)
+var ESI_STAFF_ROLES   = [];
+var ESI_RANK_ROLES    = [];
+var ESI_ECHELON_ROLES = [];
+var ESI_CITIZEN_ROLE  = { id: '', name: '', color: '' };
+var _PARLIAMENT_PLUS  = [];
+var _JUROR_PLUS       = [];
+var _configLoaded     = false;
 
-// rank roles shown in the account modal
-const ESI_RANK_ROLES = [
-  { id: '554506531949772812',  name: 'Emperor',     color: '#5c11ad' },
-  { id: '554514823191199747',  name: 'Archduke',    color: '#b5fff6' },
-  { id: '1396112289832243282', name: 'Grand Duke',  color: '#74cac0' },
-  { id: '591765870272053261',  name: 'Duke',        color: '#35deac' },
-  { id: '1391424890938195998', name: 'Count',       color: '#3ac770' },
-  { id: '591769392828776449',  name: 'Viscount',    color: '#59e365' },
-  { id: '688438690137243892',  name: 'Knight',      color: '#93e688' },
-  { id: '681030746651230351',  name: 'Squire',      color: '#c7edc0' },
-];
-const ESI_ECHELON_ROLES = [
-  { id: '600185623474601995',  name: 'Parliament', color: '#afb3d1' }, // Parli Colour role
-  { id: '1346436714901536858', name: 'Congress',   color: '#7289da' },
-  { id: '954566591520063510',  name: 'Juror',      color: '#ffc332' },
-];
-const ESI_CITIZEN_ROLE = { id: '554889169705500672', name: 'Sindrian Citizen', color: '#4acf5e' };
+fetch('/api/config')
+  .then(function (r) { return r.json(); })
+  .then(function (cfg) {
+    ESI_STAFF_ROLES   = cfg.staffRoles   || [];
+    ESI_RANK_ROLES    = cfg.rankRoles    || [];
+    ESI_ECHELON_ROLES = cfg.echelonRoles || [];
+    ESI_CITIZEN_ROLE  = cfg.citizenRole  || ESI_CITIZEN_ROLE;
+    _PARLIAMENT_PLUS  = cfg.permissions  ? cfg.permissions.parliamentPlus || [] : [];
+    _JUROR_PLUS       = cfg.permissions  ? cfg.permissions.jurorPlus || [] : [];
+    _configLoaded     = true;
+  })
+  .catch(function () {});
 
 function _esiRoleBadge(name, color, large) {
   var s = 'color:' + color + ';background:' + color + '22;border-color:' + color + '66;';
@@ -222,10 +219,16 @@ function renderAccountModalRoles(userRoles, userId) {
   }
 
   // Upper Echelon: Parliament supersedes Congress; Juror shown independently
-  var hasValaendor  = userRoles.includes('728858956575014964');
-  var hasParliament = userRoles.includes('600185623474601995');
-  var hasCongress   = userRoles.includes('1346436714901536858');
-  var hasJuror      = userRoles.includes('954566591520063510');
+  // Valaendor is the first entry in parliamentPlus that isn't in echelonRoles
+  var _echelonIds = ESI_ECHELON_ROLES.map(function(r) { return r.id; });
+  var _valaendorId = _PARLIAMENT_PLUS.find(function(id) { return !_echelonIds.includes(id); }) || '';
+  var _parli = ESI_ECHELON_ROLES.find(function(r) { return r.name === 'Parliament'; });
+  var _cong  = ESI_ECHELON_ROLES.find(function(r) { return r.name === 'Congress'; });
+  var _jur   = ESI_ECHELON_ROLES.find(function(r) { return r.name === 'Juror'; });
+  var hasValaendor  = _valaendorId && userRoles.includes(_valaendorId);
+  var hasParliament = _parli ? userRoles.includes(_parli.id) : false;
+  var hasCongress   = _cong  ? userRoles.includes(_cong.id)  : false;
+  var hasJuror      = _jur   ? userRoles.includes(_jur.id)   : false;
   if (hasValaendor) {
     html += _esiRoleBadge('👑 Valaendor', '#7744b6', true);
   } else if (hasParliament) {
@@ -417,21 +420,17 @@ fetch('/auth/session', { credentials: 'same-origin' })
     }
   }
 
-  /* role checks */
+  /* role checks — uses permission groups from /api/config */
   function hasParliamentPlus() {
     if (!state.loggedIn || !state.user) return false;
     var roles = state.user.roles || [];
-    return roles.includes('728858956575014964') || // Valaendor
-           roles.includes('600185623474601995');    // Parliament
+    return _PARLIAMENT_PLUS.some(function (id) { return roles.includes(id); });
   }
 
   function hasJurorPlus() {
     if (!state.loggedIn || !state.user) return false;
     var roles = state.user.roles || [];
-    return roles.includes('728858956575014964') || // Valaendor
-           roles.includes('600185623474601995') || // Parliament
-           roles.includes('1346436714901536858') || // Congress
-           roles.includes('954566591520063510');    // Juror
+    return _JUROR_PLUS.some(function (id) { return roles.includes(id); });
   }
 
   /* permissions */
