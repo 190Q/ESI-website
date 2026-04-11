@@ -1653,30 +1653,7 @@ def inactivity_delete(discord_id):
 @rate_limit(60)
 def guild_stats():
     """Sum key stats across all members using the latest api_tracking snapshot."""
-    import glob as _glob
-    api_folder = os.path.join(_ESI_BOT_DIR, "databases", "api_tracking")
-    if not os.path.isdir(api_folder):
-        return jsonify({})
-
-    # find the newest snapshot
-    latest_db = None
-    latest_dt  = None
-    for name in os.listdir(api_folder):
-        if not name.startswith("api_"):
-            continue
-        path = os.path.join(api_folder, name)
-        if not os.path.isdir(path):
-            continue
-        try:
-            from datetime import datetime as _dt
-            day_dt = _dt.strptime(name[4:], "%d-%m-%Y")
-        except ValueError:
-            continue
-        files = sorted(f for f in os.listdir(path) if f.endswith(".db"))
-        if files and (latest_dt is None or day_dt > latest_dt):
-            latest_dt = day_dt
-            latest_db = os.path.join(path, files[-1])
-
+    latest_db = _get_latest_api_db()
     if not latest_db:
         return jsonify({})
 
