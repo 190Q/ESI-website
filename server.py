@@ -29,6 +29,20 @@ import collections as _collections
 import functools as _functools
 _RATE_LIMIT_STORE: dict = {}
 _rate_limit_lock = _threading.Lock()
+_RATE_LIMIT_MAX_KEYS = 10000
+_rate_limit_last_cleanup = 0
+_RATE_LIMIT_CLEANUP_INTERVAL = 300  # prune stale entries every 5 minutes
+
+def _rate_limit_cleanup(now):
+    """Remove empty or fully-expired buckets from the rate limit store."""
+    global _rate_limit_last_cleanup
+    if now - _rate_limit_last_cleanup < _RATE_LIMIT_CLEANUP_INTERVAL \
+            and len(_RATE_LIMIT_STORE) < _RATE_LIMIT_MAX_KEYS:
+        return
+    _rate_limit_last_cleanup = now
+    stale = [k for k, v in _RATE_LIMIT_STORE.items() if not v or now - v[-1] >= 120]
+    for k in stale:
+        del _RATE_LIMIT_STORE[k]
 
 def rate_limit(calls: int, period: float = 60.0):
     """Decorator: allow at most *calls* requests per *period* seconds per IP.
@@ -47,6 +61,7 @@ def rate_limit(calls: int, period: float = 60.0):
             key = (ip, request.endpoint or request.path)
             now = time()
             with _rate_limit_lock:
+                _rate_limit_cleanup(now)
                 bucket = _RATE_LIMIT_STORE.setdefault(key, _collections.deque())
                 # evict timestamps outside the window
                 while bucket and now - bucket[0] >= period:
