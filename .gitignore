@@ -221,3 +221,6 @@ assets/
 
 # User uploads
 uploads/
+
+user_data.db-shm
+user_data.db-wal
