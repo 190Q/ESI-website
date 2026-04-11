@@ -454,7 +454,16 @@ def _cors(response):
 
 @app.after_request
 def after_request(response):
-    return _cors(response)
+    _cors(response)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src https://fonts.gstatic.com; "
+        "img-src 'self' https://cdn.discordapp.com https://visage.surgeplay.com https://crafatar.com https://mc-heads.net data:; "
+        "connect-src 'self';"
+    )
+    return response
 
 # block direct access to sensitive files in the static root
 _BLOCKED_STATIC_RE = _re.compile(
@@ -607,69 +616,6 @@ def auth_session():
         _set_remember_cookie(resp, token)  # refresh cookie expiry
         return resp
     return jsonify({"loggedIn": False})
-
-
-# dev-only mock login (skips oauth, just give it a user ID)
-@app.route("/auth/mock-login", methods=["POST"])
-def auth_mock_login():
-    data = request.get_json(silent=True) or {}
-    user_id = (data.get("id") or "").strip()
-    if not user_id:
-        return jsonify({"error": "No user ID provided"}), 400
-
-    username = user_id
-    discriminator = "0"
-    avatar = None
-    nick = None
-    roles = []
-    role_objects = []
-
-    if DISCORD_TOKEN and DISCORD_GUILD_ID:
-        try:
-            member_resp = requests.get(
-                f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/members/{user_id}",
-                headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
-                timeout=10,
-            )
-            if member_resp.ok:
-                member_data = member_resp.json()
-                roles = member_data.get("roles", [])
-                nick = member_data.get("nick")
-                user_obj = member_data.get("user", {})
-                username = user_obj.get("username", user_id)
-                discriminator = user_obj.get("discriminator", "0")
-                avatar = user_obj.get("avatar")
-
-                roles_resp = requests.get(
-                    f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/roles",
-                    headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
-                    timeout=10,
-                )
-                if roles_resp.ok:
-                    role_lookup = {r["id"]: r["name"] for r in roles_resp.json()}
-                    role_objects = [
-                        {"id": rid, "name": role_lookup.get(rid, "Unknown")}
-                        for rid in roles
-                    ]
-        except Exception:
-            pass
-
-    session.permanent = True
-    user = {
-        "id":            user_id,
-        "username":      username,
-        "nick":          nick,
-        "discriminator": discriminator,
-        "avatar":        avatar,
-        "roles":         roles,
-        "role_objects":  role_objects,
-    }
-    session["user"] = user
-    token = _remember_create(user)
-    resp = jsonify({"ok": True, "user": user})
-    _set_remember_cookie(resp, token)
-    return resp
-
 
 # re-pull roles/name/avatar from discord
 @app.route("/auth/refresh")
