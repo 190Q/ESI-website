@@ -337,7 +337,8 @@ def _get_secret_key():
         with open(key_path) as f:
             return f.read().strip()
     key = secrets.token_hex(32)
-    with open(key_path, 'w') as f:
+    fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as f:
         f.write(key)
     return key
 app.secret_key = _get_secret_key()
