@@ -229,7 +229,7 @@
             '</div>' +
           '</div>' +
           '<div class="info-card" style="margin-top:16px">' +
-            '<div class="collapsible-header" onclick="toggleCollapse(this)">' +
+            '<div class="collapsible-header" id="inacExemptionsToggle">' +
               'Exemptions <span id="inacCount" style="color:var(--text-faint);font-size:0.85em;font-family:\'Crimson Pro\',serif"></span>' +
               '<span class="collapsible-arrow">&#x25BC;</span>' +
             '</div>' +
@@ -239,6 +239,9 @@
       '</div>';
 
     document.getElementById('inacSubmit').addEventListener('click', submitExemption);
+    document.getElementById('inacExemptionsToggle').addEventListener('click', function () {
+      toggleCollapse(this);
+    });
     initChecker();
 
     /* edit helpers */
