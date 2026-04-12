@@ -477,9 +477,7 @@ DISCORD_TOKEN      = os.environ.get("DISCORD_TOKEN", "")
 DISCORD_CLIENT_ID  = os.environ.get("DISCORD_CLIENT_ID", "")
 DISCORD_CLIENT_SECRET = os.environ.get("DISCORD_CLIENT_SECRET", "")
 DISCORD_GUILD_ID   = os.environ.get("DISCORD_GUILD_ID", "")
-DISCORD_REDIRECT_URI = os.environ.get(
-    "DISCORD_REDIRECT_URI", "http://51.178.139.205:5000/auth/callback"
-)
+DISCORD_REDIRECT_URI = os.environ.get("DISCORD_REDIRECT_URI", "")
 
 # session cookie security
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -2646,7 +2644,8 @@ if __name__ == "__main__":
         print(f" failed: {_e}")
     _threading.Thread(target=_bulk_playtime_loop, daemon=True).start()
     _threading.Thread(target=_upload_cleanup_loop, daemon=True).start()
-    print("  http://51.178.139.205:5000")
+    url = os.environ.get("WEBSITE_IP", "")
+    print("  ")
     print("  Press Ctrl+C to stop")
     print()
     app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
