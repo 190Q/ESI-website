@@ -533,7 +533,6 @@
     /* owed cards */
     const aspectsData = window.aspectsData || { total_aspects: 0, members: {} };
     const owedAspects = Object.values(aspectsData.members || {}).reduce((s, m) => s + (flatMembers.some(fm => fm.name === m.name) ? (m.owed || 0) : 0), 0);
-    const esiPoints   = Math.floor(Math.random() * 50000) + 1000; // 1k–51k
     const territories = Object.keys((window.guildTerritories || {}).territories || {}).length;
     // only show ESI members in the owed list
     const RANK_PRIORITY = { owner: 6, chief: 5, strategist: 4, captain: 3, recruiter: 2, recruit: 1 };
@@ -556,7 +555,7 @@
       </div>
       <div class="owed-card">
         <div class="owed-icon"><img src="images/point_icon.png" alt="point" style="width:32px;height:32px;image-rendering:pixelated"></div>
-        <div class="owed-value">${fmt(esiPoints)}</div>
+        <div class="owed-value">Coming soon</div>
         <div class="owed-label">ESI Points</div>
       </div>
       <div class="owed-card owed-card-clickable" id="territoriesCard">

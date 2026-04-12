@@ -728,7 +728,6 @@
       const playerUuid  = Object.entries(aspectsData.members || {}).find(([, m]) => m.name === p.username);
       const playerAspectsUuid  = playerUuid ? playerUuid[0] : null;
       const playerEntry = playerUuid ? playerUuid[1] : null;
-      const ESIPoints   = Math.floor(Math.random() * 1200);
       owedEl.style.display = '';
 
       // mutable copy so clears show up right away
@@ -751,7 +750,7 @@
         </div>
         <div class="owed-card">
           <div class="owed-icon"><img src="images/point_icon.png" alt="point" style="width:32px;height:32px;image-rendering:pixelated"></div>
-          <div class="owed-value">${fmt(ESIPoints)}</div>
+          <div class="owed-value">Coming soon</div>
           <div class="owed-label">ESI Points</div>
         </div>`;
 
