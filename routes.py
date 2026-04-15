@@ -1,42 +1,94 @@
-import mimetypes
-mimetypes.add_type("application/javascript", ".js")
-mimetypes.add_type("text/css", ".css")
+"""
+routes.py — API and auth routes service.
+Runs on port 5001. Handles all /api/* and /auth/* endpoints.
+
+    python routes.py
+"""
 
 import re as _re
-import secrets
-import requests
 import os
 import json
+import secrets
 import subprocess
 import tempfile
-from flask import Flask, jsonify, abort, send_from_directory, redirect, request, session, g
-from time import time
-import sqlite3 as _sqlite3
-
-_playtime_cache: dict = {}
-PLAYTIME_CACHE_TTL = 300  # 5 minutes
-
 import threading as _threading
-
-_bulk_playtime_cache = {"data": None, "debug": None, "ts": 0}
-BULK_PLAYTIME_REFRESH = 600  # 10 minutes
-
-# rate-limit cache for activity endpoints, keyed by (ip, path)
-_ACTIVITY_RATE: dict = {}
-_ACTIVITY_RATE_INTERVAL = 30.0
-
-# sliding-window rate limiter
-# _RATE_LIMIT_STORE: { (ip, endpoint) -> deque of call timestamps }
 import collections as _collections
 import functools as _functools
+import sqlite3 as _sqlite3
+import requests
+from time import time
+from datetime import timedelta
+from flask import Flask, jsonify, abort, send_from_directory, redirect, request, session
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+from config import (
+    _BASE_DIR, _ESI_BOT_DIR, _DATA_FOLDER, _API_TRACKING_DIR,
+    _ASPECTS_JSON, _INACTIVITY_JSON, _USERNAME_MATCHES_JSON,
+    _TRACKED_GUILD_JSON, _GUILD_LEVELS_JSON, _GUILD_TERRITORIES_JSON,
+    _USER_DB_PATH, _UPLOAD_DIR,
+    WYNN_BASE, DISCORD_API, DISCORD_TOKEN, DISCORD_CLIENT_ID,
+    DISCORD_CLIENT_SECRET, DISCORD_GUILD_ID, DISCORD_REDIRECT_URI,
+    GITHUB_TOKEN, GITHUB_REPO, HEADERS as API_HEADERS,
+    CACHE_TTL, PLAYTIME_CACHE_TTL, BULK_PLAYTIME_REFRESH,
+    CACHE_URL, ROUTES_PORT,
+    _ROLE_VALAENDOR, _ROLE_PARLIAMENT, _ROLE_CONGRESS, _ROLE_JUROR, _ROLE_CITIZEN,
+    _ROLE_GRAND_DUKE, _ROLE_ARCHDUKE,
+    _PARLIAMENT_PLUS, _JUROR_PLUS, _CHIEF_PLUS, _CITIZEN_PLUS,
+    _CLIENT_CONFIG,
+    PLAYER_BULK_METRIC_KEYS, GUILD_BULK_METRIC_KEYS,
+    BOT_SCREEN_SESSION, TRACKER_SCREEN_SESSION, TRACKER_SCREEN_SPECS,
+    _safe_number, _parse_bool, _load_json_file, _save_json_file,
+    _mc_username, _get_secret_key, _get_latest_api_db,
+)
+
+# Flask app
+
+app = Flask(__name__)
+# trust X-Forwarded-For from the gateway / nginx
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=2, x_proto=1, x_host=1)
+app.secret_key = _get_secret_key()
+app.permanent_session_lifetime = timedelta(days=30)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = DISCORD_REDIRECT_URI.startswith("https://")
+
+os.makedirs(_UPLOAD_DIR, exist_ok=True)
+
+
+# cache service helpers
+
+def _fetch_cache(path, timeout=5):
+    """Fetch JSON from the cache service. Returns dict/list or None on failure."""
+    try:
+        resp = requests.get(f"{CACHE_URL}{path}", timeout=timeout)
+        if resp.ok:
+            return resp.json()
+    except (requests.RequestException, ValueError):
+        pass
+    return None
+
+
+def _fetch_cache_raw(path, timeout=5):
+    """Fetch raw bytes from the cache service. Returns bytes or None."""
+    try:
+        resp = requests.get(f"{CACHE_URL}{path}", timeout=timeout)
+        if resp.ok:
+            return resp.content
+    except requests.RequestException:
+        pass
+    return None
+
+
+# rate limiting
+
 _RATE_LIMIT_STORE: dict = {}
 _rate_limit_lock = _threading.Lock()
 _RATE_LIMIT_MAX_KEYS = 10000
 _rate_limit_last_cleanup = 0
-_RATE_LIMIT_CLEANUP_INTERVAL = 300  # prune stale entries every 5 minutes
+_RATE_LIMIT_CLEANUP_INTERVAL = 300
+
 
 def _rate_limit_cleanup(now):
-    """Remove empty or fully-expired buckets from the rate limit store."""
     global _rate_limit_last_cleanup
     if now - _rate_limit_last_cleanup < _RATE_LIMIT_CLEANUP_INTERVAL \
             and len(_RATE_LIMIT_STORE) < _RATE_LIMIT_MAX_KEYS:
@@ -46,16 +98,9 @@ def _rate_limit_cleanup(now):
     for k in stale:
         del _RATE_LIMIT_STORE[k]
 
+
 def rate_limit(calls: int, period: float = 60.0):
-    """Decorator: allow at most *calls* requests per *period* seconds per IP.
-
-    Returns HTTP 429 with a JSON error when the limit is exceeded.
-    Usage::
-
-        @app.route("/api/something")
-        @rate_limit(30)           # 30 calls/minute
-        def something(): ...
-    """
+    """Decorator: allow at most *calls* requests per *period* seconds per IP."""
     def decorator(fn):
         @_functools.wraps(fn)
         def wrapper(*args, **kwargs):
@@ -65,7 +110,6 @@ def rate_limit(calls: int, period: float = 60.0):
             with _rate_limit_lock:
                 _rate_limit_cleanup(now)
                 bucket = _RATE_LIMIT_STORE.setdefault(key, _collections.deque())
-                # evict timestamps outside the window
                 while bucket and now - bucket[0] >= period:
                     bucket.popleft()
                 if len(bucket) >= calls:
@@ -83,12 +127,13 @@ def rate_limit(calls: int, period: float = 60.0):
         return wrapper
     return decorator
 
-# one lock per shared dict so threads don't stomp each other
-_cache_lock          = _threading.Lock()
-_playtime_cache_lock = _threading.Lock()
-_bulk_playtime_lock  = _threading.Lock()
-_activity_rate_lock  = _threading.Lock()
-_bot_status_lock     = _threading.Lock()
+
+# activity rate response cache
+
+_ACTIVITY_RATE: dict = {}
+_ACTIVITY_RATE_INTERVAL = 30.0
+_activity_rate_lock = _threading.Lock()
+
 
 def _activity_rate_response(data_fn):
     """Only actually call data_fn() if this IP hasn't hit this path in the last 30s."""
@@ -102,7 +147,6 @@ def _activity_rate_response(data_fn):
     resp = data_fn()
     with _activity_rate_lock:
         _ACTIVITY_RATE[key] = (now, resp.get_data())
-        # don't let this grow forever
         if len(_ACTIVITY_RATE) > 10000:
             cutoff = now - 120
             stale = [k for k, v in _ACTIVITY_RATE.items() if v[0] < cutoff]
@@ -110,260 +154,42 @@ def _activity_rate_response(data_fn):
                 del _ACTIVITY_RATE[k]
     return resp
 
-RESET_SPIKE_MIN_BY_METRIC = {
-    "playtime": 8,
-    "wars": 15,
-    "guildRaids": 25,
-    "mobsKilled": 400,
-    "chestsFound": 80,
-    "questsDone": 20,
-    "totalLevel": 20,
-    "dungeons": 20,
-    "raids": 15,
-    "worldEvents": 20,
-    "caves": 10,
-}
 
-PLAYER_BULK_METRIC_KEYS = [
-    "playtime",
-    "wars",
-    "guildRaids",
-    "mobsKilled",
-    "chestsFound",
-    "questsDone",
-    "totalLevel",
-    "contentDone",
-    "dungeons",
-    "raids",
-    "worldEvents",
-    "caves",
-]
+# Wynncraft API response cache
 
-GUILD_BULK_METRIC_KEYS = [
-    "playerCount",
-    "wars",
-    "guildRaids",
-    "newMembers",
-    "totalMembers",
-]
+_cache: dict = {}
+_cache_lock = _threading.Lock()
 
-def _safe_number(value):
-    if value is None:
-        return 0
-    if isinstance(value, (int, float)):
-        return value
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0
 
-def _parse_bool(value) -> bool:
-    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+def cached_get(url: str) -> dict:
+    now = time()
+    with _cache_lock:
+        entry = _cache.get(url)
+    if entry:
+        data, ts = entry
+        if now - ts < CACHE_TTL:
+            return data
+    resp = requests.get(url, headers=API_HEADERS, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
+    with _cache_lock:
+        _cache[url] = (data, now)
+    return data
 
-def _is_internal_bulk_request() -> bool:
-    expected = (os.environ.get("ESI_INTERNAL_BULK_TOKEN") or "").strip()
-    provided = (request.headers.get("X-ESI-Internal-Token") or "").strip()
-    if not expected:
-        return False
-    try:
-        return secrets.compare_digest(provided, expected)
-    except Exception:
-        return False
 
-def _is_player_api_off(snapshot):
-    if not snapshot:
-        return False
-    return all(_safe_number(snapshot.get(k, 0)) == 0 for k in [
-        "playtime",
-        "wars",
-        "totalLevel",
-        "mobsKilled",
-        "chestsFound",
-        "dungeons",
-        "raids",
-        "worldEvents",
-        "caves",
-        "questsDone",
-    ])
+# user data database (settings + remember-me tokens)
 
-def _is_reactivation_spike(prev_value, curr_value, seen_non_zero, metric_key=None, prev_snapshot=None, curr_snapshot=None):
-    if prev_value is None or curr_value is None:
-        return False
-    prev_n = _safe_number(prev_value)
-    curr_n = _safe_number(curr_value)
-    if prev_n != 0 or curr_n <= 0:
-        return False
-    min_spike = _safe_number(RESET_SPIKE_MIN_BY_METRIC.get(metric_key, 25))
-    if curr_n < min_spike:
-        return False
-    if seen_non_zero:
-        return True
-    for key in ("playtime", "wars", "totalLevel", "mobsKilled", "chestsFound", "dungeons", "raids", "worldEvents", "caves", "questsDone"):
-        if key == metric_key:
-            continue
-        if prev_snapshot and _safe_number(prev_snapshot.get(key)) > 0:
-            return True
-        if curr_snapshot and _safe_number(curr_snapshot.get(key)) > 0:
-            return True
-    return False
-
-app = Flask(__name__, static_folder=".", static_url_path="")
-
-# trust X-Forwarded-For from reverse proxies (Nginx, Cloudflare, etc.)
-# so request.remote_addr reflects the real client IP for rate limiting
-from werkzeug.middleware.proxy_fix import ProxyFix
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
-
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-from dotenv import load_dotenv
-load_dotenv(os.path.join(_BASE_DIR, '.env'))
-
-def _require_login():
-    user = session.get("user")
-    if not user:
-        return None, (jsonify({"error": "Authentication required"}), 401)
-    return user, None
-
-# discord role IDs used for page access checks (single source of truth)
-_ROLE_VALAENDOR  = "728858956575014964"
-_ROLE_PARLIAMENT = "600185623474601995"
-_ROLE_CONGRESS   = "1346436714901536858"
-_ROLE_JUROR      = "954566591520063510"
-_ROLE_CITIZEN    = "554889169705500672"
-
-_ROLE_GRAND_DUKE = "1396112289832243282"
-_ROLE_ARCHDUKE   = "554514823191199747"
-
-_PARLIAMENT_PLUS = {_ROLE_PARLIAMENT, _ROLE_VALAENDOR}
-_JUROR_PLUS      = {_ROLE_JUROR, _ROLE_CONGRESS, _ROLE_PARLIAMENT, _ROLE_VALAENDOR}
-_CHIEF_PLUS      = {_ROLE_GRAND_DUKE, _ROLE_ARCHDUKE}
-_CITIZEN_PLUS    = {_ROLE_CITIZEN}
-
-# all role/config data exposed to the frontend via /api/config
-_CLIENT_CONFIG = {
-    "roles": {
-        "valaendor":  _ROLE_VALAENDOR,
-        "parliament": _ROLE_PARLIAMENT,
-        "congress":   _ROLE_CONGRESS,
-        "juror":      _ROLE_JUROR,
-        "citizen":    _ROLE_CITIZEN,
-    },
-    "permissions": {
-        "parliamentPlus": list(_PARLIAMENT_PLUS),
-        "jurorPlus":      list(_JUROR_PLUS),
-    },
-    "staffRoles": [
-        {"name": "Bot Owner",    "color": "#ec00ad", "members": ["967867229410574340"]},
-        {"name": "Developer",    "color": "#0896d3", "members": ["454260696172068879"]},
-        {"name": "User Support", "color": "#4933c5", "members": ["516954338225160195"]},
-    ],
-    "rankRoles": [
-        {"id": "554506531949772812",  "name": "Emperor",    "color": "#5c11ad"},
-        {"id": "554514823191199747",  "name": "Archduke",   "color": "#b5fff6"},
-        {"id": "1396112289832243282", "name": "Grand Duke", "color": "#74cac0"},
-        {"id": "591765870272053261",  "name": "Duke",       "color": "#35deac"},
-        {"id": "1391424890938195998", "name": "Count",      "color": "#3ac770"},
-        {"id": "591769392828776449",  "name": "Viscount",   "color": "#59e365"},
-        {"id": "688438690137243892",  "name": "Knight",     "color": "#93e688"},
-        {"id": "681030746651230351",  "name": "Squire",     "color": "#c7edc0"},
-    ],
-    "echelonRoles": [
-        {"id": _ROLE_PARLIAMENT, "name": "Parliament", "color": "#afb3d1"},
-        {"id": _ROLE_CONGRESS,  "name": "Congress",   "color": "#7289da"},
-        {"id": _ROLE_JUROR,     "name": "Juror",      "color": "#ffc332"},
-    ],
-    "citizenRole": {"id": _ROLE_CITIZEN, "name": "Sindrian Citizen", "color": "#4acf5e"},
-}
-
-def _require_role(allowed_roles: set):
-    """Checks that the user is logged in and has at least one of the given roles."""
-    user, err = _require_login()
-    if err:
-        return None, err
-    user_roles = set(user.get("roles") or [])
-    if not (user_roles & allowed_roles):
-        return None, (jsonify({"error": "Insufficient permissions"}), 403)
-    return user, None
-
-def _load_json_file(path):
-    if not os.path.exists(path):
-        return {}
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except json.JSONDecodeError as e:
-        import sys
-        print(f"[ERROR] Malformed JSON in {path}: {e}", file=sys.stderr)
-        return {}
-    except OSError as e:
-        import sys
-        print(f"[ERROR] Cannot read {path}: {e}", file=sys.stderr)
-        return {}
-
-def _save_json_file(path, data):
-    """Write JSON atomically: write to a temp file then rename over the target.
-    If the process is killed mid-write the original file is never touched.
-    """
-    import tempfile as _tempfile
-    dir_ = os.path.dirname(os.path.abspath(path))
-    fd, tmp = _tempfile.mkstemp(dir=dir_, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4)
-        os.replace(tmp, path)  # atomic on same filesystem
-    except Exception:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-
-def _mc_username(discord_id, matches):
-    """Look up the Minecraft username tied to a Discord ID."""
-    entry = matches.get(str(discord_id))
-    if entry is None:
-        return None
-    if isinstance(entry, str):
-        return entry
-    if isinstance(entry, dict):
-        return entry.get("username")
-    return None
-
-# flask session key saved to a file so it survives server restarts
-def _get_secret_key():
-    key = os.environ.get("FLASK_SECRET_KEY")
-    if key:
-        return key
-    key_path = os.path.join(_BASE_DIR, '.flask_secret')
-    if os.path.exists(key_path):
-        with open(key_path) as f:
-            return f.read().strip()
-    key = secrets.token_hex(32)
-    fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, 'w') as f:
-        f.write(key)
-    return key
-app.secret_key = _get_secret_key()
-
-from datetime import timedelta
-app.permanent_session_lifetime = timedelta(days=30)
-
-# ---- user data database (settings + remember-me tokens) ----
-
-_USER_DB_PATH = os.path.join(_BASE_DIR, "user_data.db")
-
-# thread-local connection pool, one connection per thread, reused across requests
 _db_local = _threading.local()
 
+
 def _get_db():
-    """Return a thread-local SQLite connection (reused, not opened per request)."""
     conn = getattr(_db_local, "conn", None)
     if conn is None:
         conn = _sqlite3.connect(_USER_DB_PATH, timeout=10, check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
         _db_local.conn = conn
     return conn
+
 
 def _init_user_db():
     conn = _sqlite3.connect(_USER_DB_PATH)
@@ -387,31 +213,29 @@ def _init_user_db():
     conn.commit()
     conn.close()
 
+
 _init_user_db()
 
 _REMEMBER_COOKIE  = "esi_remember"
-_REMEMBER_MAX_AGE = 30 * 24 * 3600  # 30 days
+_REMEMBER_MAX_AGE = 30 * 24 * 3600
+
 
 def _remember_create(user_data):
-    """Create a remember-me token for the given user. Returns the token string."""
     token = secrets.token_urlsafe(64)
     now = time()
     conn = _get_db()
-    # one token per user — delete any old ones
     conn.execute("DELETE FROM remember_tokens WHERE discord_id = ?", (user_data["id"],))
     conn.execute(
         "INSERT INTO remember_tokens (token, discord_id, user_data, created_at, expires_at)"
         " VALUES (?, ?, ?, ?, ?)",
         (token, user_data["id"], json.dumps(user_data), now, now + _REMEMBER_MAX_AGE),
     )
-    # periodically prune expired tokens from all users
     conn.execute("DELETE FROM remember_tokens WHERE expires_at < ?", (now,))
     conn.commit()
     return token
 
 
 def _remember_restore(token):
-    """Validate a remember token. Returns cached user_data dict or None."""
     if not token:
         return None
     now = time()
@@ -420,11 +244,9 @@ def _remember_restore(token):
         "SELECT user_data, expires_at FROM remember_tokens WHERE token = ?", (token,)
     ).fetchone()
     if not row or now > row[1]:
-        # expired or missing — clean up
         conn.execute("DELETE FROM remember_tokens WHERE token = ?", (token,))
         conn.commit()
         return None
-    # extend expiry (sliding window)
     conn.execute(
         "UPDATE remember_tokens SET expires_at = ? WHERE token = ?",
         (now + _REMEMBER_MAX_AGE, token),
@@ -437,7 +259,6 @@ def _remember_restore(token):
 
 
 def _remember_update(discord_id, user_data):
-    """Update the cached user data on all tokens for this user."""
     conn = _get_db()
     conn.execute(
         "UPDATE remember_tokens SET user_data = ? WHERE discord_id = ?",
@@ -447,7 +268,6 @@ def _remember_update(discord_id, user_data):
 
 
 def _remember_delete(token=None, discord_id=None):
-    """Delete a specific token or all tokens for a user."""
     conn = _get_db()
     if token:
         conn.execute("DELETE FROM remember_tokens WHERE token = ?", (token,))
@@ -471,40 +291,46 @@ def _clear_remember_cookie(response):
     response.delete_cookie(_REMEMBER_COOKIE, samesite="Lax")
     return response
 
-WYNN_BASE          = "https://api.wynncraft.com/v3"
-DISCORD_API        = "https://discord.com/api/v10"
-DISCORD_TOKEN      = os.environ.get("DISCORD_TOKEN", "")
-DISCORD_CLIENT_ID  = os.environ.get("DISCORD_CLIENT_ID", "")
-DISCORD_CLIENT_SECRET = os.environ.get("DISCORD_CLIENT_SECRET", "")
-DISCORD_GUILD_ID   = os.environ.get("DISCORD_GUILD_ID", "")
-DISCORD_REDIRECT_URI = os.environ.get("DISCORD_REDIRECT_URI", "")
 
-# session cookie security
-app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = DISCORD_REDIRECT_URI.startswith("https://")
-HEADERS = {"User-Agent": "ESI-Dashboard/1.0"}
+# auth helpers
 
-_cache: dict = {}
-CACHE_TTL = 120
+def _require_login():
+    user = session.get("user")
+    if not user:
+        return None, (jsonify({"error": "Authentication required"}), 401)
+    return user, None
 
-def cached_get(url: str) -> dict:
-    now = time()
-    with _cache_lock:
-        entry = _cache.get(url)
-    if entry:
-        data, ts = entry
-        if now - ts < CACHE_TTL:
-            return data
-    resp = requests.get(url, headers=HEADERS, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
-    with _cache_lock:
-        _cache[url] = (data, now)
-    return data
+
+def _require_role(allowed_roles: set):
+    user, err = _require_login()
+    if err:
+        return None, err
+    user_roles = set(user.get("roles") or [])
+    if not (user_roles & allowed_roles):
+        return None, (jsonify({"error": "Insufficient permissions"}), 403)
+    return user, None
+
+
+def _is_internal_bulk_request() -> bool:
+    expected = (os.environ.get("ESI_INTERNAL_BULK_TOKEN") or "").strip()
+    provided = (request.headers.get("X-ESI-Internal-Token") or "").strip()
+    if not expected:
+        return False
+    try:
+        return secrets.compare_digest(provided, expected)
+    except Exception:
+        return False
+
+
+# request hooks
+
+@app.before_request
+def _before():
+    session.permanent = True
+
 
 @app.after_request
-def after_request(response):
+def _after(response):
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' 'sha256-ZcKinPTE0IEcBn4hHbqEikOw2x8h4OweeMeXEJ25TS8='; "
@@ -518,44 +344,16 @@ def after_request(response):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return response
 
-# only serve static files from these directories (allowlist)
-_ALLOWED_STATIC_PREFIXES = ('/css/', '/js/', '/images/', '/assets/', '/uploads/')
-_ALLOWED_STATIC_FILES = ('/index.html', '/favicon.ico')
 
-@app.before_request
-def _gate_requests():
-    session.permanent = True
-    path = request.path
-    # block dotfiles
-    if '/.' in path or path.startswith('.'):
-        abort(403)
-    # API routes and auth routes are handled by their own handlers
-    if path.startswith(('/api/', '/auth/')):
-        return
-    # allow root and known static prefixes
-    if path == '/':
-        return
-    if path in _ALLOWED_STATIC_FILES:
-        return
-    if any(path.startswith(p) for p in _ALLOWED_STATIC_PREFIXES):
-        return
-    # block everything else (server.py, .env, .db, data files, __pycache__, etc.)
-    abort(403)
-
-@app.route("/")
-def index():
-    return send_from_directory(".", "index.html")
-
-
-# ---- public config endpoint (role IDs, permissions) ----
+# public config endpoint
 
 @app.route("/api/config")
 def client_config():
-    """Expose role IDs and permission groups so the frontend doesn't hardcode them."""
     return jsonify(_CLIENT_CONFIG)
 
 
-# oauth2, send user off to discord
+# OAuth2 auth routes
+
 @app.route("/auth/login")
 @rate_limit(30)
 def auth_login():
@@ -572,22 +370,22 @@ def auth_login():
     return redirect(f"https://discord.com/oauth2/authorize?{params}")
 
 
-# oauth2 callback, discord sends us back here with a code
 @app.route("/auth/callback")
 def auth_callback():
+    import sys
     error = request.args.get("error")
     if error:
+        print(f"[AUTH] Discord returned error: {error}", file=sys.stderr)
         return redirect("/?auth=error")
-
     code  = request.args.get("code")
     state = request.args.get("state")
-
-    # CSRF check
-    if state != session.pop("oauth_state", None):
+    saved_state = session.pop("oauth_state", None)
+    if state != saved_state:
+        print(f"[AUTH] State mismatch — url_state={state!r}, session_state={saved_state!r}", file=sys.stderr)
+        print(f"[AUTH]   session keys: {list(session.keys())}", file=sys.stderr)
+        print(f"[AUTH]   cookies present: {list(request.cookies.keys())}", file=sys.stderr)
         return redirect("/?auth=error")
-
     try:
-        # swap the code for an access token (server-to-server, secret never touches the browser)
         token_resp = requests.post(
             f"{DISCORD_API}/oauth2/token",
             data={
@@ -601,59 +399,46 @@ def auth_callback():
             timeout=10,
         )
         if not token_resp.ok:
-            import sys
             print(f"[AUTH] Token exchange failed: {token_resp.status_code} {token_resp.text[:200]}", file=sys.stderr)
         token_resp.raise_for_status()
         tokens = token_resp.json()
         access_token = tokens["access_token"]
-
-        # grab their discord profile
         user_resp = requests.get(
             f"{DISCORD_API}/users/@me",
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=10,
         )
         if not user_resp.ok:
-            import sys
             print(f"[AUTH] User fetch failed: {user_resp.status_code} {user_resp.text[:200]}", file=sys.stderr)
         user_resp.raise_for_status()
         user = user_resp.json()
     except Exception as exc:
-        import sys
         print(f"[AUTH] OAuth callback error: {exc}", file=sys.stderr)
         return redirect("/?auth=error")
-
-    # use the bot token to get their guild member info (has their roles)
     member_resp = requests.get(
         f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/members/{user['id']}",
         headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
         timeout=10,
     )
-
     roles = []
     nick = None
     if member_resp.ok:
         member_data = member_resp.json()
         roles = member_data.get("roles", [])
         nick = member_data.get("nick")
-
-    # grab the full role list so we can map IDs to names
     roles_resp = requests.get(
         f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/roles",
         headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
         timeout=10,
     )
-
     role_objects = []
     if roles_resp.ok:
         all_roles = roles_resp.json()
         role_lookup = {r["id"]: r["name"] for r in all_roles}
-        # only keep roles the user actually has
         role_objects = [
             {"id": rid, "name": role_lookup.get(rid, "Unknown")}
             for rid in roles
         ]
-
     session.permanent = True
     user_data = {
         "id":            user["id"],
@@ -671,30 +456,27 @@ def auth_callback():
     return resp
 
 
-# session check - frontend polls this to know if we're logged in
 @app.route("/auth/session")
 def auth_session():
     user = session.get("user")
     if user:
         return jsonify({"loggedIn": True, "user": user})
-    # try remember-me token
     token = request.cookies.get(_REMEMBER_COOKIE)
     cached_user = _remember_restore(token)
     if cached_user:
         session.permanent = True
         session["user"] = cached_user
         resp = jsonify({"loggedIn": True, "user": cached_user})
-        _set_remember_cookie(resp, token)  # refresh cookie expiry
+        _set_remember_cookie(resp, token)
         return resp
     return jsonify({"loggedIn": False})
 
-# re-pull roles/name/avatar from discord
+
 @app.route("/auth/refresh")
 @rate_limit(60)
 def auth_refresh():
     user = session.get("user")
     if not user:
-        # try remember-me token
         token = request.cookies.get(_REMEMBER_COOKIE)
         user = _remember_restore(token)
         if user:
@@ -702,11 +484,9 @@ def auth_refresh():
             session["user"] = user
         else:
             return jsonify({"loggedIn": False})
-
     user_id = user.get("id", "")
     if not user_id or not DISCORD_TOKEN or not DISCORD_GUILD_ID:
         return jsonify({"loggedIn": True, "user": user})
-
     try:
         member_resp = requests.get(
             f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/members/{user_id}",
@@ -714,7 +494,6 @@ def auth_refresh():
             timeout=10,
         )
         if member_resp.status_code == 404:
-            # if user is no longer in the server then invalidate the session
             session.pop("user", None)
             _remember_delete(discord_id=user_id)
             resp = jsonify({"loggedIn": False})
@@ -722,7 +501,6 @@ def auth_refresh():
             return resp
         if not member_resp.ok:
             return jsonify({"loggedIn": True, "user": user})
-
         member_data = member_resp.json()
         roles = member_data.get("roles", [])
         nick = member_data.get("nick")
@@ -730,7 +508,6 @@ def auth_refresh():
         username = user_obj.get("username", user.get("username"))
         avatar = user_obj.get("avatar", user.get("avatar"))
         discriminator = user_obj.get("discriminator", user.get("discriminator", "0"))
-
         roles_resp = requests.get(
             f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/roles",
             headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
@@ -743,7 +520,6 @@ def auth_refresh():
                 {"id": rid, "name": role_lookup.get(rid, "Unknown")}
                 for rid in roles
             ]
-
         updated = {
             "id":            user_id,
             "username":      username,
@@ -760,7 +536,6 @@ def auth_refresh():
         return jsonify({"loggedIn": True, "user": user})
 
 
-# logout
 @app.route("/auth/logout")
 def auth_logout():
     session.pop("user", None)
@@ -771,42 +546,11 @@ def auth_logout():
     return resp
 
 
-_ESI_BOT_DIR = os.environ.get("ESI_BOT_DIR") or os.path.join(os.path.dirname(_BASE_DIR), "ESI-Bot")
-_DATA_FOLDER            = os.path.join(_ESI_BOT_DIR, "data")
-_ASPECTS_JSON           = os.path.join(_DATA_FOLDER, "aspects.json")
-_INACTIVITY_JSON        = os.path.join(_DATA_FOLDER, "inactivity_exemptions.json")
-_USERNAME_MATCHES_JSON  = os.path.join(_DATA_FOLDER, "username_matches.json")
-_TRACKED_GUILD_JSON     = os.path.join(_DATA_FOLDER, "tracked_guild.json")
-_API_TRACKING_DIR       = os.path.join(_ESI_BOT_DIR, "databases", "api_tracking")
-
-def _get_latest_api_db():
-    """Find the newest .db file in the api_tracking folder, or None."""
-    from datetime import datetime as _dt
-    if not os.path.isdir(_API_TRACKING_DIR):
-        return None
-    latest_db, latest_dt = None, None
-    for name in os.listdir(_API_TRACKING_DIR):
-        if not name.startswith("api_"):
-            continue
-        day_path = os.path.join(_API_TRACKING_DIR, name)
-        if not os.path.isdir(day_path):
-            continue
-        try:
-            day_dt = _dt.strptime(name[4:], "%d-%m-%Y")
-        except ValueError:
-            continue
-        files = sorted(f for f in os.listdir(day_path) if f.endswith(".db"))
-        if files and (latest_dt is None or day_dt > latest_dt):
-            latest_dt = day_dt
-            latest_db = os.path.join(day_path, files[-1])
-    return latest_db
-
-# ---- rank history (from tracked_guild.json) ----
+# player / guild API routes
 
 @app.route("/api/player/<username>/rank-history")
 @rate_limit(10)
 def player_rank_history(username: str):
-    """Rank changes pulled from tracked_guild.json."""
     data = _load_json_file(_TRACKED_GUILD_JSON)
     member_history = data.get("member_history", {})
     ulow = username.lower()
@@ -824,8 +568,6 @@ def player_rank_history(username: str):
     return jsonify({"username": username, "rank_changes": []})
 
 
-# ---- aspects ----
-
 @app.route("/api/guild/aspects")
 @rate_limit(60)
 def aspects_get():
@@ -833,6 +575,7 @@ def aspects_get():
     if not data:
         return jsonify({"total_aspects": 0, "members": {}})
     return jsonify(data)
+
 
 @app.route("/api/guild/aspects/clear", methods=["POST"])
 def aspects_clear():
@@ -852,16 +595,13 @@ def aspects_clear():
     return jsonify({"ok": True, "total_aspects": data["total_aspects"]})
 
 
-# ---- playtime/metrics from sqlite snapshots ----
+# playtime / metrics (via cache service)
 
 @app.route("/api/player/<username>/playtime-history")
 @rate_limit(10)
 def player_playtime_history(username: str):
-    """Return playtime history from the pre-computed bulk cache."""
     ulow = username.lower()
-    with _bulk_playtime_lock:
-        bulk = _bulk_playtime_cache.get("data") or {}
-    member = (bulk.get("members") or {}).get(ulow)
+    member = _fetch_cache(f"/cache/activity/member/{ulow}")
     if member:
         return jsonify({
             "username": member.get("username", username),
@@ -871,545 +611,22 @@ def player_playtime_history(username: str):
     return jsonify({"username": username, "data": [], "dates": []})
 
 
-def _compute_bulk_playtime():
-    """Crunches playtime + stat deltas for every guild member and caches the result."""
-    from datetime import datetime as _dt
-    from concurrent.futures import ThreadPoolExecutor
-    import glob as _glob
-
-    _latest_db = _get_latest_api_db()
-    if not _latest_db:
-        # if there is nothing to work with, just write an empty cache so clients stop retrying
-        _bulk_playtime_cache["data"] = {
-            "members": {},
-            "guild": {"dates": [], "metricDates": [], "playerCount": [], "wars": [], "guildRaids": [], "newMembers": []},
-        }
-        _bulk_playtime_cache["ts"] = time()
-        return
-    conn = _sqlite3.connect(_latest_db)
-    usernames = [
-        row[0] for row in conn.execute(
-            "SELECT username FROM player_stats WHERE UPPER(guild_prefix) = 'ESI' ORDER BY username"
-        ).fetchall()
-    ]
-    conn.close()
-    if not usernames:
-        # if there are no guild members in the db, still write empty cache
-        _bulk_playtime_cache["data"] = {
-            "members": {},
-            "guild": {"dates": [], "metricDates": [], "playerCount": [], "wars": [], "guildRaids": [], "newMembers": []},
-        }
-        _bulk_playtime_cache["ts"] = time()
-        return
-
-    # playtime tracking
-    tracking_folder = os.path.join(_ESI_BOT_DIR, "databases", "playtime_tracking")
-    all_snapshots = []
-    if os.path.isdir(tracking_folder):
-        for day_folder_name in os.listdir(tracking_folder):
-            if not day_folder_name.startswith("playtime_"):
-                continue
-            day_folder_path = os.path.join(tracking_folder, day_folder_name)
-            if not os.path.isdir(day_folder_path):
-                continue
-            date_str = day_folder_name.replace("playtime_", "")
-            try:
-                day_dt = _dt.strptime(date_str, "%d-%m-%Y")
-            except ValueError:
-                continue
-            for fname in os.listdir(day_folder_path):
-                if not fname.endswith(".db"):
-                    continue
-                all_snapshots.append((day_dt, fname, os.path.join(day_folder_path, fname)))
-
-    dates = []
-    all_results = []
-    if all_snapshots:
-        all_snapshots.sort(key=lambda x: (x[0], x[1]))
-
-        day_groups = {}
-        for day_dt, fname, db_path in all_snapshots:
-            day_key = day_dt.date()
-            day_groups.setdefault(day_key, []).append((fname, db_path))
-
-        sorted_days = sorted(day_groups.keys())[-60:]
-        daily_paths = [day_groups[d][-1][1] for d in sorted_days]
-        username_set = {u.lower() for u in usernames}
-
-        def read_all_hours(db_path):
-            try:
-                conn = _sqlite3.connect(db_path, check_same_thread=False)
-                rows = conn.execute(
-                    "SELECT username, playtime_seconds FROM playtime"
-                ).fetchall()
-                conn.close()
-                return {
-                    row[0].lower(): round(row[1] / 3600, 1)
-                    for row in rows if row[0].lower() in username_set
-                }
-            except Exception:
-                return {}
-
-        with ThreadPoolExecutor(max_workers=8) as ex:
-            all_results = list(zip(daily_paths, ex.map(read_all_hours, daily_paths)))
-
-        dates = [d.isoformat() for d in sorted_days]
-
-    members = {}
-    for username in usernames:
-        ulow = username.lower()
-        data = [result.get(ulow, 0.0) for _, result in all_results]
-        members[ulow] = {"username": username, "data": data, "dates": dates}
-
-    # stat deltas from api_tracking snapshots
-    _STAT_COLS = [
-        ("wars",             "wars"),
-        ("mobs_killed",      "mobsKilled"),
-        ("chests_found",     "chestsFound"),
-        ("total_level",      "totalLevel"),
-        ("completed_quests", "questsDone"),
-        ("dungeons_total",   "dungeons"),
-        ("raids_total",      "raids"),
-        ("world_events",     "worldEvents"),
-        ("caves",            "caves"),
-    ]
-    api_folder = os.path.join(_ESI_BOT_DIR, "databases", "api_tracking")
-    api_snapshots = []
-    metric_dates = []
-    debug_members = {}
-    debug_guild_intervals = []
-    invalid_transitions = set()
-    api_days = []
-    if os.path.isdir(api_folder):
-        for name in os.listdir(api_folder):
-            if not name.startswith("api_"):
-                continue
-            path = os.path.join(api_folder, name)
-            if not os.path.isdir(path):
-                continue
-            try:
-                day_dt = _dt.strptime(name[4:], "%d-%m-%Y")
-            except ValueError:
-                continue
-            files = sorted(f for f in os.listdir(path) if f.endswith(".db"))
-            if files:
-                api_days.append((day_dt, os.path.join(path, files[-1])))
-
-        api_days.sort(key=lambda x: x[0])
-        api_days = api_days[-61:]  # 61 snapshots → 60 deltas
-        metric_dates = [day_dt.date().isoformat() for day_dt, _ in api_days[1:]]
-
-        cols_sql = ", ".join(c[0] for c in _STAT_COLS)
-        metric_keys = [c[1] for c in _STAT_COLS] + ["guildRaids"]
-
-        def read_api_day(db_path):
-            try:
-                conn = _sqlite3.connect(db_path, check_same_thread=False)
-                stats = {}
-                for row in conn.execute(
-                    f"SELECT username, guild_prefix, {cols_sql} FROM player_stats"
-                    " WHERE UPPER(guild_prefix) = 'ESI'"
-                ).fetchall():
-                    ulow = row[0].lower()
-                    entry = {"guildPrefix": (row[1] or "").upper()}
-                    for i in range(len(_STAT_COLS)):
-                        entry[_STAT_COLS[i][1]] = row[i + 2] or 0
-                    stats[ulow] = entry
-                try:
-                    for row in conn.execute(
-                        "SELECT username, total_graids FROM guild_raid_stats"
-                    ).fetchall():
-                        ulow = row[0].lower()
-                        if ulow not in stats:
-                            stats[ulow] = {"guildPrefix": ""}
-                        stats[ulow]["guildRaids"] = row[1] or 0
-                except Exception:
-                    pass
-                conn.close()
-                return stats
-            except Exception:
-                return {}
-
-        with ThreadPoolExecutor(max_workers=8) as ex:
-            api_snapshots = list(ex.map(read_api_day, [d[1] for d in api_days]))
-
-        # if there's a gap bigger than 1 day between snapshots, the bot/API was probably
-        # down - skip those transitions so we don't get bogus deltas
-        from datetime import timedelta as _td
-        for i in range(1, len(api_days)):
-            prev_dt, cur_dt = api_days[i - 1][0], api_days[i][0]
-            if (cur_dt - prev_dt) > _td(days=1):
-                invalid_transitions.add(i)
-
-        debug_guild_intervals = [
-            {
-                "timestamp": api_days[i][0].isoformat(),
-                "db": os.path.basename(api_days[i][1]),
-                "day": api_days[i][0].date().isoformat(),
-                "guildRaidsRawDelta": 0,
-                "guildRaidsAppliedDelta": 0,
-                "warsRawDelta": 0,
-                "warsAppliedDelta": 0,
-                "skippedMissing": 0,
-                "skippedApiGap": 0,
-                "skippedApiOff": 0,
-                "skippedReactivation": 0,
-                "reactivationUsers": [],
-            }
-            for i in range(1, len(api_days))
-        ]
-
-        # per-member daily deltas, with filtering for reactivation spikes
-        for ulow in members:
-            user_debug_intervals = []
-            seen_non_zero = {}
-            first_user = api_snapshots[0].get(ulow, {}) if api_snapshots else {}
-            for mk in metric_keys:
-                first_val = first_user.get(mk)
-                seen_non_zero[mk] = first_val is not None and _safe_number(first_val) > 0
-
-            for mk in metric_keys:
-                deltas = []
-                metric_seen_non_zero = seen_non_zero.get(mk, False)
-
-                for i in range(1, len(api_snapshots)):
-                    prev_snap = api_snapshots[i - 1]
-                    cur_snap = api_snapshots[i]
-                    prev_user = prev_snap.get(ulow)
-                    curr_user = cur_snap.get(ulow)
-                    prev_value = prev_user.get(mk) if prev_user else None
-                    curr_value = curr_user.get(mk) if curr_user else None
-
-                    raw_delta = None
-                    if prev_value is not None and curr_value is not None:
-                        raw_delta = _safe_number(curr_value) - _safe_number(prev_value)
-
-                    applied = 0
-                    reason = None
-                    if i in invalid_transitions:
-                        reason = "api_gap"
-                    elif not prev_user or not curr_user or prev_value is None or curr_value is None:
-                        reason = "missing_snapshot"
-                    elif _is_player_api_off(prev_user) or _is_player_api_off(curr_user):
-                        reason = "api_off_interval"
-                    elif _is_reactivation_spike(
-                        prev_value,
-                        curr_value,
-                        metric_seen_non_zero,
-                        metric_key=mk,
-                        prev_snapshot=prev_user,
-                        curr_snapshot=curr_user,
-                    ):
-                        reason = "reactivation_spike"
-                    else:
-                        applied = raw_delta if raw_delta is not None and raw_delta > 0 else 0
-                        if applied <= 0:
-                            reason = "non_positive_or_unavailable"
-
-                    if curr_value is not None and _safe_number(curr_value) > 0:
-                        metric_seen_non_zero = True
-
-                    if mk in ("wars", "guildRaids") and i - 1 < len(debug_guild_intervals):
-                        gdbg = debug_guild_intervals[i - 1]
-                        if mk == "wars":
-                            if raw_delta is not None and raw_delta > 0:
-                                gdbg["warsRawDelta"] += int(round(raw_delta))
-                            if applied > 0:
-                                gdbg["warsAppliedDelta"] += int(round(applied))
-                        else:
-                            if raw_delta is not None and raw_delta > 0:
-                                gdbg["guildRaidsRawDelta"] += int(round(raw_delta))
-                            if applied > 0:
-                                gdbg["guildRaidsAppliedDelta"] += int(round(applied))
-                            if reason == "missing_snapshot":
-                                gdbg["skippedMissing"] += 1
-                            elif reason == "api_gap":
-                                gdbg["skippedApiGap"] += 1
-                            elif reason == "api_off_interval":
-                                gdbg["skippedApiOff"] += 1
-                            elif reason == "reactivation_spike":
-                                gdbg["skippedReactivation"] += 1
-                                if raw_delta is not None and raw_delta > 0 and len(gdbg["reactivationUsers"]) < 20:
-                                    gdbg["reactivationUsers"].append({
-                                        "username": members[ulow]["username"],
-                                        "rawDelta": int(round(raw_delta)),
-                                        "prev": int(round(_safe_number(prev_value))),
-                                        "curr": int(round(_safe_number(curr_value))),
-                                    })
-
-                    if mk == "guildRaids":
-                        if (
-                            raw_delta not in (None, 0)
-                            or reason in ("missing_snapshot", "api_gap", "api_off_interval", "reactivation_spike")
-                        ):
-                            user_debug_intervals.append({
-                                "timestamp": api_days[i][0].isoformat() if i < len(api_days) else None,
-                                "db": os.path.basename(api_days[i][1]) if i < len(api_days) else None,
-                                "day": api_days[i][0].date().isoformat() if i < len(api_days) else None,
-                                "metric": "guildRaids",
-                                "prev": None if prev_value is None else int(round(_safe_number(prev_value))),
-                                "curr": None if curr_value is None else int(round(_safe_number(curr_value))),
-                                "rawDelta": None if raw_delta is None else int(round(raw_delta)),
-                                "appliedDelta": int(round(applied)),
-                                "reason": reason or "applied",
-                            })
-
-                    deltas.append(int(round(applied)) if applied > 0 else 0)
-
-                seen_non_zero[mk] = metric_seen_non_zero
-                members[ulow][mk] = deltas
-
-            members[ulow]["metricDates"] = metric_dates
-            if user_debug_intervals:
-                debug_members[ulow] = {
-                    "username": members[ulow]["username"],
-                    "guildRaids": user_debug_intervals[-300:],
-                }
-
-    # guild-wide totals
-    num_pt_days = len(dates)
-    sample_mk = next((m.get("wars", []) for m in members.values() if m.get("wars")), [])
-    num_mk_days = len(sample_mk)
-
-    # count members with any playtime each day
-    player_count = [0] * num_pt_days
-    for m in members.values():
-        for i, v in enumerate(m.get("data", [])):
-            if v > 0 and i < num_pt_days:
-                player_count[i] += 1
-
-    # sum deltas across ALL members in each snapshot
-    guild_wars = [0] * num_mk_days
-    guild_raids = [0] * num_mk_days
-    tracked_guild_prefix = "ESI"
-    debug_guild_intervals = []
-    if api_snapshots and num_mk_days:
-        guild_seen_non_zero = {}
-        first_snap = api_snapshots[0]
-        for ulow, snap in first_snap.items():
-            if (snap.get("guildPrefix") or "").upper() != tracked_guild_prefix:
-                continue
-            guild_seen_non_zero[ulow] = {
-                "wars": _safe_number(snap.get("wars")) > 0,
-                "guildRaids": snap.get("guildRaids") is not None and _safe_number(snap.get("guildRaids")) > 0,
-            }
-
-        for i in range(1, len(api_snapshots)):
-            day_idx = i - 1
-            if day_idx >= num_mk_days:
-                break
-            prev_snap = api_snapshots[i - 1]
-            cur_snap = api_snapshots[i]
-            day_ts = api_days[i][0] if i < len(api_days) else None
-            day_db = api_days[i][1] if i < len(api_days) else None
-
-            interval_debug = {
-                "timestamp": day_ts.isoformat() if day_ts else None,
-                "db": os.path.basename(day_db) if day_db else None,
-                "day": day_ts.date().isoformat() if day_ts else None,
-                "guildRaidsRawDelta": 0,
-                "guildRaidsAppliedDelta": 0,
-                "warsRawDelta": 0,
-                "warsAppliedDelta": 0,
-                "skippedMissing": 0,
-                "skippedApiGap": 0,
-                "skippedApiOff": 0,
-                "skippedReactivation": 0,
-                "reactivationUsers": [],
-            }
-
-            if i in invalid_transitions:
-                interval_debug["skippedApiGap"] = len(set(prev_snap.keys()) & set(cur_snap.keys()))
-                debug_guild_intervals.append(interval_debug)
-                continue
-
-            for ulow in (set(prev_snap.keys()) & set(cur_snap.keys())):
-                prev_user = prev_snap.get(ulow) or {}
-                cur_user = cur_snap.get(ulow) or {}
-
-                if (prev_user.get("guildPrefix") or "").upper() != tracked_guild_prefix:
-                    continue
-                if (cur_user.get("guildPrefix") or "").upper() != tracked_guild_prefix:
-                    continue
-
-                state = guild_seen_non_zero.setdefault(ulow, {
-                    "wars": _safe_number(prev_user.get("wars")) > 0,
-                    "guildRaids": prev_user.get("guildRaids") is not None and _safe_number(prev_user.get("guildRaids")) > 0,
-                })
-
-                if _is_player_api_off(prev_user) or _is_player_api_off(cur_user):
-                    interval_debug["skippedApiOff"] += 1
-                    if _safe_number(cur_user.get("wars")) > 0:
-                        state["wars"] = True
-                    if cur_user.get("guildRaids") is not None and _safe_number(cur_user.get("guildRaids")) > 0:
-                        state["guildRaids"] = True
-                    continue
-
-                prev_wars = prev_user.get("wars")
-                curr_wars = cur_user.get("wars")
-                raw_wars = None if prev_wars is None or curr_wars is None else _safe_number(curr_wars) - _safe_number(prev_wars)
-                if raw_wars is None:
-                    interval_debug["skippedMissing"] += 1
-                else:
-                    if raw_wars > 0:
-                        interval_debug["warsRawDelta"] += int(round(raw_wars))
-                    if _is_reactivation_spike(
-                        prev_wars,
-                        curr_wars,
-                        state.get("wars", False),
-                        metric_key="wars",
-                        prev_snapshot=prev_user,
-                        curr_snapshot=cur_user,
-                    ):
-                        interval_debug["skippedReactivation"] += 1
-                    else:
-                        applied_wars = raw_wars if raw_wars > 0 else 0
-                        if applied_wars > 0:
-                            guild_wars[day_idx] += int(round(applied_wars))
-                            interval_debug["warsAppliedDelta"] += int(round(applied_wars))
-
-                prev_graids = prev_user.get("guildRaids")
-                curr_graids = cur_user.get("guildRaids")
-                raw_graids = None if prev_graids is None or curr_graids is None else _safe_number(curr_graids) - _safe_number(prev_graids)
-                if raw_graids is None:
-                    interval_debug["skippedMissing"] += 1
-                else:
-                    if raw_graids > 0:
-                        interval_debug["guildRaidsRawDelta"] += int(round(raw_graids))
-                    if _is_reactivation_spike(
-                        prev_graids,
-                        curr_graids,
-                        state.get("guildRaids", False),
-                        metric_key="guildRaids",
-                        prev_snapshot=prev_user,
-                        curr_snapshot=cur_user,
-                    ):
-                        interval_debug["skippedReactivation"] += 1
-                        if raw_graids > 0 and len(interval_debug["reactivationUsers"]) < 20:
-                            interval_debug["reactivationUsers"].append({
-                                "username": ulow,
-                                "rawDelta": int(round(raw_graids)),
-                                "prev": int(round(_safe_number(prev_graids))),
-                                "curr": int(round(_safe_number(curr_graids))),
-                            })
-                    else:
-                        applied_graids = raw_graids if raw_graids > 0 else 0
-                        if applied_graids > 0:
-                            guild_raids[day_idx] += int(round(applied_graids))
-                            interval_debug["guildRaidsAppliedDelta"] += int(round(applied_graids))
-
-                if _safe_number(cur_user.get("wars")) > 0:
-                    state["wars"] = True
-                if cur_user.get("guildRaids") is not None and _safe_number(cur_user.get("guildRaids")) > 0:
-                    state["guildRaids"] = True
-
-            debug_guild_intervals.append(interval_debug)
-
-    guild_raids = [max(0, (int(v) // 4)) for v in guild_raids]
-
-    # player graid delta cannot be higher than guild graid delta
-    for _m in members.values():
-        _mr = _m.get("guildRaids", [])
-        for _di in range(min(len(_mr), len(guild_raids))):
-            if _mr[_di] > guild_raids[_di]:
-                _mr[_di] = 0
-
-    # total members = count of ESI members in each snapshot
-    total_members = [0] * num_mk_days
-    if api_snapshots and num_mk_days:
-        for i in range(1, len(api_snapshots)):
-            day_idx = i - 1
-            if day_idx >= num_mk_days:
-                break
-            total_members[day_idx] = sum(
-                1 for snap in api_snapshots[i].values()
-                if (snap.get("guildPrefix") or "").upper() == "ESI"
-            )
-
-    # new members = first time a username is seen in a snapshot
-    new_members = [0] * num_mk_days
-    if os.path.isdir(os.path.join(_ESI_BOT_DIR, "databases", "api_tracking")):
-        try:
-            seen = set(api_snapshots[0].keys()) if api_snapshots else set()
-            for idx in range(1, len(api_snapshots)):
-                new_today = 0
-                for ulow in api_snapshots[idx]:
-                    if ulow not in seen:
-                        new_today += 1
-                        seen.add(ulow)
-                if idx - 1 < num_mk_days:
-                    new_members[idx - 1] = new_today
-        except Exception:
-            pass
-
-    guild_data = {
-        "dates": dates,
-        "metricDates": metric_dates,
-        "playerCount": player_count,
-        "wars":        guild_wars,
-        "guildRaids":  guild_raids,
-        "newMembers":  new_members,
-        "totalMembers": total_members,
-    }
-
-    # swap in the new data all at once
-    with _bulk_playtime_lock:
-        _bulk_playtime_cache["data"] = {"members": members, "guild": guild_data}
-        _bulk_playtime_cache["debug"] = {
-            "rules": {"resetSpikeThresholds": RESET_SPIKE_MIN_BY_METRIC},
-            "members": debug_members,
-            "guild": {
-                "intervals": [
-                    row for row in debug_guild_intervals
-                    if (
-                        row.get("guildRaidsRawDelta", 0) > 0
-                        or row.get("guildRaidsAppliedDelta", 0) > 0
-                        or row.get("skippedMissing", 0) > 0
-                        or row.get("skippedApiGap", 0) > 0
-                        or row.get("skippedApiOff", 0) > 0
-                        or row.get("skippedReactivation", 0) > 0
-                    )
-                ],
-                "dailyGuildRaids": [
-                    {"date": metric_dates[i], "value": int(guild_raids[i])}
-                    for i in range(min(len(metric_dates), len(guild_raids)))
-                ],
-            },
-        }
-        _bulk_playtime_cache["ts"] = time()
-
-
-def _bulk_playtime_loop():
-    """Background thread that re-crunches bulk playtime every 10 min."""
-    while True:
-        _threading.Event().wait(BULK_PLAYTIME_REFRESH)
-        try:
-            _compute_bulk_playtime()
-            print("Bulk playtime cache refreshed")
-        except Exception as e:
-            print(f"Bulk playtime refresh failed: {e}")
-
-
 @app.route("/api/guild/activity")
 @rate_limit(60)
 def guild_activity_bulk():
-    """Public bulk playtime endpoint — rate-limited, no session required."""
     def _make():
-        with _bulk_playtime_lock:
-            _data = _bulk_playtime_cache["data"]
-        if _data:
-            return jsonify(_data)
+        raw = _fetch_cache_raw("/cache/activity")
+        if raw:
+            return app.response_class(raw, status=200, mimetype="application/json")
         return jsonify({"members": {}, "ready": False})
     return _activity_rate_response(_make)
+
 
 @app.route("/api/player/<username>/metrics-history")
 @rate_limit(10)
 def player_metrics_history(username: str):
     def _make():
-        ulow = username.lower()
-        with _bulk_playtime_lock:
-            bulk = _bulk_playtime_cache.get("data") or {}
-        member = (bulk.get("members") or {}).get(ulow)
+        member = _fetch_cache(f"/cache/activity/member/{username}")
         metrics = {}
         for key in PLAYER_BULK_METRIC_KEYS:
             if key == "playtime":
@@ -1422,21 +639,20 @@ def player_metrics_history(username: str):
             else:
                 metrics[key] = list(member.get(key, [])) if member else []
         return jsonify({
-            "username":    member.get("username", username) if member else username,
-            "dates":       list(member.get("metricDates", [])) if member else [],
-            "metricDates": list(member.get("metricDates", [])) if member else [],
+            "username":      member.get("username", username) if member else username,
+            "dates":         list(member.get("metricDates", [])) if member else [],
+            "metricDates":   list(member.get("metricDates", [])) if member else [],
             "playtimeDates": list(member.get("dates", [])) if member else [],
-            "metrics":     metrics,
+            "metrics":       metrics,
         })
     return _activity_rate_response(_make)
+
 
 @app.route("/api/guild/prefix/<prefix>/metrics-history")
 @rate_limit(60)
 def guild_metrics_history(prefix: str):
     def _make():
-        with _bulk_playtime_lock:
-            bulk = _bulk_playtime_cache.get("data") or {}
-        guild = bulk.get("guild") or {}
+        guild = _fetch_cache("/cache/activity/guild") or {}
         return jsonify({
             "prefix":      prefix.upper(),
             "dates":       list(guild.get("metricDates", [])),
@@ -1449,8 +665,7 @@ def guild_metrics_history(prefix: str):
     return _activity_rate_response(_make)
 
 
-# ---- inactivity exemptions ----
-# stored in inactivity_exemptions.json
+# inactivity exemptions
 
 @app.route("/api/inactivity")
 @rate_limit(60)
@@ -1458,11 +673,8 @@ def inactivity_get():
     user, err = _require_role(_PARLIAMENT_PLUS)
     if err:
         return err
-    import glob as _glob
     data    = _load_json_file(_INACTIVITY_JSON)
     matches = _load_json_file(_USERNAME_MATCHES_JSON)
-
-    # only show members who are in the guild
     guild_members = set()
     _latest_db = _get_latest_api_db()
     if _latest_db:
@@ -1470,8 +682,7 @@ def inactivity_get():
         for row in conn.execute("SELECT username FROM player_stats WHERE UPPER(guild_prefix) = 'ESI'").fetchall():
             guild_members.add(row[0].lower())
         conn.close()
-
-    result  = []
+    result = []
     for discord_id, entry in data.items():
         if discord_id.startswith("mc_"):
             username = entry.get("username") or discord_id[3:]
@@ -1504,7 +715,6 @@ def inactivity_add():
     weeks    = body.get("weeks") or []
     if not username or not reason or not weeks:
         return jsonify({"error": "Missing required fields"}), 400
-    # try to find their discord ID from the Minecraft username
     matches    = _load_json_file(_USERNAME_MATCHES_JSON)
     discord_id = None
     for did, entry in matches.items():
@@ -1513,7 +723,6 @@ def inactivity_add():
             discord_id = did
             break
     if not discord_id:
-        # no discord match, check if they at least exist in player_stats
         _latest_db = _get_latest_api_db()
         if _latest_db:
             conn = _sqlite3.connect(_latest_db)
@@ -1524,7 +733,7 @@ def inactivity_add():
             conn.close()
             if row:
                 discord_id = "mc_" + row[0].lower()
-                username = row[0]  # use DB-cased name
+                username = row[0]
         if not discord_id:
             return jsonify({"error": f"Username '{username}' not found in guild records"}), 404
     data = _load_json_file(_INACTIVITY_JSON)
@@ -1576,7 +785,6 @@ def inactivity_edit(discord_id):
 @app.route("/api/inactivity/players")
 @rate_limit(60)
 def inactivity_players():
-    """All guild members from the player_stats DB."""
     user, err = _require_role(_JUROR_PLUS)
     if err:
         return err
@@ -1591,13 +799,11 @@ def inactivity_players():
             " WHERE UPPER(guild_prefix) = 'ESI' ORDER BY username"
         ).fetchall()
     except _sqlite3.OperationalError:
-        # older dbs might not have these columns
         rows = conn.execute(
             "SELECT username, NULL as uuid, NULL as guild_rank FROM player_stats"
             " WHERE UPPER(guild_prefix) = 'ESI' ORDER BY username"
         ).fetchall()
     conn.close()
-    # reverse map: Minecraft username to discord id
     matches = _load_json_file(_USERNAME_MATCHES_JSON)
     mc_to_discord = {}
     for did, entry in matches.items():
@@ -1625,16 +831,14 @@ def inactivity_delete(discord_id):
     return jsonify({"ok": True})
 
 
-# ---- guild stats ----
+# guild stats
 
 @app.route("/api/guild/stats")
 @rate_limit(60)
 def guild_stats():
-    """Sum key stats across all members using the latest api_tracking snapshot."""
     latest_db = _get_latest_api_db()
     if not latest_db:
         return jsonify({})
-
     try:
         conn = _sqlite3.connect(latest_db, check_same_thread=False)
         row = conn.execute("""
@@ -1657,10 +861,10 @@ def guild_stats():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
 @app.route("/api/player/<username>")
 @rate_limit(10)
 def player(username: str):
-    """Full Wynncraft player data. Tries ?fullResult first, falls back without it."""
     def _friendly_http_error(e):
         status = e.response.status_code if e.response is not None else 502
         if status == 404:
@@ -1678,7 +882,6 @@ def player(username: str):
         status = e.response.status_code if e.response is not None else 502
         if status in (404, 429) or status >= 500:
             _friendly_http_error(e)
-        # non-fatal error from ?fullResult, try without it
     except (requests.Timeout, requests.RequestException):
         abort(502, description="Could not reach Wynncraft right now. Please try again.")
 
@@ -1698,7 +901,6 @@ def player(username: str):
 @app.route("/api/guild/prefix/<prefix>")
 @rate_limit(10)
 def guild_by_prefix(prefix: str):
-    """Guild data by tag/prefix (e.g. ESI)."""
     try:
         data = cached_get(f"{WYNN_BASE}/guild/prefix/{prefix}")
         return jsonify(data)
@@ -1712,7 +914,6 @@ def guild_by_prefix(prefix: str):
 @app.route("/api/guild/name/<name>")
 @rate_limit(60)
 def guild_by_name(name: str):
-    """Guild data by full name (e.g. Empire of Sindria)."""
     try:
         data = cached_get(f"{WYNN_BASE}/guild/{name}")
         return jsonify(data)
@@ -1723,10 +924,11 @@ def guild_by_name(name: str):
         abort(502, description=f"Could not reach Wynncraft API: {e}")
 
 
+# bot info / status
+
 @app.route("/api/bot/info")
 @rate_limit(30)
 def bot_info():
-    """Bot user profile from the Discord API."""
     if not DISCORD_TOKEN:
         return jsonify({"error": "No bot token configured"}), 503
     try:
@@ -1747,7 +949,6 @@ def bot_info():
 @app.route("/api/bot/discord")
 @rate_limit(30)
 def bot_discord_snapshot():
-    """Discord guild member/channel counts."""
     if not DISCORD_TOKEN or not DISCORD_GUILD_ID:
         return jsonify({"error": "Not configured"}), 503
     try:
@@ -1759,19 +960,17 @@ def bot_discord_snapshot():
         resp.raise_for_status()
         g = resp.json()
         return jsonify({
-            "name":              g.get("name"),
-            "icon":              g.get("icon"),
-            "member_count":      g.get("approximate_member_count"),
-            "online_count":      g.get("approximate_presence_count"),
-            "boost_level":       g.get("premium_tier", 0),
-            "boost_count":       g.get("premium_subscription_count", 0),
-            "channel_count":     len(g.get("channels", [])),
+            "name":          g.get("name"),
+            "icon":          g.get("icon"),
+            "member_count":  g.get("approximate_member_count"),
+            "online_count":  g.get("approximate_presence_count"),
+            "boost_level":   g.get("premium_tier", 0),
+            "boost_count":   g.get("premium_subscription_count", 0),
+            "channel_count": len(g.get("channels", [])),
         })
     except requests.RequestException as e:
         abort(502, description=f"Could not reach Discord API: {e}")
 
-_GUILD_LEVELS_JSON      = os.path.join(_DATA_FOLDER, "guild_levels.json")
-_GUILD_TERRITORIES_JSON = os.path.join(_DATA_FOLDER, "guild_territories.json")
 
 @app.route("/api/guild/member-history")
 @rate_limit(60)
@@ -1781,6 +980,7 @@ def guild_member_history():
         return jsonify([])
     return jsonify(data.get("event_history", []))
 
+
 @app.route("/api/guild/levels")
 @rate_limit(60)
 def guild_levels_get():
@@ -1789,10 +989,10 @@ def guild_levels_get():
         return jsonify({})
     return jsonify(data)
 
+
 @app.route("/api/guild/territories")
 @rate_limit(60)
 def guild_territories_get():
-    """Public territories endpoint"""
     data = _load_json_file(_GUILD_TERRITORIES_JSON)
     if not data:
         return jsonify({})
@@ -1803,7 +1003,8 @@ def guild_territories_get():
         "last_update": data.get("last_update"),
     })
 
-# ---- public API routes (accessible without the dashboard) ----
+
+# public API routes
 
 @app.route("/api/player/rank-history/<username>")
 @rate_limit(10)
@@ -1822,6 +1023,11 @@ def public_rank_history(username: str):
                 })
             break
     return jsonify({"username": username, "rank_changes": []})
+
+
+_playtime_cache: dict = {}
+_playtime_cache_lock = _threading.Lock()
+
 
 @app.route("/api/player/playtime/<username>")
 @rate_limit(10)
@@ -1857,6 +1063,7 @@ def public_playtime(username: str):
     if not all_snapshots:
         return jsonify({"username": username, "data": []})
     all_snapshots.sort(key=lambda x: (x[0], x[1]))
+
     def read_hours(db_path):
         try:
             conn = _sqlite3.connect(db_path, check_same_thread=False)
@@ -1875,13 +1082,12 @@ def public_playtime(username: str):
     daily = [results[p] for p in daily_paths]
     return jsonify({"username": username, "data": daily})
 
+
 @app.route("/api/player/metrics/<username>")
 @rate_limit(30)
 def public_metrics(username: str):
     ulow = username.lower()
-    with _bulk_playtime_lock:
-        bulk = _bulk_playtime_cache.get("data") or {}
-    member = (bulk.get("members") or {}).get(ulow)
+    member = _fetch_cache(f"/cache/activity/member/{ulow}")
     metrics = {}
     for key in PLAYER_BULK_METRIC_KEYS:
         if key == "playtime":
@@ -1899,30 +1105,22 @@ def public_metrics(username: str):
     })
 
 
-_BOT_SCREEN_SESSION = (os.environ.get("ESI_BOT_SCREEN_NAME") or "esi-bot").strip()
-_TRACKER_SCREEN_SESSION = (os.environ.get("ESI_TRACKERS_SCREEN_NAME") or "esi-bot-trackers").strip()
-_TRACKER_SCREEN_SPECS = [
-    {"name": "API Tracker", "interval": 300, "keywords": ("api tracker", "api_tracking")},
-    {"name": "Playtime Tracker", "interval": 300, "keywords": ("playtime tracker", "playtime_tracking")},
-    {"name": "Guild Tracker", "interval": 30, "keywords": ("guild tracker", "guild_tracking")},
-    {"name": "Claim Tracker", "interval": 3, "keywords": ("claim tracker", "claim_tracking")},
-]
+# bot status / trackers
+
 _DURATION_UNITS_RE = _re.compile(
     r"(\d+)\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b",
     _re.IGNORECASE,
 )
 _DURATION_CLOCK_RE = _re.compile(r"(?<!\d)(\d{1,2}):(\d{2})(?::(\d{2}))?(?!\d)")
+_bot_status_cache = {"data": None, "ts": 0}
+_bot_status_lock = _threading.Lock()
 
 
 def _run_capture(args, timeout=4):
     try:
         proc = subprocess.run(
-            args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=timeout,
-            check=False,
+            args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, timeout=timeout, check=False,
         )
         return proc.returncode, proc.stdout or "", proc.stderr or ""
     except (OSError, subprocess.SubprocessError):
@@ -2001,7 +1199,6 @@ def _parse_duration_seconds(text):
         found_units = True
     if found_units and total > 0:
         return total
-
     lower = text.lower()
     if not any(hint in lower for hint in ("left", "remaining", "next", "eta", " in ")):
         return None
@@ -2040,7 +1237,7 @@ def _extract_tracker_countdowns(console_text):
     by_name = {}
     for line in reversed(lines):
         low = line.lower()
-        for spec in _TRACKER_SCREEN_SPECS:
+        for spec in TRACKER_SCREEN_SPECS:
             name = spec["name"]
             if name in by_name:
                 continue
@@ -2053,9 +1250,10 @@ def _extract_tracker_countdowns(console_text):
             if remaining is None:
                 continue
             by_name[name] = remaining
-        if len(by_name) == len(_TRACKER_SCREEN_SPECS):
+        if len(by_name) == len(TRACKER_SCREEN_SPECS):
             break
     return by_name
+
 
 def _remaining_from_last_update(last_update_ts, interval, now_ts=None):
     if last_update_ts is None:
@@ -2113,15 +1311,11 @@ def _estimate_tracker_countdowns_from_files():
     }
 
 
-_bot_status_cache = {"data": None, "ts": 0}
-
 @app.route("/api/bot/status")
 @rate_limit(30)
 def bot_status():
-    """Bot online/offline status, latency, uptime."""
     now = time()
-    screen_uptime = _screen_session_uptime_seconds(_BOT_SCREEN_SESSION)
-    # check the status file the bot writes first
+    screen_uptime = _screen_session_uptime_seconds(BOT_SCREEN_SESSION)
     status_path = os.path.join(_BASE_DIR, "bot_status.json")
     if os.path.exists(status_path):
         try:
@@ -2136,8 +1330,6 @@ def bot_status():
             return jsonify(data)
         except (json.JSONDecodeError, IOError):
             pass
-
-    # no status file, fall back to pinging discord (cached 60s)
     with _bot_status_lock:
         _bsc = (_bot_status_cache["data"], _bot_status_cache["ts"])
     if now - _bsc[1] < 60 and _bsc[0] is not None:
@@ -2146,7 +1338,6 @@ def bot_status():
             cached["uptime_seconds"] = int(screen_uptime)
             cached["uptime_since"] = int(now - screen_uptime)
         return jsonify(cached)
-
     if DISCORD_TOKEN:
         try:
             start = time()
@@ -2182,17 +1373,17 @@ def bot_status():
         _bot_status_cache["ts"] = now
     return jsonify(offline)
 
+
 @app.route("/api/bot/trackers")
 @rate_limit(30)
 def bot_trackers():
-    """Tracker countdowns parsed from the tracker screen session console."""
-    console_text = _read_screen_hardcopy(_TRACKER_SCREEN_SESSION)
+    console_text = _read_screen_hardcopy(TRACKER_SCREEN_SESSION)
     by_name = _extract_tracker_countdowns(console_text)
     by_file = _estimate_tracker_countdowns_from_files()
     trackers = []
     screen_has_values = any(v is not None for v in by_name.values())
     file_has_values = any(v is not None for v in by_file.values())
-    for spec in _TRACKER_SCREEN_SPECS:
+    for spec in TRACKER_SCREEN_SPECS:
         screen_value = by_name.get(spec["name"])
         file_value = by_file.get(spec["name"])
         trackers.append({
@@ -2200,9 +1391,9 @@ def bot_trackers():
             "interval": spec["interval"],
             "remaining_seconds": screen_value if screen_value is not None else file_value,
         })
-    # Activity data refresh — server-side bulk playtime cache (re-computed every 10 min)
-    with _bulk_playtime_lock:
-        activity_ts = _bulk_playtime_cache["ts"]
+    # Activity data refresh — from cache service
+    status = _fetch_cache("/cache/status") or {}
+    activity_ts = status.get("cache_ts", 0)
     activity_remaining = _remaining_from_last_update(activity_ts if activity_ts else None, BULK_PLAYTIME_REFRESH)
     trackers.append({
         "name": "Activity Data",
@@ -2216,17 +1407,13 @@ def bot_trackers():
         source = "file"
     elif console_text:
         source = "screen-unparsed"
-    return jsonify({
-        "trackers": trackers,
-        "source": source,
-    })
+    return jsonify({"trackers": trackers, "source": source})
 
 
 @app.route("/api/bot/databases")
 @rate_limit(30)
 def bot_databases():
-    """Folder sizes under ESI-Bot/databases/."""
-    from datetime import datetime as _dt, date as _date
+    from datetime import datetime as _dt
 
     db_root = os.path.join(_ESI_BOT_DIR, "databases")
 
@@ -2242,7 +1429,6 @@ def bot_databases():
         return total
 
     def folder_date_span(path, prefix):
-        """Earliest/latest date and total days from date-named subfolders."""
         dates = []
         if os.path.isdir(path):
             for name in os.listdir(path):
@@ -2262,13 +1448,11 @@ def bot_databases():
 
     playtime_path = os.path.join(db_root, "playtime_tracking")
     api_path      = os.path.join(db_root, "api_tracking")
-
-    playtime_size  = folder_size(playtime_path)
-    api_size       = folder_size(api_path)
-    total_size     = folder_size(db_root)
-
+    playtime_size = folder_size(playtime_path)
+    api_size      = folder_size(api_path)
+    total_size    = folder_size(db_root)
     pt_earliest, pt_latest, pt_days = folder_date_span(playtime_path, "playtime_")
-    api_earliest, api_latest, api_days = folder_date_span(api_path, "api_")
+    api_earliest, api_latest, api_days_count = folder_date_span(api_path, "api_")
 
     return jsonify({
         "total_size": total_size,
@@ -2283,16 +1467,17 @@ def bot_databases():
                 "total_size": api_size,
                 "earliest_date": api_earliest,
                 "latest_date": api_latest,
-                "total_days": api_days,
+                "total_days": api_days_count,
             },
         },
     })
 
 
+# user settings
+
 @app.route("/api/settings", methods=["GET"])
 @rate_limit(60)
 def settings_get():
-    """Return stored settings for the logged-in user."""
     user, err = _require_login()
     if err:
         return err
@@ -2312,7 +1497,6 @@ def settings_get():
 @app.route("/api/settings", methods=["PUT"])
 @rate_limit(60)
 def settings_put():
-    """Save settings for the logged-in user."""
     user, err = _require_login()
     if err:
         return err
@@ -2336,7 +1520,6 @@ def settings_put():
 @app.route("/api/settings/default-player")
 @rate_limit(60)
 def settings_default_player():
-    """Return the MC username for the logged-in user from username_matches.json."""
     user, err = _require_login()
     if err:
         return err
@@ -2348,11 +1531,9 @@ def settings_default_player():
     return jsonify({"username": mc_name})
 
 
-# ---- file uploads (for ticket attachments) ----
+# file uploads
 
-_UPLOAD_DIR = os.path.join(_BASE_DIR, "uploads")
-os.makedirs(_UPLOAD_DIR, exist_ok=True)
-_UPLOAD_MAX_SIZE = 5 * 1024 * 1024  # 5 MB
+_UPLOAD_MAX_SIZE = 5 * 1024 * 1024
 _UPLOAD_ALLOWED_EXT = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif",
     ".pdf", ".txt", ".log", ".json", ".csv",
@@ -2362,46 +1543,31 @@ _UPLOAD_ALLOWED_EXT = {
 @app.route("/api/upload", methods=["POST"])
 @rate_limit(30)
 def upload_file():
-    """Accept a file upload from a logged-in user and return its URL."""
     user, err = _require_login()
     if err:
         return err
-
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
-
     f = request.files["file"]
     if not f or not f.filename:
         return jsonify({"error": "Empty file"}), 400
-
-    # check extension
     ext = os.path.splitext(f.filename)[1].lower()
     if ext not in _UPLOAD_ALLOWED_EXT:
         return jsonify({"error": f"File type '{ext}' is not allowed"}), 400
-
-    # check size (read into memory to enforce limit)
     data = f.read()
     if len(data) > _UPLOAD_MAX_SIZE:
         return jsonify({"error": "File too large (max 5 MB)"}), 400
-
-    # generate a unique filename to prevent collisions
     unique = secrets.token_hex(8)
     safe_name = _re.sub(r"[^\w.-]", "_", f.filename)
     filename = f"{unique}_{safe_name}"
     filepath = os.path.join(_UPLOAD_DIR, filename)
-
     with open(filepath, "wb") as out:
         out.write(data)
-
     url = f"/uploads/{filename}"
     return jsonify({"ok": True, "url": url, "filename": filename})
 
 
-_UPLOAD_MAX_AGE = 3600  # orphaned uploads deleted after 1 hour
-
-
 def _delete_upload(filename):
-    """Silently delete a single file from the uploads directory."""
     try:
         path = os.path.join(_UPLOAD_DIR, os.path.basename(filename))
         if os.path.isfile(path):
@@ -2411,68 +1577,28 @@ def _delete_upload(filename):
 
 
 def _delete_uploads_in_text(text):
-    """Find all /uploads/... references in text and delete those files."""
     for match in _re.finditer(r'/uploads/([^\s)"]+)', text or ""):
         _delete_upload(match.group(1))
 
 
-def _cleanup_orphaned_uploads():
-    """Delete uploaded files older than _UPLOAD_MAX_AGE seconds."""
-    now = time()
-    try:
-        for name in os.listdir(_UPLOAD_DIR):
-            path = os.path.join(_UPLOAD_DIR, name)
-            if not os.path.isfile(path):
-                continue
-            age = now - os.path.getmtime(path)
-            if age > _UPLOAD_MAX_AGE:
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
-    except OSError:
-        pass
-
-
-def _upload_cleanup_loop():
-    """Background thread that purges orphaned uploads every 10 minutes."""
-    while True:
-        _threading.Event().wait(600)
-        _cleanup_orphaned_uploads()
-
-
-@app.route("/uploads/<string:filename>")
-def serve_upload(filename):
-    safe = os.path.basename(filename)
-    if safe != filename:
-        abort(400)
-    return send_from_directory(_UPLOAD_DIR, filename, as_attachment=True)
-
-
-# ---- GitHub issue creation ----
-
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-GITHUB_REPO  = os.environ.get("GITHUB_REPO", "190Q/ESI-website")
+# GitHub issue creation
 
 _ATTACH_RELEASE_TAG = "ticket-attachments"
 
 
 def _get_or_create_attach_release():
-    """Get or create a hidden draft release used to host ticket file attachments.
-    Returns the release upload_url template, or None."""
+    import sys
     gh_headers = {
         "Authorization": f"token {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json",
         "User-Agent": "ESI-Dashboard/1.0",
     }
-    # check if release exists
     r = requests.get(
         f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/{_ATTACH_RELEASE_TAG}",
         headers=gh_headers, timeout=10,
     )
     if r.ok:
         return r.json().get("upload_url", "").split("{")[0]
-    # create it
     r = requests.post(
         f"https://api.github.com/repos/{GITHUB_REPO}/releases",
         headers=gh_headers,
@@ -2487,15 +1613,13 @@ def _get_or_create_attach_release():
     )
     if r.ok:
         return r.json().get("upload_url", "").split("{")[0]
-    import sys
     print(f"[TICKET] Failed to create attachments release: {r.status_code} {r.text[:200]}", file=sys.stderr)
     return None
 
 
 def _upload_attachments_to_github(text):
-    """Find /uploads/... references, upload each file as a GitHub release asset,
-    and replace the local URL with the permanent download URL.
-    No commits are created — files live only as release assets."""
+    import sys
+    import mimetypes as _mt
     if not GITHUB_TOKEN or not text:
         return text
     matches = list(_re.finditer(r'/uploads/([^\s)"]+)', text))
@@ -2510,12 +1634,10 @@ def _upload_attachments_to_github(text):
         local_path = os.path.join(_UPLOAD_DIR, clean_name)
         if not os.path.isfile(local_path):
             continue
-        # detect content type
-        import mimetypes as _mt
         content_type = _mt.guess_type(clean_name)[0] or "application/octet-stream"
         try:
-            with open(local_path, "rb") as f:
-                file_data = f.read()
+            with open(local_path, "rb") as fh:
+                file_data = fh.read()
             resp = requests.post(
                 f"{upload_base}?name={clean_name}",
                 headers={
@@ -2531,27 +1653,25 @@ def _upload_attachments_to_github(text):
                 if dl_url:
                     text = text.replace(match.group(0), dl_url)
             else:
-                import sys
                 print(f"[TICKET] Release asset upload failed for {clean_name}: "
                       f"{resp.status_code} {resp.text[:200]}", file=sys.stderr)
         except Exception as exc:
-            import sys
             print(f"[TICKET] Failed to upload {clean_name}: {exc}", file=sys.stderr)
     return text
 
 
-_ticket_rate: dict = {}  # keyed by discord user id
+_ticket_rate: dict = {}
 _ticket_rate_lock = _threading.Lock()
-_TICKET_COOLDOWN  = 60.0  # 1 minute between submissions per user
+_TICKET_COOLDOWN  = 60.0
+
 
 @app.route("/api/ticket", methods=["POST"])
 @rate_limit(30)
 def create_ticket():
+    import sys
     user, err = _require_login()
     if err:
         return err
-
-    # per-user rate limit
     uid = user.get("id", "")
     now = time()
     with _ticket_rate_lock:
@@ -2559,30 +1679,22 @@ def create_ticket():
         if now - last < _TICKET_COOLDOWN:
             return jsonify({"error": "Please wait before submitting another ticket."}), 429
         _ticket_rate[uid] = now
-
     body = request.get_json(silent=True) or {}
-    title  = (body.get("title") or "").strip()
-    desc   = (body.get("body") or "").strip()
+    title = (body.get("title") or "").strip()
+    desc  = (body.get("body") or "").strip()
     VALID_LABELS = {"bug", "enhancement", "question", "documentation", "help wanted"}
     labels = [l for l in (body.get("labels") or []) if l in VALID_LABELS]
-
     if not title:
         return jsonify({"error": "Title is required"}), 400
     if not isinstance(labels, list):
         labels = []
-
     discord_name = user.get("nick") or user.get("username") or "Unknown"
     discord_id   = user.get("id", "")
     attribution  = f"*Submitted via ESI Dashboard by **{discord_name}** (`{discord_id}`)*"
-
     if not GITHUB_TOKEN:
         return jsonify({"error": "GitHub integration not configured"}), 503
-
-    # upload attached files to the GitHub repo so they persist
     desc = _upload_attachments_to_github(desc)
-
     issue_body = f"{desc}\n\n---\n{attribution}" if desc else f"---\n{attribution}"
-
     try:
         resp = requests.post(
             f"https://api.github.com/repos/{GITHUB_REPO}/issues",
@@ -2591,26 +1703,21 @@ def create_ticket():
                 "Accept": "application/vnd.github.v3+json",
                 "User-Agent": "ESI-Dashboard/1.0",
             },
-            json={
-                "title": title,
-                "body":  issue_body,
-                "labels": labels,
-            },
+            json={"title": title, "body": issue_body, "labels": labels},
             timeout=10,
         )
         if not resp.ok:
-            import sys
             print(f"[TICKET] GitHub API error: {resp.status_code}", file=sys.stderr)
             return jsonify({"error": "Failed to create issue on GitHub"}), 502
         data = resp.json()
-        # clean up uploaded files that were embedded in the ticket
         _delete_uploads_in_text(desc)
         return jsonify({"ok": True, "issue_url": data.get("html_url"), "issue_number": data.get("number")})
     except requests.RequestException as e:
-        import sys
         print(f"[TICKET] GitHub request failed: {e}", file=sys.stderr)
         return jsonify({"error": "Failed to reach GitHub"}), 502
 
+
+# error handlers
 
 @app.errorhandler(404)
 def not_found(e):
@@ -2628,33 +1735,13 @@ def bad_gateway(e):
     return jsonify({"error": "Bad gateway", "message": msg}), 502
 
 
+# startup
+
 if __name__ == "__main__":
     print()
-    print("  ESI Dashboard Server")
-    print("  ─────────────────────────────────────")
-    print("  Computing activity cache\u2026", end="", flush=True)
-    try:
-        import glob as _diag_glob
-        _diag_db = _get_latest_api_db()
-        if not _diag_db:
-            print(f" skipped \u2014 no api_tracking snapshots found in {_API_TRACKING_DIR}")
-        else:
-            _compute_bulk_playtime()
-            _cd  = _bulk_playtime_cache.get("data") or {}
-            _nm  = len(_cd.get("members") or {})
-            _nd  = len((_cd.get("guild") or {}).get("dates") or [])
-            _dbf = os.path.basename(_diag_db)
-            if _nm == 0:
-                print(f" done \u2014 0 members (player_stats empty in {_dbf})")
-                print("  \u26a0  Activity data unavailable until player_stats is populated.")
-            else:
-                print(f" done ({_nm} members, {_nd} playtime days)")
-    except Exception as _e:
-        print(f" failed: {_e}")
-    _threading.Thread(target=_bulk_playtime_loop, daemon=True).start()
-    _threading.Thread(target=_upload_cleanup_loop, daemon=True).start()
-    url = os.environ.get("WEBSITE_IP", "")
-    print("  ")
+    print("  ESI Routes Service")
+    print("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
+    print(f"  Listening on 127.0.0.1:{ROUTES_PORT}")
     print("  Press Ctrl+C to stop")
     print()
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    app.run(host="127.0.0.1", port=ROUTES_PORT, debug=False, threaded=True)
