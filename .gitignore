@@ -224,3 +224,7 @@ uploads/
 
 user_data.db-shm
 user_data.db-wal
+
+# Access logger
+access_logger.py
+logs/
