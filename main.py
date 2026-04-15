@@ -58,6 +58,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 _ALLOWED_STATIC_PREFIXES = ("/css/", "/js/", "/images/", "/assets/")
 _ALLOWED_STATIC_FILES    = ("/index.html", "/favicon.ico")
+_SPA_PANELS              = ("player", "guild", "bot", "inactivity", "promotions")
 
 
 @app.before_request
@@ -81,6 +82,10 @@ def _gate_requests():
     if path in _ALLOWED_STATIC_FILES:
         return
     if any(path.startswith(p) for p in _ALLOWED_STATIC_PREFIXES):
+        return
+    # allow SPA panel routes (e.g. /player/190Q, /guild, /bot)
+    stripped = path.strip("/").split("/")[0]
+    if stripped in _SPA_PANELS:
         return
     # block everything else (server.py, .env, .db, data files, etc.)
     abort(403)
@@ -125,6 +130,16 @@ def _after_request(response):
 
 @app.route("/")
 def index():
+    return send_from_directory(_BASE_DIR, "index.html")
+
+
+@app.route("/player/", defaults={"_path": ""})
+@app.route("/player/<path:_path>")
+@app.route("/guild")
+@app.route("/bot")
+@app.route("/inactivity")
+@app.route("/promotions")
+def spa_route(_path=None):
     return send_from_directory(_BASE_DIR, "index.html")
 
 

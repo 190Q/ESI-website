@@ -87,7 +87,7 @@
       loginBtn.style.background = '#4752c4';
       loginBtn.style.boxShadow = 'none';
       // save current page state so we can restore it after the OAuth redirect
-      sessionStorage.setItem('esi_auth_return', window.location.hash || '');
+      sessionStorage.setItem('esi_auth_return', window.location.pathname || '/');
       window.location.href = '/auth/login';
     }
   });
@@ -104,12 +104,12 @@
     var params = new URLSearchParams(window.location.search);
     var authResult = params.get('auth');
     if (!authResult) return;
-    // restore the hash the user was on before the redirect
-    var savedHash = sessionStorage.getItem('esi_auth_return') || '';
+    // restore the path the user was on before the redirect
+    var savedPath = sessionStorage.getItem('esi_auth_return') || '/';
     sessionStorage.removeItem('esi_auth_return');
     // clean the URL so refreshing doesn't re-trigger the toast
     params.delete('auth');
-    var clean = window.location.pathname + (params.toString() ? '?' + params.toString() : '') + (savedHash || window.location.hash);
+    var clean = savedPath + (params.toString() ? '?' + params.toString() : '');
     history.replaceState(null, '', clean);
     if (authResult === 'success') {
       _authJustCompleted = true;
@@ -1043,7 +1043,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
     switchToPanel('player');
     var input = document.getElementById('playerInput');
     if (input) input.value = username;
-    history.pushState(null, '', '#player/' + encodeURIComponent(username));
+    history.pushState(null, '', '/player/' + encodeURIComponent(username));
     if (window.lookupPlayer) window.lookupPlayer(username, options || null);
   }
   window.goToPlayer = goToPlayer;

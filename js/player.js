@@ -597,7 +597,7 @@
           const guildNavBtn = document.querySelector('[data-panel="guild"]');
           if (guildNavBtn) guildNavBtn.click();
           else if (window.switchToPanel) window.switchToPanel('guild');
-          history.pushState(null, '', '#guild');
+          history.pushState(null, '', '/guild');
         };
       } else {
         guildEl.style.cursor = '';
@@ -618,7 +618,7 @@
         guildRankEl.style.textDecorationColor = 'rgba(212,160,23,0.4)';
         guildRankEl.onclick = function() {
           if (window.switchToPanel) window.switchToPanel('promotions');
-          history.pushState(null, '', '#promotions');
+          history.pushState(null, '', '/promotions');
           setTimeout(function() {
             // Switch to correct tab
             var tab = isRecruiter ? 'captain' : 'recruiter';
@@ -1874,22 +1874,24 @@
 
   window.addEventListener('resize', () => { if (graphState.data) refreshCompareGraph(); });
 
-  /* Hash routing */
+  /* Path routing */
   function updateHash() {
     const activeNav = document.querySelector('.nav-item.active');
     const panel     = activeNav ? activeNav.dataset.panel : 'player';
-    let hash        = '#' + panel;
+    let path        = '/' + panel;
     if (panel === 'player' && playerInput.value.trim()) {
-      hash += '/' + encodeURIComponent(playerInput.value.trim());
+      path += '/' + encodeURIComponent(playerInput.value.trim());
     }
-    if (window.location.hash !== hash) history.pushState(null, '', hash);
+    if (window.location.pathname !== path) history.pushState(null, '', path);
   }
 
-  function navigateFromHash() {
-    const hash     = window.location.hash.slice(1);
-    const parts    = hash.split('/');
-    const panel    = parts[0] || 'player';
-    const username = parts[1] ? decodeURIComponent(parts[1]) : null;
+  function navigateFromPath() {
+    var pathname = window.location.pathname;
+    // strip leading slash and split
+    var stripped = pathname.replace(/^\//, '');
+    var parts    = stripped.split('/');
+    var panel    = parts[0] || 'player';
+    var username = parts[1] ? decodeURIComponent(parts[1]) : null;
     if (panel === 'player' && username) {
       var currentPlayer = state.playerData ? state.playerData.username : '';
       playerInput.value = username;
@@ -1903,7 +1905,7 @@
     if (window.switchToPanel) window.switchToPanel(panel);
   }
 
-  window.addEventListener('popstate', navigateFromHash);
+  window.addEventListener('popstate', navigateFromPath);
 
   /* Auto-lookup when panel becomes active with no data loaded, or redraw graph */
   var playerPanel = document.getElementById('panel-player');
@@ -1922,7 +1924,7 @@
   /* Init */
   window.lookupPlayer = lookupPlayer;
   window.updateHash   = updateHash;
-  navigateFromHash();
+  navigateFromPath();
 
   // init share buttons for all graph panels
   if (window.GraphShared && window.GraphShared.initShareButtons) {
