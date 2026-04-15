@@ -23,7 +23,32 @@ from config import (
     _BASE_DIR, _UPLOAD_DIR, GATEWAY_PORT, ROUTES_URL,
 )
 
+# access logger
+try:
+    from access_logger import log_blocked as _log_blocked, cleanup_old_logs, cleanup_geo_cache
+    _HAS_LOGGER = True
+except ImportError:
+    _HAS_LOGGER = False
+
+# ip ban system
+try:
+    from ip_ban import is_banned, record_strike, cleanup_ban_history
+    _HAS_BAN = True
+except ImportError:
+    _HAS_BAN = False
+
 os.makedirs(_UPLOAD_DIR, exist_ok=True)
+
+# also copy Flask/werkzeug console output to logs/gateway.log
+import logging
+_log_dir = os.path.join(_BASE_DIR, "logs")
+os.makedirs(_log_dir, exist_ok=True)
+_file_handler = logging.FileHandler(os.path.join(_log_dir, "gateway.log"))
+_file_handler.setFormatter(logging.Formatter("%(asctime)s  %(message)s"))
+_wz_logger = logging.getLogger("werkzeug")
+_wz_logger.addHandler(_file_handler)
+_wz_logger.addHandler(logging.StreamHandler())  # keep console output
+_wz_logger.setLevel(logging.INFO)
 
 app = Flask(__name__, static_folder=_BASE_DIR, static_url_path="")
 # trust one layer of X-Forwarded-* from nginx / Cloudflare
@@ -37,6 +62,9 @@ _ALLOWED_STATIC_FILES    = ("/index.html", "/favicon.ico")
 
 @app.before_request
 def _gate_requests():
+    # reject banned IPs immediately
+    if _HAS_BAN and is_banned(request.remote_addr):
+        abort(403)
     path = request.path
     # block dotfiles
     if "/." in path or path.startswith("."):
@@ -58,10 +86,27 @@ def _gate_requests():
     abort(403)
 
 
-# security headers
+# logging + security headers
 
 @app.after_request
-def _security_headers(response):
+def _after_request(response):
+    ip = request.remote_addr or "unknown"
+    # record strikes for the ip ban system
+    if _HAS_BAN:
+        if response.status_code == 403:
+            record_strike(ip, "blocked")
+        elif response.status_code == 429:
+            record_strike(ip, "rate_limit")
+    # only log blocked requests to DB + access.log
+    if _HAS_LOGGER and response.status_code == 403:
+        _log_blocked(
+            ip=ip,
+            method=request.method,
+            path=request.path,
+            status_code=403,
+            user_agent=request.headers.get("User-Agent"),
+            referrer=request.headers.get("Referer"),
+        )
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' 'sha256-ZcKinPTE0IEcBn4hHbqEikOw2x8h4OweeMeXEJ25TS8='; "
@@ -170,7 +215,27 @@ def service_unavailable(e):
 
 # startup
 
+def _log_cleanup_loop():
+    import threading
+    while True:
+        threading.Event().wait(3600)
+        try:
+            cleanup_old_logs()
+            cleanup_geo_cache()
+        except Exception:
+            pass
+        if _HAS_BAN:
+            try:
+                cleanup_ban_history()
+            except Exception:
+                pass
+
+
 if __name__ == "__main__":
+    if _HAS_LOGGER:
+        import threading as _t
+        _t.Thread(target=_log_cleanup_loop, daemon=True).start()
+
     print()
     print("  ESI Dashboard Gateway")
     print("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
