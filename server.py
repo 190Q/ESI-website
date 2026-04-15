@@ -2200,6 +2200,15 @@ def bot_trackers():
             "interval": spec["interval"],
             "remaining_seconds": screen_value if screen_value is not None else file_value,
         })
+    # Activity data refresh — server-side bulk playtime cache (re-computed every 10 min)
+    with _bulk_playtime_lock:
+        activity_ts = _bulk_playtime_cache["ts"]
+    activity_remaining = _remaining_from_last_update(activity_ts if activity_ts else None, BULK_PLAYTIME_REFRESH)
+    trackers.append({
+        "name": "Activity Data",
+        "interval": BULK_PLAYTIME_REFRESH,
+        "remaining_seconds": activity_remaining,
+    })
     source = "fallback"
     if screen_has_values:
         source = "screen"

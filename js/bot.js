@@ -3,6 +3,7 @@
 
   /* ── Tracker definitions ── */
   var TRACKERS = [
+    { name: 'Activity Data Refresh',    interval: 600, color: '#eb7d34' },
     { name: 'API Tracker',      interval: 300, color: '#5865F2' },
     { name: 'Playtime Tracker', interval: 300, color: '#9B59B6' },
     { name: 'Guild Tracker',    interval: 30,  color: '#D4A017' },
