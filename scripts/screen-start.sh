@@ -8,7 +8,8 @@
 #   Ctrl+A D                # detach without stopping
 
 set -u
-DIR="$(cd "$(dirname "$0")/.." && pwd)"
+DIR="$HOME/ESI-website"
+cd "$DIR"
 
 start_screen() {
     local name="$1"
@@ -18,7 +19,7 @@ start_screen() {
     screen -S "$name" -X quit 2>/dev/null
     sleep 0.3
 
-    screen -dmS "$name" bash -c "$cmd"
+    screen -dmS "$name" bash -c "cd $DIR && source $DIR/venv/bin/activate && $cmd"
     echo "  ✓ $name started"
 }
 

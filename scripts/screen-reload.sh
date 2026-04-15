@@ -9,7 +9,8 @@
 #   ./screen-reload.sh routes cache # reload routes + cache
 
 set -u
-DIR="$(cd "$(dirname "$0")/.." && pwd)"
+DIR="$HOME/ESI-website"
+cd "$DIR"
 
 reload_screen() {
     local name="$1"
@@ -17,7 +18,7 @@ reload_screen() {
 
     screen -S "$name" -X quit 2>/dev/null
     sleep 0.5
-    screen -dmS "$name" bash -c "$cmd"
+    screen -dmS "$name" bash -c "cd $DIR && source $DIR/venv/bin/activate && $cmd"
     echo "  ✓ $name reloaded"
 }
 

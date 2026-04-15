@@ -3,7 +3,8 @@
 # Each runs as a background job; Ctrl+C kills them all.
 
 set -u
-DIR="$(cd "$(dirname "$0")/.." && pwd)"
+DIR="$HOME/ESI-website"
+cd "$DIR"
 
 cleanup() {
     echo ""

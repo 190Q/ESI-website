@@ -10,7 +10,8 @@
 #   ./scripts/ban-ip.sh list                     Show all active bans + blacklist
 
 set -u
-DIR="$(cd "$(dirname "$0")/.." && pwd)"
+DIR="$HOME/ESI-website"
+cd "$DIR"
 
 if [ $# -lt 1 ]; then
     echo "Usage: $0 {ban|unban|blacklist|unblacklist|status|list} [ip] [args...]"

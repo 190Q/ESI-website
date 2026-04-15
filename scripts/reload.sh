@@ -9,7 +9,8 @@
 #   ./reload.sh routes cache # reload routes + cache
 
 set -u
-DIR="$(cd "$(dirname "$0")/.." && pwd)"
+DIR="$HOME/ESI-website"
+cd "$DIR"
 
 reload_cache() {
     echo "  Reloading cache…"
