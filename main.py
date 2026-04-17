@@ -90,7 +90,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # static file gating
 
-_ALLOWED_STATIC_PREFIXES = ("/css/", "/js/", "/images/", "/assets/")
+_ALLOWED_STATIC_PREFIXES = ("/css/", "/js/", "/images/", "/assets/", "/public/")
 _ALLOWED_STATIC_FILES    = ("/index.html", "/favicon.ico")
 _SPA_PANELS              = ("player", "guild", "bot", "inactivity", "promotions")
 
@@ -149,8 +149,8 @@ def _after_request(response):
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         f"script-src 'self' {_INLINE_SCRIPT_HASHES}; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src https://fonts.gstatic.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "font-src 'self'; "
         "img-src 'self' https://cdn.discordapp.com https://visage.surgeplay.com https://crafatar.com https://mc-heads.net data:; "
         "connect-src 'self';"
     )
