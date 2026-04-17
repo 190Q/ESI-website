@@ -1,5 +1,7 @@
 #!/bin/bash
 # screen-stop.sh — Stop all ESI screen sessions.
+sed -i 's/\r$//' ~/ESI-website/scripts/*.sh
+chmod +x ~/ESI-website/scripts/*.sh
 
 echo "  Stopping ESI screen sessions…"
 

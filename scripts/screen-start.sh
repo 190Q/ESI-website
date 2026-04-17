@@ -6,6 +6,8 @@
 #   screen -r esi-website-routes    # attach to routes
 #   screen -r esi-website-gateway   # attach to gateway
 #   Ctrl+A D                # detach without stopping
+sed -i 's/\r$//' ~/ESI-website/scripts/*.sh
+chmod +x ~/ESI-website/scripts/*.sh
 
 set -u
 DIR="$HOME/ESI-website"

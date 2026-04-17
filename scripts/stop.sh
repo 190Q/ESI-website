@@ -1,5 +1,7 @@
 #!/bin/bash
 # stop.sh — Stop all ESI services.
+sed -i 's/\r$//' ~/ESI-website/scripts/*.sh
+chmod +x ~/ESI-website/scripts/*.sh
 
 echo "  Stopping ESI services…"
 

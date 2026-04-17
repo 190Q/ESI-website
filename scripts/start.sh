@@ -1,6 +1,8 @@
 #!/bin/bash
 # start.sh — Start all ESI services in the foreground.
 # Each runs as a background job; Ctrl+C kills them all.
+sed -i 's/\r$//' ~/ESI-website/scripts/*.sh
+chmod +x ~/ESI-website/scripts/*.sh
 
 set -u
 DIR="$HOME/ESI-website"

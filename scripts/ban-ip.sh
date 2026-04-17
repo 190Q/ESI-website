@@ -8,6 +8,8 @@
 #   ./scripts/ban-ip.sh unblacklist <ip>         Remove from permanent blacklist
 #   ./scripts/ban-ip.sh status <ip>              Check if an IP is banned
 #   ./scripts/ban-ip.sh list                     Show all active bans + blacklist
+sed -i 's/\r$//' ~/ESI-website/scripts/*.sh
+chmod +x ~/ESI-website/scripts/*.sh
 
 set -u
 DIR="$HOME/ESI-website"

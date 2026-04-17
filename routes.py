@@ -1396,7 +1396,7 @@ def bot_trackers():
     activity_ts = status.get("cache_ts", 0)
     activity_remaining = _remaining_from_last_update(activity_ts if activity_ts else None, BULK_PLAYTIME_REFRESH)
     trackers.append({
-        "name": "Activity Data",
+        "name": "Activity Data Refresh",
         "interval": BULK_PLAYTIME_REFRESH,
         "remaining_seconds": activity_remaining,
     })

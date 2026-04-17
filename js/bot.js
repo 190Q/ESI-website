@@ -281,6 +281,9 @@
     }
     return n;
   }
+  function normalizeTrackerName(name) {
+    return String(name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  }
 
   function initTrackers(serverTrackers) {
     var list = document.getElementById('trackerList');
@@ -291,21 +294,30 @@
       for (var j = 0; j < serverTrackers.length; j++) {
         var row = serverTrackers[j];
         if (!row || !row.name) continue;
-        remoteByName[String(row.name).toLowerCase()] = row;
+        var rowName = normalizeTrackerName(row.name);
+        if (!rowName) continue;
+        remoteByName[rowName] = row;
+        // Compatibility for older/newer backend tracker names
+        if (rowName === 'activity data') {
+          remoteByName['activity data refresh'] = row;
+        } else if (rowName === 'activity data refresh') {
+          remoteByName['activity data'] = row;
+        }
       }
     }
 
     for (var i = 0; i < TRACKERS.length; i++) {
       var t = TRACKERS[i];
-      var remote = remoteByName[t.name.toLowerCase()];
+      var remote = remoteByName[normalizeTrackerName(t.name)];
       var remaining = remote && remote.remaining_seconds;
       trackerTimers[i] = normalizeRemaining(remaining, t.interval);
+      var initialPct = ((t.interval - trackerTimers[i]) / t.interval) * 100;
       html += '<div class="tracker-item">' +
         '<div class="tracker-header">' +
         '<span class="tracker-name">' + t.name + '</span>' +
-        '<span class="tracker-time" id="trackerTime' + i + '">0s</span></div>' +
+        '<span class="tracker-time" id="trackerTime' + i + '">' + formatCountdown(trackerTimers[i]) + '</span></div>' +
         '<div class="tracker-bar-track">' +
-        '<div class="tracker-bar-fill" id="trackerBar' + i + '" style="width:0%;background:linear-gradient(90deg,' + t.color + '88,' + t.color + ')"></div></div>' +
+        '<div class="tracker-bar-fill" id="trackerBar' + i + '" style="width:' + initialPct + '%;background:linear-gradient(90deg,' + t.color + '88,' + t.color + ')"></div></div>' +
         '<div class="tracker-interval">Every ' + formatInterval(t.interval) + '</div></div>';
     }
 

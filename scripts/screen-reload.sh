@@ -7,6 +7,8 @@
 #   ./screen-reload.sh cache        # reload only cache
 #   ./screen-reload.sh gateway      # reload only gateway
 #   ./screen-reload.sh routes cache # reload routes + cache
+sed -i 's/\r$//' ~/ESI-website/scripts/*.sh
+chmod +x ~/ESI-website/scripts/*.sh
 
 set -u
 DIR="$HOME/ESI-website"
