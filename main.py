@@ -22,6 +22,7 @@ import re
 import requests
 from flask import Flask, request, Response, jsonify, send_from_directory, abort
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.serving import WSGIRequestHandler
 
 from config import (
     _BASE_DIR, _UPLOAD_DIR, GATEWAY_PORT, ROUTES_URL,
@@ -67,10 +68,45 @@ except ImportError:
 
 # ip ban system
 try:
-    from ip_ban import is_banned, record_strike, cleanup_ban_history
+    from ip_ban import (
+        is_banned, record_strike, cleanup_ban_history,
+        blacklist_ip, BAN_WHITELIST,
+    )
     _HAS_BAN = True
 except ImportError:
     _HAS_BAN = False
+    BAN_WHITELIST = set()
+
+
+class _BanningWSGIRequestHandler(WSGIRequestHandler):
+    """Werkzeug request handler that insta-blacklists malformed-HTTP peers.
+
+    Parse-level errors (bad version, raw TLS bytes on an HTTP port, HTTP/2
+    preface on an HTTP/1 server, etc.) are emitted by
+    BaseHTTPRequestHandler.send_error BEFORE the request ever reaches Flask,
+    so we intercept them here.  Codes 400 and 505 at this layer always mean
+    the client sent something no real browser would send.
+    """
+
+    _MALFORMED_CODES = {400, 505}
+
+    def send_error(self, code, message=None, explain=None):
+        if code in self._MALFORMED_CODES and _HAS_BAN:
+            ip = None
+            try:
+                ip = self.client_address[0]
+            except Exception:
+                pass
+            # Skip whitelisted peers (e.g. loopback nginx upstream).
+            if ip and ip not in BAN_WHITELIST:
+                try:
+                    blacklist_ip(
+                        ip,
+                        reason=f"Malformed HTTP (code {code}): {message!r}",
+                    )
+                except Exception:
+                    pass
+        return super().send_error(code, message, explain)
 
 os.makedirs(_UPLOAD_DIR, exist_ok=True)
 
@@ -95,6 +131,19 @@ _ALLOWED_STATIC_PREFIXES = ("/css/", "/js/", "/images/", "/assets/", "/public/")
 _ALLOWED_STATIC_FILES    = ("/index.html", "/favicon.ico")
 _SPA_PANELS              = ("player", "guild", "bot", "inactivity", "promotions")
 
+# WordPress-probe detection: any hit on one of these paths is almost
+# certainly an automated scanner looking for a WP install to exploit.
+# We run no WordPress here, so such requests get the IP instantly
+# permanently blacklisted.
+_WORDPRESS_PATH_RE = re.compile(
+    r"(?:^|/)(?:"
+    r"wp-admin|wp-login|wp-content|wp-includes|wp-config|wp-json|"
+    r"wp-cron|wp-signup|wp-trackback|wp-mail|wp-links-opml|"
+    r"xmlrpc\.php|wlwmanifest\.xml|wordpress"
+    r")",
+    re.IGNORECASE,
+)
+
 
 @app.before_request
 def _gate_requests():
@@ -102,6 +151,25 @@ def _gate_requests():
     if _HAS_BAN and is_banned(request.remote_addr):
         abort(403)
     path = request.path
+    # HTTP/1.0 direct to the gateway (no upstream proxy header) is a scanner
+    # fingerprint, real browsers are 1.1+, and nginx/Cloudflare always set
+    # X-Forwarded-For.  Insta-blacklist.
+    protocol = request.environ.get("SERVER_PROTOCOL", "")
+    if protocol == "HTTP/1.0" and not request.headers.get("X-Forwarded-For"):
+        if _HAS_BAN and request.remote_addr:
+            blacklist_ip(
+                request.remote_addr,
+                reason=f"Non-human pattern: direct {protocol} request",
+            )
+        abort(403)
+    # WordPress probe → instant permanent blacklist
+    if _WORDPRESS_PATH_RE.search(path):
+        if _HAS_BAN and request.remote_addr:
+            blacklist_ip(
+                request.remote_addr,
+                reason=f"WordPress probe: {path}",
+            )
+        abort(403)
     # block dotfiles
     if "/." in path or path.startswith("."):
         abort(403)
@@ -294,4 +362,10 @@ if __name__ == "__main__":
     print()
     print("  Press Ctrl+C to stop")
     print()
-    app.run(host="0.0.0.0", port=GATEWAY_PORT, debug=False, threaded=True)
+    app.run(
+        host="0.0.0.0",
+        port=GATEWAY_PORT,
+        debug=False,
+        threaded=True,
+        request_handler=_BanningWSGIRequestHandler,
+    )
