@@ -495,6 +495,83 @@ body.popup-scroll-lock {
   min-width: 0;
 }
 
+/* ESI Points popup */
+.esi-points-popup .owed-aspects-popup-list {
+  max-height: 380px;
+}
+
+.esi-points-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 12px 20px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.esi-points-tab {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.esi-points-tab:hover {
+  color: var(--gold-light);
+  border-color: var(--border-mid);
+}
+.esi-points-tab.active {
+  background: var(--gold-glow);
+  border-color: var(--gold-dim);
+  color: var(--gold-light);
+}
+
+.esi-points-section-label {
+  padding: 10px 20px 4px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+.esi-points-section-summary {
+  padding: 10px 20px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.esi-points-section-totals {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  color: var(--gold-light);
+}
+.esi-points-section-totals strong {
+  font-weight: 700;
+  color: var(--gold-light);
+}
+
+.esi-points-rank-row {
+  padding: 4px 20px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.esi-points-position {
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  color: var(--gold-dim);
+  min-width: 36px;
+  flex-shrink: 0;
+}
+
 .xp-bar-track {
   cursor: help;
 }

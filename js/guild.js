@@ -373,20 +373,20 @@
         document.getElementById('guildLoading').style.display = 'none';
         document.getElementById('guildCardName').textContent = 'Unavailable';
         document.getElementById('guildCardPrefix').textContent = '';
-        document.getElementById('guildCardLevel').textContent = '\u2014';
+        document.getElementById('guildCardLevel').textContent = '-';
         document.getElementById('guildCardOnline').textContent = '\u25cf Unavailable';
         document.getElementById('guildCardOnline').className = 'status-pill offline';
         document.getElementById('guildCardXpRow').innerHTML = '';
-        document.getElementById('guildCardMembers').textContent = '\u2014';
-        document.getElementById('guildCardWars').textContent = '\u2014';
-        document.getElementById('guildCardFounded').textContent = '\u2014';
+        document.getElementById('guildCardMembers').textContent = '-';
+        document.getElementById('guildCardWars').textContent = '-';
+        document.getElementById('guildCardFounded').textContent = '-';
         document.getElementById('guildCardOwner').textContent = '';
         document.getElementById('guildOwedCards').innerHTML = '';
         var failLabels = ['Guild Level','Members','Online Now','Total Wars','Guild Raids','Founded','Mobs Killed','Quests Completed','Chests Found','Content Done'];
         document.getElementById('guildStatsGrid').innerHTML = failLabels.map(function (lbl) {
-          return '<div class="stat-list-row"><span class="stat-list-label">' + lbl + '</span><span class="stat-list-value" style="color:var(--text-faint)">\u2014</span></div>';
+          return '<div class="stat-list-row"><span class="stat-list-label">' + lbl + '</span><span class="stat-list-value" style="color:var(--text-faint)">-</span></div>';
         }).join('');
-        document.getElementById('guildMembersTotal').textContent = '\u2014';
+        document.getElementById('guildMembersTotal').textContent = '-';
         document.getElementById('guildMembersList').innerHTML = '';
         if (typeof window.showToast === 'function') {
           window.showToast('\u26a0 ' + friendlyGuildError(err.message), 'error', { persistent: true });
@@ -465,6 +465,30 @@
 
   function capFirst(str) {
     return str ? str.charAt(0).toUpperCase() + str.slice(1) : str;
+  }
+
+  /* html escape helpers used by the ESI points popup */
+  function escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function escAttr(s) { return escHtml(s); }
+
+  /* trim LE to 2 decimals, dropping trailing zeros (matches the `{:g}` style used by the bot) */
+  function formatLe(n) {
+    if (n == null || !Number.isFinite(Number(n))) return '0';
+    const num = Number(n);
+    if (Number.isInteger(num)) return num.toLocaleString();
+    return Number(num.toFixed(2)).toString();
+  }
+  function formatInt(n) { return Number(n || 0).toLocaleString(); }
+
+  /* value shown inside the ESI Points owed card */
+  function formatGuildPointsCardValue(data) {
+    if (!data || !data.available) return '<span style="color:var(--gold-light)">Coming soon</span>';
+    const le = (data.both && data.both.total_le) || 0;
+    return `${formatLe(le)}<span style="font-size:1rem;color:var(--text-dim)"> LE</span>`;
   }
 
   /* flatten members into a sorted array */
@@ -553,9 +577,9 @@
         <div class="owed-value">${owedAspects}<span style="font-size:1rem;color:var(--text-dim)"> / 120</span></div>
         <div class="owed-label">Aspects Owed</div>
       </div>
-      <div class="owed-card">
+      <div class="owed-card owed-card-clickable" id="esiPointsCard">
         <div class="owed-icon"><img src="/images/point_icon.png" alt="point" style="width:32px;height:32px;image-rendering:pixelated"></div>
-        <div class="owed-value">Coming soon</div>
+        <div class="owed-value" id="esiPointsVal">${formatGuildPointsCardValue(window.esiPointsData)}</div>
         <div class="owed-label">ESI Points</div>
       </div>
       <div class="owed-card owed-card-clickable" id="territoriesCard">
@@ -696,6 +720,120 @@
 
     document.getElementById('owedAspectsCard').addEventListener('click', openOwedPopup);
     overlay.addEventListener('click', closeOwedPopup);
+
+    /* ESI Points popup */
+    const existingPointsPopup = document.getElementById('esiPointsPopup');
+    if (existingPointsPopup) existingPointsPopup.remove();
+    const existingPointsOverlay = document.getElementById('esiPointsOverlay');
+    if (existingPointsOverlay) existingPointsOverlay.remove();
+
+    const pointsPopup = document.createElement('div');
+    pointsPopup.id = 'esiPointsPopup';
+    pointsPopup.className = 'owed-aspects-popup esi-points-popup';
+    document.body.appendChild(pointsPopup);
+
+    const pointsOverlay = document.createElement('div');
+    pointsOverlay.id = 'esiPointsOverlay';
+    pointsOverlay.className = 'owed-aspects-overlay';
+    document.body.appendChild(pointsOverlay);
+
+    /* which tab is active inside the points popup: 'current' | 'previous' | 'both' */
+    let pointsActiveTab = 'both';
+
+    function renderPointsPopup() {
+      const data = window.esiPointsData || {};
+      if (!data.available) {
+        pointsPopup.innerHTML = `
+          <div class="owed-aspects-popup-header">
+            <span class="owed-aspects-popup-title">
+              <img src="/images/point_icon.png" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points Leaderboard
+            </span>
+            <button class="owed-aspects-popup-close" id="esiPointsClose">\u2715</button>
+          </div>
+          <div class="owed-aspects-popup-list">
+            <div class="owed-aspects-empty">ESI points data is not available yet.</div>
+          </div>`;
+        document.getElementById('esiPointsClose').addEventListener('click', e => { e.stopPropagation(); closePointsPopup(); });
+        return;
+      }
+
+      const section = pointsActiveTab === 'current'  ? data.current_cycle
+                    : pointsActiveTab === 'previous' ? data.previous_cycle
+                    :                                  data.both;
+      const players = (section && section.players) || [];
+      const totalLe = section && section.total_le != null ? section.total_le : 0;
+      const totalPoints = section && section.total_points != null ? section.total_points : 0;
+      const label = (section && section.label) || '';
+
+      pointsPopup.innerHTML = `
+        <div class="owed-aspects-popup-header">
+          <span class="owed-aspects-popup-title">
+            <img src="/images/point_icon.png" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points Leaderboard
+            <span class="owed-aspects-popup-count" style="color:var(--gold-light)">${formatLe(totalLe)} LE</span>
+          </span>
+          <button class="owed-aspects-popup-close" id="esiPointsClose">\u2715</button>
+        </div>
+        <div class="esi-points-tabs" role="tablist">
+          <button class="esi-points-tab ${pointsActiveTab === 'current'  ? 'active' : ''}" data-tab="current">Current Cycle</button>
+          <button class="esi-points-tab ${pointsActiveTab === 'previous' ? 'active' : ''}" data-tab="previous">Previous Cycle</button>
+          <button class="esi-points-tab ${pointsActiveTab === 'both'     ? 'active' : ''}" data-tab="both">Both</button>
+        </div>
+        <div class="esi-points-section-label">${escHtml(label)} \u00b7 ${formatInt(totalPoints)} pts across ${players.length} player${players.length === 1 ? '' : 's'}</div>
+        <div class="owed-aspects-popup-list">
+          ${players.length
+            ? players.map(p => {
+                const rank = p.rank ? `<span class="guild-rank-badge guild-rank-${escAttr(p.rank)}">${escHtml(capFirst(p.rank))}</span>` : '';
+                return `
+                <div class="owed-aspects-row">
+                  <span class="esi-points-position">#${p.position}</span>
+                  <span class="owed-aspects-player-name guild-log-name-link" data-username="${escAttr(p.username)}">${escHtml(p.username)}</span>${rank}
+                  <div class="owed-aspects-right">
+                    <span class="owed-aspects-player-count">${formatLe(p.le)} LE</span>
+                    <span style="font-size:0.75rem;color:var(--text-faint);margin-left:0.5rem">${formatInt(p.points)} pts</span>
+                  </div>
+                </div>`;
+              }).join('')
+            : '<div class="owed-aspects-empty">No points recorded for this section.</div>'
+          }
+        </div>`;
+
+      pointsPopup.querySelectorAll('.guild-log-name-link').forEach(el => {
+        el.addEventListener('click', () => { closePointsPopup(); window.goToPlayer(el.dataset.username); });
+      });
+      pointsPopup.querySelectorAll('.esi-points-tab').forEach(btn => {
+        btn.addEventListener('click', e => {
+          e.stopPropagation();
+          pointsActiveTab = btn.dataset.tab;
+          renderPointsPopup();
+        });
+      });
+      document.getElementById('esiPointsClose').addEventListener('click', e => {
+        e.stopPropagation();
+        closePointsPopup();
+      });
+    }
+
+    function openPointsPopup() {
+      renderPointsPopup();
+      pointsPopup.classList.add('open');
+      pointsOverlay.classList.add('open');
+      document.body.classList.add('popup-scroll-lock');
+    }
+    function closePointsPopup() {
+      pointsPopup.classList.remove('open');
+      pointsOverlay.classList.remove('open');
+      document.body.classList.remove('popup-scroll-lock');
+    }
+
+    document.getElementById('esiPointsCard').addEventListener('click', openPointsPopup);
+    pointsOverlay.addEventListener('click', closePointsPopup);
+
+    // refresh the card + popup once the preloaded points data resolves
+    (window.esiPointsDataPromise || Promise.resolve()).then(function () {
+      const cardVal = document.getElementById('esiPointsVal');
+      if (cardVal) cardVal.innerHTML = formatGuildPointsCardValue(window.esiPointsData);
+      if (pointsPopup.classList.contains('open')) renderPointsPopup();
+    });
 
     // territories popup
     const existingTerrPopup = document.getElementById('territoriesPopup');

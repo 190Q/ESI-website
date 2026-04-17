@@ -352,7 +352,7 @@
       const player = await _playerRes.json();
       const _isFallback = !!_playerRes.headers.get('X-Wynncraft-Fallback');
       if (_isFallback && typeof window.showToast === 'function') {
-        window.showToast('\u26a0 Full player data unavailable \u2014 character data may be missing.', 'warn');
+        window.showToast('\u26a0 Full player data unavailable - character data may be missing.', 'warn');
       }
       DataCache.writeCache(playerCacheUrl, player);
       if (state._fetchToast) state._fetchToast.updateItem('api', 'success');
@@ -392,7 +392,7 @@
     } catch (err) {
       var _hadProgressToast = !!state._fetchToast;
       if (state._fetchToast) state._fetchToast.updateItem('api', 'error');
-      _pCheckDone(); // api done (failed) — may null state._fetchToast
+      _pCheckDone(); // api done (failed) - may null state._fetchToast
       // only show a standalone error toast if there wasn't already a progress toast
       if (!_hadProgressToast && skipLoading && typeof window.showToast === 'function') {
         window.showToast('\u26a0 ' + friendlyPlayerLookupError(err.message, username), 'error');
@@ -412,7 +412,7 @@
         document.getElementById('owedCards').style.display = 'none';
         var failLabels = ['Playtime','Wars','Mobs Killed','Chests Found','Quests Done','Total Level','Content Done','Dungeons','Raids','Guild Raids','World Events','Caves'];
         document.getElementById('globalStatsGrid').innerHTML = failLabels.map(function (lbl) {
-          return '<div class="stat-list-row"><span class="stat-list-label">' + lbl + '</span><span class="stat-list-value" style="color:var(--text-faint)">\u2014</span></div>';
+          return '<div class="stat-list-row"><span class="stat-list-label">' + lbl + '</span><span class="stat-list-value" style="color:var(--text-faint)">-</span></div>';
         }).join('');
         if (typeof window.showToast === 'function') {
           window.showToast('\u26a0 ' + friendlyPlayerLookupError(err.message, username), 'error', { persistent: true });
@@ -537,6 +537,16 @@
       "'": '&#39;',
     })[ch]);
   }
+
+  /* ESI points number formatters (match the bot's `:g` style) */
+  function formatLe(n) {
+    if (n == null || !Number.isFinite(Number(n))) return '0';
+    const num = Number(n);
+    if (Number.isInteger(num)) return num.toLocaleString();
+    return Number(num.toFixed(2)).toString();
+  }
+  function formatInt(n) { return Number(n || 0).toLocaleString(); }
+  function capFirstSimple(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 
   /* render player */
   function renderPlayer(p, guild, isFallback) {
@@ -748,9 +758,9 @@
           <div class="owed-value" id="playerOwedAspectsVal">${fmt(getPlayerOwed())}</div>
           <div class="owed-label">Owed Aspects</div>
         </div>
-        <div class="owed-card">
+        <div class="owed-card owed-card-clickable" id="playerEsiPointsCard">
           <div class="owed-icon"><img src="/images/point_icon.png" alt="point" style="width:32px;height:32px;image-rendering:pixelated"></div>
-          <div class="owed-value">Coming soon</div>
+          <div class="owed-value" id="playerEsiPointsVal"><span style="color:var(--text-faint)">\u2026</span></div>
           <div class="owed-label">ESI Points</div>
         </div>`;
 
@@ -849,6 +859,180 @@
 
       document.getElementById('playerOwedAspectsCard').addEventListener('click', openPlayerOwedPopup);
       overlay.addEventListener('click', closePlayerOwedPopup);
+
+      /* ESI Points popup + data */
+      const existingPtsPopup   = document.getElementById('playerEsiPointsPopup');
+      const existingPtsOverlay = document.getElementById('playerEsiPointsOverlay');
+      if (existingPtsPopup)   existingPtsPopup.remove();
+      if (existingPtsOverlay) existingPtsOverlay.remove();
+
+      const ptsPopup = document.createElement('div');
+      ptsPopup.id = 'playerEsiPointsPopup';
+      ptsPopup.className = 'owed-aspects-popup esi-points-popup';
+      document.body.appendChild(ptsPopup);
+
+      const ptsOverlay = document.createElement('div');
+      ptsOverlay.id = 'playerEsiPointsOverlay';
+      ptsOverlay.className = 'owed-aspects-overlay';
+      document.body.appendChild(ptsOverlay);
+
+      let playerPointsData = null;
+      let playerPointsTab = 'both';
+
+      function renderPlayerPointsPopup() {
+        const name = p.username;
+        if (!playerPointsData) {
+          ptsPopup.innerHTML = `
+            <div class="owed-aspects-popup-header">
+              <span class="owed-aspects-popup-title">
+                <img src="/images/point_icon.png" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points
+              </span>
+              <button class="owed-aspects-popup-close" id="playerEsiPointsClose">\u2715</button>
+            </div>
+            <div class="owed-aspects-popup-list">
+              <div class="owed-aspects-empty">Loading\u2026</div>
+            </div>`;
+          document.getElementById('playerEsiPointsClose').addEventListener('click', e => { e.stopPropagation(); closePlayerPointsPopup(); });
+          return;
+        }
+        if (!playerPointsData.available) {
+          ptsPopup.innerHTML = `
+            <div class="owed-aspects-popup-header">
+              <span class="owed-aspects-popup-title">
+                <img src="/images/point_icon.png" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points
+              </span>
+              <button class="owed-aspects-popup-close" id="playerEsiPointsClose">\u2715</button>
+            </div>
+            <div class="owed-aspects-popup-list">
+              <div class="owed-aspects-empty">ESI points data is not available yet.</div>
+            </div>`;
+          document.getElementById('playerEsiPointsClose').addEventListener('click', e => { e.stopPropagation(); closePlayerPointsPopup(); });
+          return;
+        }
+        if (playerPointsData.found === false) {
+          ptsPopup.innerHTML = `
+            <div class="owed-aspects-popup-header">
+              <span class="owed-aspects-popup-title">
+                <img src="/images/point_icon.png" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points for ${escapeHtml(name)}
+              </span>
+              <button class="owed-aspects-popup-close" id="playerEsiPointsClose">\u2715</button>
+            </div>
+            <div class="owed-aspects-popup-list">
+              <div class="owed-aspects-empty">No ESI points records for ${escapeHtml(name)} yet.</div>
+            </div>`;
+          document.getElementById('playerEsiPointsClose').addEventListener('click', e => { e.stopPropagation(); closePlayerPointsPopup(); });
+          return;
+        }
+
+        const section = playerPointsTab === 'current'  ? playerPointsData.current_cycle
+                      : playerPointsTab === 'previous' ? playerPointsData.previous_cycle
+                      :                                  playerPointsData.both;
+        const history = (section && section.history) || [];
+        const headerLE = playerPointsData.both && playerPointsData.both.le != null ? playerPointsData.both.le : 0;
+        const rankRow = playerPointsData.leaderboard_position
+          ? `<div class="esi-points-rank-row">Guild rank <strong>#${playerPointsData.leaderboard_position}</strong> of ${playerPointsData.leaderboard_size} (Both cycles)</div>`
+          : '';
+        const hrRank = playerPointsData.guild_rank;
+        const hrNote = (hrRank === 'strategist' || hrRank === 'chief' || hrRank === 'owner')
+          ? '<div class="esi-points-rank-row" style="color:var(--text-faint);font-style:italic">HR rank: only Claim Snipe points count toward LE.</div>'
+          : '';
+
+        ptsPopup.innerHTML = `
+          <div class="owed-aspects-popup-header">
+            <span class="owed-aspects-popup-title">
+              <img src="/images/point_icon.png" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points for ${escapeHtml(playerPointsData.username || name)}
+              <span class="owed-aspects-popup-count" style="color:var(--gold-light)">${formatLe(headerLE)} LE</span>
+            </span>
+            <button class="owed-aspects-popup-close" id="playerEsiPointsClose">\u2715</button>
+          </div>
+          <div class="esi-points-tabs" role="tablist">
+            <button class="esi-points-tab ${playerPointsTab === 'current'  ? 'active' : ''}" data-tab="current">Current Cycle</button>
+            <button class="esi-points-tab ${playerPointsTab === 'previous' ? 'active' : ''}" data-tab="previous">Previous Cycle</button>
+            <button class="esi-points-tab ${playerPointsTab === 'both'     ? 'active' : ''}" data-tab="both">Both</button>
+          </div>
+          <div class="esi-points-section-summary">
+            <div class="esi-points-section-label">${escapeHtml(section.label || '')}</div>
+            <div class="esi-points-section-totals">
+              <span><strong>${formatLe(section.le || 0)}</strong> LE</span>
+              <span style="color:var(--text-faint)">\u00b7</span>
+              <span>${formatInt(section.points || 0)} pts</span>
+              <span style="color:var(--text-faint)">\u00b7</span>
+              <span>${history.length} entr${history.length === 1 ? 'y' : 'ies'}</span>
+            </div>
+          </div>
+          ${rankRow}${hrNote}
+          <div class="owed-aspects-popup-list">
+            ${history.length
+              ? history.map(r => {
+                  const ts = (r.timestamp || '').substring(0, 10);
+                  const pts = r.points_gained || 0;
+                  const sign = pts > 0 ? '+' : '';
+                  const color = pts >= 0 ? 'var(--online)' : 'var(--danger)';
+                  return `
+                  <div class="owed-aspects-row">
+                    <span style="font-family:'Cinzel',serif;font-size:0.75rem;color:var(--text-faint);min-width:85px">${escapeHtml(ts)}</span>
+                    <span class="owed-aspects-player-name">${escapeHtml(r.reason || 'Unknown')}</span>
+                    <div class="owed-aspects-right">
+                      <span class="owed-aspects-player-count" style="color:${color}">${sign}${formatInt(pts)} pts</span>
+                      <span style="font-size:0.72rem;color:var(--text-faint);margin-left:0.5rem">Cycle ${r.cycle_id}</span>
+                    </div>
+                  </div>`;
+                }).join('')
+              : '<div class="owed-aspects-empty">No entries recorded for this section.</div>'
+            }
+          </div>`;
+
+        ptsPopup.querySelectorAll('.esi-points-tab').forEach(btn => {
+          btn.addEventListener('click', e => {
+            e.stopPropagation();
+            playerPointsTab = btn.dataset.tab;
+            renderPlayerPointsPopup();
+          });
+        });
+        document.getElementById('playerEsiPointsClose').addEventListener('click', e => {
+          e.stopPropagation();
+          closePlayerPointsPopup();
+        });
+      }
+
+      function openPlayerPointsPopup()  {
+        renderPlayerPointsPopup();
+        ptsPopup.classList.add('open');
+        ptsOverlay.classList.add('open');
+        document.body.classList.add('popup-scroll-lock');
+      }
+      function closePlayerPointsPopup() {
+        ptsPopup.classList.remove('open');
+        ptsOverlay.classList.remove('open');
+        document.body.classList.remove('popup-scroll-lock');
+      }
+
+      document.getElementById('playerEsiPointsCard').addEventListener('click', openPlayerPointsPopup);
+      ptsOverlay.addEventListener('click', closePlayerPointsPopup);
+
+      // fetch the player's points (with LE/history) and update the card value
+      fetch('/api/player/' + encodeURIComponent(p.username) + '/points')
+        .then(r => r.ok ? r.json() : { available: false })
+        .then(data => {
+          playerPointsData = data;
+          const cardVal = document.getElementById('playerEsiPointsVal');
+          if (cardVal) {
+            if (!data.available) {
+              cardVal.innerHTML = '<span style="color:var(--gold-light)">Coming soon</span>';
+            } else if (data.found === false) {
+              cardVal.innerHTML = '0<span style="font-size:1rem;color:var(--text-dim)"> LE</span>';
+            } else {
+              const le = data.both && data.both.le != null ? data.both.le : 0;
+              cardVal.innerHTML = formatLe(le) + '<span style="font-size:1rem;color:var(--text-dim)"> LE</span>';
+            }
+          }
+          if (ptsPopup.classList.contains('open')) renderPlayerPointsPopup();
+        })
+        .catch(() => {
+          playerPointsData = { available: false };
+          const cardVal = document.getElementById('playerEsiPointsVal');
+          if (cardVal) cardVal.innerHTML = '<span style="color:var(--gold-light)">Coming soon</span>';
+        });
 
     } else {
       owedEl.style.display = 'none';
@@ -1656,7 +1840,7 @@
     }
   }
 
-  /* Run graph initialization independently — not tied to API call */
+  /* Run graph initialization independently - not tied to API call */
   function initGraphIndependent(username, isRefetch) {
     var graphFocus = consumePendingGraphFocus();
     var requestedMetrics = consumePendingGraphMetrics();
@@ -1791,7 +1975,7 @@
     const wrap = compareGraph.legendWrap;
     wrap.innerHTML = '';
 
-    /* Deduplicate by metric key — show one legend entry per metric */
+    /* Deduplicate by metric key - show one legend entry per metric */
     const seenKeys = new Set();
     seriesList.forEach(s => {
       if (seenKeys.has(s.key)) return;
@@ -1819,12 +2003,12 @@
     wrap.innerHTML = '';
 
     if (!hasCompare) {
-      /* Single-player mode — original layout grouped by metric */
+      /* Single-player mode - original layout grouped by metric */
       seriesList.forEach(s => {
         appendSummarySection(wrap, s, true, selectedEndIndex);
       });
     } else {
-      /* Two-player mode — group by player */
+      /* Two-player mode - group by player */
       const players = [
         { name: mainName,                    dashed: false },
         { name: graphState.compareUsername,   dashed: true  },
@@ -1915,7 +2099,7 @@
         var username = playerInput.value.trim();
         if (username) lookupPlayer(username);
       } else if (graphState.data) {
-        // Graph may have loaded while panel was hidden (canvas width was 0) — redraw
+        // Graph may have loaded while panel was hidden (canvas width was 0) - redraw
         refreshCompareGraph();
       }
     }

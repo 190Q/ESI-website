@@ -1,5 +1,5 @@
 """
-routes.py — API and auth routes service.
+routes.py - API and auth routes service.
 Runs on port 5001. Handles all /api/* and /auth/* endpoints.
 
     python routes.py
@@ -27,6 +27,7 @@ from config import (
     _BASE_DIR, _ESI_BOT_DIR, _DATA_FOLDER, _API_TRACKING_DIR,
     _ASPECTS_JSON, _INACTIVITY_JSON, _USERNAME_MATCHES_JSON,
     _TRACKED_GUILD_JSON, _GUILD_LEVELS_JSON, _GUILD_TERRITORIES_JSON,
+    _POINTS_DB,
     _USER_DB_PATH, _UPLOAD_DIR,
     WYNN_BASE, DISCORD_API, DISCORD_TOKEN, DISCORD_CLIENT_ID,
     DISCORD_CLIENT_SECRET, DISCORD_GUILD_ID, DISCORD_REDIRECT_URI,
@@ -408,7 +409,7 @@ def auth_callback():
     state = request.args.get("state")
     saved_state = session.pop("oauth_state", None)
     if state != saved_state:
-        print(f"[AUTH] State mismatch — url_state={state!r}, session_state={saved_state!r}", file=sys.stderr)
+        print(f"[AUTH] State mismatch - url_state={state!r}, session_state={saved_state!r}", file=sys.stderr)
         print(f"[AUTH]   session keys: {list(session.keys())}", file=sys.stderr)
         print(f"[AUTH]   cookies present: {list(request.cookies.keys())}", file=sys.stderr)
         return redirect("/?auth=error")
@@ -602,6 +603,281 @@ def aspects_get():
     if not data:
         return jsonify({"total_aspects": 0, "members": {}})
     return jsonify(data)
+
+
+# ESI points (cycle-based leaderboard from the bot's esi_points.db)
+
+from datetime import datetime as _points_datetime, timezone as _points_timezone, timedelta as _points_timedelta
+
+# Anchor + duration mirror utils.esi_points in the bot repo
+_POINTS_CYCLE_ANCHOR = _points_datetime(2026, 4, 21, 16, 0, 0, tzinfo=_points_timezone.utc)
+_POINTS_CYCLE_DURATION = _points_timedelta(weeks=2)
+_POINTS_HR_RANKS = {"strategist", "chief", "owner"}
+_POINTS_LE_DIVISOR = 10
+
+
+def _points_get_cycle_id(dt=None):
+    if dt is None:
+        dt = _points_datetime.now(_points_timezone.utc)
+    return int((dt - _POINTS_CYCLE_ANCHOR) / _POINTS_CYCLE_DURATION) + 1
+
+
+def _points_get_cycle_bounds(cycle_id):
+    start = _POINTS_CYCLE_ANCHOR + _POINTS_CYCLE_DURATION * (cycle_id - 1)
+    end = start + _POINTS_CYCLE_DURATION
+    return start, end
+
+
+def _points_cycle_meta(cycle_id):
+    start, end = _points_get_cycle_bounds(cycle_id)
+    return {
+        "cycle_id": cycle_id,
+        "label": f"Cycle {cycle_id} ({start.strftime('%d %b')} \u2013 {end.strftime('%d %b %Y')})",
+        "short_label": f"Cycle {cycle_id}",
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+    }
+
+
+def _points_player_table(uuid):
+    return "player_" + uuid.replace("-", "_")
+
+
+def _points_guild_ranks_and_members():
+    """Return (guild_ranks_by_lower_username, set_of_guild_usernames_lower) from the latest api DB."""
+    db = _get_latest_api_db()
+    if not db:
+        return {}, set()
+    try:
+        conn = _sqlite3.connect(db)
+        c = conn.cursor()
+        c.execute("SELECT username, guild_rank FROM player_stats")
+        ranks = {}
+        members = set()
+        for row in c.fetchall():
+            uname = (row[0] or "").strip()
+            if not uname:
+                continue
+            members.add(uname.lower())
+            ranks[uname.lower()] = (row[1] or "").lower()
+        conn.close()
+        return ranks, members
+    except Exception:
+        return {}, set()
+
+
+def _points_fetch_player_history(uuid):
+    """Return full history records for a single player UUID (newest first)."""
+    table = _points_player_table(uuid)
+    try:
+        conn = _sqlite3.connect(_POINTS_DB)
+        c = conn.cursor()
+        try:
+            c.execute(
+                f'SELECT record_id, username, points_gained, cycle_id, reason, timestamp '
+                f'FROM "{table}" ORDER BY timestamp DESC'
+            )
+            rows = c.fetchall()
+        except _sqlite3.OperationalError:
+            rows = []
+        conn.close()
+    except _sqlite3.OperationalError:
+        rows = []
+    return [
+        {
+            "record_id": r[0],
+            "username": r[1],
+            "points_gained": r[2],
+            "cycle_id": r[3],
+            "reason": r[4],
+            "timestamp": r[5],
+        }
+        for r in rows
+    ]
+
+
+def _points_calc_le(username, total_points, history, guild_ranks):
+    """Mirror utils.esi_points LE logic: HR players only count claim-snipe points."""
+    rank = guild_ranks.get((username or "").lower(), "")
+    if rank in _POINTS_HR_RANKS:
+        hq = sum(
+            r["points_gained"] for r in (history or [])
+            if (r.get("reason") or "").lower() == "claim snipe"
+        )
+        return hq / _POINTS_LE_DIVISOR
+    return (total_points or 0) / _POINTS_LE_DIVISOR
+
+
+def _points_rows_for_cycles(cycle_ids, guild_members):
+    """Return list of {uuid, username, points} summed across the given cycles, restricted to guild members."""
+    if not cycle_ids:
+        return []
+    try:
+        conn = _sqlite3.connect(_POINTS_DB)
+        c = conn.cursor()
+        placeholders = ",".join("?" * len(cycle_ids))
+        c.execute(
+            f"SELECT uuid, username, SUM(points) FROM esi_points "
+            f"WHERE cycle_id IN ({placeholders}) GROUP BY uuid",
+            cycle_ids,
+        )
+        rows = c.fetchall()
+        conn.close()
+    except _sqlite3.OperationalError:
+        return []
+    out = []
+    for uuid, username, pts in rows:
+        if guild_members and (username or "").lower() not in guild_members:
+            continue
+        out.append({"uuid": uuid, "username": username, "points": int(pts or 0)})
+    return out
+
+
+def _points_build_leaderboard(cycle_ids, guild_ranks, guild_members, history_cache):
+    """Build a ranked leaderboard for a set of cycles. history_cache is mutated as a memoization store."""
+    rows = _points_rows_for_cycles(cycle_ids, guild_members)
+    enriched = []
+    for r in rows:
+        uuid = r["uuid"]
+        if uuid not in history_cache:
+            history_cache[uuid] = _points_fetch_player_history(uuid)
+        history = history_cache[uuid]
+        cycle_history = [h for h in history if h["cycle_id"] in cycle_ids]
+        le = _points_calc_le(r["username"], r["points"], cycle_history, guild_ranks)
+        enriched.append({
+            "uuid": uuid,
+            "username": r["username"],
+            "points": r["points"],
+            "le": le,
+            "rank": (guild_ranks.get((r["username"] or "").lower(), "") or None),
+        })
+    enriched.sort(key=lambda x: (x["points"], x["le"]), reverse=True)
+    for i, p in enumerate(enriched, 1):
+        p["position"] = i
+    total_points = sum(p["points"] for p in enriched)
+    total_le = sum(p["le"] for p in enriched)
+    return {
+        "players": enriched,
+        "total_players": len(enriched),
+        "total_points": total_points,
+        "total_le": total_le,
+    }
+
+
+@app.route("/api/guild/points")
+@rate_limit(60)
+def guild_points():
+    if not os.path.exists(_POINTS_DB):
+        return jsonify({"available": False})
+
+    current_cycle = _points_get_cycle_id()
+    previous_cycle = current_cycle - 1
+    guild_ranks, guild_members = _points_guild_ranks_and_members()
+    history_cache = {}
+
+    current_board = _points_build_leaderboard([current_cycle], guild_ranks, guild_members, history_cache)
+    previous_board = _points_build_leaderboard([previous_cycle], guild_ranks, guild_members, history_cache)
+    both_board = _points_build_leaderboard([previous_cycle, current_cycle], guild_ranks, guild_members, history_cache)
+
+    current_meta = _points_cycle_meta(current_cycle)
+    previous_meta = _points_cycle_meta(previous_cycle)
+
+    return jsonify({
+        "available": True,
+        "current_cycle": {**current_meta, **current_board},
+        "previous_cycle": {**previous_meta, **previous_board},
+        "both": {
+            "cycle_ids": [previous_cycle, current_cycle],
+            "label": f"{previous_meta['short_label']} + {current_meta['short_label']}",
+            "short_label": "Both Cycles",
+            **both_board,
+        },
+    })
+
+
+@app.route("/api/player/<username>/points")
+@rate_limit(30)
+def player_points(username: str):
+    if not os.path.exists(_POINTS_DB):
+        return jsonify({"available": False, "username": username})
+
+    # resolve uuid from points DB (case-insensitive)
+    try:
+        conn = _sqlite3.connect(_POINTS_DB)
+        c = conn.cursor()
+        c.execute(
+            "SELECT uuid, username FROM esi_points WHERE LOWER(username) = LOWER(?) "
+            "ORDER BY cycle_id DESC LIMIT 1",
+            (username,),
+        )
+        row = c.fetchone()
+        conn.close()
+    except _sqlite3.OperationalError:
+        row = None
+
+    if not row:
+        return jsonify({"available": True, "username": username, "found": False})
+
+    uuid, resolved_name = row
+
+    current_cycle = _points_get_cycle_id()
+    previous_cycle = current_cycle - 1
+    guild_ranks, guild_members = _points_guild_ranks_and_members()
+
+    # points per cycle for this player
+    try:
+        conn = _sqlite3.connect(_POINTS_DB)
+        c = conn.cursor()
+        c.execute(
+            "SELECT cycle_id, points FROM esi_points WHERE uuid = ? AND cycle_id IN (?, ?)",
+            (uuid, current_cycle, previous_cycle),
+        )
+        cycle_rows = {r[0]: int(r[1] or 0) for r in c.fetchall()}
+        conn.close()
+    except _sqlite3.OperationalError:
+        cycle_rows = {}
+
+    history = _points_fetch_player_history(uuid)
+
+    def _section(cycle_ids, meta):
+        pts = sum(cycle_rows.get(cid, 0) for cid in cycle_ids)
+        cycle_history = [h for h in history if h["cycle_id"] in cycle_ids]
+        le = _points_calc_le(resolved_name, pts, cycle_history, guild_ranks)
+        return {
+            **meta,
+            "points": pts,
+            "le": le,
+            "history": cycle_history,
+        }
+
+    current_meta = _points_cycle_meta(current_cycle)
+    previous_meta = _points_cycle_meta(previous_cycle)
+    both_meta = {
+        "cycle_ids": [previous_cycle, current_cycle],
+        "label": f"{previous_meta['short_label']} + {current_meta['short_label']}",
+        "short_label": "Both Cycles",
+    }
+
+    # compute rank of the player on the both-cycles leaderboard
+    history_cache = {uuid: history}
+    both_board = _points_build_leaderboard(
+        [previous_cycle, current_cycle], guild_ranks, guild_members, history_cache
+    )
+    rank_entry = next((p for p in both_board["players"] if p["uuid"] == uuid), None)
+
+    return jsonify({
+        "available": True,
+        "found": True,
+        "username": resolved_name,
+        "uuid": uuid,
+        "guild_rank": guild_ranks.get((resolved_name or "").lower(), "") or None,
+        "in_guild": (resolved_name or "").lower() in guild_members if guild_members else None,
+        "current_cycle": _section([current_cycle], current_meta),
+        "previous_cycle": _section([previous_cycle], previous_meta),
+        "both": _section([previous_cycle, current_cycle], both_meta),
+        "leaderboard_position": rank_entry["position"] if rank_entry else None,
+        "leaderboard_size": both_board["total_players"],
+    })
 
 
 @app.route("/api/guild/aspects/clear", methods=["POST"])
@@ -1418,7 +1694,7 @@ def bot_trackers():
             "interval": spec["interval"],
             "remaining_seconds": screen_value if screen_value is not None else file_value,
         })
-    # Activity data refresh — from cache service
+    # Activity data refresh - from cache service
     status = _fetch_cache("/cache/status") or {}
     activity_ts = status.get("cache_ts", 0)
     activity_remaining = _remaining_from_last_update(activity_ts if activity_ts else None, BULK_PLAYTIME_REFRESH)
@@ -1632,7 +1908,7 @@ def _get_or_create_attach_release():
         json={
             "tag_name": _ATTACH_RELEASE_TAG,
             "name": "Ticket Attachments",
-            "body": "Automatically managed — hosts files attached to support tickets.",
+            "body": "Automatically managed - hosts files attached to support tickets.",
             "draft": False,
             "prerelease": True,
         },

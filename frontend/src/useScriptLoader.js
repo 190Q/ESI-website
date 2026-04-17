@@ -21,6 +21,10 @@ export default function useScriptLoader() {
         .then(function (result) { window.aspectsData = result.data })
         .catch(function () { window.aspectsData = { total_aspects: 0, members: {} } })
 
+      window.esiPointsDataPromise = window.DataCache.cachedFetch('/api/guild/points')
+        .then(function (result) { window.esiPointsData = result.data })
+        .catch(function () { window.esiPointsData = { available: false } })
+
       await loadScript('/js/activity_prefetch.js')
       await loadScript('/js/purify.min.js')
       await loadScript('/js/html2canvas.min.js')

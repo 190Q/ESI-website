@@ -184,6 +184,7 @@ Routes marked 🔒 require a valid Discord login session. Routes marked 👑 add
 | GET | `/api/player/<username>/rank-history` | Rank changes from tracked guild data 🔒 |
 | GET | `/api/player/<username>/playtime-history` | Playtime over time (last 60 days) 🔒 |
 | GET | `/api/player/<username>/metrics-history` | Stat deltas over time (wars, dungeons, etc.) 🔒 |
+| GET | `/api/player/<username>/points` | ESI points breakdown (current / previous / both cycles) with LE + history |
 | GET | `/api/player/rank-history/<username>` | Public rank history (no auth required) |
 | GET | `/api/player/playtime/<username>` | Public playtime history (no auth required) |
 | GET | `/api/player/metrics/<username>` | Public metrics snapshot (no auth required) |
@@ -199,6 +200,7 @@ Routes marked 🔒 require a valid Discord login session. Routes marked 👑 add
 | GET | `/api/guild/territories` | Territory holdings and history (public) |
 | GET | `/api/guild/aspects` | Aspect debt data 🔒 |
 | POST | `/api/guild/aspects/clear` | Clear a member's aspect debt 👑 Parliament+ |
+| GET | `/api/guild/points` | ESI points leaderboards for current / previous / both cycles (with LE totals) |
 | GET | `/api/guild/prefix/<prefix>` | Live guild data by tag from Wynncraft API 🔒 |
 | GET | `/api/guild/name/<name>` | Live guild data by full name from Wynncraft API 🔒 |
 | GET | `/api/guild/prefix/<prefix>/metrics-history` | Guild-wide metric deltas over time 🔒 |
