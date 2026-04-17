@@ -487,8 +487,8 @@
   /* value shown inside the ESI Points owed card */
   function formatGuildPointsCardValue(data) {
     if (!data || !data.available) return '<span style="color:var(--gold-light)">Coming soon</span>';
-    const le = (data.both && data.both.total_le) || 0;
-    return `${formatLe(le)}<span style="font-size:1rem;color:var(--text-dim)"> LE</span>`;
+    const points = (data.both && data.both.total_points) || 0;
+    return `${formatInt(points)}<span style="font-size:1rem;color:var(--text-dim)"></span>`;
   }
 
   /* flatten members into a sorted array */

@@ -839,15 +839,27 @@ def player_points(username: str):
 
     history = _points_fetch_player_history(uuid)
 
-    def _section(cycle_ids, meta):
+    # build the three leaderboards so we can stamp per-section ranks
+    history_cache = {uuid: history}
+    boards = {
+        "current":  _points_build_leaderboard([current_cycle],                    guild_ranks, guild_members, history_cache),
+        "previous": _points_build_leaderboard([previous_cycle],                   guild_ranks, guild_members, history_cache),
+        "both":     _points_build_leaderboard([previous_cycle, current_cycle],    guild_ranks, guild_members, history_cache),
+    }
+
+    def _section(cycle_ids, meta, board_key):
         pts = sum(cycle_rows.get(cid, 0) for cid in cycle_ids)
         cycle_history = [h for h in history if h["cycle_id"] in cycle_ids]
         le = _points_calc_le(resolved_name, pts, cycle_history, guild_ranks)
+        board = boards[board_key]
+        entry = next((p for p in board["players"] if p["uuid"] == uuid), None)
         return {
             **meta,
             "points": pts,
             "le": le,
             "history": cycle_history,
+            "leaderboard_position": entry["position"] if entry else None,
+            "leaderboard_size": board["total_players"],
         }
 
     current_meta = _points_cycle_meta(current_cycle)
@@ -858,12 +870,7 @@ def player_points(username: str):
         "short_label": "Both Cycles",
     }
 
-    # compute rank of the player on the both-cycles leaderboard
-    history_cache = {uuid: history}
-    both_board = _points_build_leaderboard(
-        [previous_cycle, current_cycle], guild_ranks, guild_members, history_cache
-    )
-    rank_entry = next((p for p in both_board["players"] if p["uuid"] == uuid), None)
+    both_section = _section([previous_cycle, current_cycle], both_meta, "both")
 
     return jsonify({
         "available": True,
@@ -872,11 +879,12 @@ def player_points(username: str):
         "uuid": uuid,
         "guild_rank": guild_ranks.get((resolved_name or "").lower(), "") or None,
         "in_guild": (resolved_name or "").lower() in guild_members if guild_members else None,
-        "current_cycle": _section([current_cycle], current_meta),
-        "previous_cycle": _section([previous_cycle], previous_meta),
-        "both": _section([previous_cycle, current_cycle], both_meta),
-        "leaderboard_position": rank_entry["position"] if rank_entry else None,
-        "leaderboard_size": both_board["total_players"],
+        "current_cycle": _section([current_cycle], current_meta, "current"),
+        "previous_cycle": _section([previous_cycle], previous_meta, "previous"),
+        "both": both_section,
+        # kept for backwards-compat with any older clients
+        "leaderboard_position": both_section["leaderboard_position"],
+        "leaderboard_size": both_section["leaderboard_size"],
     })
 
 

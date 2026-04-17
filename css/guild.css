@@ -572,6 +572,19 @@ body.popup-scroll-lock {
   flex-shrink: 0;
 }
 
+/* Non-interactive reason label inside a points history row */
+.esi-points-reason {
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  color: var(--gold-light);
+  flex: 1;
+  min-width: 0;
+  cursor: default;
+}
+.esi-points-reason:hover {
+  text-decoration: none;
+}
+
 .xp-bar-track {
   cursor: help;
 }

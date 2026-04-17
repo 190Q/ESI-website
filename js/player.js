@@ -929,8 +929,9 @@
                       :                                  playerPointsData.both;
         const history = (section && section.history) || [];
         const headerLE = playerPointsData.both && playerPointsData.both.le != null ? playerPointsData.both.le : 0;
-        const rankRow = playerPointsData.leaderboard_position
-          ? `<div class="esi-points-rank-row">Guild rank <strong>#${playerPointsData.leaderboard_position}</strong> of ${playerPointsData.leaderboard_size} (Both cycles)</div>`
+        const sectionShort = (section && section.short_label) || '';
+        const rankRow = section && section.leaderboard_position
+          ? `<div class="esi-points-rank-row">Guild rank <strong>#${section.leaderboard_position}</strong> of ${section.leaderboard_size}${sectionShort ? ` (${escapeHtml(sectionShort)})` : ''}</div>`
           : '';
         const hrRank = playerPointsData.guild_rank;
         const hrNote = (hrRank === 'strategist' || hrRank === 'chief' || hrRank === 'owner')
@@ -971,7 +972,7 @@
                   return `
                   <div class="owed-aspects-row">
                     <span style="font-family:'Cinzel',serif;font-size:0.75rem;color:var(--text-faint);min-width:85px">${escapeHtml(ts)}</span>
-                    <span class="owed-aspects-player-name">${escapeHtml(r.reason || 'Unknown')}</span>
+                    <span class="esi-points-reason">${escapeHtml(r.reason || 'Unknown')}</span>
                     <div class="owed-aspects-right">
                       <span class="owed-aspects-player-count" style="color:${color}">${sign}${formatInt(pts)} pts</span>
                       <span style="font-size:0.72rem;color:var(--text-faint);margin-left:0.5rem">Cycle ${r.cycle_id}</span>
@@ -1020,10 +1021,10 @@
             if (!data.available) {
               cardVal.innerHTML = '<span style="color:var(--gold-light)">Coming soon</span>';
             } else if (data.found === false) {
-              cardVal.innerHTML = '0<span style="font-size:1rem;color:var(--text-dim)"> LE</span>';
+              cardVal.innerHTML = '0<span style="font-size:1rem;color:var(--text-dim)"></span>';
             } else {
-              const le = data.both && data.both.le != null ? data.both.le : 0;
-              cardVal.innerHTML = formatLe(le) + '<span style="font-size:1rem;color:var(--text-dim)"> LE</span>';
+              const pts = data.both && data.both.points != null ? data.both.points : 0;
+              cardVal.innerHTML = formatInt(pts) + '<span style="font-size:1rem;color:var(--text-dim)"></span>';
             }
           }
           if (ptsPopup.classList.contains('open')) renderPlayerPointsPopup();
