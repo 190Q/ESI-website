@@ -6,6 +6,8 @@ Runs on port 5001. Handles all /api/* and /auth/* endpoints.
 """
 
 import re as _re
+import base64 as _base64
+import hashlib as _hashlib
 import os
 import json
 import secrets
@@ -329,11 +331,36 @@ def _before():
     session.permanent = True
 
 
+# compute inline-script hashes from index.html so CSP survives frontend rebuilds
+_INLINE_SCRIPT_RE = _re.compile(
+    rb"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>",
+    _re.DOTALL | _re.IGNORECASE,
+)
+
+
+def _compute_inline_script_hashes():
+    path = os.path.join(_BASE_DIR, "index.html")
+    try:
+        with open(path, "rb") as fh:
+            html = fh.read()
+    except OSError:
+        return ""
+    parts = []
+    for match in _INLINE_SCRIPT_RE.finditer(html):
+        digest = _hashlib.sha256(match.group(1)).digest()
+        b64 = _base64.b64encode(digest).decode("ascii")
+        parts.append(f"'sha256-{b64}'")
+    return " ".join(parts)
+
+
+_INLINE_SCRIPT_HASHES = _compute_inline_script_hashes()
+
+
 @app.after_request
 def _after(response):
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'sha256-ZcKinPTE0IEcBn4hHbqEikOw2x8h4OweeMeXEJ25TS8='; "
+        f"script-src 'self' {_INLINE_SCRIPT_HASHES}; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src https://fonts.gstatic.com; "
         "img-src 'self' https://cdn.discordapp.com https://visage.surgeplay.com https://crafatar.com https://mc-heads.net data:; "

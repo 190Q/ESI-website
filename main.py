@@ -14,7 +14,10 @@ import mimetypes
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
 
+import base64
+import hashlib
 import os
+import re
 import requests
 from flask import Flask, request, Response, jsonify, send_from_directory, abort
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -22,6 +25,37 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from config import (
     _BASE_DIR, _UPLOAD_DIR, GATEWAY_PORT, ROUTES_URL,
 )
+
+
+# CSP inline-script hash computation
+#
+# Vite embeds small bootstrap <script> blocks directly inside index.html. Each
+# time the frontend is rebuilt the script content (and therefore its hash) may
+# change, which would break CSP. Compute the hashes at startup from the file
+# on disk so a rebuild never requires editing this file.
+
+_INLINE_SCRIPT_RE = re.compile(
+    rb"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _compute_inline_script_hashes():
+    path = os.path.join(_BASE_DIR, "index.html")
+    try:
+        with open(path, "rb") as fh:
+            html = fh.read()
+    except OSError:
+        return ""
+    parts = []
+    for match in _INLINE_SCRIPT_RE.finditer(html):
+        digest = hashlib.sha256(match.group(1)).digest()
+        b64 = base64.b64encode(digest).decode("ascii")
+        parts.append(f"'sha256-{b64}'")
+    return " ".join(parts)
+
+
+_INLINE_SCRIPT_HASHES = _compute_inline_script_hashes()
 
 # access logger
 try:
@@ -114,7 +148,7 @@ def _after_request(response):
         )
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'sha256-ZcKinPTE0IEcBn4hHbqEikOw2x8h4OweeMeXEJ25TS8='; "
+        f"script-src 'self' {_INLINE_SCRIPT_HASHES}; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src https://fonts.gstatic.com; "
         "img-src 'self' https://cdn.discordapp.com https://visage.surgeplay.com https://crafatar.com https://mc-heads.net data:; "
