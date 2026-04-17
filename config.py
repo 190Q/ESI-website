@@ -13,7 +13,13 @@ from dotenv import load_dotenv
 # paths
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Load production / default values first
 load_dotenv(os.path.join(_BASE_DIR, ".env"))
+# then optionally override with local-only settings (e.g. localhost redirect
+# URI, a dev Discord app, etc). Create a `.env.local` file next to `.env` to
+# switch this project into local-testing mode without touching `.env`.
+# `.env.local` is gitignored so it never lands on the production server.
+load_dotenv(os.path.join(_BASE_DIR, ".env.local"), override=True)
 
 _ESI_BOT_DIR = (
     os.environ.get("ESI_BOT_DIR")

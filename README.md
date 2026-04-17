@@ -71,7 +71,7 @@ DISCORD_TOKEN=your_bot_token
 DISCORD_CLIENT_ID=your_client_id
 DISCORD_CLIENT_SECRET=your_client_secret
 DISCORD_GUILD_ID=your_guild_id
-DISCORD_REDIRECT_URI=http://localhost:5000/auth/callback
+DISCORD_REDIRECT_URI=https://your-domain.com/auth/callback
 ```
 
 4. **Run the server**
@@ -81,6 +81,28 @@ python server.py
 ```
 
 Then open [http://localhost:5000](http://localhost:5000).
+
+### Switching between production and localhost
+
+`.env` holds the production values and lives only on the server. To run the
+same code locally without editing `.env`, drop a `.env.local` file next to it —
+`config.py` loads `.env.local` after `.env` and lets it override any variable.
+
+```bash
+cp .env.local.example .env.local
+# edit .env.local if you want a separate dev Discord app
+```
+
+A minimal `.env.local` only needs to redirect OAuth at localhost:
+
+```env
+DISCORD_REDIRECT_URI=http://localhost:5000/auth/callback
+```
+
+Make sure `http://localhost:5000/auth/callback` is registered as an OAuth2
+redirect on your Discord application. `.env.local` is gitignored so it never
+reaches the production server — delete it (or just don't create it there) and
+the app automatically falls back to the production values in `.env`.
 
 ---
 

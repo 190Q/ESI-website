@@ -6,6 +6,8 @@ import BotPanel from './components/BotPanel'
 import AccountModal from './components/AccountModal'
 import SupportModal from './components/SupportModal'
 import SettingsModal from './components/SettingsModal'
+import LegalModal from './components/LegalModal'
+import Footer from './components/Footer'
 import useScriptLoader from './useScriptLoader'
 
 export default function App() {
@@ -28,6 +30,9 @@ export default function App() {
           {/* Inactivity & Promotions panels (content injected by their JS files) */}
           <section className="panel" id="panel-inactivity" />
           <section className="panel" id="panel-promotions" />
+
+          {/* Site-wide footer with legal info and community links */}
+          <Footer />
         </main>
       </div>
 
@@ -35,6 +40,7 @@ export default function App() {
       <AccountModal />
       <SupportModal />
       <SettingsModal />
+      <LegalModal />
     </>
   )
 }
