@@ -253,7 +253,7 @@ export default function LegalModal() {
                 <strong>Lodge a complaint</strong> with a supervisory
                 authority. In Belgium this is the Autorité de protection des
                 données / Gegevensbeschermingsautoriteit
-                (<a href="https://www.dataprotectionauthority.be" target="_blank" rel="noopener noreferrer">www.dataprotectionauthority.be</a>).
+                (<a href="https://www.dataprotectionauthority.be" target="_blank" rel="noopener noreferrer" class="legal-link">www.dataprotectionauthority.be</a>).
               </li>
             </ul>
             <p>
