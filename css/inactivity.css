@@ -13,14 +13,16 @@
 .inac-right-col {
   flex: 1 1 0;
   min-width: 0;
+}
+
+.inac-left-col {
   position: sticky;
   top: calc(var(--navbar-h) + 20px);
 }
 
 @media (max-width: 960px) {
   .inac-split-layout { flex-direction: column; }
-  .inac-left-col,
-  .inac-right-col { position: static; }
+  .inac-left-col { position: static; }
 }
 
 /* ── Form ── */

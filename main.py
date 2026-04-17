@@ -13,6 +13,7 @@ without taking the site offline.
 import mimetypes
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("image/x-icon", ".ico")
 
 import base64
 import hashlib
