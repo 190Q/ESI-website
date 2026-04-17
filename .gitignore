@@ -229,3 +229,9 @@ user_data.db-wal
 # Access logger
 access_logger.py
 logs/
+
+# gdpr exports
+gdpr_exports
+
+# git file
+ESI-website.git

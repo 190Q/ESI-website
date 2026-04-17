@@ -60,7 +60,7 @@ _INLINE_SCRIPT_HASHES = _compute_inline_script_hashes()
 
 # access logger
 try:
-    from access_logger import log_blocked as _log_blocked, cleanup_old_logs, cleanup_geo_cache
+    from access_logger import log_blocked as _log_blocked, cleanup_old_logs
     _HAS_LOGGER = True
 except ImportError:
     _HAS_LOGGER = False
@@ -271,7 +271,6 @@ def _log_cleanup_loop():
         threading.Event().wait(3600)
         try:
             cleanup_old_logs()
-            cleanup_geo_cache()
         except Exception:
             pass
         if _HAS_BAN:
