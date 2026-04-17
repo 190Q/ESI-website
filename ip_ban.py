@@ -247,11 +247,17 @@ def get_all_bans() -> list:
 
 
 def blacklist_ip(ip: str, reason: str = ""):
-    """Permanently ban an IP until manually removed."""
+    """Permanently ban an IP until manually removed.
+
+    Idempotent: if *ip* is already on the permanent blacklist this is a
+    no-op (no DB write, no log spam).
+    """
     if not ip or ip in BAN_WHITELIST:
         return
     now = time()
     with _blacklist_lock:
+        if ip in _blacklist:
+            return
         _blacklist[ip] = reason
     try:
         conn = _get_db()
@@ -298,6 +304,15 @@ def is_blacklisted(ip: str) -> bool:
 
 def _ban(ip: str, jail: str, base_duration: int, escalate: bool = True):
     now = time()
+    # Permanent blacklist supersedes any temp ban → don't re-ban.
+    with _blacklist_lock:
+        if ip in _blacklist:
+            return
+    # Already serving an active temp ban → don't layer another on top.
+    with _bans_lock:
+        existing = _bans.get(ip)
+        if existing is not None and existing > now:
+            return
     if escalate:
         count = _escalation.get(ip, 0) + 1
         _escalation[ip] = count

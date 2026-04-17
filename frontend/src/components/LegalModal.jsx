@@ -78,7 +78,7 @@ export default function LegalModal() {
               <li>190Q</li>
               <li>Rue de Laeken 1, 1000 Bruxelles, Belgium</li>
               <li>
-                Email: <a href="mailto:esi.dashboard.support@gmail.com">esi.dashboard.support@gmail.com</a>
+                Email: <a class="legal-link" href="mailto:esi.dashboard.support@gmail.com">esi.dashboard.support@gmail.com</a>
               </li>
             </ul>
             <p>
@@ -429,10 +429,10 @@ export default function LegalModal() {
               project by:
             </p>
             <ul className="legal-list">
-              <li><strong>190Q</strong></li>
+              <li>190Q</li>
               <li>Rue de Laeken 1, 1000 Bruxelles, Belgium</li>
               <li>
-                Email: <a href="mailto:esi.dashboard.support@gmail.com">esi.dashboard.support@gmail.com</a>
+                Email: <a class="legal-link" href="mailto:esi.dashboard.support@gmail.com">esi.dashboard.support@gmail.com</a>
               </li>
             </ul>
             <p>
