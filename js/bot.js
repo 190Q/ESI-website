@@ -216,6 +216,11 @@
           uptimeEl.textContent = 'Offline';
         }
       }
+      var bPill = document.getElementById('botStatusPill');
+      if (bPill) {
+        bPill.className = 'status-pill ' + (botUptimeKnown ? 'online' : 'offline');
+        bPill.textContent = (botUptimeKnown ? '\u25CF Online' : '\u25CF Offline');
+      }
       var tEl = document.getElementById('trackerHeaderUptime');
       if (tEl) {
         if (trackerUptimeKnown) {
