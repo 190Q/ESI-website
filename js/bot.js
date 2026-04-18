@@ -66,7 +66,8 @@
       _botToast.addItem('trackers', 'Trackers');
       _botToast.addItem('snapshot', 'Discord Server');
       _botToast.addItem('db',       'Databases');
-      _bTotal = 5;
+      _botToast.addItem('cucks',    'Cuck List');
+      _bTotal = 6;
     }
     var _bMsgs = { success: '\u2713 Bot data loaded', fail: '\u2715 Failed to load bot data', partial: '\u26a0 Bot data partially loaded' };
     function _bCheckDone() { _bDone++; if (_bDone >= _bTotal && _botToast) _botToast.finish(_bMsgs); }
@@ -79,6 +80,10 @@
     var dbP = DataCache.cachedFetch('/api/bot/databases')
       .then(function(r) { if (_botToast) _botToast.updateItem('db', 'success'); _bCheckDone(); return r.data || { total_size: 0, folders: {} }; })
       .catch(function() { if (_botToast) _botToast.updateItem('db', 'error'); _bCheckDone(); return { total_size: 0, folders: {} }; });
+
+    var cucksP = DataCache.cachedFetch('/api/bot/ip-bans')
+      .then(function(r) { if (_botToast) _botToast.updateItem('cucks', 'success'); _bCheckDone(); return r.data || { available: false, total_blacklists: 0, total_temp_bans: 0, categories: [] }; })
+      .catch(function() { if (_botToast) _botToast.updateItem('cucks', 'error'); _bCheckDone(); return { available: false, total_blacklists: 0, total_temp_bans: 0, categories: [] }; });
 
     // Bot info: use cached version instantly if available, refresh in background
     var cachedInfo = DataCache.readCache('/api/bot/info');
@@ -122,12 +127,17 @@
       renderDatabases(data);
     });
 
+    cucksP.then(function(data) {
+      renderCuckList(data);
+    });
+
     trackersP.then(function(payload) {
       initTrackers(payload);
     });
 
     // These don't need data
     startUptimeTicker();
+    initCuckModal();
   }
 
 
@@ -394,6 +404,208 @@
     if (s >= 3600) return (s / 3600) + ' hours';
     if (s >= 60)   return (s / 60)   + ' minutes';
     return s + ' seconds';
+  }
+
+
+  /* ══════════════════════════════════
+     Cuck List (IP ban summary)
+     ══════════════════════════════════ */
+
+  var _cuckData = null;
+
+  function _safeSanitize(html) {
+    if (typeof DOMPurify !== 'undefined' && DOMPurify && typeof DOMPurify.sanitize === 'function') {
+      return DOMPurify.sanitize(html);
+    }
+    return html;
+  }
+
+  function _escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function _formatTs(ts) {
+    if (!ts) return '\u2014';
+    var d = new Date(ts * 1000);
+    if (isNaN(d.getTime())) return '\u2014';
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+    return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear() +
+      ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  function _formatRemaining(sec) {
+    var n = Math.max(0, Math.floor(Number(sec) || 0));
+    if (n >= 86400) return Math.floor(n / 86400) + 'd ' + Math.floor((n % 86400) / 3600) + 'h';
+    if (n >= 3600)  return Math.floor(n / 3600) + 'h ' + Math.floor((n % 3600) / 60) + 'm';
+    if (n >= 60)    return Math.floor(n / 60) + 'm ' + (n % 60) + 's';
+    return n + 's';
+  }
+
+  function renderCuckList(data) {
+    var el = document.getElementById('cuckList');
+    if (!el) return;
+    _cuckData = data || null;
+
+    if (!data || !data.available) {
+      el.innerHTML = _safeSanitize(
+        '<div class="cuck-list-placeholder">No ban data available.</div>'
+      );
+      return;
+    }
+
+    var cats = Array.isArray(data.categories) ? data.categories : [];
+    if (!cats.length) {
+      el.innerHTML = _safeSanitize(
+        '<div class="cuck-list-placeholder">No bans recorded.</div>'
+      );
+      return;
+    }
+
+    var html = '';
+    for (var i = 0; i < cats.length; i++) {
+      var c = cats[i];
+      var isHeadline = c.key === 'blacklists_all' || c.key === 'temp_bans_all';
+      html +=
+        '<button type="button" class="cuck-item' + (isHeadline ? ' cuck-item-headline' : '') + '"' +
+        ' data-cuck-key="' + _escHtml(c.key) + '">' +
+          '<span class="cuck-item-label">' + _escHtml(c.label) + '</span>' +
+          '<span class="cuck-item-count">' + _escHtml(c.count || 0) + '</span>' +
+        '</button>';
+    }
+
+    el.innerHTML = _safeSanitize(html);
+
+    var buttons = el.querySelectorAll('.cuck-item');
+    for (var j = 0; j < buttons.length; j++) {
+      buttons[j].addEventListener('click', _onCuckItemClick);
+    }
+  }
+
+  function _onCuckItemClick(e) {
+    var key = e.currentTarget.getAttribute('data-cuck-key');
+    if (!key || !_cuckData || !Array.isArray(_cuckData.categories)) return;
+    var cat = null;
+    for (var i = 0; i < _cuckData.categories.length; i++) {
+      if (_cuckData.categories[i].key === key) { cat = _cuckData.categories[i]; break; }
+    }
+    if (!cat) return;
+    openCuckModal(cat);
+  }
+
+  function _renderTempEntry(e) {
+    return '<li class="cuck-entry">' +
+      '<div class="cuck-entry-row">' +
+        '<span class="cuck-entry-ip">' + _escHtml(e.ip || 'unknown') + '</span>' +
+        '<span class="cuck-entry-pill cuck-entry-pill-temp">' + _escHtml(e.jail || 'jail') + '</span>' +
+      '</div>' +
+      '<div class="cuck-entry-meta">' +
+        '<span>Banned: ' + _escHtml(_formatTs(e.banned_at)) + '</span>' +
+        '<span>Expires in: ' + _escHtml(_formatRemaining(e.remaining_seconds)) + '</span>' +
+        '<span>Count: ' + _escHtml(e.ban_count || 1) + '</span>' +
+      '</div>' +
+    '</li>';
+  }
+
+  function _groupHue(name) {
+    var s = String(name || '');
+    var h = 0;
+    for (var i = 0; i < s.length; i++) {
+      h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    }
+    return h % 360;
+  }
+
+  function _groupPillStyle(name) {
+    var hue = _groupHue(name);
+    return 'color:hsl(' + hue + ',70%,68%);' +
+      'border-color:hsl(' + hue + ',50%,38%);' +
+      'background:hsla(' + hue + ',60%,35%,0.12);';
+  }
+
+  function _shortPill(name) {
+    var s = String(name || '').trim();
+    if (s.length <= 22) return s;
+    return s.slice(0, 20) + '\u2026';
+  }
+
+  function _renderBlacklistEntry(e) {
+    var pillText = _shortPill(e.group || 'Unspecified');
+    return '<li class="cuck-entry">' +
+      '<div class="cuck-entry-row">' +
+        '<span class="cuck-entry-ip">' + _escHtml(e.ip || 'unknown') + '</span>' +
+        '<span class="cuck-entry-pill" style="' + _escHtml(_groupPillStyle(e.group)) + '">' + _escHtml(pillText) + '</span>' +
+      '</div>' +
+      '<div class="cuck-entry-meta">' +
+        '<span>Added: ' + _escHtml(_formatTs(e.added_at)) + '</span>' +
+        (e.reason ? '<span class="cuck-entry-reason">Reason: ' + _escHtml(e.reason) + '</span>' : '') +
+      '</div>' +
+    '</li>';
+  }
+
+  function openCuckModal(cat) {
+    var backdrop = document.getElementById('cuckModalBackdrop');
+    var titleEl  = document.getElementById('cuckModalTitle');
+    var bodyEl   = document.getElementById('cuckModalBody');
+    if (!backdrop || !titleEl || !bodyEl) return;
+
+    titleEl.textContent = (cat.label || 'Banned IPs') + ' (' + (cat.count || 0) + ')';
+
+    var entries = Array.isArray(cat.entries) ? cat.entries : [];
+    var html;
+    if (!entries.length) {
+      html = '<div class="cuck-modal-empty">No entries in this category.</div>';
+    } else {
+      var items = [];
+      for (var i = 0; i < entries.length; i++) {
+        items.push(cat.type === 'temp' ? _renderTempEntry(entries[i]) : _renderBlacklistEntry(entries[i]));
+      }
+      html = '<ul class="cuck-entry-list">' + items.join('') + '</ul>';
+    }
+
+    bodyEl.innerHTML = _safeSanitize(html);
+
+    backdrop.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeCuckModal() {
+    var backdrop = document.getElementById('cuckModalBackdrop');
+    if (!backdrop) return;
+    backdrop.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  var _cuckModalInitialized = false;
+  function initCuckModal() {
+    if (_cuckModalInitialized) return;
+    var backdrop = document.getElementById('cuckModalBackdrop');
+    var closeBtn = document.getElementById('cuckModalClose');
+    if (!backdrop || !closeBtn) return;
+    _cuckModalInitialized = true;
+
+    closeBtn.addEventListener('click', closeCuckModal);
+
+    var mouseDownOnBackdrop = false;
+    backdrop.addEventListener('mousedown', function (e) {
+      mouseDownOnBackdrop = e.target === backdrop;
+    });
+    backdrop.addEventListener('mouseup', function (e) {
+      if (mouseDownOnBackdrop && e.target === backdrop) closeCuckModal();
+      mouseDownOnBackdrop = false;
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      if (!backdrop.classList.contains('open')) return;
+      var others = document.querySelectorAll('.modal-backdrop.open');
+      if (others.length === 1 && others[0] === backdrop) closeCuckModal();
+    });
   }
 
 

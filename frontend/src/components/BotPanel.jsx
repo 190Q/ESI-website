@@ -50,11 +50,31 @@ export default function BotPanel() {
             </div>
           </div>
 
-          {/* Right: Database */}
+          {/* Right: Cuck List + Database */}
           <div className="bot-right-col">
+            <div className="info-card">
+              <div className="info-card-header">
+                <span>Cuck List</span>
+              </div>
+              <div className="cuck-list" id="cuckList">
+                <div className="cuck-list-placeholder">{'Loading\u2026'}</div>
+              </div>
+            </div>
+
             <CollapsibleCard label="Database Storage" totalId="dbTotalSize" bodyId="dbContent" />
           </div>
 
+        </div>
+      </div>
+
+      {/* Cuck List detail modal */}
+      <div className="modal-backdrop" id="cuckModalBackdrop">
+        <div className="modal cuck-modal">
+          <button className="modal-close" id="cuckModalClose" aria-label="Close ban list">
+            {'\u2715'}
+          </button>
+          <h2 className="modal-title" id="cuckModalTitle">Banned IPs</h2>
+          <div className="cuck-modal-body" id="cuckModalBody" />
         </div>
       </div>
     </section>

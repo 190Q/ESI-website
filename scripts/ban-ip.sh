@@ -7,7 +7,8 @@
 #   ./scripts/ban-ip.sh blacklist <ip> [reason]  Permanently ban an IP
 #   ./scripts/ban-ip.sh unblacklist <ip>         Remove from permanent blacklist
 #   ./scripts/ban-ip.sh status <ip>              Check if an IP is banned
-#   ./scripts/ban-ip.sh list                     Show all active bans + blacklist
+#   ./scripts/ban-ip.sh list [format]            Show all active bans + blacklist
+#                                                  format: pretty (default) | sql | python
 sed -i 's/\r$//' ~/ESI-website/scripts/*.sh
 chmod +x ~/ESI-website/scripts/*.sh
 
@@ -86,31 +87,15 @@ else:
         ;;
 
     list)
-        python3 -c "
-import sys; sys.path.insert(0, '$DIR')
-from ip_ban import get_all_bans, get_blacklist
-
-bl = get_blacklist()
-bans = get_all_bans()
-
-if not bl and not bans:
-    print('  No active bans or blacklisted IPs.')
-    sys.exit(0)
-
-if bl:
-    print(f'  Blacklisted ({len(bl)}):')
-    for e in bl:
-        reason = e['reason'] or '–'
-        print(f'    ● {e[\"ip\"]:>15}  {reason}')
-
-if bans:
-    print(f'  Temp-banned ({len(bans)}):')
-    for e in sorted(bans, key=lambda x: x['remaining']):
-        r = e['remaining']
-        m, s = divmod(r, 60)
-        h, m = divmod(m, 60)
-        print(f'    ○ {e[\"ip\"]:>15}  {h}h {m}m {s}s left')
-"
+        FORMAT="${1:-pretty}"
+        case "$FORMAT" in
+            pretty|sql|python) ;;
+            *)
+                echo "  Unknown list format: $FORMAT (use: pretty, sql, python)"
+                exit 1
+                ;;
+        esac
+        python3 "$DIR/scripts/_export_bans.py" "$DIR/logs/ip_bans.db" "$FORMAT"
         ;;
 
     *)

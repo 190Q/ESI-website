@@ -1726,6 +1726,181 @@ def bot_trackers():
     })
 
 
+# IP ban summary (Cuck List)
+
+_IP_BAN_DB = os.path.join(_BASE_DIR, "logs", "ip_bans.db")
+
+
+def _truncate_ip_for_display(ip):
+    """Return a GDPR-anonymised version of *ip* for display.
+
+    IPv4: zero the last octet      (203.0.113.42  -> 203.0.113.0)
+    IPv6: keep first 3 hextets     (2001:db8:1::1 -> 2001:db8:1::)
+    Matches the truncation scheme used by access_logger for stored IPs.
+    """
+    if not ip:
+        return "unknown"
+    if ":" in ip:
+        parts = ip.split(":")
+        kept = [p for p in parts[:3] if p]
+        return ":".join(kept) + "::" if kept else "::"
+    if "." in ip:
+        parts = ip.split(".")
+        if len(parts) == 4:
+            parts[-1] = "0"
+            return ".".join(parts)
+    return ip
+
+
+@app.route("/api/bot/ip-bans")
+@rate_limit(30)
+def bot_ip_bans():
+    """Return a summary of the IP ban system (Cuck List).
+
+    All IPs are truncated (last octet / last 80 bits zeroed) before leaving
+    the server, so the response is safe to display under GDPR
+    legitimate-interest processing (Art. 6(1)(f)) without exposing
+    identifiable personal data to the browser.
+    """
+    empty = {
+        "available": False,
+        "truncated": True,
+        "total_blacklists": 0,
+        "total_temp_bans": 0,
+        "categories": [],
+    }
+    if not os.path.exists(_IP_BAN_DB):
+        return jsonify(empty)
+
+    now = time()
+    try:
+        conn = _sqlite3.connect(_IP_BAN_DB, timeout=5, check_same_thread=False)
+        conn.row_factory = _sqlite3.Row
+        try:
+            temp_rows = conn.execute(
+                "SELECT ip, expires_at, jail, banned_at, ban_count"
+                " FROM active_bans WHERE expires_at > ?"
+                " ORDER BY banned_at DESC",
+                (now,),
+            ).fetchall()
+        except _sqlite3.OperationalError:
+            temp_rows = []
+        try:
+            bl_rows = conn.execute(
+                "SELECT ip, reason, added_at FROM blacklist ORDER BY added_at DESC"
+            ).fetchall()
+        except _sqlite3.OperationalError:
+            bl_rows = []
+        conn.close()
+    except _sqlite3.Error:
+        return jsonify(empty)
+
+    def _format_temp(r):
+        expires_at = r["expires_at"] or 0
+        return {
+            "ip": _truncate_ip_for_display(r["ip"]),
+            "expires_at": expires_at,
+            "remaining_seconds": max(0, int(expires_at - now)),
+            "jail": r["jail"] or "unknown",
+            "banned_at": r["banned_at"] or 0,
+            "ban_count": r["ban_count"] or 1,
+        }
+
+    # Normalise reasons so near-duplicates (e.g. different N in
+    # "Auto-blacklisted after N temporary bans", or the same error class
+    # with different detail payloads) collapse into one group, while every
+    # distinct prefix keeps its own category.
+    _AUTO_BL_RE = _re.compile(
+        r"^auto-blacklisted after \d+ temporary bans?$", _re.IGNORECASE
+    )
+
+    def _group_for(reason):
+        reason = (reason or "").strip()
+        if not reason:
+            return "Unspecified"
+        if _AUTO_BL_RE.match(reason):
+            return "Auto-blacklisted"
+        # Everything before the first `: ` is treated as the category.
+        # This collapses e.g. `WordPress probe: /wp-admin/setup-config.php`
+        # and `WordPress probe: /wp-login.php` into `WordPress probe`, and
+        # `Malformed HTTP (code 400): "..."` / `...: '...'` into
+        # `Malformed HTTP (code 400)`.
+        idx = reason.find(": ")
+        if idx > 0:
+            prefix = reason[:idx].rstrip().rstrip(":").strip()
+            if prefix:
+                return prefix
+        return reason
+
+    def _format_bl(r):
+        reason = (r["reason"] or "").strip()
+        return {
+            "ip": _truncate_ip_for_display(r["ip"]),
+            "reason": reason,
+            "added_at": r["added_at"] or 0,
+            "group": _group_for(reason),
+        }
+
+    def _slugify(s):
+        return _re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_") or "group"
+
+    temp_entries = [_format_temp(r) for r in temp_rows]
+    bl_entries = [_format_bl(r) for r in bl_rows]
+
+    # Bucket blacklist entries by their normalised reason, preserving first
+    # appearance order within each group.
+    groups = {}
+    group_order = []
+    for entry in bl_entries:
+        g = entry["group"]
+        if g not in groups:
+            groups[g] = []
+            group_order.append(g)
+        groups[g].append(entry)
+
+    categories = [
+        {
+            "key": "blacklists_all",
+            "label": "Total Blacklists",
+            "count": len(bl_entries),
+            "type": "blacklist",
+            "entries": bl_entries,
+        },
+        {
+            "key": "temp_bans_all",
+            "label": "Total Temp Bans",
+            "count": len(temp_entries),
+            "type": "temp",
+            "entries": temp_entries,
+        },
+    ]
+
+    # One category per distinct reason, sorted by count descending so the
+    # most common reasons bubble to the top.
+    dynamic_categories = [
+        {
+            "key": "blacklists_" + _slugify(name),
+            "label": name,
+            "count": len(entries),
+            "type": "blacklist",
+            "entries": entries,
+        }
+        for name, entries in sorted(
+            ((n, groups[n]) for n in group_order),
+            key=lambda kv: (-len(kv[1]), kv[0].lower()),
+        )
+    ]
+    categories.extend(dynamic_categories)
+
+    return jsonify({
+        "available": True,
+        "truncated": True,
+        "total_blacklists": len(bl_entries),
+        "total_temp_bans": len(temp_entries),
+        "categories": categories,
+    })
+
+
 @app.route("/api/bot/databases")
 @rate_limit(30)
 def bot_databases():

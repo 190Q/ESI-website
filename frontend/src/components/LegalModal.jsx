@@ -103,9 +103,22 @@ export default function LegalModal() {
               <li>
                 <strong>Technical data</strong> - standard server access logs
                 (truncated IP address, user agent, timestamp, request path).
-                Full IP addresses are never written to disk: the last octet of
-                IPv4 addresses (or the last 80 bits of IPv6 addresses) is
-                zeroed before storage.
+                Full IP addresses are never written to the access-log
+                database: the last octet of IPv4 addresses (or the last 80
+                bits of IPv6 addresses) is zeroed before storage.
+              </li>
+              <li>
+                <strong>Abuse-prevention ban list</strong> - to enforce
+                temporary and permanent IP bans against automated abuse, a
+                separate security database records the untruncated IP
+                address of hosts that have been banned, together with the
+                rule that triggered the ban and its expiry. This data is
+                used solely to block further abusive requests at the
+                network layer; it is not used for profiling or analytics.
+                When ban information is surfaced in the administrative
+                dashboard (for example in the "Cuck List" card on the Bot
+                panel), IP addresses are truncated using the same scheme
+                as the access logs before being sent to any browser.
               </li>
               <li>
                 <strong>Public game data</strong> - the Service queries and
@@ -198,6 +211,19 @@ export default function LegalModal() {
                 <strong>Access logs</strong> - truncated-IP request logs are
                 retained for a maximum of 14 days and then permanently
                 deleted.
+              </li>
+              <li>
+                <strong>Temporary IP bans</strong> - entries in the
+                abuse-prevention ban list expire automatically after the
+                configured ban duration (up to 24 hours) and are then
+                removed from the security database.
+              </li>
+              <li>
+                <strong>Permanent IP blacklist</strong> - entries created
+                automatically after repeated abuse, or added manually by an
+                administrator, are retained until they are manually removed
+                or the underlying security database is reset. You may
+                request removal using the contact details in section 2.
               </li>
               <li>
                 <strong>Session cookie</strong> - deleted when you log out or
