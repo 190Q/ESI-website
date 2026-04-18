@@ -697,14 +697,14 @@ def _points_fetch_player_history(uuid):
 
 
 def _points_calc_le(username, total_points, history, guild_ranks):
-    """Mirror utils.esi_points LE logic: HR players only count claim-snipe points."""
+    """Mirror utils.esi_points LE logic: HR players exclude guild raids and wars from LE."""
     rank = guild_ranks.get((username or "").lower(), "")
     if rank in _POINTS_HR_RANKS:
-        hq = sum(
+        le_points = sum(
             r["points_gained"] for r in (history or [])
-            if (r.get("reason") or "").lower() == "claim snipe"
+            if (r.get("reason") or "").lower() not in {"guild raid", "war"}
         )
-        return hq / _POINTS_LE_DIVISOR
+        return le_points / _POINTS_LE_DIVISOR
     return (total_points or 0) / _POINTS_LE_DIVISOR
 
 

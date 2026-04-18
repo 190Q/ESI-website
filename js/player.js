@@ -935,7 +935,7 @@
           : '';
         const hrRank = playerPointsData.guild_rank;
         const hrNote = (hrRank === 'strategist' || hrRank === 'chief' || hrRank === 'owner')
-          ? '<div class="esi-points-rank-row" style="color:var(--text-faint);font-style:italic">HR rank: only Claim Snipe points count toward LE.</div>'
+          ? '<div class="esi-points-rank-row" style="color:var(--text-faint);font-style:italic">HR rank: Guild Raids and Wars do not count toward LE.</div>'
           : '';
 
         ptsPopup.innerHTML = `
