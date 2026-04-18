@@ -318,7 +318,7 @@
   display: none;
   position: fixed;
   inset: 0;
-  z-index: 9998;
+  z-index: 997;
   background: rgba(0, 0, 0, 0.72);
   backdrop-filter: blur(2px);
 }
@@ -332,7 +332,7 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  z-index: 9999;
+  z-index: 998;
   width: 420px;
   max-width: 92vw;
   background: var(--surface-2);
@@ -602,6 +602,6 @@ body.popup-scroll-lock {
   white-space: nowrap;
   pointer-events: none;
   box-shadow: 0 4px 16px rgba(0,0,0,0.45);
-  z-index: 9999;
+  z-index: 999;
   display: none;
 }
