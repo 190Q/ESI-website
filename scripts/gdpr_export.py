@@ -39,7 +39,7 @@ def build_export(conn, discord_id: str) -> dict:
         "metadata": {
             "discord_id": discord_id,
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "controller": "Catalin Popescu",
+            "controller": "190Q",
             "controller_email": "esi.dashboard.support@gmail.com",
             "gdpr_articles": ["Art. 15 (access)", "Art. 20 (portability)"],
             "notes": (
