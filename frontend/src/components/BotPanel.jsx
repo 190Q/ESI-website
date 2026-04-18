@@ -42,7 +42,7 @@ export default function BotPanel() {
               <div className="info-card-header tracker-card-header">
                 <span>Tracker Countdowns</span>
                 <span className="tracker-header-status">
-                  <span className="status-pill online">{'\u25CF'} Online</span>
+                  <span className="status-pill online" id="trackerHeaderStatus">{'\u25CF'} Online</span>
                   <span className="tracker-uptime" id="trackerHeaderUptime">0s</span>
                 </span>
               </div>

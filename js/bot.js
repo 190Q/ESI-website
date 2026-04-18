@@ -13,6 +13,9 @@
   var trackerTimers = {};
   var botInitialized = false;
   var botUptimeSeconds = 0;
+  var botUptimeKnown = false;
+  var trackerUptimeSeconds = 0;
+  var trackerUptimeKnown = false;
 
   /* ── Observe panel activation ── */
   var panel = document.getElementById('panel-bot');
@@ -120,7 +123,7 @@
     });
 
     trackersP.then(function(payload) {
-      initTrackers(payload && payload.trackers);
+      initTrackers(payload);
     });
 
     // These don't need data
@@ -178,11 +181,16 @@
     var uptime = status && typeof status.uptime_seconds === 'number' ? status.uptime_seconds : null;
     if (uptime !== null && uptime >= 0) {
       botUptimeSeconds = Math.floor(uptime);
+      botUptimeKnown = true;
+    } else {
+      botUptimeKnown = false;
     }
     statusEl.className   = 'status-pill ' + (isOnline ? 'online' : 'offline');
     statusEl.textContent = isOnline ? '● Online' : '● Offline';
     latencyEl.textContent = 'Latency: ' + (latency === null ? '—' : latency + 'ms');
-    uptimeEl.textContent  = 'Uptime: ' + formatDuration(Math.max(0, botUptimeSeconds) * 1000);
+    uptimeEl.textContent  = botUptimeKnown
+      ? 'Uptime: ' + formatDuration(Math.max(0, botUptimeSeconds) * 1000)
+      : 'Offline';
   }
 
   function formatDuration(ms) {
@@ -199,12 +207,29 @@
 
   function startUptimeTicker() {
     setInterval(function () {
-      botUptimeSeconds = Math.max(0, botUptimeSeconds + 1);
-      var str = formatDuration(botUptimeSeconds * 1000);
       var uptimeEl = document.getElementById('botUptime');
-      if (uptimeEl) uptimeEl.textContent = 'Uptime: ' + str;
+      if (uptimeEl) {
+        if (botUptimeKnown) {
+          botUptimeSeconds = Math.max(0, botUptimeSeconds + 1);
+          uptimeEl.textContent = 'Uptime: ' + formatDuration(botUptimeSeconds * 1000);
+        } else {
+          uptimeEl.textContent = 'Offline';
+        }
+      }
       var tEl = document.getElementById('trackerHeaderUptime');
-      if (tEl) tEl.textContent = str;
+      if (tEl) {
+        if (trackerUptimeKnown) {
+          trackerUptimeSeconds = Math.max(0, trackerUptimeSeconds + 1);
+          tEl.textContent = formatDuration(trackerUptimeSeconds * 1000);
+        } else {
+          tEl.textContent = 'Offline';
+        }
+      }
+      var tPill = document.getElementById('trackerHeaderStatus');
+      if (tPill) {
+        tPill.className = 'status-pill ' + (trackerUptimeKnown ? 'online' : 'offline');
+        tPill.textContent = (trackerUptimeKnown ? '\u25CF Online' : '\u25CF Offline');
+      }
     }, 1000);
   }
 
@@ -285,7 +310,15 @@
     return String(name || '').toLowerCase().replace(/\s+/g, ' ').trim();
   }
 
-  function initTrackers(serverTrackers) {
+  function initTrackers(payload) {
+    var serverTrackers = Array.isArray(payload) ? payload : (payload && payload.trackers);
+    var uptime = payload && !Array.isArray(payload) && typeof payload.uptime_seconds === 'number'
+      ? payload.uptime_seconds
+      : null;
+    if (uptime !== null && uptime >= 0) {
+      trackerUptimeSeconds = Math.floor(uptime);
+      trackerUptimeKnown = true;
+    }
     var list = document.getElementById('trackerList');
     var html = '';
     var remoteByName = {};
@@ -329,16 +362,21 @@
   function tickTrackers() {
     for (var i = 0; i < TRACKERS.length; i++) {
       var t = TRACKERS[i];
+      var isActivity = t.name === 'Activity Data Refresh';
+      // Freeze non-activity countdowns when the tracker screen session is offline
+      var frozen = !trackerUptimeKnown && !isActivity;
       var remaining = Number(trackerTimers[i]);
       if (!isFinite(remaining) || remaining <= 0) remaining = t.interval;
       var pct = ((t.interval - remaining) / t.interval) * 100;
       var timeEl = document.getElementById('trackerTime' + i);
       var barEl  = document.getElementById('trackerBar' + i);
-      if (timeEl) timeEl.textContent = formatCountdown(remaining);
+      if (timeEl) timeEl.textContent = frozen ? 'Offline' : formatCountdown(remaining);
       if (barEl)  barEl.style.width  = pct + '%';
-      remaining = remaining - 1;
-      if (remaining <= 0) remaining = t.interval;
-      trackerTimers[i] = remaining;
+      if (!frozen) {
+        remaining = remaining - 1;
+        if (remaining <= 0) remaining = t.interval;
+        trackerTimers[i] = remaining;
+      }
     }
   }
 

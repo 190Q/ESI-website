@@ -1718,7 +1718,12 @@ def bot_trackers():
         source = "file"
     elif console_text:
         source = "screen-unparsed"
-    return jsonify({"trackers": trackers, "source": source})
+    tracker_uptime = _screen_session_uptime_seconds(TRACKER_SCREEN_SESSION)
+    return jsonify({
+        "trackers": trackers,
+        "source": source,
+        "uptime_seconds": int(tracker_uptime) if tracker_uptime is not None else None,
+    })
 
 
 @app.route("/api/bot/databases")

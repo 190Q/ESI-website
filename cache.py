@@ -9,7 +9,7 @@ and exposes the results via HTTP for the routes service.
 import os
 import threading
 import sqlite3 as _sqlite3
-from time import time
+from time import time, sleep
 from flask import Flask, jsonify
 
 from config import (
@@ -93,7 +93,12 @@ def _compute_bulk_playtime():
             day_groups.setdefault(day_key, []).append((fname, db_path))
 
         sorted_days = sorted(day_groups.keys())[-60:]
-        daily_paths = [day_groups[d][-1][1] for d in sorted_days]
+        # Newest snapshot first, then earlier ones as fallbacks within the same day.
+        daily_candidates = [
+            [p for _f, p in reversed(day_groups[d])]
+            for d in sorted_days
+        ]
+        daily_paths = [paths[0] for paths in daily_candidates]
         username_set = {u.lower() for u in usernames}
 
         def read_all_hours(db_path):
@@ -110,8 +115,29 @@ def _compute_bulk_playtime():
             except Exception:
                 return {}
 
+        def read_day(candidate_paths):
+            """Try newest snapshot; if it looks mid-write (empty/unreadable), wait 1s
+            and retry once, then fall back to earlier snapshots of the same day."""
+            if not candidate_paths:
+                return {}
+            newest = candidate_paths[0]
+            result = read_all_hours(newest)
+            if result:
+                return result
+            # Newest file may be mid-write - wait briefly and try again.
+            sleep(1)
+            result = read_all_hours(newest)
+            if result:
+                return result
+            # Still nothing - fall back to earlier snapshots for this same day.
+            for path in candidate_paths[1:]:
+                result = read_all_hours(path)
+                if result:
+                    return result
+            return {}
+
         with ThreadPoolExecutor(max_workers=8) as ex:
-            all_results = list(zip(daily_paths, ex.map(read_all_hours, daily_paths)))
+            all_results = list(zip(daily_paths, ex.map(read_day, daily_candidates)))
 
         dates = [d.isoformat() for d in sorted_days]
 
