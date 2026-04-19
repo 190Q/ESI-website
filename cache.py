@@ -115,26 +115,37 @@ def _compute_bulk_playtime():
             except Exception:
                 return {}
 
+        def _snapshot_has_players(result):
+            """True if the snapshot returned at least one player with playtime > 0.
+            An empty dict OR a dict where every value is 0 means the file is
+            effectively useless and we should fall back to an earlier one."""
+            if not result:
+                return False
+            for v in result.values():
+                if v > 0:
+                    return True
+            return False
+
         def read_day(candidate_paths):
-            """Try newest snapshot; if it looks mid-write (empty/unreadable), wait 1s
-            and retry once, then fall back to earlier snapshots of the same day."""
+            """Try newest snapshot; if it's empty/unreadable or has no players
+            with playtime, fall back to earlier snapshots of the same day."""
             if not candidate_paths:
                 return {}
             newest = candidate_paths[0]
             result = read_all_hours(newest)
-            if result:
+            if _snapshot_has_players(result):
                 return result
             # Newest file may be mid-write - wait briefly and try again.
             sleep(1)
             result = read_all_hours(newest)
-            if result:
+            if _snapshot_has_players(result):
                 return result
             # Still nothing - fall back to earlier snapshots for this same day.
             for path in candidate_paths[1:]:
                 result = read_all_hours(path)
-                if result:
+                if _snapshot_has_players(result):
                     return result
-            return {}
+            return result or {}
 
         with ThreadPoolExecutor(max_workers=8) as ex:
             all_results = list(zip(daily_paths, ex.map(read_day, daily_candidates)))
