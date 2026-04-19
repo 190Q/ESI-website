@@ -225,9 +225,30 @@ def _print_python(blacklist, active):
     )
 
 
+HELP_TEXT = """\
+Usage: _export_bans.py <ip_bans.db> <pretty|sql|python>
+
+Helper for scripts/ban-ip.sh list — prints the ip_bans.db contents.
+
+Arguments:
+  <ip_bans.db>    Path to the ip_bans.db SQLite file.
+  <format>        Output format. One of:
+                    pretty  Human-readable summary (default used by ban-ip.sh).
+                    sql     Paste-ready INSERT statements for a matching DB.
+                    python  Standalone Python script that (re)creates the DB.
+
+Options:
+  -h, --help      Show this help message and exit.
+"""
+
+
 def main() -> int:
+    if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
+        print(HELP_TEXT)
+        return 0
     if len(sys.argv) != 3:
         print("Usage: _export_bans.py <ip_bans.db> <pretty|sql|python>", file=sys.stderr)
+        print("Run '_export_bans.py --help' for more information.", file=sys.stderr)
         return 2
     db_path, fmt = sys.argv[1], sys.argv[2]
     blacklist, active, now = _load(db_path)

@@ -8,6 +8,21 @@ set -u
 DIR="$HOME/ESI-website"
 cd "$DIR"
 
+show_help() {
+    cat <<'EOF'
+start.sh — Start all ESI services in the foreground.
+Each runs as a background job; Ctrl+C kills them all.
+
+Usage:
+  ./start.sh             Start all services in the foreground
+  ./start.sh -h | --help Show this help and exit
+EOF
+}
+
+case "${1:-}" in
+    -h|--help) show_help; exit 0 ;;
+esac
+
 cleanup() {
     echo ""
     echo "  Stopping all services…"

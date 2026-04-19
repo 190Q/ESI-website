@@ -14,6 +14,24 @@ set -u
 DIR="$HOME/ESI-website"
 cd "$DIR"
 
+show_help() {
+    cat <<'EOF'
+screen-reload.sh — Restart one or all ESI services in their screen sessions.
+
+Usage:
+  ./screen-reload.sh              # reload all 3
+  ./screen-reload.sh routes       # reload only routes (gateway stays up!)
+  ./screen-reload.sh cache        # reload only cache
+  ./screen-reload.sh gateway      # reload only gateway
+  ./screen-reload.sh routes cache # reload routes + cache
+  ./screen-reload.sh -h | --help  Show this help and exit
+EOF
+}
+
+case "${1:-}" in
+    -h|--help) show_help; exit 0 ;;
+esac
+
 reload_screen() {
     local name="$1"
     local cmd="$2"

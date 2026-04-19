@@ -13,6 +13,27 @@ set -u
 DIR="$HOME/ESI-website"
 cd "$DIR"
 
+show_help() {
+    cat <<'EOF'
+screen-start.sh — Start all ESI services in named screen sessions.
+Each service gets its own screen so you can attach/detach individually.
+
+Usage:
+  ./screen-start.sh             Start all services
+  ./screen-start.sh -h | --help Show this help and exit
+
+Attach/detach:
+  screen -r esi-website-cache     # attach to cache
+  screen -r esi-website-routes    # attach to routes
+  screen -r esi-website-gateway   # attach to gateway
+  Ctrl+A D                        # detach without stopping
+EOF
+}
+
+case "${1:-}" in
+    -h|--help) show_help; exit 0 ;;
+esac
+
 start_screen() {
     local name="$1"
     local cmd="$2"

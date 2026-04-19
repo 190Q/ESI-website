@@ -14,6 +14,24 @@ set -u
 DIR="$HOME/ESI-website"
 cd "$DIR"
 
+show_help() {
+    cat <<'EOF'
+reload.sh — Restart one or all ESI services.
+
+Usage:
+  ./reload.sh              # reload all 3
+  ./reload.sh routes       # reload only routes
+  ./reload.sh cache        # reload only cache
+  ./reload.sh gateway      # reload only gateway
+  ./reload.sh routes cache # reload routes + cache
+  ./reload.sh -h | --help  Show this help and exit
+EOF
+}
+
+case "${1:-}" in
+    -h|--help) show_help; exit 0 ;;
+esac
+
 reload_cache() {
     echo "  Reloading cache…"
     pkill -f "python3.*cache\.py" 2>/dev/null

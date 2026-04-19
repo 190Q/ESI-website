@@ -16,8 +16,29 @@ set -u
 DIR="$HOME/ESI-website"
 cd "$DIR"
 
+show_help() {
+    cat <<'EOF'
+ban-ip.sh — Manually ban, unban, blacklist, or inspect IPs.
+
+Usage:
+  ./scripts/ban-ip.sh ban <ip> [duration]      Temp-ban an IP (default 1 hour)
+  ./scripts/ban-ip.sh unban <ip>               Remove a temp ban
+  ./scripts/ban-ip.sh blacklist <ip> [reason]  Permanently ban an IP
+  ./scripts/ban-ip.sh unblacklist <ip>         Remove from permanent blacklist
+  ./scripts/ban-ip.sh status <ip>              Check if an IP is banned
+  ./scripts/ban-ip.sh list [format]            Show all active bans + blacklist
+                                                 format: pretty (default) | sql | python
+  ./scripts/ban-ip.sh -h | --help              Show this help and exit
+EOF
+}
+
+case "${1:-}" in
+    -h|--help) show_help; exit 0 ;;
+esac
+
 if [ $# -lt 1 ]; then
     echo "Usage: $0 {ban|unban|blacklist|unblacklist|status|list} [ip] [args...]"
+    echo "Run '$0 --help' for more information."
     exit 1
 fi
 
