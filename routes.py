@@ -40,9 +40,11 @@ from config import (
     _CLIENT_CONFIG,
     PLAYER_BULK_METRIC_KEYS, GUILD_BULK_METRIC_KEYS,
     BOT_SCREEN_SESSION, TRACKER_SCREEN_SESSION, TRACKER_SCREEN_SPECS,
+    DEV_MODE,
     _safe_number, _parse_bool, _load_json_file, _save_json_file,
     _mc_username, _get_secret_key, _get_latest_api_db,
 )
+import ipaddress
 
 # Flask app
 
@@ -571,6 +573,96 @@ def auth_logout():
     _remember_delete(token=token)
     resp = jsonify({"loggedIn": False})
     _clear_remember_cookie(resp)
+    return resp
+
+
+# dev-mode bypass: impersonate any Discord user without going through OAuth.
+# Guarded by DEV_MODE (auto-enabled when DISCORD_REDIRECT_URI points at
+# localhost via .env.local) AND a loopback-origin check as a safety net, so it
+# cannot fire even if DEV_MODE is ever accidentally left enabled in prod.
+
+def _is_loopback_request() -> bool:
+    ip = (request.remote_addr or "").strip()
+    if not ip:
+        return False
+    try:
+        return ipaddress.ip_address(ip).is_loopback
+    except ValueError:
+        return ip in {"localhost"}
+
+
+@app.route("/auth/dev-login", methods=["GET", "POST"])
+@rate_limit(30)
+def auth_dev_login():
+    if not DEV_MODE or not _is_loopback_request():
+        abort(404)
+    user_id = (request.values.get("user_id") or "").strip()
+    if not user_id or not user_id.isdigit():
+        return jsonify({
+            "error": "user_id query parameter is required (numeric Discord ID)",
+        }), 400
+    override_username = (request.values.get("username") or "").strip() or None
+
+    # Try to fetch the real guild member so role-gated UI matches production.
+    roles = []
+    nick = None
+    real_username = None
+    avatar = None
+    discriminator = "0"
+    if DISCORD_TOKEN and DISCORD_GUILD_ID:
+        try:
+            member_resp = requests.get(
+                f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/members/{user_id}",
+                headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+                timeout=10,
+            )
+            if member_resp.ok:
+                member_data = member_resp.json()
+                roles = member_data.get("roles", []) or []
+                nick = member_data.get("nick")
+                user_obj = member_data.get("user") or {}
+                real_username = user_obj.get("username")
+                avatar = user_obj.get("avatar")
+                discriminator = user_obj.get("discriminator", "0")
+        except requests.RequestException:
+            pass
+
+    role_objects = []
+    if roles and DISCORD_TOKEN and DISCORD_GUILD_ID:
+        try:
+            roles_resp = requests.get(
+                f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/roles",
+                headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+                timeout=10,
+            )
+            if roles_resp.ok:
+                role_lookup = {r["id"]: r["name"] for r in roles_resp.json()}
+                role_objects = [
+                    {"id": rid, "name": role_lookup.get(rid, "Unknown")}
+                    for rid in roles
+                ]
+        except requests.RequestException:
+            pass
+
+    session.permanent = True
+    user_data = {
+        "id":            user_id,
+        "username":      override_username or real_username or f"dev-user-{user_id}",
+        "nick":          nick,
+        "discriminator": discriminator,
+        "avatar":        avatar,
+        "roles":         roles,
+        "role_objects":  role_objects,
+    }
+    session["user"] = user_data
+    token = _remember_create(user_data)
+    # Honour a `redirect=0` flag so callers (curl/JSON clients) can get the
+    # resulting session payload instead of being bounced back to `/`.
+    if request.values.get("redirect") == "0":
+        resp = jsonify({"loggedIn": True, "user": user_data})
+    else:
+        resp = redirect("/?auth=success")
+    _set_remember_cookie(resp, token)
     return resp
 
 

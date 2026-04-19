@@ -77,19 +77,44 @@
   document.getElementById('accountModalClose').addEventListener('click', closeAccountModal);
 
   loginBtn.addEventListener('click', () => {
-    if (state.loggedIn) openAccountModal();
-    else {
-      // show loading state and disable the button while redirecting
+    if (state.loggedIn) { openAccountModal(); return; }
+
+    // dev-mode bypass: skip Discord OAuth entirely and let the user
+    // impersonate any Discord ID while the site is running locally.
+    if (window.ESI_DEV_MODE) {
+      var input = window.prompt(
+        'DEV MODE - enter the Discord user ID to log in as:\n'
+        + '(numeric Discord snowflake; real guild roles will be fetched if available)',
+        localStorage.getItem('esi_dev_last_id') || ''
+      );
+      if (!input) return;
+      var userId = input.replace(/[^0-9]/g, '');
+      if (!userId) {
+        showToast('\u26a0 Dev-login requires a numeric Discord ID.', 'warn');
+        return;
+      }
+      localStorage.setItem('esi_dev_last_id', userId);
       loginBtn.disabled = true;
       loginBtn.innerHTML =
         '<span class="loading-spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,0.3);border-top-color:#fff;"></span>' +
         ' Logging in\u2026';
       loginBtn.style.background = '#4752c4';
       loginBtn.style.boxShadow = 'none';
-      // save current page state so we can restore it after the OAuth redirect
       sessionStorage.setItem('esi_auth_return', window.location.pathname || '/');
-      window.location.href = '/auth/login';
+      window.location.href = '/auth/dev-login?user_id=' + encodeURIComponent(userId);
+      return;
     }
+
+    // show loading state and disable the button while redirecting
+    loginBtn.disabled = true;
+    loginBtn.innerHTML =
+      '<span class="loading-spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,0.3);border-top-color:#fff;"></span>' +
+      ' Logging in\u2026';
+    loginBtn.style.background = '#4752c4';
+    loginBtn.style.boxShadow = 'none';
+    // save current page state so we can restore it after the OAuth redirect
+    sessionStorage.setItem('esi_auth_return', window.location.pathname || '/');
+    window.location.href = '/auth/login';
   });
 
   document.getElementById('logoutBtn').addEventListener('click', () => {
@@ -211,6 +236,7 @@ var _configPromise = fetch('/api/config')
     ESI_BADGES        = cfg.badges       || [];
     _PARLIAMENT_PLUS  = cfg.permissions  ? cfg.permissions.parliamentPlus || [] : [];
     _JUROR_PLUS       = cfg.permissions  ? cfg.permissions.jurorPlus || [] : [];
+    window.ESI_DEV_MODE = !!cfg.devMode;
     _configLoaded     = true;
   })
   .catch(function () {});

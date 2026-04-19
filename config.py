@@ -65,6 +65,16 @@ CACHE_PORT   = 5002
 ROUTES_URL   = f"http://127.0.0.1:{ROUTES_PORT}"
 CACHE_URL    = f"http://127.0.0.1:{CACHE_PORT}"
 
+# dev-mode: when true, /auth/dev-login is enabled so user can impersonate any
+# Discord user while running the site locally. Auto-detected from a localhost
+# redirect URI (typically set by .env.local) or force-enabled via DEV_MODE=1.
+# NEVER set this on a production deployment.
+DEV_MODE = (
+    str(os.environ.get("DEV_MODE") or "").strip().lower() in {"1", "true", "yes", "on"}
+    or DISCORD_REDIRECT_URI.startswith("http://localhost")
+    or DISCORD_REDIRECT_URI.startswith("http://127.0.0.1")
+)
+
 # discord role IDs
 
 _ROLE_VALAENDOR  = "728858956575014964"
@@ -296,6 +306,7 @@ _CLIENT_CONFIG = {
     "citizenRole": {"id": _ROLE_CITIZEN, "name": "Sindrian Citizen", "color": "#4acf5e"},
     "medals":  _medals_for_client(),
     "badges":  _build_badge_catalog(),
+    "devMode": DEV_MODE,
 }
 
 # metric keys
