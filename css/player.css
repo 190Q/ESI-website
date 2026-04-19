@@ -87,7 +87,7 @@
   margin-bottom: 24px;
   align-items: flex-start;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 .profile-card::before {
   content: '';
@@ -121,7 +121,7 @@
 /* Medals & badges decoration inside the profile card */
 .profile-medals-row {
   position: absolute;
-  top: 14px;
+  top: -15px;
   right: 18px;
   display: flex;
   gap: 6px;
@@ -129,11 +129,12 @@
   justify-content: flex-end;
   max-width: calc(100% - 36px);
   pointer-events: none;
+  z-index: 2;
 }
 .profile-medals-row:empty { display: none; }
 .profile-medal {
-  width: 30px;
-  height: 30px;
+  width: 35px;
+  height: 35px;
   border-radius: 50%;
   border: 1.5px solid var(--border-mid);
   background: var(--surface-2);
@@ -169,7 +170,7 @@
 .profile-badges-col:empty { display: none; }
 .profile-badge-pill {
   font-family: 'Cinzel', serif;
-  font-size: 0.66rem;
+  font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   padding: 3px 12px;
@@ -188,6 +189,7 @@
     justify-content: flex-start;
     align-items: flex-start;
   }
+  .profile-badges-col .profile-badge-pill { margin-right: 0 !important; }
 }
 
 .profile-name-row {

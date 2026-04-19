@@ -198,13 +198,13 @@ BADGE_ROLES = {
     },
 }
 
-# Per-category label used in the Discord role name, e.g. "Quest Badge (350)"
+# Per-category label used in the Discord role name
 _BADGE_SINGULAR = {
-    "War Badges":         "War Badge",
-    "Quest Badges":       "Quest Badge",
-    "Recruitment Badges": "Recruitment Badge",
-    "Raid Badges":        "Raid Badge",
-    "Event Badges":       "Event Badge",
+    "War Badges":         "War",
+    "Quest Badges":       "Quest",
+    "Recruitment Badges": "Recruitment",
+    "Raid Badges":        "Raid",
+    "Event Badges":       "Event",
 }
 
 # Map each category's ordered values
@@ -229,12 +229,17 @@ def _build_badge_catalog():
             is_top = tier_name not in _BADGE_ROLES_COLOUR
             colour_key = "[name]" if is_top else tier_name
             colour = _BADGE_ROLES_COLOUR.get(colour_key, "#b68344")
+            # Standard tiers
+            if is_top:
+                label = f"{tier_name} ({value})"
+            else:
+                label = f"{tier_name} {singular} ({value})"
             tiers.append({
                 "role_id":   role_id,
                 "value":     value,
                 "tier_name": tier_name,
                 "colour":    colour,
-                "label":     f"{singular} ({value})",
+                "label":     label,
             })
         catalog.append({
             "key":      category,
