@@ -35,7 +35,7 @@ import sqlite3
 from time import time
 from collections import deque
 
-from config import _BASE_DIR
+from config import _BASE_DIR, DEV_MODE
 
 # paths
 
@@ -161,6 +161,9 @@ _load_persisted_blacklist()
 
 def is_banned(ip: str) -> bool:
     """Check whether *ip* is currently banned or blacklisted. O(1) lookup."""
+    # dev-mode: never report any IP as banned
+    if DEV_MODE:
+        return False
     if not ip or ip in BAN_WHITELIST:
         return False
     # permanent blacklist takes priority
@@ -183,6 +186,9 @@ def record_strike(ip: str, jail: str) -> bool:
 
     Returns True if the IP was just banned as a result.
     """
+    # dev-mode: never accrue strikes, so bans can never trigger
+    if DEV_MODE:
+        return False
     if not ip or ip in BAN_WHITELIST:
         return False
     if jail not in BAN_JAILS:
@@ -213,6 +219,9 @@ def record_strike(ip: str, jail: str) -> bool:
 
 def ban_ip(ip: str, duration: int = 3600, jail: str = "manual"):
     """Manually ban an IP for *duration* seconds."""
+    # dev-mode: ignore manual ban requests so nothing gets banned locally
+    if DEV_MODE:
+        return
     if ip in BAN_WHITELIST:
         return
     _ban(ip, jail, duration, escalate=False)
@@ -252,6 +261,9 @@ def blacklist_ip(ip: str, reason: str = ""):
     Idempotent: if *ip* is already on the permanent blacklist this is a
     no-op (no DB write, no log spam).
     """
+    # dev-mode: do not persist any blacklist entries so local testing
+    if DEV_MODE:
+        return
     if not ip or ip in BAN_WHITELIST:
         return
     now = time()
