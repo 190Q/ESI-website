@@ -81,6 +81,184 @@ _JUROR_PLUS      = {_ROLE_JUROR, _ROLE_CONGRESS, _ROLE_PARLIAMENT, _ROLE_VALAEND
 _CHIEF_PLUS      = {_ROLE_GRAND_DUKE, _ROLE_ARCHDUKE}
 _CITIZEN_PLUS    = {_ROLE_CITIZEN}
 
+# Discord badge roles colour
+_BADGE_ROLES_COLOUR = {
+    "[name]":   "#7c0000",
+    "Onyx":     "#2f055a",
+    "Diamond":  "#33c3e7",
+    "Platinum": "#8fcef4",
+    "Gold":     "#ffb600",
+    "Silver":   "#c0eeed",
+    "Bronze":   "#b68344",
+}
+
+# Badge tier thresholds
+QUEST_BADGE_TIERS = [
+    (350, "[Name] Badge"),
+    (225, "Onyx"),
+    (150, "Diamond"),
+    (90,  "Platinum"),
+    (50,  "Gold"),
+    (25,  "Silver"),
+    (10,  "Bronze"),
+]
+RECRUITED_BADGE_TIERS = [
+    (250, "[Name] Badge"),
+    (150, "Onyx"),
+    (80,  "Diamond"),
+    (50,  "Platinum"),
+    (25,  "Gold"),
+    (10,  "Silver"),
+    (5,   "Bronze"),
+]
+WAR_BADGE_TIERS = [
+    (10000, "Alle_Sandstorm War Badge"),
+    (6000,  "Onyx"),
+    (3000,  "Diamond"),
+    (1500,  "Platinum"),
+    (750,   "Gold"),
+    (300,   "Silver"),
+    (100,   "Bronze"),
+]
+GRAID_BADGE_TIERS = [
+    (6000, "[Name] Badge"),
+    (3500, "Onyx"),
+    (2000, "Diamond"),
+    (1000, "Platinum"),
+    (500,  "Gold"),
+    (100,  "Silver"),
+    (50,   "Bronze"),
+]
+EVENT_BADGE_TIERS = [
+    (100, "[Name] Badge"),
+    (75,  "Onyx"),
+    (55,  "Diamond"),
+    (35,  "Platinum"),
+    (20,  "Gold"),
+    (10,  "Silver"),
+    (3,   "Bronze"),
+]
+
+# Discord role IDs for each badge tier
+BADGE_ROLES = {
+    "War Badges": {
+        "10k":  "1426633275635404981",
+        "6k":   "1426633206857465888",
+        "3k":   "1426633036736368861",
+        "1.5k": "1426632920528846880",
+        "750":  "1426633144093638778",
+        "300":  "1426632862207049778",
+        "100":  "1426632780615385098",
+    },
+    "Quest Badges": {
+        "350": "1426636141242617906",
+        "225": "1426636108321525891",
+        "150": "1426636066856898593",
+        "90":  "1426636018664341675",
+        "50":  "1426635982614040676",
+        "25":  "1426635948992761988",
+        "10":  "1426635880462024937",
+    },
+    "Recruitment Badges": {
+        "250": "1426637291706912788",
+        "150": "1426637244109946920",
+        "80":  "1426637209301160039",
+        "50":  "1426637168071282808",
+        "25":  "1426637134378303619",
+        "10":  "1426637094339608586",
+        "5":   "1426636993630175447",
+    },
+    "Raid Badges": {
+        "6k":   "1426634664025526405",
+        "3.5k": "1426634622791323938",
+        "2k":   "1426634579644514347",
+        "1k":   "1426634531284324353",
+        "500":  "1426634469401432194",
+        "100":  "1426634408370114773",
+        "50":   "1426634317970542613",
+    },
+    "Event Badges": {
+        "100": "1440682465717915779",
+        "75":  "1440682471086751815",
+        "55":  "1440682473641083011",
+        "35":  "1440682477055115304",
+        "20":  "1440682480846897232",
+        "10":  "1440682485548711997",
+        "3":   "1440682762133569730",
+    },
+}
+
+# Per-category label used in the Discord role name, e.g. "Quest Badge (350)"
+_BADGE_SINGULAR = {
+    "War Badges":         "War Badge",
+    "Quest Badges":       "Quest Badge",
+    "Recruitment Badges": "Recruitment Badge",
+    "Raid Badges":        "Raid Badge",
+    "Event Badges":       "Event Badge",
+}
+
+# Map each category's ordered values
+_BADGE_TIER_DEFS = {
+    "War Badges":         WAR_BADGE_TIERS,
+    "Quest Badges":       QUEST_BADGE_TIERS,
+    "Recruitment Badges": RECRUITED_BADGE_TIERS,
+    "Raid Badges":        GRAID_BADGE_TIERS,
+    "Event Badges":       EVENT_BADGE_TIERS,
+}
+
+# Values in BADGE_ROLES are insertion-ordered
+def _build_badge_catalog():
+    catalog = []
+    for category, role_map in BADGE_ROLES.items():
+        tier_defs = _BADGE_TIER_DEFS.get(category, [])
+        singular  = _BADGE_SINGULAR.get(category, category.rstrip("s"))
+        tiers = []
+        value_items = list(role_map.items())
+        for idx, (value, role_id) in enumerate(value_items):
+            tier_name = tier_defs[idx][1] if idx < len(tier_defs) else "No badge"
+            is_top = tier_name not in _BADGE_ROLES_COLOUR
+            colour_key = "[name]" if is_top else tier_name
+            colour = _BADGE_ROLES_COLOUR.get(colour_key, "#b68344")
+            tiers.append({
+                "role_id":   role_id,
+                "value":     value,
+                "tier_name": tier_name,
+                "colour":    colour,
+                "label":     f"{singular} ({value})",
+            })
+        catalog.append({
+            "key":      category,
+            "label":    category,
+            "singular": singular,
+            "tiers":    tiers,
+        })
+    return catalog
+
+
+# Medal role IDs and metadata
+_MEDAL_ROLES = [
+    {"role_id": "1478086881303335013", "name": "Sindrian Eagle",       "abbr": "SE",  "icon": "sindrian_eagle.png"},
+    {"role_id": "1478087139509141545", "name": "Order of Sindria",     "abbr": "SO",  "icon": "order_of_sindria.png"},
+    {"role_id": "1478087334288167134", "name": "Medal of Valliance",   "abbr": "MV",  "icon": "valliance.png"},
+    {"role_id": "1478087563179855983", "name": "Medal of Brilliance",  "abbr": "MB",  "icon": "brilliance.png"},
+    {"role_id": "1478087998951129180", "name": "Medal of Inspiration", "abbr": "MI",  "icon": "inspiration.png"},
+    {"role_id": "1478088545351762021", "name": "Medal of Benevolence", "abbr": "MBe", "icon": "benevolence.png"},
+    {"role_id": "1478088685084741735", "name": "Medal of Fellowship",  "abbr": "MF",  "icon": "fellowship.png"},
+    {"role_id": "1478088817700245605", "name": "Medal of Allegiance",  "abbr": "MA",  "icon": "allegiance.png"},
+]
+
+
+def _medals_for_client():
+    return [
+        {
+            "role_id": m["role_id"],
+            "name":    m["name"],
+            "abbr":    m["abbr"],
+            "icon":    f"/images/medals/{m['icon']}",
+        }
+        for m in _MEDAL_ROLES
+    ]
+
 # client config (exposed via /api/config)
 
 _CLIENT_CONFIG = {
@@ -116,6 +294,8 @@ _CLIENT_CONFIG = {
         {"id": _ROLE_JUROR,      "name": "Juror",      "color": "#ffc332"},
     ],
     "citizenRole": {"id": _ROLE_CITIZEN, "name": "Sindrian Citizen", "color": "#4acf5e"},
+    "medals":  _medals_for_client(),
+    "badges":  _build_badge_catalog(),
 }
 
 # metric keys
