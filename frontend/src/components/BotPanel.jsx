@@ -73,7 +73,31 @@ export default function BotPanel() {
           <button className="modal-close" id="cuckModalClose" aria-label="Close ban list">
             {'\u2715'}
           </button>
-          <h2 className="modal-title" id="cuckModalTitle">Banned IPs</h2>
+
+          <h2 className="modal-title" id="cuckModalTitle">Cuck List</h2>
+          <p className="modal-sub" style={{ fontWeight: 500 }}>
+            Browse banned and temporarily blocked IPs
+          </p>
+
+          <div
+            className="cuck-tabs"
+            id="cuckModalTabs"
+            role="tablist"
+            aria-label="Ban categories"
+          />
+
+          <div className="cuck-search-wrap">
+            <input
+              type="text"
+              className="cuck-search"
+              id="cuckModalSearch"
+              placeholder={'Search by IP (full or truncated)\u2026'}
+              autoComplete="off"
+              spellCheck="false"
+              aria-label="Search banned IPs"
+            />
+          </div>
+
           <div className="cuck-modal-body" id="cuckModalBody" />
         </div>
       </div>

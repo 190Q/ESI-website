@@ -412,6 +412,8 @@
      ══════════════════════════════════ */
 
   var _cuckData = null;
+  var _cuckCurrentTab = null;
+  var _cuckSearchQuery = '';
 
   function _safeSanitize(html) {
     if (typeof DOMPurify !== 'undefined' && DOMPurify && typeof DOMPurify.sanitize === 'function') {
@@ -490,12 +492,39 @@
   function _onCuckItemClick(e) {
     var key = e.currentTarget.getAttribute('data-cuck-key');
     if (!key || !_cuckData || !Array.isArray(_cuckData.categories)) return;
-    var cat = null;
-    for (var i = 0; i < _cuckData.categories.length; i++) {
-      if (_cuckData.categories[i].key === key) { cat = _cuckData.categories[i]; break; }
+    openCuckModal(key);
+  }
+
+  // Truncate an IP query the same way the backend truncates stored IPs
+  function _truncateIpForSearch(s) {
+    s = String(s == null ? '' : s).trim();
+    if (!s) return '';
+    if (s.indexOf(':') !== -1) {
+      var parts = s.split(':');
+      var kept = [];
+      for (var i = 0; i < parts.length && kept.length < 3; i++) {
+        if (parts[i]) kept.push(parts[i]);
+      }
+      return kept.length ? kept.join(':') + '::' : '::';
     }
-    if (!cat) return;
-    openCuckModal(cat);
+    if (s.indexOf('.') !== -1) {
+      var p = s.split('.');
+      if (p.length === 4) {
+        p[3] = '0';
+        return p.join('.');
+      }
+    }
+    return s;
+  }
+
+  function _matchesIpQuery(ip, query) {
+    if (!query) return true;
+    var ipL = String(ip == null ? '' : ip).toLowerCase();
+    var qL  = String(query).toLowerCase();
+    if (ipL.indexOf(qL) !== -1) return true;
+    var t = _truncateIpForSearch(query).toLowerCase();
+    if (t && t !== qL && ipL.indexOf(t) !== -1) return true;
+    return false;
   }
 
   function _renderTempEntry(e) {
@@ -548,30 +577,109 @@
     '</li>';
   }
 
-  function openCuckModal(cat) {
+  function openCuckModal(initialKey) {
     var backdrop = document.getElementById('cuckModalBackdrop');
-    var titleEl  = document.getElementById('cuckModalTitle');
-    var bodyEl   = document.getElementById('cuckModalBody');
-    if (!backdrop || !titleEl || !bodyEl) return;
+    if (!backdrop || !_cuckData) return;
+    var cats = Array.isArray(_cuckData.categories) ? _cuckData.categories : [];
+    if (!cats.length) return;
 
-    titleEl.textContent = (cat.label || 'Banned IPs') + ' (' + (cat.count || 0) + ')';
+    // Reset search state on each open.
+    _cuckSearchQuery = '';
+    var searchInput = document.getElementById('cuckModalSearch');
+    if (searchInput) searchInput.value = '';
+
+    _renderCuckTabs(cats);
+
+    var initial = initialKey;
+    var initialExists = false;
+    for (var i = 0; i < cats.length; i++) {
+      if (cats[i].key === initial) { initialExists = true; break; }
+    }
+    if (!initial || !initialExists) initial = cats[0].key;
+    _selectCuckTab(initial);
+
+    backdrop.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function _renderCuckTabs(cats) {
+    var tabsEl = document.getElementById('cuckModalTabs');
+    if (!tabsEl) return;
+    var html = '';
+    for (var i = 0; i < cats.length; i++) {
+      var c = cats[i];
+      var isHeadline = c.key === 'blacklists_all' || c.key === 'temp_bans_all';
+      html +=
+        '<button type="button" class="cuck-tab' + (isHeadline ? ' cuck-tab-headline' : '') + '"' +
+        ' role="tab" aria-selected="false"' +
+        ' data-cuck-tab="' + _escHtml(c.key) + '">' +
+          '<span class="cuck-tab-label">' + _escHtml(c.label) + '</span>' +
+          '<span class="cuck-tab-count">' + _escHtml(c.count || 0) + '</span>' +
+        '</button>';
+    }
+    tabsEl.innerHTML = _safeSanitize(html);
+
+    var btns = tabsEl.querySelectorAll('.cuck-tab');
+    for (var j = 0; j < btns.length; j++) {
+      btns[j].addEventListener('click', _onCuckTabClick);
+    }
+  }
+
+  function _onCuckTabClick(e) {
+    var key = e.currentTarget.getAttribute('data-cuck-tab');
+    if (key) _selectCuckTab(key);
+  }
+
+  function _selectCuckTab(key) {
+    _cuckCurrentTab = key;
+    var tabsEl = document.getElementById('cuckModalTabs');
+    if (tabsEl) {
+      var btns = tabsEl.querySelectorAll('.cuck-tab');
+      for (var i = 0; i < btns.length; i++) {
+        var isActive = btns[i].getAttribute('data-cuck-tab') === key;
+        btns[i].classList.toggle('active', isActive);
+        btns[i].setAttribute('aria-selected', isActive ? 'true' : 'false');
+      }
+    }
+    _renderCuckEntries();
+    var body = document.getElementById('cuckModalBody');
+    if (body) body.scrollTop = 0;
+  }
+
+  function _renderCuckEntries() {
+    var bodyEl = document.getElementById('cuckModalBody');
+    if (!bodyEl || !_cuckData) return;
+
+    var cats = Array.isArray(_cuckData.categories) ? _cuckData.categories : [];
+    var cat = null;
+    for (var i = 0; i < cats.length; i++) {
+      if (cats[i].key === _cuckCurrentTab) { cat = cats[i]; break; }
+    }
+    if (!cat) {
+      bodyEl.innerHTML = _safeSanitize('<div class="cuck-modal-empty">No category selected.</div>');
+      return;
+    }
 
     var entries = Array.isArray(cat.entries) ? cat.entries : [];
+    var q = String(_cuckSearchQuery || '').trim();
+    if (q) {
+      entries = entries.filter(function (e) { return _matchesIpQuery(e.ip, q); });
+    }
+
     var html;
     if (!entries.length) {
-      html = '<div class="cuck-modal-empty">No entries in this category.</div>';
+      html = '<div class="cuck-modal-empty">' +
+        (q ? 'No entries match your search.' : 'No entries in this category.') +
+        '</div>';
     } else {
       var items = [];
-      for (var i = 0; i < entries.length; i++) {
-        items.push(cat.type === 'temp' ? _renderTempEntry(entries[i]) : _renderBlacklistEntry(entries[i]));
+      for (var j = 0; j < entries.length; j++) {
+        items.push(cat.type === 'temp' ? _renderTempEntry(entries[j]) : _renderBlacklistEntry(entries[j]));
       }
       html = '<ul class="cuck-entry-list">' + items.join('') + '</ul>';
     }
 
     bodyEl.innerHTML = _safeSanitize(html);
-
-    backdrop.classList.add('open');
-    document.body.style.overflow = 'hidden';
   }
 
   function closeCuckModal() {
@@ -590,6 +698,14 @@
     _cuckModalInitialized = true;
 
     closeBtn.addEventListener('click', closeCuckModal);
+
+    var searchInput = document.getElementById('cuckModalSearch');
+    if (searchInput) {
+      searchInput.addEventListener('input', function (e) {
+        _cuckSearchQuery = (e.target && e.target.value) || '';
+        _renderCuckEntries();
+      });
+    }
 
     var mouseDownOnBackdrop = false;
     backdrop.addEventListener('mousedown', function (e) {
