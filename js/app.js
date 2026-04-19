@@ -250,59 +250,7 @@ function _esiRoleBadgeEl(name, color, large) {
   return span;
 }
 
-function renderAccountModalMedals(userRoles) {
-  var el = document.getElementById('accountModalMedals');
-  if (!el) return;
-  el.textContent = '';
-  var roleSet = {};
-  (userRoles || []).forEach(function (id) { roleSet[id] = true; });
-  var owned = ESI_MEDALS.filter(function (m) { return roleSet[m.role_id]; }).slice(0, 8);
-  owned.forEach(function (m) {
-    var wrap = document.createElement('div');
-    wrap.className = 'account-medal';
-    wrap.title = m.name + ' [' + m.abbr + ']';
-    var img = document.createElement('img');
-    img.className = 'account-medal-img';
-    img.src = m.icon;
-    img.alt = m.name;
-    wrap.appendChild(img);
-    el.appendChild(wrap);
-  });
-  el.style.display = owned.length ? '' : 'none';
-}
-
-function renderAccountModalBadges(userRoles) {
-  var el = document.getElementById('accountModalBadges');
-  if (!el) return;
-  el.textContent = '';
-  var roleSet = {};
-  (userRoles || []).forEach(function (id) { roleSet[id] = true; });
-  var picks = [];
-  ESI_BADGES.forEach(function (cat) {
-    // tiers are ordered top → bottom; pick the highest tier the user owns
-    for (var i = 0; i < cat.tiers.length; i++) {
-      var t = cat.tiers[i];
-      if (roleSet[t.role_id]) {
-        picks.push({ label: t.label, colour: t.colour });
-        break;
-      }
-    }
-  });
-  picks.slice(0, 4).forEach(function (p) {
-    var pill = document.createElement('span');
-    pill.className = 'account-badge-pill';
-    pill.style.color = p.colour;
-    pill.style.background = p.colour + '22';
-    pill.style.borderColor = p.colour + '66';
-    pill.textContent = p.label;
-    el.appendChild(pill);
-  });
-  el.style.display = picks.length ? '' : 'none';
-}
-
 function renderAccountModalRoles(userRoles, userId) {
-  renderAccountModalMedals(userRoles);
-  renderAccountModalBadges(userRoles);
   var el = document.getElementById('accountModalRoles');
   if (!el) return;
   el.innerHTML = '';

@@ -116,7 +116,79 @@
   image-rendering: pixelated;
 }
 
-.profile-info { flex: 1; min-width: 0; }
+.profile-info { flex: 1; min-width: 0; padding-right: 150px; }
+
+/* Medals & badges decoration inside the profile card */
+.profile-medals-row {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: calc(100% - 36px);
+  pointer-events: none;
+}
+.profile-medals-row:empty { display: none; }
+.profile-medal {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-mid);
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  transition: transform var(--transition), border-color var(--transition);
+}
+.profile-medal:hover {
+  transform: translateY(-1px) scale(1.08);
+  border-color: var(--gold-light);
+}
+.profile-medal-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.profile-badges-col {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  max-width: calc(100% - 36px);
+}
+.profile-badges-col:empty { display: none; }
+.profile-badge-pill {
+  font-family: 'Cinzel', serif;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 3px 12px;
+  border-radius: 20px;
+  border: 1px solid;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+@media (max-width: 720px) {
+  .profile-info { padding-right: 0; }
+  .profile-medals-row,
+  .profile-badges-col {
+    position: static;
+    margin-top: 8px;
+    justify-content: flex-start;
+    align-items: flex-start;
+  }
+}
 
 .profile-name-row {
   display: flex;

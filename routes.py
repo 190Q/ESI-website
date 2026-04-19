@@ -43,6 +43,7 @@ from config import (
     DEV_MODE,
     _safe_number, _parse_bool, _load_json_file, _save_json_file,
     _mc_username, _get_secret_key, _get_latest_api_db,
+    _medals_for_client, _build_badge_catalog,
 )
 import ipaddress
 
@@ -667,6 +668,94 @@ def auth_dev_login():
 
 
 # player / guild API routes
+
+# player decorations
+
+_DECORATIONS_CACHE: dict = {}
+_DECORATIONS_CACHE_LOCK = _threading.Lock()
+_DECORATIONS_CACHE_TTL = 120.0
+
+
+def _resolve_discord_id(username: str):
+    """Reverse-lookup a Minecraft username -> Discord ID via username_matches.json."""
+    matches = _load_json_file(_USERNAME_MATCHES_JSON)
+    ulow = (username or "").strip().lower()
+    if not ulow:
+        return None
+    for did, entry in matches.items():
+        mc = entry.get("username") if isinstance(entry, dict) else entry
+        if isinstance(mc, str) and mc.lower() == ulow:
+            return did
+    return None
+
+
+def _fetch_discord_member_roles(discord_id: str):
+    """Fetch a guild member's role IDs from Discord. Returns [] on any failure."""
+    if not discord_id or not DISCORD_TOKEN or not DISCORD_GUILD_ID:
+        return []
+    try:
+        resp = requests.get(
+            f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/members/{discord_id}",
+            headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+            timeout=10,
+        )
+        if not resp.ok:
+            return []
+        return resp.json().get("roles", []) or []
+    except requests.RequestException:
+        return []
+
+
+def _pick_decorations(role_ids):
+    """Given a list of Discord role IDs, return the owned medals and the
+    highest-tier badge per category, in display order."""
+    role_set = set(role_ids or [])
+    medals = [
+        m for m in _medals_for_client()
+        if m["role_id"] in role_set
+    ][:8]
+    badges = []
+    for cat in _build_badge_catalog():
+        for tier in cat["tiers"]:
+            if tier["role_id"] in role_set:
+                badges.append(tier)
+                break
+    badges = badges[:4]
+    return medals, badges
+
+
+@app.route("/api/player/<username>/decorations")
+@rate_limit(30)
+def player_decorations(username: str):
+    key = (username or "").strip().lower()
+    if not key:
+        return jsonify({"discord_id": None, "medals": [], "badges": []})
+    now = time()
+    with _DECORATIONS_CACHE_LOCK:
+        cached = _DECORATIONS_CACHE.get(key)
+    if cached and now - cached[0] < _DECORATIONS_CACHE_TTL:
+        return jsonify(cached[1])
+    discord_id = _resolve_discord_id(username)
+    if not discord_id:
+        payload = {"discord_id": None, "medals": [], "badges": []}
+    else:
+        roles = _fetch_discord_member_roles(discord_id)
+        medals, badges = _pick_decorations(roles)
+        payload = {
+            "discord_id": discord_id,
+            "medals":     medals,
+            "badges":     badges,
+        }
+    with _DECORATIONS_CACHE_LOCK:
+        _DECORATIONS_CACHE[key] = (now, payload)
+        if len(_DECORATIONS_CACHE) > 2000:
+            # drop any entries older than 2x TTL
+            cutoff = now - 2 * _DECORATIONS_CACHE_TTL
+            stale = [k for k, v in _DECORATIONS_CACHE.items() if v[0] < cutoff]
+            for k in stale:
+                del _DECORATIONS_CACHE[k]
+    return jsonify(payload)
+
 
 @app.route("/api/player/<username>/rank-history")
 @rate_limit(10)

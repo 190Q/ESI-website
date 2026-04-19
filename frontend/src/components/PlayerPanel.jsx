@@ -33,6 +33,8 @@ export default function PlayerPanel() {
 
         {/* Profile card */}
         <div className="profile-card">
+          <div className="profile-medals-row" id="playerMedalsRow" />
+          <div className="profile-badges-col" id="playerBadgesCol" />
           <div className="profile-avatar-wrap">
             <img id="playerSkin" src="" alt="skin" className="profile-skin" />
           </div>

@@ -459,6 +459,7 @@
       document.getElementById('globalRaidsCard').style.display = 'none';
       document.getElementById('globalDungeonsCard').style.display = 'none';
       // hide view buttons until real data arrives
+      clearPlayerDecorations();
       document.querySelector('#playerContent .view-selector').style.display = 'none';
       document.getElementById('viewRankHistory').style.display = 'none';
       document.getElementById('characterView').style.display = 'none';
@@ -548,6 +549,61 @@
   function formatInt(n) { return Number(n || 0).toLocaleString(); }
   function capFirstSimple(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 
+  /* decorations (Discord medals + badge pills) */
+  var _decorationsReq = 0;
+  function clearPlayerDecorations() {
+    var medalsEl = document.getElementById('playerMedalsRow');
+    var badgesEl = document.getElementById('playerBadgesCol');
+    if (medalsEl) medalsEl.textContent = '';
+    if (badgesEl) badgesEl.textContent = '';
+  }
+  function renderPlayerDecorations(medals, badges) {
+    var medalsEl = document.getElementById('playerMedalsRow');
+    var badgesEl = document.getElementById('playerBadgesCol');
+    if (medalsEl) {
+      medalsEl.textContent = '';
+      (medals || []).slice(0, 8).forEach(function (m) {
+        var wrap = document.createElement('div');
+        wrap.className = 'profile-medal';
+        wrap.title = (m.name || '') + (m.abbr ? ' [' + m.abbr + ']' : '');
+        var img = document.createElement('img');
+        img.className = 'profile-medal-img';
+        img.src = m.icon;
+        img.alt = m.name || '';
+        wrap.appendChild(img);
+        medalsEl.appendChild(wrap);
+      });
+    }
+    if (badgesEl) {
+      badgesEl.textContent = '';
+      (badges || []).slice(0, 4).forEach(function (b) {
+        var pill = document.createElement('span');
+        pill.className = 'profile-badge-pill';
+        var colour = b.colour || '#b68344';
+        pill.style.color = colour;
+        pill.style.background = colour + '22';
+        pill.style.borderColor = colour + '66';
+        pill.textContent = b.label || '';
+        badgesEl.appendChild(pill);
+      });
+    }
+  }
+  function fetchPlayerDecorations(username) {
+    if (!username) { clearPlayerDecorations(); return; }
+    var reqId = ++_decorationsReq;
+    fetch(API_BASE + '/api/player/' + encodeURIComponent(username) + '/decorations')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        // only apply if this is still the latest lookup
+        if (reqId !== _decorationsReq) return;
+        if (!data) { clearPlayerDecorations(); return; }
+        renderPlayerDecorations(data.medals || [], data.badges || []);
+      })
+      .catch(function () {
+        if (reqId === _decorationsReq) clearPlayerDecorations();
+      });
+  }
+
   /* render player */
   function renderPlayer(p, guild, isFallback) {
     /* skin */
@@ -558,6 +614,9 @@
 
     /* name */
     document.getElementById('playerName').textContent = p.username || 'N/A';
+
+    /* medals + badge decorations (fetched async) */
+    fetchPlayerDecorations(p.username);
 
     /* rank badge */
     const rankEl  = document.getElementById('playerRankBadge');
