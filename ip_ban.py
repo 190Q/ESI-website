@@ -15,7 +15,7 @@ bans IPs that exceed thresholds.  Bans escalate on repeat offences.
 
     Permanent Blacklist
     ───────────────────
-    After BAN_BLACKLIST_AFTER (default 5) temporary bans, an IP
+    After BAN_BLACKLIST_AFTER (default 3) temporary bans, an IP
     is automatically moved to the permanent blacklist.  IPs can
     also be blacklisted manually via blacklist_ip().  Blacklisted
     IPs are blocked unconditionally until manually removed with
@@ -51,7 +51,7 @@ BAN_JAILS = {
     "rate_limit": (20, 300, 3600),    # 20 × 429 in 5 min → 60 min
 }
 BAN_MAX_DURATION     = 86400           # hard cap: 24 hours
-BAN_BLACKLIST_AFTER  = 5               # auto-blacklist after this many temp bans
+BAN_BLACKLIST_AFTER  = 3               # auto-blacklist after this many temp bans
 BAN_CLEANUP_INTERVAL = 300             # purge expired entries every 5 min
 BAN_WHITELIST: set   = {"127.0.0.1", "::1"}
 

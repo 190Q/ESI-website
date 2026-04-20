@@ -77,6 +77,51 @@ except ImportError:
     _HAS_BAN = False
     BAN_WHITELIST = set()
 
+import ipaddress
+
+# Cloudflare edge IP ranges
+_CLOUDFLARE_NETS = [
+    ipaddress.ip_network(n) for n in (
+        "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22",
+        "103.31.4.0/22",   "141.101.64.0/18", "108.162.192.0/18",
+        "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22",
+        "198.41.128.0/17", "162.158.0.0/15",  "104.16.0.0/13",
+        "104.24.0.0/14",   "172.64.0.0/13",   "131.0.72.0/22",
+        "2400:cb00::/32",  "2606:4700::/32",  "2803:f800::/32",
+        "2405:b500::/32",  "2405:8100::/32",  "2a06:98c0::/29",
+        "2c0f:f248::/32",
+    )
+]
+
+
+def _is_cloudflare_peer(ip: str) -> bool:
+    if not ip:
+        return False
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(addr in net for net in _CLOUDFLARE_NETS)
+
+
+def _real_client_ip():
+    """Return the true client IP, honouring Cloudflare's CF-Connecting-IP.
+
+    Falls back to X-Forwarded-For (first entry) and finally to
+    request.remote_addr so behaviour is unchanged when no CDN is in front.
+    """
+    # Only trust CF-Connecting-IP when the TCP peer is actually Cloudflare
+    peer = request.environ.get("REMOTE_ADDR") or request.remote_addr
+    if _is_cloudflare_peer(peer):
+        cf = request.headers.get("CF-Connecting-IP")
+        if cf:
+            return cf.strip()
+    xff = request.headers.get("X-Forwarded-For")
+    if xff:
+        # first entry is the original client when the chain is trusted
+        return xff.split(",")[0].strip()
+    return request.remote_addr
+
 
 class _BanningWSGIRequestHandler(WSGIRequestHandler):
     """Werkzeug request handler that insta-blacklists malformed-HTTP peers.
@@ -97,8 +142,12 @@ class _BanningWSGIRequestHandler(WSGIRequestHandler):
                 ip = self.client_address[0]
             except Exception:
                 pass
-            # Skip whitelisted peers (e.g. loopback nginx upstream).
-            if ip and ip not in BAN_WHITELIST:
+            # Never blacklist loopback upstreams or Cloudflare edges
+            if (
+                ip
+                and ip not in BAN_WHITELIST
+                and not _is_cloudflare_peer(ip)
+            ):
                 try:
                     blacklist_ip(
                         ip,
@@ -144,31 +193,164 @@ _WORDPRESS_PATH_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Generic exploit-scanner probe detection
+_SCANNER_PATH_RE = re.compile(
+    r"(?:^|/)(?:"
+    # shortlist
+    r"odinhttpcall\d*|"
+    r"sdk(?=$|[/?])|"
+    r"HNAP1|"
+    r"evox/about|"
+    r"boaform|"
+    r"phpmyadmin|phpMyAdmin|adminer|pma(?=$|[/?])|"
+    r"manager/html|"
+    r"solr/|"
+    r"robots\.txt(?=$|[/?])|"
+    # CMS fingerprints (other than WP)
+    r"joomla|drupal|magento|phpbb|vbulletin|typo3|"
+    # admin / login / webmail probes
+    r"administrator(?=$|[/?])|"
+    r"admin(?:\.php|/login|/index|/config)|"
+    r"login\.(?:php|asp|aspx|jsp|action)|"
+    r"cpanel(?=$|[/?])|whm(?=$|[/?])|webmail(?=$|[/?])|roundcube|"
+    # config / secret files
+    r"config\.(?:php|inc|bak|old|ya?ml)|"
+    r"web\.config|"
+    r"docker-compose\.ya?ml|dockerfile(?=$|[/?])|"
+    r"\.env(?=\.|$|[/?])|"
+    r"\.git/(?:config|HEAD|index|logs)|"
+    r"\.svn/|\.hg/|\.bzr/|"
+    r"\.aws/credentials|\.ssh/(?:id_rsa|authorized_keys)|"
+    # package / build manifests (this app serves none at the URL root)
+    r"package(?:-lock)?\.json(?=$|[/?])|"
+    r"composer\.(?:json|lock)(?=$|[/?])|"
+    r"requirements\.txt(?=$|[/?])|"
+    r"yarn\.lock(?=$|[/?])|"
+    r"Gemfile(?:\.lock)?(?=$|[/?])|"
+    r"pom\.xml(?=$|[/?])|"
+    # backup archives at the site root
+    r"(?:backup|dump|db|database|site|www|public_html)\."
+    r"(?:sql|zip|tar|tar\.gz|tgz|gz|7z|rar|bak|old)|"
+    # API / framework discovery
+    r"graphql(?:-console|iql)?(?=$|[/?])|"
+    r"swagger(?:-ui)?(?=$|[/?.])|"
+    r"openapi(?:\.json|\.ya?ml)?(?=$|[/?])|"
+    r"api-docs(?=$|[/?])|"
+    r"actuator(?=$|[/?])|"
+    # cloud metadata endpoints
+    r"latest/meta-data|"
+    r"metadata/instance|"
+    r"computeMetadata/|"
+    # kubernetes / docker runtime APIs
+    r"containers/json|"
+    r"api/v1/(?:pods|nodes|secrets|namespaces|services)|"
+    # IIS / ASP debug artefacts
+    r"trace\.axd|elmah\.axd|"
+    # common RCE / uploaded-shell filenames
+    r"shell\.(?:php|jsp|aspx?)|"
+    r"cmd\.(?:php|jsp|aspx?)|"
+    r"eval-stdin\.php|"
+    # unix system files / LFI targets
+    r"etc/passwd|etc/shadow|proc/self/environ"
+    r")",
+    re.IGNORECASE,
+)
+
+# URL-level injection / traversal payloads (checked against raw path+query)
+_INJECTION_RE = re.compile(
+    r"(?:"
+    # path traversal (raw and URL-encoded)
+    r"\.\./\.\./|%2e%2e%2f|%252e%252e|"
+    r"%00|"
+    # SQL injection
+    r"\bunion\s+(?:all\s+)?select\b|"
+    r"\bor\s+1\s*=\s*1\b|"
+    r"'\s*or\s*'1'\s*=\s*'1|"
+    r";\s*drop\s+table\s|"
+    r"\bsleep\s*\(\s*\d+\s*\)|"
+    r"\bbenchmark\s*\(|"
+    r"information_schema\b|"
+    # XSS
+    r"<\s*script\b|"
+    r"javascript\s*:|"
+    r"onerror\s*=|onload\s*=|"
+    r"<\s*iframe\b|"
+    # SSRF targets (cloud / link-local)
+    r"169\.254\.169\.254|"
+    r"metadata\.google\.internal|"
+    r"169\.254\.170\.2|"
+    # command injection
+    r";\s*(?:cat|wget|curl|nc|bash|sh|python|perl)\s|"
+    r"\|\s*(?:cat|wget|curl|nc|bash|sh)\s|"
+    r"\$\(\s*(?:cat|wget|curl|nc|id|whoami)\b|"
+    r"`(?:cat|wget|curl|nc|id|whoami)\b|"
+    # SSTI
+    r"\{\{\s*[^}]*[._|][^}]*\}\}|"
+    r"\$\{[^}]*\}"
+    r")",
+    re.IGNORECASE,
+)
+
+# HTTP methods we never legitimately serve
+_BANNED_METHODS = frozenset({
+    "TRACE", "TRACK", "CONNECT", "DEBUG",
+    "PROPFIND", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK",
+})
+
 
 @app.before_request
 def _gate_requests():
+    ip = _real_client_ip()
+    # Never blacklist the Cloudflare edge itself — that would kill every
+    # legitimate visitor routed through the same POP.
+    peer = request.environ.get("REMOTE_ADDR") or request.remote_addr
+    if _is_cloudflare_peer(peer) and ip == peer:
+        # CF header missing despite CF peer → treat as unknown, don't ban.
+        ip = None
     # reject banned IPs immediately
-    if _HAS_BAN and is_banned(request.remote_addr):
+    if _HAS_BAN and ip and is_banned(ip):
         abort(403)
+    # HTTP methods only scanners / attackers send (XST, WebDAV, proxy abuse)
+    if request.method.upper() in _BANNED_METHODS:
+        if _HAS_BAN and ip:
+            blacklist_ip(ip, reason=f"Banned method: {request.method}")
+        abort(403)
+    # Request smuggling: both Content-Length and Transfer-Encoding present
+    if request.headers.get("Transfer-Encoding") and request.headers.get("Content-Length"):
+        if _HAS_BAN and ip:
+            blacklist_ip(ip, reason="Request smuggling: CL + TE")
+        abort(400)
     path = request.path
     # HTTP/1.0 direct to the gateway (no upstream proxy header) is a scanner
     # fingerprint, real browsers are 1.1+, and nginx/Cloudflare always set
     # X-Forwarded-For.  Insta-blacklist.
     protocol = request.environ.get("SERVER_PROTOCOL", "")
     if protocol == "HTTP/1.0" and not request.headers.get("X-Forwarded-For"):
-        if _HAS_BAN and request.remote_addr:
+        if _HAS_BAN and ip:
             blacklist_ip(
-                request.remote_addr,
+                ip,
                 reason=f"Non-human pattern: direct {protocol} request",
             )
         abort(403)
     # WordPress probe → instant permanent blacklist
     if _WORDPRESS_PATH_RE.search(path):
-        if _HAS_BAN and request.remote_addr:
-            blacklist_ip(
-                request.remote_addr,
-                reason=f"WordPress probe: {path}",
-            )
+        if _HAS_BAN and ip:
+            blacklist_ip(ip, reason=f"WordPress probe: {path}")
+        abort(403)
+    # Generic exploit-scanner probe -> instant permanent blacklist
+    if _SCANNER_PATH_RE.search(path):
+        if _HAS_BAN and ip:
+            blacklist_ip(ip, reason=f"Scanner probe: {path}")
+        abort(403)
+    # Injection / traversal payload in URL or query string
+    try:
+        qs = request.query_string.decode("utf-8", "replace")
+    except Exception:
+        qs = ""
+    raw = path + ("?" + qs if qs else "")
+    if _INJECTION_RE.search(raw):
+        if _HAS_BAN and ip:
+            blacklist_ip(ip, reason=f"Injection payload: {path}")
         abort(403)
     # block dotfiles
     if "/." in path or path.startswith("."):
@@ -198,13 +380,16 @@ def _gate_requests():
 
 @app.after_request
 def _after_request(response):
-    ip = request.remote_addr or "unknown"
+    ip = _real_client_ip() or "unknown"
+    # Don't feed strikes against the Cloudflare edge itself.
+    peer = request.environ.get("REMOTE_ADDR") or request.remote_addr
+    strike_ip = ip if not (_is_cloudflare_peer(peer) and ip == peer) else None
     # record strikes for the ip ban system
-    if _HAS_BAN:
+    if _HAS_BAN and strike_ip:
         if response.status_code == 403:
-            record_strike(ip, "blocked")
+            record_strike(strike_ip, "blocked")
         elif response.status_code == 429:
-            record_strike(ip, "rate_limit")
+            record_strike(strike_ip, "rate_limit")
     # only log blocked requests to DB + access.log
     if _HAS_LOGGER and response.status_code == 403:
         _log_blocked(
