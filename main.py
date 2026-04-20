@@ -19,6 +19,7 @@ import base64
 import hashlib
 import os
 import re
+import sys
 import requests
 from flask import Flask, request, Response, jsonify, send_from_directory, abort
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -123,6 +124,18 @@ def _real_client_ip():
     return request.remote_addr
 
 
+def _log_cf_skip(peer: str, reason: str) -> None:
+    """Print a notice that a blacklist was suppressed because the TCP peer
+    was a Cloudflare edge (blacklisting it would block real visitors).
+    """
+    print(
+        f"[IP-BAN] Skipped blacklist for Cloudflare edge peer {peer} "
+        f"(no usable CF-Connecting-IP): {reason}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 class _BanningWSGIRequestHandler(WSGIRequestHandler):
     """Werkzeug request handler that insta-blacklists malformed-HTTP peers.
 
@@ -143,18 +156,22 @@ class _BanningWSGIRequestHandler(WSGIRequestHandler):
             except Exception:
                 pass
             # Never blacklist loopback upstreams or Cloudflare edges
-            if (
-                ip
-                and ip not in BAN_WHITELIST
-                and not _is_cloudflare_peer(ip)
-            ):
-                try:
-                    blacklist_ip(
-                        ip,
-                        reason=f"Malformed HTTP (code {code}): {message!r}",
+            if ip and ip not in BAN_WHITELIST:
+                if _is_cloudflare_peer(ip):
+                    print(
+                        f"[IP-BAN] Skipped blacklist for Cloudflare edge peer "
+                        f"{ip}: Malformed HTTP (code {code}): {message!r}",
+                        file=sys.stderr,
+                        flush=True,
                     )
-                except Exception:
-                    pass
+                else:
+                    try:
+                        blacklist_ip(
+                            ip,
+                            reason=f"Malformed HTTP (code {code}): {message!r}",
+                        )
+                    except Exception:
+                        pass
         return super().send_error(code, message, explain)
 
 os.makedirs(_UPLOAD_DIR, exist_ok=True)
@@ -246,12 +263,34 @@ _SCANNER_PATH_RE = re.compile(
     r"api/v1/(?:pods|nodes|secrets|namespaces|services)|"
     # IIS / ASP debug artefacts
     r"trace\.axd|elmah\.axd|"
+    # framework debug / profiler panels
+    r"_profiler(?=$|[/?])|_debugbar(?=$|[/?])|phpinfo\.php|"
     # common RCE / uploaded-shell filenames
     r"shell\.(?:php|jsp|aspx?)|"
     r"cmd\.(?:php|jsp|aspx?)|"
     r"eval-stdin\.php|"
     # unix system files / LFI targets
     r"etc/passwd|etc/shadow|proc/self/environ"
+    r")",
+    re.IGNORECASE,
+)
+
+# Debugger / profiler trigger probes in the URL or query string
+_DEBUG_PROBE_RE = re.compile(
+    r"(?:"
+    # Xdebug session / profiler / trace triggers
+    r"XDEBUG_SESSION_START=|"
+    r"XDEBUG_SESSION=|"
+    r"XDEBUG_PROFILE=|"
+    r"XDEBUG_TRIGGER=|"
+    # Zend debugger triggers
+    r"start_debug=1|"
+    r"debug_host=|"
+    r"debug_port=|"
+    r"debug_session_id=|"
+    # Symfony profiler / Laravel debugbar
+    r"_profiler_open_file=|"
+    r"_debugbar="
     r")",
     re.IGNORECASE,
 )
@@ -304,21 +343,28 @@ def _gate_requests():
     # Never blacklist the Cloudflare edge itself — that would kill every
     # legitimate visitor routed through the same POP.
     peer = request.environ.get("REMOTE_ADDR") or request.remote_addr
-    if _is_cloudflare_peer(peer) and ip == peer:
+    cf_skip = _is_cloudflare_peer(peer) and ip == peer
+    if cf_skip:
         # CF header missing despite CF peer → treat as unknown, don't ban.
         ip = None
+
+    def _do_blacklist(reason: str) -> None:
+        """Blacklist the real client IP, or log a Cloudflare-skip notice."""
+        if _HAS_BAN and ip:
+            blacklist_ip(ip, reason=reason)
+        elif cf_skip:
+            _log_cf_skip(peer, reason)
+
     # reject banned IPs immediately
     if _HAS_BAN and ip and is_banned(ip):
         abort(403)
     # HTTP methods only scanners / attackers send (XST, WebDAV, proxy abuse)
     if request.method.upper() in _BANNED_METHODS:
-        if _HAS_BAN and ip:
-            blacklist_ip(ip, reason=f"Banned method: {request.method}")
+        _do_blacklist(f"Banned method: {request.method}")
         abort(403)
     # Request smuggling: both Content-Length and Transfer-Encoding present
     if request.headers.get("Transfer-Encoding") and request.headers.get("Content-Length"):
-        if _HAS_BAN and ip:
-            blacklist_ip(ip, reason="Request smuggling: CL + TE")
+        _do_blacklist("Request smuggling: CL + TE")
         abort(400)
     path = request.path
     # HTTP/1.0 direct to the gateway (no upstream proxy header) is a scanner
@@ -326,21 +372,15 @@ def _gate_requests():
     # X-Forwarded-For.  Insta-blacklist.
     protocol = request.environ.get("SERVER_PROTOCOL", "")
     if protocol == "HTTP/1.0" and not request.headers.get("X-Forwarded-For"):
-        if _HAS_BAN and ip:
-            blacklist_ip(
-                ip,
-                reason=f"Non-human pattern: direct {protocol} request",
-            )
+        _do_blacklist(f"Non-human pattern: direct {protocol} request")
         abort(403)
     # WordPress probe → instant permanent blacklist
     if _WORDPRESS_PATH_RE.search(path):
-        if _HAS_BAN and ip:
-            blacklist_ip(ip, reason=f"WordPress probe: {path}")
+        _do_blacklist(f"WordPress probe: {path}")
         abort(403)
     # Generic exploit-scanner probe -> instant permanent blacklist
     if _SCANNER_PATH_RE.search(path):
-        if _HAS_BAN and ip:
-            blacklist_ip(ip, reason=f"Scanner probe: {path}")
+        _do_blacklist(f"Scanner probe: {path}")
         abort(403)
     # Injection / traversal payload in URL or query string
     try:
@@ -349,8 +389,11 @@ def _gate_requests():
         qs = ""
     raw = path + ("?" + qs if qs else "")
     if _INJECTION_RE.search(raw):
-        if _HAS_BAN and ip:
-            blacklist_ip(ip, reason=f"Injection payload: {path}")
+        _do_blacklist(f"Injection payload: {path}")
+        abort(403)
+    # Debugger / profiler trigger probe (Xdebug / Zend / Symfony / Laravel)
+    if _DEBUG_PROBE_RE.search(raw):
+        _do_blacklist(f"Debugger probe: {path}?{qs}" if qs else f"Debugger probe: {path}")
         abort(403)
     # block dotfiles
     if "/." in path or path.startswith("."):
