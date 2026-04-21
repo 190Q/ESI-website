@@ -357,9 +357,20 @@ def _gate_requests():
 
     # reject banned IPs immediately
     if _HAS_BAN and ip and is_banned(ip):
+        print(
+            f"[IP-BAN] gate: already-banned hit  ip={ip}  method={request.method}  path={request.path}",
+            file=sys.stderr,
+            flush=True,
+        )
         abort(403)
     # HTTP methods only scanners / attackers send (XST, WebDAV, proxy abuse)
     if request.method.upper() in _BANNED_METHODS:
+        print(
+            f"[IP-BAN] gate: banned-method trigger  ip={ip}  peer={peer}  "
+            f"method={request.method}  cf_skip={cf_skip}  has_ban={_HAS_BAN}",
+            file=sys.stderr,
+            flush=True,
+        )
         _do_blacklist(f"Banned method: {request.method}")
         abort(403)
     # Request smuggling: both Content-Length and Transfer-Encoding present
