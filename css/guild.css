@@ -421,6 +421,9 @@
   cursor: pointer;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .owed-aspects-player-name:hover {
   text-decoration: underline;
@@ -493,6 +496,9 @@ body.popup-scroll-lock {
   color: var(--gold-light);
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ESI Points popup */
