@@ -884,6 +884,7 @@ def _points_calc_le(username, total_points, history, guild_ranks):
         le_points = sum(
             r["points_gained"] for r in (history or [])
             if (r.get("reason") or "").lower() not in {"guild raid", "war"}
+            and not (r.get("reason") or "").lower().startswith("quest")
         )
         return le_points / _POINTS_LE_DIVISOR
     return (total_points or 0) / _POINTS_LE_DIVISOR
