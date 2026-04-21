@@ -577,11 +577,17 @@
       var permanentSet = {};
       var exemptSet    = {};
       var exemptAnySet = {};
+      var checkerStart = _checkerWeek ? _checkerWeek.split('_')[0] : null;
       _exemptions.forEach(function (e) {
         var uLow   = e.username.toLowerCase();
-        var isPerm = (e.weeks || []).indexOf('permanent') !== -1;
+        var weeks  = e.weeks || [];
+        var isPerm = weeks.indexOf('permanent') !== -1;
         if (isPerm) permanentSet[uLow] = true;
-        if ((e.weeks || []).indexOf(_checkerWeek) >= 0) exemptSet[uLow] = e;
+        var matchesChecker = checkerStart && weeks.some(function (w) {
+          if (w === 'permanent') return false;
+          return w.split('_')[0] === checkerStart;
+        });
+        if (matchesChecker) exemptSet[uLow] = e;
         exemptAnySet[uLow] = true;
       });
 
