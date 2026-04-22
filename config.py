@@ -337,7 +337,7 @@ PLAYER_BULK_METRIC_KEYS = [
 ]
 
 GUILD_BULK_METRIC_KEYS = [
-    "playerCount", "wars", "guildRaids", "newMembers", "totalMembers",
+    "playerCount", "wars", "guildRaids", "newMembers", "totalMembers", "overflowMembers",
 ]
 
 # bot / tracker screen session config

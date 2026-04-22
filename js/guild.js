@@ -25,6 +25,9 @@
     { key: 'wars',       label: 'Wars',        decimals: 0 },
     { key: 'guildRaids', label: 'Guild Raids',  decimals: 0 },
   ];
+  const GUILD_OVERFLOW_KEY = 'overflowMembers';
+  const GUILD_QUEUE_METRIC = { key: 'queueMembers', label: 'Queue', decimals: 0 };
+  const GUILD_OVERFLOW_COLOR = { line: '#E05252', fill: 'rgba(224,82,82,0.08)', point: '#F37A7A' };
   const METRICS_DEBUG_ENABLED = /^(1|true|yes|on)$/i.test(
     (new URLSearchParams(window.location.search).get('metricsDebug') || '').trim()
   );
@@ -62,10 +65,14 @@
     hoverModel:       null,
     selectedDayOffset: null,
   };
+  function getGuildMetricConfig(metricKey) {
+    if (metricKey === GUILD_QUEUE_METRIC.key) return GUILD_QUEUE_METRIC;
+    return GUILD_GRAPH_METRICS.find(m => m.key === metricKey) || GUILD_COMPARE_METRICS.find(m => m.key === metricKey) || null;
+  }
 
   function formatGuildGraphValue(metricKey, value) {
     if (!Number.isFinite(value)) return 'N/A';
-    const metric = GUILD_GRAPH_METRICS.find(m => m.key === metricKey);
+    const metric = getGuildMetricConfig(metricKey);
     if (!metric) return Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
     if (metric.decimals > 0) {
       return Number(value).toLocaleString(undefined, {
@@ -146,12 +153,20 @@
       model.series.forEach(series => {
         const p = series.points[hoverIndex];
         if (!p) return;
-        const metric = GUILD_GRAPH_METRICS.find(m => m.key === series.key);
+        const metric = getGuildMetricConfig(series.key);
         const metricLabel = metric ? metric.label : series.key;
         const playerLabel = series.player ? series.player : null;
+        let displayValue = p.value;
+        if (series.key === GUILD_QUEUE_METRIC.key) {
+          const totalData = guildGraphState.data.totalMembers
+            ? guildGraphState.data.totalMembers.slice(60 - guildGraph.days)
+            : [];
+          const base = totalData[hoverIndex];
+          if (Number.isFinite(base)) displayValue = Math.max(0, p.value - base);
+        }
         rows.push({
           label: playerLabel ? `${metricLabel} · ${playerLabel}` : metricLabel,
-          value: formatGuildGraphValue(series.key, p.value),
+          value: formatGuildGraphValue(series.key, displayValue),
           color: series.color,
           dashed: series.dashed,
         });
@@ -1561,6 +1576,7 @@
           GUILD_GRAPH_METRICS.forEach(m => {
             gs[m.key] = Array.isArray(metrics[m.key]) ? metrics[m.key] : [];
           });
+          gs[GUILD_OVERFLOW_KEY] = Array.isArray(metrics[GUILD_OVERFLOW_KEY]) ? metrics[GUILD_OVERFLOW_KEY] : [];
           window.guildStatsCache = gs;
           break;
         }
@@ -1586,6 +1602,7 @@
     GUILD_GRAPH_METRICS.forEach(m => {
       data[m.key] = gs[m.key] ? pad60(gs[m.key]) : Array(60).fill(0);
     });
+    data[GUILD_OVERFLOW_KEY] = gs[GUILD_OVERFLOW_KEY] ? pad60(gs[GUILD_OVERFLOW_KEY]) : Array(60).fill(0);
     guildGraphState.data     = data;
     guildGraph.selectedDayOffset = null;
     guildGraph.days          = parseInt(guildGraph.range.value);
@@ -1611,6 +1628,33 @@
         player: 'Guild',
         dashed: false,
       });
+      if (!hasCompare && key === 'totalMembers') {
+        const totalData = guildGraphState.data.totalMembers
+          ? guildGraphState.data.totalMembers.slice(60 - guildGraph.days)
+          : [];
+        const overflowData = guildGraphState.data[GUILD_OVERFLOW_KEY]
+          ? guildGraphState.data[GUILD_OVERFLOW_KEY].slice(60 - guildGraph.days)
+          : [];
+        const queueLineData = overflowData.map((overflowVal, idx) => {
+          const baseVal = totalData[idx];
+          if (!Number.isFinite(overflowVal) || !Number.isFinite(baseVal)) return null;
+          return overflowVal > baseVal ? overflowVal : null;
+        });
+        const hasQueueDays = queueLineData.some(v => Number.isFinite(v));
+        if (hasQueueDays) {
+          rawSeries.push({
+            key: GUILD_QUEUE_METRIC.key,
+            data: queueLineData,
+            color: GUILD_OVERFLOW_COLOR,
+            player: 'Guild',
+            dashed: false,
+            disableFill: true,
+            fillBetweenBase: true,
+            baseData: totalData,
+            drawTransitionToBase: true,
+          });
+        }
+      }
       if (hasCompare) {
         rawSeries.push({
           key,
@@ -1621,12 +1665,19 @@
         });
       }
     });
-    const maxLen = Math.max(0, ...rawSeries.map(s => (s.data && s.data.length) || 0));
+    const drawSeries = rawSeries.slice();
+    if (!hasCompare) {
+      drawSeries.sort((a, b) => {
+        if (a.key === GUILD_QUEUE_METRIC.key && b.key === 'totalMembers') return -1;
+        if (a.key === 'totalMembers' && b.key === GUILD_QUEUE_METRIC.key) return 1;
+        return 0;
+      });
+    }
+    const maxLen = Math.max(0, ...drawSeries.map(s => (s.data && s.data.length) || 0));
     const selectedEndIndex = resolveGuildGraphSelectedIndex(guildGraph.selectedDayOffset, maxLen);
-
-    drawGuildGraph(guildGraph.canvas, rawSeries);
+    drawGuildGraph(guildGraph.canvas, drawSeries);
     updateGuildLegend(rawSeries);
-    updateGuildSummaries(rawSeries, selectedEndIndex);
+    updateGuildSummaries(rawSeries.filter(s => s.key !== GUILD_QUEUE_METRIC.key), selectedEndIndex);
   }
 
   function fmtYLabel(n) {
@@ -1658,7 +1709,7 @@
     seriesList.forEach(s => {
       if (seenKeys.has(s.key)) return;
       seenKeys.add(s.key);
-      const m    = GUILD_GRAPH_METRICS.find(x => x.key === s.key) || GUILD_COMPARE_METRICS.find(x => x.key === s.key);
+      const m    = getGuildMetricConfig(s.key);
       const item = document.createElement('span');
       item.className = 'graph-legend-item';
       item.innerHTML = `<span class="legend-line" style="background:${s.color.line}"></span> ${m ? m.label : s.key}`;
@@ -1673,7 +1724,7 @@
     function appendSection(s, showLabel) {
       const data = s.data;
       if (!data || !data.length) return;
-      const m   = GUILD_GRAPH_METRICS.find(x => x.key === s.key) || GUILD_COMPARE_METRICS.find(x => x.key === s.key);
+      const m   = getGuildMetricConfig(s.key);
       const dec = m ? m.decimals : 0;
       const f   = v => dec === 0 ? Math.round(v).toLocaleString() : v.toFixed(dec).replace('.', ',');
       const stats = GraphShared.computeSummaryStats(data, selectedEndIndex);

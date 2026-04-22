@@ -212,8 +212,10 @@
     let globalMin = 0;
     seriesList.forEach(function (series) {
       if (!series || !Array.isArray(series.data) || !series.data.length) return;
-      globalMax = Math.max(globalMax, Math.max.apply(null, series.data));
-      globalMin = Math.min(globalMin, Math.min.apply(null, series.data));
+      const finiteValues = series.data.filter(function (v) { return Number.isFinite(v); });
+      if (!finiteValues.length) return;
+      globalMax = Math.max(globalMax, Math.max.apply(null, finiteValues));
+      globalMin = Math.min(globalMin, Math.min.apply(null, finiteValues));
     });
     globalMax = globalMax * 1.1 || 1;
     const globalRange = (globalMax - globalMin) || 1;
@@ -258,35 +260,164 @@
       }
 
       const points = data.map(function (v, i) {
+        if (!Number.isFinite(v)) return null;
         return { index: i, x: xPosSeries(i), y: yPos(v), value: v };
       });
 
-      ctx.beginPath();
-      data.forEach(function (v, i) {
-        if (i === 0) ctx.moveTo(xPosSeries(i), yPos(v));
-        else ctx.lineTo(xPosSeries(i), yPos(v));
-      });
-      ctx.lineTo(xPosSeries(data.length - 1), pad.top + plotH);
-      ctx.lineTo(xPosSeries(0), pad.top + plotH);
-      ctx.closePath();
-      ctx.fillStyle = isDashed ? fillColor.replace(/[\d.]+\)$/, '0.03)') : fillColor;
-      ctx.fill();
+      if (series.fillBetweenBase && Array.isArray(series.baseData)) {
+        const base = series.baseData;
+        let idx = 0;
+        while (idx < data.length) {
+          while (idx < data.length && !Number.isFinite(data[idx])) idx++;
+          if (idx >= data.length) break;
+
+          const segStart = idx;
+          while (idx + 1 < data.length && Number.isFinite(data[idx + 1])) idx++;
+          const segEnd = idx;
+
+          const startBridge = !!(
+            series.drawTransitionToBase &&
+            segStart > 0 &&
+            !Number.isFinite(data[segStart - 1]) &&
+            Number.isFinite(base[segStart - 1])
+          );
+          const endBridge = !!(
+            series.drawTransitionToBase &&
+            segEnd < data.length - 1 &&
+            !Number.isFinite(data[segEnd + 1]) &&
+            Number.isFinite(base[segEnd + 1])
+          );
+
+          const baseStartIdx = startBridge ? (segStart - 1) : segStart;
+          const baseEndIdx = endBridge ? (segEnd + 1) : segEnd;
+          if (!Number.isFinite(base[baseStartIdx]) || !Number.isFinite(base[baseEndIdx])) {
+            idx++;
+            continue;
+          }
+
+          ctx.beginPath();
+
+          // Top edge (queue line + optional start/end bridge)
+          if (startBridge) {
+            ctx.moveTo(xPosSeries(segStart - 1), yPos(base[segStart - 1]));
+            ctx.lineTo(xPosSeries(segStart), yPos(data[segStart]));
+          } else {
+            ctx.moveTo(xPosSeries(segStart), yPos(data[segStart]));
+          }
+          for (let k = segStart + 1; k <= segEnd; k++) {
+            if (!Number.isFinite(data[k])) continue;
+            ctx.lineTo(xPosSeries(k), yPos(data[k]));
+          }
+          if (endBridge) {
+            ctx.lineTo(xPosSeries(segEnd + 1), yPos(base[segEnd + 1]));
+          }
+
+          // Bottom edge (baseline back to start)
+          for (let k = baseEndIdx; k >= baseStartIdx; k--) {
+            if (!Number.isFinite(base[k])) continue;
+            ctx.lineTo(xPosSeries(k), yPos(base[k]));
+          }
+
+          ctx.closePath();
+          ctx.fillStyle = isDashed ? fillColor.replace(/[\d.]+\)$/, '0.03)') : fillColor;
+          ctx.fill();
+
+          idx++;
+        }
+      }
+      const canFill = !series.disableFill && data.every(function (v) { return Number.isFinite(v); });
+      if (canFill) {
+        ctx.beginPath();
+        data.forEach(function (v, i) {
+          if (i === 0) ctx.moveTo(xPosSeries(i), yPos(v));
+          else ctx.lineTo(xPosSeries(i), yPos(v));
+        });
+        ctx.lineTo(xPosSeries(data.length - 1), pad.top + plotH);
+        ctx.lineTo(xPosSeries(0), pad.top + plotH);
+        ctx.closePath();
+        ctx.fillStyle = isDashed ? fillColor.replace(/[\d.]+\)$/, '0.03)') : fillColor;
+        ctx.fill();
+      }
 
       ctx.beginPath();
+      let hasLine = false;
+      let segmentOpen = false;
       data.forEach(function (v, i) {
-        if (i === 0) ctx.moveTo(xPosSeries(i), yPos(v));
-        else ctx.lineTo(xPosSeries(i), yPos(v));
+        if (!Number.isFinite(v)) {
+          segmentOpen = false;
+          return;
+        }
+        if (!segmentOpen) {
+          ctx.moveTo(xPosSeries(i), yPos(v));
+          segmentOpen = true;
+          hasLine = true;
+          return;
+        }
+        ctx.lineTo(xPosSeries(i), yPos(v));
       });
-      ctx.strokeStyle = lineColor;
-      ctx.lineWidth = isDashed ? 1.5 : 2;
-      ctx.setLineDash(isDashed ? [6, 4] : []);
-      ctx.stroke();
-      ctx.setLineDash([]);
+      if (hasLine) {
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = isDashed ? 1.5 : 2;
+        ctx.setLineDash(isDashed ? [6, 4] : []);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      if (series.drawTransitionToBase && Array.isArray(series.baseData)) {
+        ctx.beginPath();
+        let hasTransitions = false;
+        data.forEach(function (v, i) {
+          if (!Number.isFinite(v)) return;
+          const prevFinite = i > 0 && Number.isFinite(data[i - 1]);
+          const nextFinite = i < data.length - 1 && Number.isFinite(data[i + 1]);
+
+          // Queue starts here (previous day had no queue): connect prev baseline -> current queue
+          if (!prevFinite && i > 0) {
+            const fromIdx = i - 1;
+            const baseStart = series.baseData[fromIdx];
+            if (Number.isFinite(baseStart)) {
+              const xFrom = xPosSeries(fromIdx);
+              const yFrom = yPos(baseStart);
+              const xTo = xPosSeries(i);
+              const yTo = yPos(v);
+              if (Math.abs(yTo - yFrom) >= 0.5 || Math.abs(xTo - xFrom) >= 0.5) {
+                ctx.moveTo(xFrom, yFrom);
+                ctx.lineTo(xTo, yTo);
+                hasTransitions = true;
+              }
+            }
+          }
+
+          // Queue ends here (next day has no queue): connect current queue -> next baseline
+          if (!nextFinite && i < data.length - 1) {
+            const toIdx = i + 1;
+            const baseEnd = series.baseData[toIdx];
+            if (Number.isFinite(baseEnd)) {
+              const xFrom = xPosSeries(i);
+              const yFrom = yPos(v);
+              const xTo = xPosSeries(toIdx);
+              const yTo = yPos(baseEnd);
+              if (Math.abs(yTo - yFrom) >= 0.5 || Math.abs(xTo - xFrom) >= 0.5) {
+                ctx.moveTo(xFrom, yFrom);
+                ctx.lineTo(xTo, yTo);
+                hasTransitions = true;
+              }
+            }
+          }
+        });
+        if (hasTransitions) {
+          ctx.strokeStyle = lineColor;
+          ctx.lineWidth = isDashed ? 1.25 : 1.5;
+          ctx.setLineDash([]);
+          ctx.stroke();
+        }
+      }
 
       if (data.length <= 60) {
         const r = maxLen === 1 ? 4.5 : (data.length > 30 ? 1.5 : 2.5);
         const pointR = isDashed ? r * 0.7 : r;
         data.forEach(function (v, i) {
+          if (!Number.isFinite(v)) return;
           ctx.beginPath();
           ctx.arc(xPosSeries(i), yPos(v), pointR, 0, Math.PI * 2);
           ctx.fillStyle = isDashed ? lineColor : pointColor;

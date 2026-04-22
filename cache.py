@@ -39,8 +39,11 @@ def _compute_bulk_playtime():
     if not _latest_db:
         _bulk_playtime_cache["data"] = {
             "members": {},
-            "guild": {"dates": [], "metricDates": [], "playerCount": [],
-                      "wars": [], "guildRaids": [], "newMembers": []},
+            "guild": {
+                "dates": [], "metricDates": [], "playerCount": [],
+                "wars": [], "guildRaids": [], "newMembers": [],
+                "totalMembers": [], "overflowMembers": [],
+            },
         }
         _bulk_playtime_cache["ts"] = time()
         return
@@ -56,8 +59,11 @@ def _compute_bulk_playtime():
     if not usernames:
         _bulk_playtime_cache["data"] = {
             "members": {},
-            "guild": {"dates": [], "metricDates": [], "playerCount": [],
-                      "wars": [], "guildRaids": [], "newMembers": []},
+            "guild": {
+                "dates": [], "metricDates": [], "playerCount": [],
+                "wars": [], "guildRaids": [], "newMembers": [],
+                "totalMembers": [], "overflowMembers": [],
+            },
         }
         _bulk_playtime_cache["ts"] = time()
         return
@@ -175,6 +181,7 @@ def _compute_bulk_playtime():
     metric_dates = []
     debug_members = {}
     invalid_transitions = set()
+    queue_totals_by_day = []
     api_days = []
     if os.path.isdir(api_folder):
         for name in os.listdir(api_folder):
@@ -228,6 +235,22 @@ def _compute_bulk_playtime():
 
         with ThreadPoolExecutor(max_workers=8) as ex:
             api_snapshots = list(ex.map(read_api_day, [d[1] for d in api_days]))
+
+        def read_queue_total(db_path):
+            try:
+                c = _sqlite3.connect(db_path, check_same_thread=False)
+                row = c.execute(
+                    "SELECT total_count FROM queue_stats ORDER BY rowid DESC LIMIT 1"
+                ).fetchone()
+                c.close()
+                if not row:
+                    return 0
+                return max(0, int(round(_safe_number(row[0]))))
+            except Exception:
+                return 0
+
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            queue_totals_by_day = list(ex.map(read_queue_total, [d[1] for d in api_days]))
 
         for i in range(1, len(api_days)):
             prev_dt, cur_dt = api_days[i - 1][0], api_days[i][0]
@@ -485,15 +508,19 @@ def _compute_bulk_playtime():
                 _mr[_di] = 0
 
     total_members = [0] * num_mk_days
+    overflow_members = [0] * num_mk_days
     if api_snapshots and num_mk_days:
         for i in range(1, len(api_snapshots)):
             day_idx = i - 1
             if day_idx >= num_mk_days:
                 break
-            total_members[day_idx] = sum(
+            guild_total = sum(
                 1 for snap in api_snapshots[i].values()
                 if (snap.get("guildPrefix") or "").upper() == "ESI"
             )
+            queue_total = queue_totals_by_day[i] if i < len(queue_totals_by_day) else 0
+            total_members[day_idx] = guild_total
+            overflow_members[day_idx] = guild_total + max(0, int(round(_safe_number(queue_total))))
 
     new_members = [0] * num_mk_days
     if os.path.isdir(os.path.join(_ESI_BOT_DIR, "databases", "api_tracking")):
@@ -518,6 +545,7 @@ def _compute_bulk_playtime():
         "guildRaids":   guild_raids,
         "newMembers":   new_members,
         "totalMembers": total_members,
+        "overflowMembers": overflow_members,
     }
 
     with _bulk_playtime_lock:
