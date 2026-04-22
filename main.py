@@ -217,6 +217,7 @@ _SCANNER_PATH_RE = re.compile(
     r"odinhttpcall\d*|"
     r"sdk(?=$|[/?])|"
     r"HNAP1|"
+    r"bot-connect\.js|"
     r"evox/about|"
     r"boaform|"
     r"phpmyadmin|phpMyAdmin|adminer|pma(?=$|[/?])|"
@@ -228,8 +229,11 @@ _SCANNER_PATH_RE = re.compile(
     # admin / login / webmail probes
     r"administrator(?=$|[/?])|"
     r"admin(?:\.php|/login|/index|/config)|"
-    r"login\.(?:php|asp|aspx|jsp|action)|"
+    r"login\.(?:php|asp|aspx|jsp|action|esp)|"
     r"cpanel(?=$|[/?])|whm(?=$|[/?])|webmail(?=$|[/?])|roundcube|"
+    # VPN / remote access portal probes
+    r"\+CSCOE\+|"
+    r"global-protect(?=$|[/?])|"
     # config / secret files
     r"config\.(?:php|inc|bak|old|ya?ml)|"
     r"web\.config|"
@@ -254,6 +258,9 @@ _SCANNER_PATH_RE = re.compile(
     r"openapi(?:\.json|\.ya?ml)?(?=$|[/?])|"
     r"api-docs(?=$|[/?])|"
     r"actuator(?=$|[/?])|"
+    # MCP (Model Context Protocol) server endpoint probes
+    r"mcp(?=$|[/?])|"
+    r"sse(?=$|[/?])|"
     # cloud metadata endpoints
     r"latest/meta-data|"
     r"metadata/instance|"
@@ -263,6 +270,7 @@ _SCANNER_PATH_RE = re.compile(
     r"api/v1/(?:pods|nodes|secrets|namespaces|services)|"
     # IIS / ASP debug artefacts
     r"trace\.axd|elmah\.axd|"
+    r"ReportServer(?=$|[/?])|"
     # framework debug / profiler panels
     r"_profiler(?=$|[/?])|_debugbar(?=$|[/?])|phpinfo\.php|"
     # common RCE / uploaded-shell filenames
