@@ -167,7 +167,7 @@
           : 'Failed to load data. Please try again.');
     panel.innerHTML =
       '<div class="panel-header">' +
-        '<h1 class="panel-title">&#x23F1; Inactivity</h1>' +
+        '<h1 class="panel-title">Inactivity</h1>' +
         '<p class="panel-subtitle">Manage member inactivity records</p>' +
       '</div>' +
       '<div class="inac-empty">' + msg + '</div>';
@@ -189,7 +189,7 @@
 
     panel.innerHTML =
       '<div class="panel-header">' +
-        '<h1 class="panel-title">&#x23F1; Inactivity</h1>' +
+        '<h1 class="panel-title">Inactivity</h1>' +
         '<p class="panel-subtitle">Manage member inactivity records</p>' +
       '</div>' +
       '<div class="inac-split-layout">' +
