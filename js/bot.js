@@ -598,8 +598,7 @@
     if (!initial || !initialExists) initial = cats[0].key;
     _selectCuckTab(initial);
 
-    backdrop.classList.add('open');
-    document.body.style.overflow = 'hidden';
+    window.Popup.open(backdrop);
   }
 
   function _renderCuckTabs(cats) {
@@ -684,9 +683,7 @@
 
   function closeCuckModal() {
     var backdrop = document.getElementById('cuckModalBackdrop');
-    if (!backdrop) return;
-    backdrop.classList.remove('open');
-    document.body.style.overflow = '';
+    if (backdrop) window.Popup.close(backdrop);
   }
 
   var _cuckModalInitialized = false;
@@ -697,7 +694,8 @@
     if (!backdrop || !closeBtn) return;
     _cuckModalInitialized = true;
 
-    closeBtn.addEventListener('click', closeCuckModal);
+
+    window.Popup.register(backdrop, { closeBtn: closeBtn });
 
     var searchInput = document.getElementById('cuckModalSearch');
     if (searchInput) {
@@ -706,22 +704,6 @@
         _renderCuckEntries();
       });
     }
-
-    var mouseDownOnBackdrop = false;
-    backdrop.addEventListener('mousedown', function (e) {
-      mouseDownOnBackdrop = e.target === backdrop;
-    });
-    backdrop.addEventListener('mouseup', function (e) {
-      if (mouseDownOnBackdrop && e.target === backdrop) closeCuckModal();
-      mouseDownOnBackdrop = false;
-    });
-
-    document.addEventListener('keydown', function (e) {
-      if (e.key !== 'Escape') return;
-      if (!backdrop.classList.contains('open')) return;
-      var others = document.querySelectorAll('.modal-backdrop.open');
-      if (others.length === 1 && others[0] === backdrop) closeCuckModal();
-    });
   }
 
 

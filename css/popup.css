@@ -1,0 +1,120 @@
+/* =========================================================================
+ * Popup / modal styles.
+ *
+ * Centralizes the three concerns that must look the same across every popup
+ * on the site, without touching each popup's width / padding / heights:
+ *
+ *   1. Shape   - border-radius, border, box-shadow
+ *   2. Scroll  - scrollbar width / track / thumb / hover
+ *   3. Empty   - the "no data" message inside a popup body
+ *
+ * Per-popup CSS (base.css / bot.css / guild.css) still owns sizing and
+ * per-popup decorations. This file is loaded before those so that
+ * popup-specific rules can still override when they really need to.
+ * ========================================================================= */
+
+:root {
+  --popup-radius:                8px;
+  --popup-border:                1px solid var(--border-mid);
+  --popup-shadow:                0 24px 60px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border);
+  --popup-scrollbar-width:       6px;
+  --popup-scrollbar-track:       var(--green-deep);
+  --popup-scrollbar-thumb:       var(--gold-dim);
+  --popup-scrollbar-thumb-hover: var(--gold-light);
+}
+
+/* -------------------------------------------------------------------------
+ * Shape - any popup / modal card shares the same outline.
+ * ------------------------------------------------------------------------- */
+.modal,
+.owed-aspects-popup {
+  border-radius: var(--popup-radius);
+  border:        var(--popup-border);
+  box-shadow:    var(--popup-shadow);
+}
+
+/* -------------------------------------------------------------------------
+ * Scrollbar - applied to the utility class and to every popup body that
+ * currently scrolls. Firefox honours scrollbar-width / scrollbar-color;
+ * WebKit / Blink honour the ::-webkit-scrollbar pseudo-elements.
+ * ------------------------------------------------------------------------- */
+.popup-scroll,
+.modal--ticket .ticket-form,
+.ticket-write-pane .ticket-textarea,
+.ticket-preview-pane,
+.settings-body,
+.legal-body,
+.cuck-modal-body,
+.owed-aspects-popup-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--popup-scrollbar-thumb) var(--popup-scrollbar-track);
+}
+
+.popup-scroll::-webkit-scrollbar,
+.modal--ticket .ticket-form::-webkit-scrollbar,
+.ticket-write-pane .ticket-textarea::-webkit-scrollbar,
+.ticket-preview-pane::-webkit-scrollbar,
+.settings-body::-webkit-scrollbar,
+.legal-body::-webkit-scrollbar,
+.cuck-modal-body::-webkit-scrollbar,
+.owed-aspects-popup-list::-webkit-scrollbar {
+  width: var(--popup-scrollbar-width);
+}
+
+.popup-scroll::-webkit-scrollbar-track,
+.modal--ticket .ticket-form::-webkit-scrollbar-track,
+.ticket-write-pane .ticket-textarea::-webkit-scrollbar-track,
+.ticket-preview-pane::-webkit-scrollbar-track,
+.settings-body::-webkit-scrollbar-track,
+.legal-body::-webkit-scrollbar-track,
+.cuck-modal-body::-webkit-scrollbar-track,
+.owed-aspects-popup-list::-webkit-scrollbar-track {
+  background: var(--popup-scrollbar-track);
+}
+
+.popup-scroll::-webkit-scrollbar-thumb,
+.modal--ticket .ticket-form::-webkit-scrollbar-thumb,
+.ticket-write-pane .ticket-textarea::-webkit-scrollbar-thumb,
+.ticket-preview-pane::-webkit-scrollbar-thumb,
+.settings-body::-webkit-scrollbar-thumb,
+.legal-body::-webkit-scrollbar-thumb,
+.cuck-modal-body::-webkit-scrollbar-thumb,
+.owed-aspects-popup-list::-webkit-scrollbar-thumb {
+  background:    var(--popup-scrollbar-thumb);
+  border-radius: 3px;
+}
+
+.popup-scroll::-webkit-scrollbar-thumb:hover,
+.modal--ticket .ticket-form::-webkit-scrollbar-thumb:hover,
+.ticket-write-pane .ticket-textarea::-webkit-scrollbar-thumb:hover,
+.ticket-preview-pane::-webkit-scrollbar-thumb:hover,
+.settings-body::-webkit-scrollbar-thumb:hover,
+.legal-body::-webkit-scrollbar-thumb:hover,
+.cuck-modal-body::-webkit-scrollbar-thumb:hover,
+.owed-aspects-popup-list::-webkit-scrollbar-thumb:hover {
+  background: var(--popup-scrollbar-thumb-hover);
+}
+
+/* -------------------------------------------------------------------------
+ * Empty-state - one rule, aliased to the three legacy class names so
+ * existing JS template strings don't need to change.
+ * ------------------------------------------------------------------------- */
+.popup-empty,
+.cuck-modal-empty,
+.owed-aspects-empty,
+.ticket-preview-empty {
+  font-family: 'Cinzel', serif;
+  font-size:   0.82rem;
+  font-weight: 500;
+  font-style:  italic;
+  color:       var(--text-faint);
+  text-align:  center;
+  padding:     18px 20px;
+}
+
+/* -------------------------------------------------------------------------
+ * Body scroll lock - single mechanism used by the shared Popup JS.
+ * ------------------------------------------------------------------------- */
+body.popup-scroll-lock {
+  overflow: hidden;
+}

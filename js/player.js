@@ -904,20 +904,12 @@
         }
       }
 
-      function openPlayerOwedPopup()  {
-        renderPlayerOwedPopup();
-        popup.classList.add('open');
-        overlay.classList.add('open');
-        document.body.classList.add('popup-scroll-lock');
-      }
-      function closePlayerOwedPopup() {
-        popup.classList.remove('open');
-        overlay.classList.remove('open');
-        document.body.classList.remove('popup-scroll-lock');
-      }
+      window.Popup.register(popup, { overlay: overlay });
+
+      function openPlayerOwedPopup()  { renderPlayerOwedPopup(); window.Popup.open(popup); }
+      function closePlayerOwedPopup() { window.Popup.close(popup); }
 
       document.getElementById('playerOwedAspectsCard').addEventListener('click', openPlayerOwedPopup);
-      overlay.addEventListener('click', closePlayerOwedPopup);
 
       /* ESI Points popup + data */
       const existingPtsPopup   = document.getElementById('playerEsiPointsPopup');
@@ -1055,20 +1047,12 @@
         });
       }
 
-      function openPlayerPointsPopup()  {
-        renderPlayerPointsPopup();
-        ptsPopup.classList.add('open');
-        ptsOverlay.classList.add('open');
-        document.body.classList.add('popup-scroll-lock');
-      }
-      function closePlayerPointsPopup() {
-        ptsPopup.classList.remove('open');
-        ptsOverlay.classList.remove('open');
-        document.body.classList.remove('popup-scroll-lock');
-      }
+      window.Popup.register(ptsPopup, { overlay: ptsOverlay });
+
+      function openPlayerPointsPopup()  { renderPlayerPointsPopup(); window.Popup.open(ptsPopup); }
+      function closePlayerPointsPopup() { window.Popup.close(ptsPopup); }
 
       document.getElementById('playerEsiPointsCard').addEventListener('click', openPlayerPointsPopup);
-      ptsOverlay.addEventListener('click', closePlayerPointsPopup);
 
       // fetch the player's points (with LE/history) and update the card value
       fetch('/api/player/' + encodeURIComponent(p.username) + '/points')

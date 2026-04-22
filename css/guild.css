@@ -336,9 +336,6 @@
   width: 420px;
   max-width: 92vw;
   background: var(--surface-2);
-  border: 1px solid var(--border-mid);
-  border-radius: var(--radius);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.75);
   flex-direction: column;
   overflow: hidden;
 }
@@ -381,21 +378,6 @@
   max-height: 460px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--gold-dim) var(--surface-3);
-}
-.owed-aspects-popup-list::-webkit-scrollbar {
-  width: 6px;
-}
-.owed-aspects-popup-list::-webkit-scrollbar-track {
-  background: var(--surface-3);
-}
-.owed-aspects-popup-list::-webkit-scrollbar-thumb {
-  background: var(--gold-dim);
-  border-radius: 3px;
-}
-.owed-aspects-popup-list::-webkit-scrollbar-thumb:hover {
-  background: var(--gold-light);
 }
 
 .owed-aspects-row {
@@ -436,18 +418,7 @@
   color: var(--text-dim);
 }
 
-.owed-aspects-empty {
-  font-family: 'Cinzel', serif;
-  font-size: 0.75rem;
-  color: var(--text-faint);
-  font-style: italic;
-  text-align: center;
-  padding: 14px 20px;
-}
 
-body.popup-scroll-lock {
-  overflow: hidden;
-}
 
 .owed-aspects-popup-count {
   font-family: 'Cinzel', serif;

@@ -4,6 +4,7 @@ import App from './App'
 
 // Import all CSS (Vite bundles these into a single file)
 import '../../css/base.css'
+import '../../css/popup.css'
 import '../../css/graph-shared.css'
 import '../../css/player.css'
 import '../../css/guild.css'

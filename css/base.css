@@ -676,14 +676,11 @@ button { cursor: pointer; border: none; font-family: inherit; }
 
 .modal {
   background: var(--surface);
-  border: 1px solid var(--border-mid);
-  border-radius: 10px;
   padding: 40px 36px 36px;
   max-width: 420px;
   width: 90%;
   text-align: center;
   position: relative;
-  box-shadow: 0 24px 60px rgba(0,0,0,0.7), 0 0 0 1px var(--border);
   transform: translateY(20px);
   transition: transform 0.25s ease;
 }
@@ -768,8 +765,6 @@ button { cursor: pointer; border: none; font-family: inherit; }
   flex: 1;
   min-height: 0;
   padding-bottom: 36px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--gold-dim) var(--green-deep);
 }
 
 /* Ticket form */
@@ -924,8 +919,6 @@ button { cursor: pointer; border: none; font-family: inherit; }
   flex: 1;
   height: auto;
   min-height: 0;
-  scrollbar-width: thin;
-  scrollbar-color: var(--gold-dim) var(--green-deep);
 }
 .ticket-write-pane .ticket-textarea:focus {
   border: none;
@@ -936,13 +929,6 @@ button { cursor: pointer; border: none; font-family: inherit; }
   overflow-y: auto;
   padding: 16px;
   min-height: 0;
-  scrollbar-width: thin;
-  scrollbar-color: var(--gold-dim) var(--green-deep);
-}
-.ticket-preview-empty {
-  color: var(--text-faint);
-  font-style: italic;
-  font-size: 0.9rem;
 }
 
 /* File upload area */
@@ -1815,12 +1801,7 @@ button { cursor: pointer; border: none; font-family: inherit; }
   flex: 1;
   overflow-y: auto;
   padding: 22px 32px 32px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--gold-dim) var(--green-deep);
 }
-.legal-body::-webkit-scrollbar { width: 6px; }
-.legal-body::-webkit-scrollbar-track { background: var(--green-deep); }
-.legal-body::-webkit-scrollbar-thumb { background: var(--gold-dim); border-radius: 3px; }
 .legal-section {
   color: var(--text-main);
   font-size: 0.92rem;

@@ -15,6 +15,7 @@ export default function useScriptLoader() {
     ;(async () => {
       await loadScript('/js/data-cache.js')
       await loadScript('/js/toast.js')
+      await loadScript('/js/popup.js')
 
       // Inline bootstrap (originally between toast.js and activity_prefetch.js)
       window.aspectsDataPromise = window.DataCache.cachedFetch('/api/guild/aspects')

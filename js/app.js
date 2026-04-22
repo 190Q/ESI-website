@@ -58,23 +58,12 @@
 
   /* login */
   const accountModalBackdrop = document.getElementById('accountModalBackdrop');
-
-  function openAccountModal() {
-    accountModalBackdrop.classList.add('open');
-    document.body.style.overflow = 'hidden';
-  }
-  function closeAccountModal() {
-    accountModalBackdrop.classList.remove('open');
-    document.body.style.overflow = '';
-  }
-
-  var _acctMouseDownOnBackdrop = false;
-  accountModalBackdrop.addEventListener('mousedown', function (e) { _acctMouseDownOnBackdrop = e.target === accountModalBackdrop; });
-  accountModalBackdrop.addEventListener('mouseup', function (e) {
-    if (_acctMouseDownOnBackdrop && e.target === accountModalBackdrop) closeAccountModal();
-    _acctMouseDownOnBackdrop = false;
+  window.Popup.register(accountModalBackdrop, {
+    closeBtn: document.getElementById('accountModalClose'),
   });
-  document.getElementById('accountModalClose').addEventListener('click', closeAccountModal);
+
+  function openAccountModal()  { window.Popup.open(accountModalBackdrop); }
+  function closeAccountModal() { window.Popup.close(accountModalBackdrop); }
 
   loginBtn.addEventListener('click', () => {
     if (state.loggedIn) { openAccountModal(); return; }
@@ -506,30 +495,35 @@ fetch('/auth/session', { credentials: 'same-origin' })
   }
 
   /* support modal */
-  helpBtn.addEventListener('click', () => openModal());
-  modalClose.addEventListener('click', () => closeModal());
-  var _modalMouseDownOnBackdrop = false;
-  modalBackdrop.addEventListener('mousedown', e => { _modalMouseDownOnBackdrop = e.target === modalBackdrop; });
-  modalBackdrop.addEventListener('mouseup', e => {
-    if (_modalMouseDownOnBackdrop && e.target === modalBackdrop) closeModal();
-    _modalMouseDownOnBackdrop = false;
-  });
-
   var linksView    = document.getElementById('supportLinksView');
   var ticketView   = document.getElementById('ticketFormView');
   var supportModal = document.getElementById('supportModal');
 
-  function openModal()  { modalBackdrop.classList.add('open');    document.body.style.overflow = 'hidden'; }
-  function closeModal() {
+  window.Popup.register(modalBackdrop, {
+    closeBtn: modalClose,
     /* if the ticket form is showing, go back to links view instead of closing */
+    onRequestClose: function () {
+      if (supportModal.classList.contains('modal--ticket')) {
+        ticketView.style.display = 'none';
+        linksView.style.display  = 'block';
+        supportModal.classList.remove('modal--ticket');
+        return true; // intercept the close
+      }
+      return false;
+    },
+  });
+
+  helpBtn.addEventListener('click', () => openModal());
+
+  function openModal()  { window.Popup.open(modalBackdrop); }
+  function closeModal() {
     if (supportModal.classList.contains('modal--ticket')) {
       ticketView.style.display = 'none';
       linksView.style.display  = 'block';
       supportModal.classList.remove('modal--ticket');
       return;
     }
-    modalBackdrop.classList.remove('open');
-    document.body.style.overflow = '';
+    window.Popup.close(modalBackdrop);
   }
 
   /* ticket form */
@@ -1170,33 +1164,19 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   var _settingsSnapshot = null; // saved state when modal opened
 
+  /* settings modal */
+  window.Popup.register(settingsBackdrop, { closeBtn: settingsCloseBtn });
+
   function openSettings() {
     _populateSettingsForm();
     _settingsSnapshot = _readFormValues();
     _updateLoginRows();
     _updateSaveBtn();
-    settingsBackdrop.classList.add('open');
-    document.body.style.overflow = 'hidden';
+    window.Popup.open(settingsBackdrop);
   }
-  function closeSettings() {
-    settingsBackdrop.classList.remove('open');
-    document.body.style.overflow = '';
-  }
+  function closeSettings() { window.Popup.close(settingsBackdrop); }
 
   settingsBtn.addEventListener('click', openSettings);
-  settingsCloseBtn.addEventListener('click', closeSettings);
-  var _settingsMouseDownOnBackdrop = false;
-  settingsBackdrop.addEventListener('mousedown', function (e) { _settingsMouseDownOnBackdrop = e.target === settingsBackdrop; });
-  settingsBackdrop.addEventListener('mouseup', function (e) {
-    if (_settingsMouseDownOnBackdrop && e.target === settingsBackdrop) closeSettings();
-    _settingsMouseDownOnBackdrop = false;
-  });
-  document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape') return;
-    if (settingsBackdrop.classList.contains('open')) closeSettings();
-    else if (accountModalBackdrop.classList.contains('open')) closeAccountModal();
-    else if (modalBackdrop.classList.contains('open')) closeModal();
-  });
 
   /* settings form elements */
   var _sMetric      = document.getElementById('settingDefaultMetric');

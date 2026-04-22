@@ -721,20 +721,12 @@
       });
     }
 
-    function openOwedPopup() {
-      renderOwedPopup();
-      popup.classList.add('open');
-      overlay.classList.add('open');
-      document.body.classList.add('popup-scroll-lock');
-    }
-    function closeOwedPopup() {
-      popup.classList.remove('open');
-      overlay.classList.remove('open');
-      document.body.classList.remove('popup-scroll-lock');
-    }
+    window.Popup.register(popup, { overlay: overlay });
+
+    function openOwedPopup()  { renderOwedPopup(); window.Popup.open(popup); }
+    function closeOwedPopup() { window.Popup.close(popup); }
 
     document.getElementById('owedAspectsCard').addEventListener('click', openOwedPopup);
-    overlay.addEventListener('click', closeOwedPopup);
 
     /* ESI Points popup */
     const existingPointsPopup = document.getElementById('esiPointsPopup');
@@ -828,20 +820,12 @@
       });
     }
 
-    function openPointsPopup() {
-      renderPointsPopup();
-      pointsPopup.classList.add('open');
-      pointsOverlay.classList.add('open');
-      document.body.classList.add('popup-scroll-lock');
-    }
-    function closePointsPopup() {
-      pointsPopup.classList.remove('open');
-      pointsOverlay.classList.remove('open');
-      document.body.classList.remove('popup-scroll-lock');
-    }
+    window.Popup.register(pointsPopup, { overlay: pointsOverlay });
+
+    function openPointsPopup()  { renderPointsPopup(); window.Popup.open(pointsPopup); }
+    function closePointsPopup() { window.Popup.close(pointsPopup); }
 
     document.getElementById('esiPointsCard').addEventListener('click', openPointsPopup);
-    pointsOverlay.addEventListener('click', closePointsPopup);
 
     // refresh the card + popup once the preloaded points data resolves
     (window.esiPointsDataPromise || Promise.resolve()).then(function () {
@@ -913,20 +897,12 @@
       });
     }
 
-    function openTerrPopup() {
-      renderTerrPopup();
-      terrPopup.classList.add('open');
-      terrOverlay.classList.add('open');
-      document.body.classList.add('popup-scroll-lock');
-    }
-    function closeTerrPopup() {
-      terrPopup.classList.remove('open');
-      terrOverlay.classList.remove('open');
-      document.body.classList.remove('popup-scroll-lock');
-    }
+    window.Popup.register(terrPopup, { overlay: terrOverlay });
+
+    function openTerrPopup()  { renderTerrPopup(); window.Popup.open(terrPopup); }
+    function closeTerrPopup() { window.Popup.close(terrPopup); }
 
     document.getElementById('territoriesCard').addEventListener('click', openTerrPopup);
-    terrOverlay.addEventListener('click', closeTerrPopup);
 
     /* stats grid */
     const statsGrid = document.getElementById('guildStatsGrid');

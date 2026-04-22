@@ -10,6 +10,8 @@
   var sections = backdrop.querySelectorAll('.legal-section');
   var footerLinks = document.querySelectorAll('.site-footer [data-legal-tab]');
 
+  window.Popup.register(backdrop, { closeBtn: closeBtn });
+
   function selectTab(name) {
     if (!name) return;
     tabButtons.forEach(function (btn) {
@@ -33,14 +35,9 @@
 
   function openLegal(tab) {
     selectTab(tab || 'privacy');
-    backdrop.classList.add('open');
-    document.body.style.overflow = 'hidden';
+    window.Popup.open(backdrop);
   }
-
-  function closeLegal() {
-    backdrop.classList.remove('open');
-    document.body.style.overflow = '';
-  }
+  function closeLegal() { window.Popup.close(backdrop); }
 
   // Expose openers so other modules can trigger the modal if needed.
   window.openLegalModal = openLegal;
@@ -59,28 +56,6 @@
     btn.addEventListener('click', function () {
       selectTab(btn.getAttribute('data-legal-tab'));
     });
-  });
-
-  // Close interactions (button + click on backdrop).
-  closeBtn.addEventListener('click', closeLegal);
-
-  var mouseDownOnBackdrop = false;
-  backdrop.addEventListener('mousedown', function (e) {
-    mouseDownOnBackdrop = e.target === backdrop;
-  });
-  backdrop.addEventListener('mouseup', function (e) {
-    if (mouseDownOnBackdrop && e.target === backdrop) closeLegal();
-    mouseDownOnBackdrop = false;
-  });
-
-  // Escape closes the legal modal if no other modal consumed the key.
-  document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape') return;
-    if (!backdrop.classList.contains('open')) return;
-    // Let other modals handle their own escape first by checking they are closed.
-    var others = document.querySelectorAll('.modal-backdrop.open');
-    // If only this modal is open, close it.
-    if (others.length === 1 && others[0] === backdrop) closeLegal();
   });
 
   // Allow opening directly via hash (e.g. someone shares a deep link to #privacy).
