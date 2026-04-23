@@ -94,8 +94,8 @@ _CITIZEN_PLUS    = {_ROLE_CITIZEN}
 
 # Discord badge roles colour
 _BADGE_ROLES_COLOUR = {
-    "[name]":   "#7c0000",
-    "Onyx":     "#2f055a",
+    "[name]":   "#de1b1b",
+    "Onyx":     "#6d32ab",
     "Diamond":  "#33c3e7",
     "Platinum": "#8fcef4",
     "Gold":     "#ffb600",
