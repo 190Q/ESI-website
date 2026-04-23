@@ -1301,19 +1301,11 @@
     // Overall stats
     const statsGrid = document.getElementById('guildSnipesStatsGrid');
     if (statsGrid) {
-      const rolesDist = stats.roles_distribution || {};
-      const rolesText = Object.keys(rolesDist).length
-        ? Object.entries(rolesDist)
-            .sort((a, b) => b[1] - a[1])
-            .map(([r, n]) => escHtml(r) + ': ' + fmt(n))
-            .join('  \u00B7  ')
-        : 'N/A';
       const rows = [
         { label: 'Total Snipes',   val: fmt(stats.total_snipes) },
         { label: 'Unique Snipers', val: fmt(stats.unique_players) },
         { label: 'Avg Damage',     val: fmt(Math.round(stats.avg_damage || 0)) },
         { label: 'Avg Speed',      val: (stats.avg_speed != null ? Number(stats.avg_speed).toFixed(2) : 'N/A') },
-        { label: 'Role Breakdown', val: rolesText },
       ];
       statsGrid.innerHTML = _safeSanitize(rows.map(function (s) {
         return '<div class="stat-list-row">'
