@@ -606,3 +606,134 @@
   z-index: 999;
   display: none;
 }
+
+/* Guild snipes view */
+.snipe-role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.snipe-role-badge .snipe-role-emoji { font-size: 0.8rem; }
+.snipe-role-dps     { border-color: #E74C3C; color: #F5A9A0; background: rgba(231,76,60,0.10); }
+.snipe-role-tank    { border-color: #3498DB; color: #7FB3D3; background: rgba(52,152,219,0.10); }
+.snipe-role-healer  { border-color: #2ECC71; color: #7DCEA0; background: rgba(46,204,113,0.10); }
+.snipe-role-solo    { border-color: #9B59B6; color: #C39BD3; background: rgba(155,89,182,0.10); }
+.snipe-role-unknown { border-color: #7F8C8D; color: #AAB7B8; background: rgba(127,140,141,0.10); }
+
+.snipe-role-count {
+  font-family: 'Cinzel', serif;
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  margin: 0 8px 0 2px;
+}
+
+.snipe-player-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid rgba(212,160,23,0.06);
+  transition: background var(--transition);
+  flex-wrap: wrap;
+}
+.snipe-player-row:last-child { border-bottom: none; }
+.snipe-player-row:hover { background: rgba(212,160,23,0.04); }
+
+.snipe-player-roles {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  min-width: 120px;
+}
+
+.snipe-player-points {
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--gold-light);
+  min-width: 70px;
+  text-align: right;
+}
+
+.snipe-player-count {
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  color: var(--gold-dim);
+  min-width: 50px;
+  text-align: right;
+}
+
+.guild-snipe-entry {
+  padding: 12px 20px;
+  border-bottom: 1px solid rgba(212,160,23,0.06);
+  transition: background var(--transition);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.guild-snipe-entry:last-child { border-bottom: none; }
+.guild-snipe-entry:hover { background: rgba(212,160,23,0.04); }
+
+.guild-snipe-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.guild-snipe-time {
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.guild-snipe-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+.guild-snipe-stat {
+  font-family: 'Cinzel', serif;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+.guild-snipe-stat strong {
+  color: var(--gold-light);
+  margin-left: 4px;
+}
+.guild-snipe-stat-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.guild-snipe-participants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.snipe-participant {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.snipe-participant-name {
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  color: var(--gold-light);
+}

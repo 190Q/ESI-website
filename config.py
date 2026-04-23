@@ -34,6 +34,7 @@ _GUILD_LEVELS_JSON      = os.path.join(_DATA_FOLDER, "guild_levels.json")
 _GUILD_TERRITORIES_JSON = os.path.join(_DATA_FOLDER, "guild_territories.json")
 _API_TRACKING_DIR       = os.path.join(_ESI_BOT_DIR, "databases", "api_tracking")
 _POINTS_DB              = os.path.join(_ESI_BOT_DIR, "databases", "esi_points.db")
+_SNIPES_DB              = os.path.join(_ESI_BOT_DIR, "databases", "claim_snipes.db")
 
 _USER_DB_PATH = os.path.join(_BASE_DIR, "user_data.db")
 _UPLOAD_DIR   = os.path.join(_BASE_DIR, "uploads")

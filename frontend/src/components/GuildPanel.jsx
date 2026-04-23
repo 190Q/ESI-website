@@ -101,6 +101,7 @@ export default function GuildPanel() {
             <div className="view-selector">
               <button className="view-btn active" id="guildViewGlobal">Global Data</button>
               <button className="view-btn" id="guildViewLogs">Guild Logs</button>
+              <button className="view-btn" id="guildViewSnipes" style={{ display: 'none' }}>Snipes</button>
             </div>
 
             {/* Global */}
@@ -126,6 +127,21 @@ export default function GuildPanel() {
                 <div className="info-card-header">Recent Guild Activity</div>
                 <div id="guildLogsList" />
               </div>
+            </div>
+
+            {/* Snipes */}
+            <div id="guildSnipesView" style={{ display: 'none' }}>
+              <div className="global-stats-list" id="guildSnipesStatsGrid" />
+              <CollapsibleCard
+                label="Snipers"
+                totalId="guildSnipesPlayersTotal"
+                bodyId="guildSnipesPlayersList"
+              />
+              <CollapsibleCard
+                label="Recent Snipes"
+                totalId="guildSnipesListTotal"
+                bodyId="guildSnipesList"
+              />
             </div>
 
           </div>

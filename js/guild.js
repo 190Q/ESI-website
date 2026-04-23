@@ -358,6 +358,7 @@
       .catch(function () { if (_guildFetchToast) _guildFetchToast.updateItem('stats', 'error'); _gCheckDone(); return {}; });
     loadAndRenderGuildLogs()
       .then(function (ok) { if (_guildFetchToast) _guildFetchToast.updateItem('logs', ok ? 'success' : 'error'); _gCheckDone(); });
+    loadAndRenderGuildSnipes();
     // graph is DB-backed, loads on its own
     var _gGraphP = initGuildGraph();
     if (_guildFetchToast) {
@@ -1243,15 +1244,161 @@
     return RANKS.indexOf(newRank) > RANKS.indexOf(oldRank);
   }
 
+  /* guild snipes */
+  const SNIPE_ROLE_EMOJIS = { DPS: '\u2694\uFE0F', Tank: '\uD83D\uDEE1\uFE0F', Healer: '\u2764\uFE0F', Solo: '\uD83D\uDD31' };
+  let guildSnipesData = null;
+
+  function _safeSanitize(html) {
+    if (typeof DOMPurify !== 'undefined' && DOMPurify && typeof DOMPurify.sanitize === 'function') {
+      return DOMPurify.sanitize(html);
+    }
+    return html;
+  }
+
+  async function loadAndRenderGuildSnipes() {
+    try {
+      const result = await DataCache.cachedFetch('/api/guild/snipes');
+      const data = result.data || {};
+      if (!data.available || !Array.isArray(data.snipes) || !data.snipes.length) {
+        // Hide the button entirely when there's nothing to show.
+        document.getElementById('guildViewSnipes').style.display = 'none';
+        return false;
+      }
+      guildSnipesData = data;
+      document.getElementById('guildViewSnipes').style.display = '';
+      renderGuildSnipes(data);
+      return true;
+    } catch (err) {
+      document.getElementById('guildViewSnipes').style.display = 'none';
+      return false;
+    }
+  }
+
+  function snipeRoleBadge(role) {
+    const r = role || 'Unknown';
+    const key = String(r).toLowerCase();
+    const emoji = SNIPE_ROLE_EMOJIS[r] || '';
+    return '<span class="snipe-role-badge snipe-role-' + escAttr(key) + '">'
+      + (emoji ? '<span class="snipe-role-emoji">' + emoji + '</span>' : '')
+      + escHtml(r) + '</span>';
+  }
+
+  function fmtSnipeTimestamp(iso) {
+    if (!iso) return 'Unknown';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return escHtml(iso);
+    return d.toLocaleString('en-GB', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  }
+
+  function renderGuildSnipes(data) {
+    const snipes = Array.isArray(data.snipes) ? data.snipes : [];
+    const players = Array.isArray(data.players) ? data.players : [];
+    const stats = data.stats || {};
+
+    // Overall stats
+    const statsGrid = document.getElementById('guildSnipesStatsGrid');
+    if (statsGrid) {
+      const rolesDist = stats.roles_distribution || {};
+      const rolesText = Object.keys(rolesDist).length
+        ? Object.entries(rolesDist)
+            .sort((a, b) => b[1] - a[1])
+            .map(([r, n]) => escHtml(r) + ': ' + fmt(n))
+            .join('  \u00B7  ')
+        : 'N/A';
+      const rows = [
+        { label: 'Total Snipes',   val: fmt(stats.total_snipes) },
+        { label: 'Unique Snipers', val: fmt(stats.unique_players) },
+        { label: 'Avg Damage',     val: fmt(Math.round(stats.avg_damage || 0)) },
+        { label: 'Avg Speed',      val: (stats.avg_speed != null ? Number(stats.avg_speed).toFixed(2) : 'N/A') },
+        { label: 'Role Breakdown', val: rolesText },
+      ];
+      statsGrid.innerHTML = _safeSanitize(rows.map(function (s) {
+        return '<div class="stat-list-row">'
+          + '<span class="stat-list-label">' + escHtml(s.label) + '</span>'
+          + '<span class="stat-list-value">' + s.val + '</span>'
+          + '</div>';
+      }).join(''));
+    }
+
+    // Snipers leaderboard
+    const playersTotal = document.getElementById('guildSnipesPlayersTotal');
+    const playersList = document.getElementById('guildSnipesPlayersList');
+    if (playersTotal) playersTotal.textContent = players.length + ' sniper' + (players.length === 1 ? '' : 's');
+    if (playersList) {
+      const playersHtml = players.map(function (p, i) {
+        const rankClass = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
+        const rolesHtml = Object.entries(p.roles || {})
+          .sort((a, b) => b[1] - a[1])
+          .map(([r, n]) => snipeRoleBadge(r) + '<span class="snipe-role-count">\u00D7' + fmt(n) + '</span>')
+          .join('');
+        return '<div class="snipe-player-row">'
+          + '<span class="guild-member-rank-num ' + rankClass + '">#' + (i + 1) + '</span>'
+          + '<span class="guild-member-name guild-log-name-link" data-username="' + escAttr(p.username) + '">' + escHtml(p.username || 'Unknown') + '</span>'
+          + '<span class="snipe-player-roles">' + rolesHtml + '</span>'
+          + '<span class="snipe-player-count" title="Snipes participated in">\u25C9 ' + fmt(p.snipe_count) + '</span>'
+          + '</div>';
+      }).join('');
+      playersList.innerHTML = _safeSanitize(playersHtml
+        || '<div style="color:var(--text-dim);padding:1rem">No snipers yet.</div>');
+      playersList.querySelectorAll('.guild-log-name-link').forEach(function (el) {
+        el.addEventListener('click', function () {
+          const name = el.dataset.username;
+          if (name) window.goToPlayer(name);
+        });
+      });
+    }
+
+    // Recent snipes
+    const snipesTotal = document.getElementById('guildSnipesListTotal');
+    const snipesList = document.getElementById('guildSnipesList');
+    if (snipesTotal) snipesTotal.textContent = snipes.length + ' snipe' + (snipes.length === 1 ? '' : 's');
+    if (snipesList) {
+      const snipesHtml = snipes.map(function (s) {
+        const participants = (s.players || []).map(function (pl) {
+          return '<div class="snipe-participant">'
+            + snipeRoleBadge(pl.role)
+            + '<span class="snipe-participant-name guild-log-name-link" data-username="' + escAttr(pl.username) + '">'
+            + escHtml(pl.username || 'Unknown') + '</span>'
+            + '</div>';
+        }).join('');
+        return '<div class="guild-snipe-entry">'
+          + '<div class="guild-snipe-header">'
+          +   '<span class="guild-snipe-time">' + escHtml(fmtSnipeTimestamp(s.timestamp)) + '</span>'
+          + '</div>'
+          + '<div class="guild-snipe-meta">'
+          +   '<span class="guild-snipe-stat"><span class="guild-snipe-stat-label">Damage</span> <strong>' + fmt(Math.round(s.base_damage || 0)) + '</strong></span>'
+          +   '<span class="guild-snipe-stat"><span class="guild-snipe-stat-label">Speed</span> <strong>' + (s.base_speed != null ? Number(s.base_speed).toFixed(2) : 'N/A') + '</strong></span>'
+          +   '<span class="guild-snipe-stat"><span class="guild-snipe-stat-label">Players</span> <strong>' + fmt((s.players || []).length) + '</strong></span>'
+          + '</div>'
+          + '<div class="guild-snipe-participants">' + participants + '</div>'
+          + '</div>';
+      }).join('');
+      snipesList.innerHTML = _safeSanitize(snipesHtml
+        || '<div style="color:var(--text-dim);padding:1rem">No snipes recorded.</div>');
+      snipesList.querySelectorAll('.guild-log-name-link').forEach(function (el) {
+        el.addEventListener('click', function () {
+          const name = el.dataset.username;
+          if (name) window.goToPlayer(name);
+        });
+      });
+    }
+  }
+
   /* view toggle */
   document.getElementById('guildViewGlobal').addEventListener('click', () => switchGuildView('global'));
   document.getElementById('guildViewLogs').addEventListener('click',  () => switchGuildView('logs'));
+  document.getElementById('guildViewSnipes').addEventListener('click', () => switchGuildView('snipes'));
 
   function switchGuildView(v) {
     document.getElementById('guildViewGlobal').classList.toggle('active', v === 'global');
     document.getElementById('guildViewLogs').classList.toggle('active',   v === 'logs');
+    document.getElementById('guildViewSnipes').classList.toggle('active', v === 'snipes');
     document.getElementById('guildGlobalView').style.display = v === 'global' ? 'block' : 'none';
     document.getElementById('guildLogsView').style.display   = v === 'logs'   ? 'block' : 'none';
+    document.getElementById('guildSnipesView').style.display = v === 'snipes' ? 'block' : 'none';
   }
 
   /* activity graph */

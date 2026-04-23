@@ -27,7 +27,7 @@ from config import (
     _BASE_DIR, _ESI_BOT_DIR, _DATA_FOLDER, _API_TRACKING_DIR,
     _ASPECTS_JSON, _INACTIVITY_JSON, _USERNAME_MATCHES_JSON,
     _TRACKED_GUILD_JSON, _GUILD_LEVELS_JSON, _GUILD_TERRITORIES_JSON,
-    _POINTS_DB,
+    _POINTS_DB, _SNIPES_DB,
     _USER_DB_PATH, _UPLOAD_DIR,
     WYNN_BASE, DISCORD_API, DISCORD_TOKEN, DISCORD_CLIENT_ID,
     DISCORD_CLIENT_SECRET, DISCORD_GUILD_ID, DISCORD_REDIRECT_URI,
@@ -1494,6 +1494,192 @@ def guild_territories_get():
         "territories": data.get("territories", {}),
         "history":     data.get("history", []),
         "last_update": data.get("last_update"),
+    })
+
+
+def _snipes_player_table(uuid: str) -> str:
+    """Mirror ESI-Bot claim_snipe.py table naming convention."""
+    return "player_" + (uuid or "").replace("-", "_")
+
+
+@app.route("/api/guild/snipes")
+@rate_limit(30)
+def guild_snipes():
+    """Return claim-snipe records, per-player aggregates, and overall stats.
+
+    If the claim_snipes.db file does not exist or contains no snipes, returns
+    ``{"available": false}`` so the frontend can hide the view entirely.
+    """
+    if not os.path.exists(_SNIPES_DB):
+        return jsonify({"available": False})
+
+    try:
+        conn = _sqlite3.connect(_SNIPES_DB)
+        conn.row_factory = _sqlite3.Row
+        c = conn.cursor()
+
+        # Bail out cleanly if the schema hasn't been initialised yet.
+        c.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='snipes'"
+        )
+        if not c.fetchone():
+            conn.close()
+            return jsonify({"available": False})
+
+        c.execute(
+            "SELECT snipe_id, base_damage, base_speed, points, player_uuids, timestamp "
+            "FROM snipes ORDER BY timestamp DESC"
+        )
+        snipe_rows = c.fetchall()
+        if not snipe_rows:
+            conn.close()
+            return jsonify({"available": False})
+
+        # Load every per-player table once so we don't issue N*M queries.
+        c.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'player_%'"
+        )
+        player_tables = [row[0] for row in c.fetchall()]
+
+        # participants[uuid][snipe_id] = {"username": str, "role": str}
+        participants: dict = {}
+        for table in player_tables:
+            if not table.startswith("player_"):
+                continue
+            # Reverse the underscore substitution to recover the UUID.
+            uuid = table[len("player_"):].replace("_", "-")
+            try:
+                c.execute(f'SELECT snipe_id, username, role FROM "{table}"')
+                rows = c.fetchall()
+            except _sqlite3.OperationalError:
+                continue
+            bucket = participants.setdefault(uuid, {})
+            for r in rows:
+                bucket[r[0]] = {
+                    "username": r[1] or "",
+                    "role": r[2] or "Unknown",
+                }
+
+        conn.close()
+    except _sqlite3.Error as e:
+        return jsonify({"available": False, "error": str(e)}), 200
+
+    snipes_out = []
+    player_stats: dict = {}
+    overall_roles: dict = {}
+    total_points = 0
+    damage_sum = 0.0
+    speed_sum = 0.0
+
+    for row in snipe_rows:
+        snipe_id = row["snipe_id"]
+        try:
+            uuids = json.loads(row["player_uuids"] or "[]")
+            if not isinstance(uuids, list):
+                uuids = []
+        except (TypeError, ValueError):
+            uuids = []
+
+        snipe_players = []
+        for uuid in uuids:
+            info = participants.get(uuid, {}).get(snipe_id)
+            if info is None:
+                snipe_players.append({
+                    "uuid": uuid,
+                    "username": "",
+                    "role": "Unknown",
+                })
+                continue
+            snipe_players.append({
+                "uuid": uuid,
+                "username": info["username"],
+                "role": info["role"],
+            })
+
+        base_damage = float(row["base_damage"] or 0)
+        base_speed = float(row["base_speed"] or 0)
+        points = int(row["points"] or 0)
+        timestamp = row["timestamp"]
+
+        snipes_out.append({
+            "snipe_id": snipe_id,
+            "base_damage": base_damage,
+            "base_speed": base_speed,
+            "points": points,
+            "timestamp": timestamp,
+            "players": snipe_players,
+        })
+
+        total_points += points
+        damage_sum += base_damage
+        speed_sum += base_speed
+
+        for p in snipe_players:
+            uuid = p["uuid"]
+            if not uuid:
+                continue
+            role = p["role"] or "Unknown"
+            overall_roles[role] = overall_roles.get(role, 0) + 1
+            stat = player_stats.get(uuid)
+            if stat is None:
+                stat = {
+                    "uuid": uuid,
+                    "username": p["username"],
+                    "snipe_count": 0,
+                    "total_points": 0,
+                    "roles": {},
+                    "last_snipe": timestamp,
+                    "_damage_sum": 0.0,
+                    "_speed_sum": 0.0,
+                }
+                player_stats[uuid] = stat
+            stat["snipe_count"] += 1
+            stat["total_points"] += points
+            stat["roles"][role] = stat["roles"].get(role, 0) + 1
+            stat["_damage_sum"] += base_damage
+            stat["_speed_sum"] += base_speed
+            # Keep the most recent username we saw for this player.
+            if p["username"] and (timestamp or "") >= (stat["last_snipe"] or ""):
+                stat["username"] = p["username"]
+                stat["last_snipe"] = timestamp
+
+    players_out = []
+    for stat in player_stats.values():
+        count = stat["snipe_count"] or 1
+        primary_role = (
+            max(stat["roles"].items(), key=lambda kv: kv[1])[0]
+            if stat["roles"] else "Unknown"
+        )
+        players_out.append({
+            "uuid": stat["uuid"],
+            "username": stat["username"],
+            "snipe_count": stat["snipe_count"],
+            "total_points": stat["total_points"],
+            "roles": stat["roles"],
+            "primary_role": primary_role,
+            "last_snipe": stat["last_snipe"],
+            "avg_damage": round(stat["_damage_sum"] / count, 2),
+            "avg_speed": round(stat["_speed_sum"] / count, 3),
+        })
+    players_out.sort(
+        key=lambda p: (-p["total_points"], -p["snipe_count"], (p["username"] or "").lower())
+    )
+
+    total_snipes = len(snipes_out)
+    stats_payload = {
+        "total_snipes": total_snipes,
+        "total_points": total_points,
+        "unique_players": len(players_out),
+        "avg_damage": round(damage_sum / total_snipes, 2) if total_snipes else 0,
+        "avg_speed": round(speed_sum / total_snipes, 3) if total_snipes else 0,
+        "roles_distribution": overall_roles,
+    }
+
+    return jsonify({
+        "available": True,
+        "snipes": snipes_out,
+        "players": players_out,
+        "stats": stats_payload,
     })
 
 
