@@ -545,8 +545,29 @@
   font-family: 'Cinzel', serif;
   font-size: 0.78rem;
   color: var(--gold-dim);
-  min-width: 36px;
+  min-width: 20px;
   flex-shrink: 0;
+  text-align: right;
+}
+
+.esi-points-popup .owed-aspects-row {
+  gap: 0;
+}
+.esi-points-popup .owed-aspects-row .owed-aspects-player-name {
+  margin-left: 8px;
+}
+.esi-points-popup .owed-aspects-row .owed-aspects-right {
+  justify-content: flex-end;
+  gap: 0;
+}
+.esi-points-popup .owed-aspects-row .owed-aspects-player-count {
+  min-width: 48px;
+  text-align: right;
+}
+.esi-points-popup .owed-aspects-row .owed-aspects-right > span:last-child {
+  min-width: 44px;
+  text-align: right;
+  margin-left: 0 !important;
 }
 
 /* Non-interactive reason label inside a points history row */
