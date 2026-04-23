@@ -790,9 +790,10 @@
           ${players.length
             ? players.map(p => {
                 const rank = p.rank ? `<span class="guild-rank-badge guild-rank-${escAttr(p.rank)}">${escHtml(capFirst(p.rank))}</span>` : '';
+                const posClass = p.position === 1 ? ' top1' : p.position === 2 ? ' top2' : p.position === 3 ? ' top3' : '';
                 return `
                 <div class="owed-aspects-row">
-                  <span class="esi-points-position">#${p.position}</span>
+                  <span class="esi-points-position${posClass}">#${p.position}</span>
                   <span class="owed-aspects-player-name guild-log-name-link" data-username="${escAttr(p.username)}">${escHtml(p.username)}</span>${rank}
                   <div class="owed-aspects-right">
                     <span class="owed-aspects-player-count">${formatLe(p.le)} LE</span>
