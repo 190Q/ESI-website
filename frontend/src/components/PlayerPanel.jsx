@@ -117,6 +117,7 @@ export default function PlayerPanel() {
               <button className="view-btn active" id="viewGlobal">Global Data</button>
               <button className="view-btn" id="viewCharacter">Character View</button>
               <button className="view-btn" id="viewRankHistory" style={{ display: 'none' }}>Rank History</button>
+              <button className="view-btn" id="viewSnipes" style={{ display: 'none' }}>Snipes</button>
             </div>
 
             {/* Global view */}
@@ -139,6 +140,16 @@ export default function PlayerPanel() {
             {/* Rank history */}
             <div id="rankHistoryView" style={{ display: 'none' }}>
               <div id="rankHistoryContent" />
+            </div>
+
+            {/* Snipes */}
+            <div id="snipesView" style={{ display: 'none' }}>
+              <div className="global-stats-list" id="playerSnipesStatsGrid" />
+              <CollapsibleCard
+                label="Snipes"
+                totalId="playerSnipesListTotal"
+                bodyId="playerSnipesList"
+              />
             </div>
 
           </div>

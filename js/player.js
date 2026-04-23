@@ -53,15 +53,18 @@
   document.getElementById('viewGlobal').addEventListener('click',    () => switchView('global'));
   document.getElementById('viewCharacter').addEventListener('click', () => switchView('character'));
   document.getElementById('viewRankHistory').addEventListener('click', () => switchView('rankHistory'));
+  document.getElementById('viewSnipes').addEventListener('click',    () => switchView('snipes'));
 
   function switchView(v) {
     state.currentView = v;
     document.getElementById('viewGlobal').classList.toggle('active',       v === 'global');
     document.getElementById('viewCharacter').classList.toggle('active',    v === 'character');
     document.getElementById('viewRankHistory').classList.toggle('active',  v === 'rankHistory');
+    document.getElementById('viewSnipes').classList.toggle('active',       v === 'snipes');
     document.getElementById('globalView').style.display       = v === 'global'      ? 'block' : 'none';
     document.getElementById('characterView').style.display    = v === 'character'   ? 'block' : 'none';
     document.getElementById('rankHistoryView').style.display  = v === 'rankHistory' ? 'block' : 'none';
+    document.getElementById('snipesView').style.display       = v === 'snipes'      ? 'block' : 'none';
     if (v === 'rankHistory') renderRankHistory();
   }
 
@@ -71,6 +74,108 @@
     var visible = Array.from(sel.querySelectorAll('.view-btn'))
       .filter(function (b) { return b.style.display !== 'none'; }).length;
     sel.style.display = visible > 1 ? '' : 'none';
+  }
+
+  /* player snipes */
+  const SNIPE_ROLE_EMOJIS = { DPS: '\u2694\uFE0F', Tank: '\uD83D\uDEE1\uFE0F', Healer: '\u2764\uFE0F', Solo: '\uD83D\uDD31' };
+
+  function _safeSanitize(html) {
+    if (typeof DOMPurify !== 'undefined' && DOMPurify && typeof DOMPurify.sanitize === 'function') {
+      return DOMPurify.sanitize(html);
+    }
+    return html;
+  }
+
+  function snipeRoleBadgePlayer(role) {
+    const r = role || 'Unknown';
+    const key = String(r).toLowerCase();
+    const emoji = SNIPE_ROLE_EMOJIS[r] || '';
+    return '<span class="snipe-role-badge snipe-role-' + escapeHtml(key) + '">'
+      + (emoji ? '<span class="snipe-role-emoji">' + emoji + '</span>' : '')
+      + escapeHtml(r) + '</span>';
+  }
+
+  function fmtSnipeTimestamp(iso) {
+    if (!iso) return 'Unknown';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return escapeHtml(iso);
+    return d.toLocaleString('en-GB', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  }
+
+  function renderPlayerSnipes(data) {
+    const snipes = (data && Array.isArray(data.snipes)) ? data.snipes : [];
+    const stats = (data && data.stats) || {};
+    const me = (data && data.username) || '';
+
+    // Stats grid
+    const statsGrid = document.getElementById('playerSnipesStatsGrid');
+    if (statsGrid) {
+      const rolesMap = stats.roles || {};
+      const rolesText = Object.keys(rolesMap).length
+        ? Object.entries(rolesMap)
+            .sort((a, b) => b[1] - a[1])
+            .map(([r, n]) => escapeHtml(r) + ': ' + fmt(n))
+            .join('  \u00B7  ')
+        : 'N/A';
+      const lastSnipeText = stats.last_snipe ? fmtSnipeTimestamp(stats.last_snipe) : 'N/A';
+      const rows = [
+        { label: 'Snipes Participated', val: fmt(stats.total_snipes) },
+        { label: 'Primary Role',        val: snipeRoleBadgePlayer(stats.primary_role) },
+        { label: 'Avg Damage',          val: fmt(Math.round(stats.avg_damage || 0)) },
+        { label: 'Avg Speed',           val: (stats.avg_speed != null ? Number(stats.avg_speed).toFixed(2) : 'N/A') },
+        { label: 'Last Snipe',          val: escapeHtml(lastSnipeText) },
+        { label: 'Role Breakdown',      val: rolesText },
+      ];
+      statsGrid.innerHTML = _safeSanitize(rows.map(function (s) {
+        return '<div class="stat-list-row">'
+          + '<span class="stat-list-label">' + escapeHtml(s.label) + '</span>'
+          + '<span class="stat-list-value">' + s.val + '</span>'
+          + '</div>';
+      }).join(''));
+    }
+
+    // Snipes list
+    const snipesTotalEl = document.getElementById('playerSnipesListTotal');
+    const snipesListEl = document.getElementById('playerSnipesList');
+    if (snipesTotalEl) snipesTotalEl.textContent = snipes.length + ' snipe' + (snipes.length === 1 ? '' : 's');
+    if (snipesListEl) {
+      const meLow = String(me).toLowerCase();
+      const html = snipes.map(function (s) {
+        const participants = (s.players || []).map(function (pl) {
+          const isMe = String(pl.username || '').toLowerCase() === meLow;
+          return '<div class="snipe-participant' + (isMe ? ' snipe-participant-me' : '') + '">'
+            + snipeRoleBadgePlayer(pl.role)
+            + '<span class="snipe-participant-name guild-log-name-link" data-username="' + escapeHtml(pl.username) + '">'
+            + escapeHtml(pl.username || 'Unknown') + '</span>'
+            + '</div>';
+        }).join('');
+        return '<div class="guild-snipe-entry">'
+          + '<div class="guild-snipe-header">'
+          +   '<span class="guild-snipe-time">' + escapeHtml(fmtSnipeTimestamp(s.timestamp)) + '</span>'
+          +   '<span class="guild-snipe-header-right">'
+          +     (s.my_role ? snipeRoleBadgePlayer(s.my_role) : '')
+          +   '</span>'
+          + '</div>'
+          + '<div class="guild-snipe-meta">'
+          +   '<span class="guild-snipe-stat"><span class="guild-snipe-stat-label">Damage</span> <strong>' + fmt(Math.round(s.base_damage || 0)) + '</strong></span>'
+          +   '<span class="guild-snipe-stat"><span class="guild-snipe-stat-label">Speed</span> <strong>' + (s.base_speed != null ? Number(s.base_speed).toFixed(2) : 'N/A') + '</strong></span>'
+          +   '<span class="guild-snipe-stat"><span class="guild-snipe-stat-label">Team</span> <strong>' + fmt((s.players || []).length) + '</strong></span>'
+          + '</div>'
+          + '<div class="guild-snipe-participants">' + participants + '</div>'
+          + '</div>';
+      }).join('');
+      snipesListEl.innerHTML = _safeSanitize(html
+        || '<div style="color:var(--text-dim);padding:1rem">No snipes recorded.</div>');
+      snipesListEl.querySelectorAll('.guild-log-name-link').forEach(function (el) {
+        el.addEventListener('click', function () {
+          const name = el.dataset.username;
+          if (name) window.goToPlayer(name);
+        });
+      });
+    }
   }
 
   function renderRankHistory() {
@@ -462,8 +567,10 @@
       clearPlayerDecorations();
       document.querySelector('#playerContent .view-selector').style.display = 'none';
       document.getElementById('viewRankHistory').style.display = 'none';
+      document.getElementById('viewSnipes').style.display = 'none';
       document.getElementById('characterView').style.display = 'none';
       document.getElementById('rankHistoryView').style.display = 'none';
+      document.getElementById('snipesView').style.display = 'none';
       // graph handles its own loading state
       var splitEl = document.querySelector('#playerContent .player-split-layout');
       if (splitEl) splitEl.style.display = '';
@@ -763,6 +870,27 @@
       } else {
         state.rankHistory = null;
       }
+    }
+
+    /* snipes button */
+    const snipesBtn = document.getElementById('viewSnipes');
+    if (snipesBtn) {
+      snipesBtn.style.display = 'none';
+      state.playerSnipes = null;
+      state._snipesP = fetch('/api/player/' + encodeURIComponent(p.username) + '/snipes')
+        .then(r => r.ok ? r.json() : { available: false })
+        .then(data => {
+          if (data && data.available && data.found && Array.isArray(data.snipes) && data.snipes.length) {
+            state.playerSnipes = data;
+            snipesBtn.style.display = '';
+            _updateViewSelector();
+            renderPlayerSnipes(data);
+          } else {
+            state.playerSnipes = null;
+          }
+          return true;
+        })
+        .catch(() => { state.playerSnipes = null; return false; });
     }
 
     /* global stats */

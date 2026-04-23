@@ -690,6 +690,11 @@
   justify-content: space-between;
   gap: 10px;
 }
+.guild-snipe-header-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
 .guild-snipe-time {
   font-family: 'Cinzel', serif;
   font-size: 0.78rem;
@@ -736,4 +741,11 @@
   font-family: 'Cinzel', serif;
   font-size: 0.78rem;
   color: var(--gold-light);
+}
+.snipe-participant-me {
+  border-color: var(--gold-dim);
+  background: rgba(212,160,23,0.12);
+}
+.snipe-participant-me .snipe-participant-name {
+  font-weight: 700;
 }
