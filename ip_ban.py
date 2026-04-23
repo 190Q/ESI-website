@@ -1,5 +1,5 @@
 """
-ip_ban.py — Fail2ban-style IP banning system.
+ip_ban.py - Fail2ban-style IP banning system.
 Tracks "strikes" per IP across configurable jails and automatically
 bans IPs that exceed thresholds.  Bans escalate on repeat offences.
 
@@ -176,7 +176,7 @@ def is_banned(ip: str) -> bool:
         return False
     if time() < expires:
         return True
-    # expired — remove lazily
+    # expired - remove lazily
     _unban(ip)
     return False
 

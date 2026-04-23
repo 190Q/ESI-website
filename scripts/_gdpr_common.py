@@ -108,7 +108,7 @@ def fetch_restriction(conn, discord_id: str):
             (discord_id,),
         ).fetchone()
     except sqlite3.OperationalError:
-        # Table doesn't exist yet — user isn't restricted.
+        # Table doesn't exist yet - user isn't restricted.
         return None
     if not row:
         return None

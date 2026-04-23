@@ -1,5 +1,5 @@
 """
-config.py — Shared configuration, constants, and utility functions.
+config.py - Shared configuration, constants, and utility functions.
 Imported by main.py, routes.py, and cache.py.
 """
 
@@ -414,7 +414,7 @@ def _mc_username(discord_id, matches):
 
 
 def _get_secret_key():
-    """Flask session key — saved to a file so it survives server restarts."""
+    """Flask session key - saved to a file so it survives server restarts."""
     key = os.environ.get("FLASK_SECRET_KEY")
     if key:
         return key

@@ -1,5 +1,5 @@
 """
-cache.py — Cache computation service.
+cache.py - Cache computation service.
 Runs on port 5002. Periodically computes bulk playtime / metrics
 and exposes the results via HTTP for the routes service.
 

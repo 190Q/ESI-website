@@ -1,5 +1,5 @@
 """
-main.py — Gateway server.
+main.py - Gateway server.
 Runs on port 5000. Serves static files and reverse-proxies
 /api/* and /auth/* requests to the routes service on port 5001.
 
@@ -348,7 +348,7 @@ _BANNED_METHODS = frozenset({
 @app.before_request
 def _gate_requests():
     ip = _real_client_ip()
-    # Never blacklist the Cloudflare edge itself — that would kill every
+    # Never blacklist the Cloudflare edge itself - that would kill every
     # legitimate visitor routed through the same POP.
     peer = request.environ.get("REMOTE_ADDR") or request.remote_addr
     cf_skip = _is_cloudflare_peer(peer) and ip == peer

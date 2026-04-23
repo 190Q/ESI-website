@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Helper for scripts/ban-ip.sh list — prints the ip_bans.db contents.
+"""Helper for scripts/ban-ip.sh list - prints the ip_bans.db contents.
 
 Formats
 -------
@@ -228,7 +228,7 @@ def _print_python(blacklist, active):
 HELP_TEXT = """\
 Usage: _export_bans.py <ip_bans.db> <pretty|sql|python>
 
-Helper for scripts/ban-ip.sh list — prints the ip_bans.db contents.
+Helper for scripts/ban-ip.sh list - prints the ip_bans.db contents.
 
 Arguments:
   <ip_bans.db>    Path to the ip_bans.db SQLite file.
