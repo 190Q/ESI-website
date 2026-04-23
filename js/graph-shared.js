@@ -517,6 +517,7 @@
     // If this panel has a persistent share-ready shadow clone, keep it in sync with the freshly-drawn canvas
     var panel = canvas.closest ? canvas.closest('.graph-panel') : null;
     if (panel && panel._shareClone) {
+      panel._shareCanvasDirty = true;
       syncSharePanel(panel);
     }
 
@@ -574,6 +575,53 @@
     '.graph-selected-xbadge',
   ];
 
+  // Build the header text for the share clone
+  function buildShareHeaderText(panel) {
+    var isGuild = !!panel.querySelector('#guildGraphCanvas');
+
+    var mainName = '';
+    var compareName = '';
+    if (isGuild) {
+      var guildNameEl = document.getElementById('guildCardName');
+      mainName = guildNameEl ? (guildNameEl.textContent || '').trim() : '';
+      if (!mainName) mainName = 'Guild';
+      var guildPill = document.getElementById('guildComparePill');
+      var guildPillName = document.getElementById('guildComparePillName');
+      if (guildPill && guildPill.style.display !== 'none' && guildPillName) {
+        compareName = (guildPillName.textContent || '').trim();
+      }
+    } else {
+      var playerNameEl = document.getElementById('playerName');
+      mainName = playerNameEl ? (playerNameEl.textContent || '').trim() : '';
+      var pill = document.getElementById('comparePill');
+      var pillName = document.getElementById('comparePillName');
+      if (pill && pill.style.display !== 'none' && pillName) {
+        compareName = (pillName.textContent || '').trim();
+      }
+    }
+
+    // Collect currently-selected metric label(s) from the live controls
+    var metrics = [];
+    panel.querySelectorAll('.graph-metric-row').forEach(function (row) {
+      var sel = row.querySelector('.graph-select');
+      if (sel && sel.options && sel.selectedIndex >= 0) {
+        var opt = sel.options[sel.selectedIndex];
+        if (opt && opt.textContent) { metrics.push(opt.textContent.trim()); return; }
+      }
+      var lbl = row.querySelector('.graph-metric-label');
+      if (lbl && lbl.textContent) metrics.push(lbl.textContent.trim());
+    });
+    // Player-side rows are removed from the DOM when locked to a single metric
+    if (!metrics.length && !isGuild) metrics.push('Playtime');
+
+    var nameStr = compareName ? (mainName + ' vs ' + compareName) : mainName;
+    var metricStr = metrics.join(', ');
+    var parts = [];
+    if (nameStr) parts.push(nameStr);
+    if (metricStr) parts.push(metricStr);
+    return parts.join(' \u00b7 ');
+  }
+
   /**
    * Build (or return) a persistent offscreen clone of the given graph panel.
    * The clone mirrors the live panel's canvas pixels + summaries block so that
@@ -586,8 +634,8 @@
 
     var clone = panel.cloneNode(true);
     clone.style.cssText =
-      'position:fixed;/*!left:-9999px;*/top:70px;width:' + panel.offsetWidth + 'px;' +
-      'z-index:999;overflow:hidden;pointer-events:none;/*!visibility:hidden;*/';
+      'position:fixed;left:-9999px;top:0;width:' + panel.offsetWidth + 'px;' +
+      'z-index:-1;overflow:hidden;pointer-events:none;visibility:hidden;';
 
     clone.querySelectorAll(SHARE_STRIP_SELECTORS).forEach(function (el) { el.remove(); });
 
@@ -595,15 +643,26 @@
     var cloneCanvas = clone.querySelector('canvas');
     var cloneSummaries = clone.querySelector('#graphSummaries, #guildGraphSummaries');
 
+    var cloneImg = null;
+    if (cloneCanvas && cloneCanvas.parentNode) {
+      cloneImg = document.createElement('img');
+      cloneImg.alt = '';
+      cloneImg.style.display = 'block';
+      if (cloneCanvas.style.width) cloneImg.style.width = cloneCanvas.style.width;
+      if (cloneCanvas.style.height) cloneImg.style.height = cloneCanvas.style.height;
+      cloneCanvas.parentNode.replaceChild(cloneImg, cloneCanvas);
+    }
+
     // Remove IDs so the document never has duplicates
     clone.querySelectorAll('[id]').forEach(function (el) { el.removeAttribute('id'); });
 
     document.body.appendChild(clone);
 
     panel._shareClone = clone;
-    panel._shareCloneCanvas = cloneCanvas;
+    panel._shareCloneImg = cloneImg;
     panel._shareCloneSummaries = cloneSummaries;
     panel._shareLastSummariesHTML = null;
+    panel._shareLastCanvasSig = null;
 
     // MutationObserver picks up summaries (and any other DOM) changes
     if (!panel._shareObserver && typeof MutationObserver !== 'undefined') {
@@ -653,24 +712,27 @@
       }
     }
 
-    // Sync canvas pixels
+    // Sync canvas pixels into the clone's <img> via toDataURL
     var srcCanvas = panel.querySelector('canvas');
-    var cloneCanvas = panel._shareCloneCanvas;
-    if (srcCanvas && cloneCanvas) {
-      if (cloneCanvas.width !== srcCanvas.width) cloneCanvas.width = srcCanvas.width;
-      if (cloneCanvas.height !== srcCanvas.height) cloneCanvas.height = srcCanvas.height;
-      if (cloneCanvas.style.width !== srcCanvas.style.width) cloneCanvas.style.width = srcCanvas.style.width;
-      if (cloneCanvas.style.height !== srcCanvas.style.height) cloneCanvas.style.height = srcCanvas.style.height;
-      var ctx = cloneCanvas.getContext('2d');
-      if (ctx) {
-        ctx.clearRect(0, 0, cloneCanvas.width, cloneCanvas.height);
-        try { ctx.drawImage(srcCanvas, 0, 0); } catch (e) { /* srcCanvas may be 0-sized */ }
+    var cloneImg = panel._shareCloneImg;
+    if (srcCanvas && cloneImg && srcCanvas.width > 0 && srcCanvas.height > 0) {
+      if (cloneImg.style.width !== srcCanvas.style.width) cloneImg.style.width = srcCanvas.style.width;
+      if (cloneImg.style.height !== srcCanvas.style.height) cloneImg.style.height = srcCanvas.style.height;
+      // Only regenerate the data URL
+      var sig = srcCanvas.width + 'x' + srcCanvas.height;
+      if (panel._shareCanvasDirty || sig !== panel._shareLastCanvasSig || !cloneImg.src) {
+        try {
+          var dataUrl = srcCanvas.toDataURL('image/png');
+          if (dataUrl && cloneImg.src !== dataUrl) cloneImg.src = dataUrl;
+          panel._shareLastCanvasSig = sig;
+          panel._shareCanvasDirty = false;
+        } catch (e) { /* tainted canvas - skip */ }
       }
     }
 
     // Sync pinned-selection guide overlays (selected vline + day badge)
     var srcWrap = srcCanvas && srcCanvas.parentElement;
-    var cloneWrap = cloneCanvas && cloneCanvas.parentElement;
+    var cloneWrap = cloneImg && cloneImg.parentElement;
     if (srcWrap && cloneWrap) {
       SHARE_GUIDE_SELECTORS.forEach(function (sel) {
         var srcEl = srcWrap.querySelector(sel);
@@ -684,6 +746,13 @@
         if (dstEl.innerHTML !== srcEl.innerHTML) dstEl.innerHTML = srcEl.innerHTML;
       });
     }
+
+    // Rewrite the panel header
+    var headerSpan = clone.querySelector('.graph-panel-header > span:first-child');
+    if (headerSpan) {
+      var title = buildShareHeaderText(panel);
+      if (title && headerSpan.textContent !== title) headerSpan.textContent = title;
+    }
   }
 
   /**
@@ -695,6 +764,9 @@
   function initShareButtons() {
     var btns = document.querySelectorAll('.graph-share-btn');
     btns.forEach(function (btn) {
+      if (btn._shareInitialized) return;
+      btn._shareInitialized = true;
+
       var panel = btn.closest('.graph-panel');
       if (!panel) return;
 
@@ -733,12 +805,29 @@
               ]).then(function () {
                 if (window.showToast) window.showToast('\u2713 Graph copied to clipboard', 'success');
               }).catch(function () {
-                if (window.showToast) window.showToast('\u26a0 Failed to copy graph', 'warn');
+                _downloadBlob(blob);
               });
             } else {
-              if (window.showToast) window.showToast('\u26a0 Clipboard not supported in this browser', 'warn');
+              _downloadBlob(blob);
             }
           }, 'image/png');
+        }
+
+        function _downloadBlob(blob) {
+          try {
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'graph-' + Date.now() + '.png';
+            a.rel = 'noopener';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+            if (window.showToast) window.showToast('\u2713 Graph downloaded', 'success');
+          } catch (e) {
+            if (window.showToast) window.showToast('\u26a0 Failed to share graph', 'warn');
+          }
         }
       });
     });
