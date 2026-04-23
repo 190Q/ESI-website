@@ -5,7 +5,7 @@ export default function Navbar() {
     <header className="navbar">
       <div className="navbar-left">
         <div className="guild-logo">
-          <img src="images/guild_emblem.avif" alt="ESI Emblem" className="emblem-img" />
+          <img src="/images/guild_emblem.avif" alt="ESI Emblem" className="emblem-img" />
           <div className="guild-title">
             <span className="guild-acronym">ESI</span>
             <span className="guild-fullname">Empire of Sindria</span>

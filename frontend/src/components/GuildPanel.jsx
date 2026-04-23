@@ -17,7 +17,7 @@ export default function GuildPanel() {
         {/* Guild profile card */}
         <div className="guild-profile-card">
           <div className="guild-profile-emblem-wrap">
-            <img src="images/guild_emblem.avif" alt="Guild Emblem" className="guild-profile-emblem" />
+            <img src="/images/guild_emblem.avif" alt="Guild Emblem" className="guild-profile-emblem" />
           </div>
           <div className="guild-profile-info">
             <div className="guild-profile-name-row">

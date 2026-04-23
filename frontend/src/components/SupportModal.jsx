@@ -9,7 +9,7 @@ export default function SupportModal() {
         {/* Links view */}
         <div id="supportLinksView">
           <div className="modal-emblem">
-            <img src="images/guild_emblem.avif" alt="ESI" />
+            <img src="/images/guild_emblem.avif" alt="ESI" />
           </div>
           <h2 className="modal-title">Contact Support</h2>
           <p className="modal-sub" style={{ fontWeight: 500 }}>

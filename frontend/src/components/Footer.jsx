@@ -11,7 +11,7 @@ export default function Footer() {
         <div className="site-footer-col site-footer-brand">
           <div className="site-footer-title">
             <img
-              src="images/guild_emblem.avif"
+              src="/images/guild_emblem.avif"
               alt=""
               className="site-footer-emblem"
               aria-hidden="true"
