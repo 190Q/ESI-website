@@ -177,7 +177,9 @@
       if (node) node.style.display = 'none';
     });
 
-    const dpr = window.devicePixelRatio || 1;
+    // Render at a minimum of 2x so the bitmap is sharp both on-screen and in
+    // the html2canvas share capture (which rasterizes at scale:2+)
+    const dpr = Math.max(window.devicePixelRatio || 1, 2);
     /* Reset canvas so the flex container can shrink to its natural width */
     canvas.style.width = '0';
     const W = wrap.clientWidth;
@@ -773,7 +775,8 @@
         var srcCanvas = panel.querySelector('canvas');
 
         if (clone && typeof html2canvas !== 'undefined') {
-          html2canvas(clone, { backgroundColor: '#0D1A0D', scale: 2, useCORS: true, allowTaint: true })
+          // scale matches the canvas's forced min-2x dpr so graph pixels are 1:1
+          html2canvas(clone, { backgroundColor: '#0D1A0D', scale: 2, useCORS: true, allowTaint: true, logging: false })
             .then(function (c) { _copyOrDownload(c); })
             .catch(function () { _copyOrDownload(srcCanvas); });
         } else {
