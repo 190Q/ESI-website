@@ -513,6 +513,13 @@
 
     const guides = ensureHoverGuides(canvas, opts.guideStyles);
     updatePinnedGuide(guides, model, opts.selectedDayOffset);
+
+    // If this panel has a persistent share-ready shadow clone, keep it in sync with the freshly-drawn canvas
+    var panel = canvas.closest ? canvas.closest('.graph-panel') : null;
+    if (panel && panel._shareClone) {
+      syncSharePanel(panel);
+    }
+
     return model;
   }
 
@@ -547,57 +554,172 @@
     };
   }
 
+  // Elements removed from the share clone because they are interactive
+  var SHARE_STRIP_SELECTORS = [
+    '.graph-controls',
+    '.graph-legend',
+    '.btn-add-metric',
+    '.graph-share-zone',
+    '.graph-share-btn',
+    '.compare-area',
+    '.graph-loader',
+    '.graph-hover-vline',
+    '.graph-hover-xbadge',
+    '.graph-hover-tooltip',
+  ].join(', ');
+
+  // Overlays that live inside .graph-canvas-wrap
+  var SHARE_GUIDE_SELECTORS = [
+    '.graph-selected-vline',
+    '.graph-selected-xbadge',
+  ];
+
   /**
-   * Attach a share button to every .graph-panel that contains a .graph-share-btn.
-   * On click it captures the panel (hiding controls, metric rows, legend, add-metric
-   * button, and the share button itself), then copies to clipboard or downloads.
+   * Build (or return) a persistent offscreen clone of the given graph panel.
+   * The clone mirrors the live panel's canvas pixels + summaries block so that
+   * a share click can hand it straight to html2canvas without any per-click
+   * cloning or stripping work.
+   */
+  function ensureSharePanel(panel) {
+    if (!panel) return null;
+    if (panel._shareClone) return panel._shareClone;
+
+    var clone = panel.cloneNode(true);
+    clone.style.cssText =
+      'position:fixed;/*!left:-9999px;*/top:70px;width:' + panel.offsetWidth + 'px;' +
+      'z-index:999;overflow:hidden;pointer-events:none;/*!visibility:hidden;*/';
+
+    clone.querySelectorAll(SHARE_STRIP_SELECTORS).forEach(function (el) { el.remove(); });
+
+    // Cache references to the dynamic bits BEFORE we strip IDs
+    var cloneCanvas = clone.querySelector('canvas');
+    var cloneSummaries = clone.querySelector('#graphSummaries, #guildGraphSummaries');
+
+    // Remove IDs so the document never has duplicates
+    clone.querySelectorAll('[id]').forEach(function (el) { el.removeAttribute('id'); });
+
+    document.body.appendChild(clone);
+
+    panel._shareClone = clone;
+    panel._shareCloneCanvas = cloneCanvas;
+    panel._shareCloneSummaries = cloneSummaries;
+    panel._shareLastSummariesHTML = null;
+
+    // MutationObserver picks up summaries (and any other DOM) changes
+    if (!panel._shareObserver && typeof MutationObserver !== 'undefined') {
+      var observer = new MutationObserver(function () {
+        if (panel._shareSyncScheduled) return;
+        panel._shareSyncScheduled = true;
+        var run = function () {
+          panel._shareSyncScheduled = false;
+          syncSharePanel(panel);
+        };
+        if (typeof window.requestAnimationFrame === 'function') {
+          window.requestAnimationFrame(run);
+        } else {
+          setTimeout(run, 16);
+        }
+      });
+      observer.observe(panel, { childList: true, subtree: true, characterData: true });
+      panel._shareObserver = observer;
+    }
+
+    syncSharePanel(panel);
+    return clone;
+  }
+
+  /**
+   * Mirror dynamic content from the live graph panel onto its shadow clone
+   */
+  function syncSharePanel(panel) {
+    if (!panel || !panel._shareClone) return;
+    var clone = panel._shareClone;
+
+    // Keep the clone the same width as the live panel
+    var panelWidth = panel.offsetWidth;
+    if (panelWidth > 0) {
+      var widthPx = panelWidth + 'px';
+      if (clone.style.width !== widthPx) clone.style.width = widthPx;
+    }
+
+    // Sync summaries innerHTML (the only non-canvas dynamic block kept in the clone)
+    var srcSummaries = panel.querySelector('#graphSummaries, #guildGraphSummaries');
+    var cloneSummaries = panel._shareCloneSummaries;
+    if (srcSummaries && cloneSummaries) {
+      var html = srcSummaries.innerHTML;
+      if (html !== panel._shareLastSummariesHTML) {
+        cloneSummaries.innerHTML = html;
+        panel._shareLastSummariesHTML = html;
+      }
+    }
+
+    // Sync canvas pixels
+    var srcCanvas = panel.querySelector('canvas');
+    var cloneCanvas = panel._shareCloneCanvas;
+    if (srcCanvas && cloneCanvas) {
+      if (cloneCanvas.width !== srcCanvas.width) cloneCanvas.width = srcCanvas.width;
+      if (cloneCanvas.height !== srcCanvas.height) cloneCanvas.height = srcCanvas.height;
+      if (cloneCanvas.style.width !== srcCanvas.style.width) cloneCanvas.style.width = srcCanvas.style.width;
+      if (cloneCanvas.style.height !== srcCanvas.style.height) cloneCanvas.style.height = srcCanvas.style.height;
+      var ctx = cloneCanvas.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, cloneCanvas.width, cloneCanvas.height);
+        try { ctx.drawImage(srcCanvas, 0, 0); } catch (e) { /* srcCanvas may be 0-sized */ }
+      }
+    }
+
+    // Sync pinned-selection guide overlays (selected vline + day badge)
+    var srcWrap = srcCanvas && srcCanvas.parentElement;
+    var cloneWrap = cloneCanvas && cloneCanvas.parentElement;
+    if (srcWrap && cloneWrap) {
+      SHARE_GUIDE_SELECTORS.forEach(function (sel) {
+        var srcEl = srcWrap.querySelector(sel);
+        if (!srcEl) return;
+        var dstEl = cloneWrap.querySelector(sel);
+        if (!dstEl) {
+          dstEl = srcEl.cloneNode(false);
+          cloneWrap.appendChild(dstEl);
+        }
+        if (dstEl.style.cssText !== srcEl.style.cssText) dstEl.style.cssText = srcEl.style.cssText;
+        if (dstEl.innerHTML !== srcEl.innerHTML) dstEl.innerHTML = srcEl.innerHTML;
+      });
+    }
+  }
+
+  /**
+   * Attach a share button to every .graph-panel that contains a .graph-share-btn
+   * The panel's shadow clone is built up-front and kept in sync live, so the
+   * click handler only has to hand it to html2canvas and push the result to the
+   * clipboard.
    */
   function initShareButtons() {
     var btns = document.querySelectorAll('.graph-share-btn');
     btns.forEach(function (btn) {
+      var panel = btn.closest('.graph-panel');
+      if (!panel) return;
+
+      // Pre-build the offscreen clone so the click path never pays for a clone/strip
+      ensureSharePanel(panel);
+
       var _busy = false;
       btn.addEventListener('click', function () {
         if (_busy) return;
         _busy = true;
         setTimeout(function () { _busy = false; }, 3000);
-        var panel = btn.closest('.graph-panel');
-        if (!panel) return;
 
-        // clone the panel off-screen so the user never sees changes
-        var clone = panel.cloneNode(true);
-        clone.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + panel.offsetWidth + 'px;z-index:-1;overflow:hidden;';
-        document.body.appendChild(clone);
+        // Idempotent: ensures the clone exists even if something reset it
+        ensureSharePanel(panel);
+        // Belt-and-suspenders final sync; cheap when nothing changed
+        syncSharePanel(panel);
 
-        // remove unwanted elements from the clone
-        clone.querySelectorAll('.graph-controls, .graph-legend, .btn-add-metric, .graph-share-zone, .graph-share-btn, .graph-hover-tooltip, .graph-hover-vline, .graph-hover-xbadge, .compare-area, .graph-loader').forEach(function (el) {
-          el.remove();
-        });
-
-        // strip IDs from clone to avoid duplicate-ID issues with html2canvas
-        clone.querySelectorAll('[id]').forEach(function (el) { el.removeAttribute('id'); });
-
-        // copy the canvas content (cloneNode doesn't copy canvas pixels)
+        var clone = panel._shareClone;
         var srcCanvas = panel.querySelector('canvas');
-        var cloneCanvas = clone.querySelector('canvas');
-        if (srcCanvas && cloneCanvas) {
-          cloneCanvas.width = srcCanvas.width;
-          cloneCanvas.height = srcCanvas.height;
-          cloneCanvas.style.width = srcCanvas.style.width;
-          cloneCanvas.style.height = srcCanvas.style.height;
-          var cloneCtx = cloneCanvas.getContext('2d');
-          if (cloneCtx) cloneCtx.drawImage(srcCanvas, 0, 0);
-        }
 
-        if (typeof html2canvas !== 'undefined') {
-          html2canvas(clone, { backgroundColor: '#0D1A0D', scale: 2, useCORS: true, allowTaint: true }).then(function (c) {
-            clone.remove();
-            _copyOrDownload(c);
-          }).catch(function () {
-            clone.remove();
-            _copyOrDownload(srcCanvas);
-          });
+        if (clone && typeof html2canvas !== 'undefined') {
+          html2canvas(clone, { backgroundColor: '#0D1A0D', scale: 2, useCORS: true, allowTaint: true })
+            .then(function (c) { _copyOrDownload(c); })
+            .catch(function () { _copyOrDownload(srcCanvas); });
         } else {
-          clone.remove();
           _copyOrDownload(srcCanvas);
         }
 
@@ -633,5 +755,7 @@
     drawGraphCanvas: drawGraphCanvas,
     computeSummaryStats: computeSummaryStats,
     initShareButtons: initShareButtons,
+    ensureSharePanel: ensureSharePanel,
+    syncSharePanel: syncSharePanel,
   });
 })();
