@@ -517,7 +517,6 @@
     // If this panel has a persistent share-ready shadow clone, keep it in sync with the freshly-drawn canvas
     var panel = canvas.closest ? canvas.closest('.graph-panel') : null;
     if (panel && panel._shareClone) {
-      panel._shareCanvasDirty = true;
       syncSharePanel(panel);
     }
 
@@ -635,7 +634,7 @@
     var clone = panel.cloneNode(true);
     clone.style.cssText =
       'position:fixed;left:-9999px;top:0;width:' + panel.offsetWidth + 'px;' +
-      'z-index:-1;overflow:hidden;pointer-events:none;visibility:hidden;';
+      'z-index:-1;overflow:hidden;pointer-events:none;';
 
     clone.querySelectorAll(SHARE_STRIP_SELECTORS).forEach(function (el) { el.remove(); });
 
@@ -643,26 +642,15 @@
     var cloneCanvas = clone.querySelector('canvas');
     var cloneSummaries = clone.querySelector('#graphSummaries, #guildGraphSummaries');
 
-    var cloneImg = null;
-    if (cloneCanvas && cloneCanvas.parentNode) {
-      cloneImg = document.createElement('img');
-      cloneImg.alt = '';
-      cloneImg.style.display = 'block';
-      if (cloneCanvas.style.width) cloneImg.style.width = cloneCanvas.style.width;
-      if (cloneCanvas.style.height) cloneImg.style.height = cloneCanvas.style.height;
-      cloneCanvas.parentNode.replaceChild(cloneImg, cloneCanvas);
-    }
-
     // Remove IDs so the document never has duplicates
     clone.querySelectorAll('[id]').forEach(function (el) { el.removeAttribute('id'); });
 
     document.body.appendChild(clone);
 
     panel._shareClone = clone;
-    panel._shareCloneImg = cloneImg;
+    panel._shareCloneCanvas = cloneCanvas;
     panel._shareCloneSummaries = cloneSummaries;
     panel._shareLastSummariesHTML = null;
-    panel._shareLastCanvasSig = null;
 
     // MutationObserver picks up summaries (and any other DOM) changes
     if (!panel._shareObserver && typeof MutationObserver !== 'undefined') {
@@ -712,27 +700,24 @@
       }
     }
 
-    // Sync canvas pixels into the clone's <img> via toDataURL
+    // Sync canvas pixels
     var srcCanvas = panel.querySelector('canvas');
-    var cloneImg = panel._shareCloneImg;
-    if (srcCanvas && cloneImg && srcCanvas.width > 0 && srcCanvas.height > 0) {
-      if (cloneImg.style.width !== srcCanvas.style.width) cloneImg.style.width = srcCanvas.style.width;
-      if (cloneImg.style.height !== srcCanvas.style.height) cloneImg.style.height = srcCanvas.style.height;
-      // Only regenerate the data URL
-      var sig = srcCanvas.width + 'x' + srcCanvas.height;
-      if (panel._shareCanvasDirty || sig !== panel._shareLastCanvasSig || !cloneImg.src) {
-        try {
-          var dataUrl = srcCanvas.toDataURL('image/png');
-          if (dataUrl && cloneImg.src !== dataUrl) cloneImg.src = dataUrl;
-          panel._shareLastCanvasSig = sig;
-          panel._shareCanvasDirty = false;
-        } catch (e) { /* tainted canvas - skip */ }
+    var cloneCanvas = panel._shareCloneCanvas;
+    if (srcCanvas && cloneCanvas && srcCanvas.width > 0 && srcCanvas.height > 0) {
+      if (cloneCanvas.width !== srcCanvas.width) cloneCanvas.width = srcCanvas.width;
+      if (cloneCanvas.height !== srcCanvas.height) cloneCanvas.height = srcCanvas.height;
+      if (cloneCanvas.style.width !== srcCanvas.style.width) cloneCanvas.style.width = srcCanvas.style.width;
+      if (cloneCanvas.style.height !== srcCanvas.style.height) cloneCanvas.style.height = srcCanvas.style.height;
+      var ctx = cloneCanvas.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, cloneCanvas.width, cloneCanvas.height);
+        try { ctx.drawImage(srcCanvas, 0, 0); } catch (e) { /* ignore */ }
       }
     }
 
     // Sync pinned-selection guide overlays (selected vline + day badge)
     var srcWrap = srcCanvas && srcCanvas.parentElement;
-    var cloneWrap = cloneImg && cloneImg.parentElement;
+    var cloneWrap = cloneCanvas && cloneCanvas.parentElement;
     if (srcWrap && cloneWrap) {
       SHARE_GUIDE_SELECTORS.forEach(function (sel) {
         var srcEl = srcWrap.querySelector(sel);
