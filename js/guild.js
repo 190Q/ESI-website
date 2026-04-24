@@ -533,7 +533,7 @@
     const totals = {};
     let grandTotal = 0;
     for (const m of flatMembers) {
-      const raids = m.guildRaids;
+      const raids = (m.globalData && m.globalData.guildRaids) || m.guildRaids;
       if (!raids) continue;
       grandTotal += raids.total || 0;
       for (const [raidName, count] of Object.entries(raids.list || {})) {
@@ -1142,13 +1142,14 @@
     let html = '';
     flatMembers.forEach((m, i) => {
       const rankClass = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
+      const memberRaids = (m.globalData && m.globalData.guildRaids) || m.guildRaids;
       html += `
         <div class="guild-member-row">
           <span class="guild-member-rank-num ${rankClass}">#${m.contributionRank || (i + 1)}</span>
           <span class="guild-member-name guild-log-name-link" data-username="${m.name}">${m.name}</span>
           <span class="guild-rank-badge guild-rank-${m.role}">${capFirst(m.role)}</span>
           <span class="guild-member-contrib">${fmt(m.contributed)} XP</span>
-          <span class="guild-member-raids">⚜ ${fmt(m.guildRaids ? m.guildRaids.total : 0)}</span>
+          <span class="guild-member-raids">⚜ ${fmt(memberRaids ? memberRaids.total : 0)}</span>
         </div>`;
     });
     document.getElementById('guildMembersList').innerHTML = html;
