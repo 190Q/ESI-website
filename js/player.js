@@ -1332,18 +1332,18 @@
 
     /* stats */
     const mainStats = [
-      { label: 'Level',       val: c.level || '?'                       },
-      { label: 'Total Level', val: fmt(c.totalLevel)                    },
-      { label: 'Playtime',    val: fmtHours(c.playtime)                 },
-      { label: 'Wars',        val: fmt(c.wars)                          },
-      { label: 'Logins',      val: fmt(c.logins)                        },
-      { label: 'Deaths',      val: fmt(c.deaths)                        },
-      { label: 'Content %',   val: fmt(c.contentCompletion)             },
-      { label: 'Mobs Killed', val: fmt(c.mobsKilled)                    },
-      { label: 'Chests',      val: fmt(c.chestsFound)                   },
-      { label: 'Caves',       val: fmt(c.caves)                         },
-      { label: 'PvP Kills',   val: fmt(c.pvp ? c.pvp.kills   : null)    },
-      { label: 'PvP Deaths',  val: fmt(c.pvp ? c.pvp.deaths  : null)    },
+      { label: 'Level',                val: c.level || '?'                       },
+      { label: 'Total Level',          val: fmt(c.totalLevel)                    },
+      { label: 'Playtime',             val: fmtHours(c.playtime)                 },
+      { label: 'Wars',                 val: fmt(c.wars)                          },
+      { label: 'Logins',               val: fmt(c.logins)                        },
+      { label: 'Deaths',               val: fmt(c.deaths)                        },
+      { label: 'Content Completion',   val: fmt(c.contentCompletion)             },
+      { label: 'Mobs Killed',          val: fmt(c.mobsKilled)                    },
+      { label: 'Chests',               val: fmt(c.chestsFound)                   },
+      { label: 'Caves',                val: fmt(c.caves)                         },
+      { label: 'PvP Kills',            val: fmt(c.pvp ? c.pvp.kills   : null)    },
+      { label: 'PvP Deaths',           val: fmt(c.pvp ? c.pvp.deaths  : null)    },
     ];
     const statsHtml = mainStats.map(s => `
       <div class="stat-list-row">
