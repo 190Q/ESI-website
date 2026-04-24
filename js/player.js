@@ -1403,7 +1403,7 @@
       <div class="global-stats-list">${statsHtml}</div>
 
       <div class="info-card">
-        <div class="collapsible-header" onclick="toggleCollapse(this)">
+        <div class="collapsible-header">
           Professions <span class="collapsible-arrow">▼</span>
         </div>
         <div class="collapsible-body">
@@ -1413,7 +1413,7 @@
 
       ${dungData.list && Object.keys(dungData.list).length > 0 ? `
       <div class="info-card">
-        <div class="collapsible-header" onclick="toggleCollapse(this)">
+        <div class="collapsible-header">
           Dungeons &nbsp;<span style="color:var(--text-faint);font-size:0.85em">Total: ${fmt(dungData.total || 0)}</span>
           <span class="collapsible-arrow">▼</span>
         </div>
@@ -1424,7 +1424,7 @@
 
       ${raidData.list && Object.keys(raidData.list).length > 0 ? `
       <div class="info-card">
-        <div class="collapsible-header" onclick="toggleCollapse(this)">
+        <div class="collapsible-header">
           Raids &nbsp;<span style="color:var(--text-faint);font-size:0.85em">Total: ${fmt(raidData.total || 0)}</span>
           <span class="collapsible-arrow">▼</span>
         </div>
@@ -1433,6 +1433,13 @@
         </div>
       </div>` : ''}
     `;
+
+    /* wire collapsibles */
+    container.querySelectorAll('.collapsible-header').forEach(function (header) {
+      header.addEventListener('click', function () {
+        window.toggleCollapse(header);
+      });
+    });
   }
 
   /* update guild XP once guild data comes in */
