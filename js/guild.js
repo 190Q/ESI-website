@@ -1303,10 +1303,10 @@
     const statsGrid = document.getElementById('guildSnipesStatsGrid');
     if (statsGrid) {
       const rows = [
-        { label: 'Total Snipes',   val: fmt(stats.total_snipes) },
-        { label: 'Unique Snipers', val: fmt(stats.unique_players) },
-        { label: 'Avg Damage',     val: fmt(Math.round(stats.avg_damage || 0)) },
-        { label: 'Avg Speed',      val: (stats.avg_speed != null ? Number(stats.avg_speed).toFixed(2) : 'N/A') },
+        { label: 'Total Snipes',             val: fmt(stats.total_snipes) },
+        { label: 'Unique Snipers',           val: fmt(stats.unique_players) },
+        { label: 'Avg Tower Damage',         val: fmt(Math.round(stats.avg_damage || 0)) },
+        { label: 'Avg Tower Attack Speed',   val: (stats.avg_speed != null ? Number(stats.avg_speed).toFixed(2) : 'N/A') },
       ];
       statsGrid.innerHTML = _safeSanitize(rows.map(function (s) {
         return '<div class="stat-list-row">'

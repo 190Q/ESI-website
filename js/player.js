@@ -122,12 +122,12 @@
         : 'N/A';
       const lastSnipeText = stats.last_snipe ? fmtSnipeTimestamp(stats.last_snipe) : 'N/A';
       const rows = [
-        { label: 'Snipes Participated', val: fmt(stats.total_snipes) },
-        { label: 'Primary Role',        val: snipeRoleBadgePlayer(stats.primary_role) },
-        { label: 'Avg Damage',          val: fmt(Math.round(stats.avg_damage || 0)) },
-        { label: 'Avg Speed',           val: (stats.avg_speed != null ? Number(stats.avg_speed).toFixed(2) : 'N/A') },
-        { label: 'Last Snipe',          val: escapeHtml(lastSnipeText) },
-        { label: 'Role Breakdown',      val: rolesText },
+        { label: 'Snipes Participated',       val: fmt(stats.total_snipes) },
+        { label: 'Primary Role',              val: snipeRoleBadgePlayer(stats.primary_role) },
+        { label: 'Avg Tower Damage',          val: fmt(Math.round(stats.avg_damage || 0)) },
+        { label: 'Avg Tower Attack Speed',    val: (stats.avg_speed != null ? Number(stats.avg_speed).toFixed(2) : 'N/A') },
+        { label: 'Last Snipe',                val: escapeHtml(lastSnipeText) },
+        { label: 'Role Breakdown',            val: rolesText },
       ];
       statsGrid.innerHTML = _safeSanitize(rows.map(function (s) {
         return '<div class="stat-list-row">'
