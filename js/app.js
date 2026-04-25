@@ -45,8 +45,9 @@
       const target = item.dataset.panel;
       if (!target) return;
       // if it's a restricted panels, just ignore the click
-      if (target === 'inactivity' && !hasParliamentPlus()) return;
-      if (target === 'promotions' && !hasJurorPlus()) return;
+      if (target === 'inactivity'    && !hasParliamentPlus()) return;
+      if (target === 'promotions'    && !hasJurorPlus()) return;
+      if (target === 'events-manage' && !hasEventsAccess()) return;
       navItems.forEach(n => n.classList.remove('active'));
       item.classList.add('active');
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -212,6 +213,8 @@ var ESI_MEDALS        = [];
 var ESI_BADGES        = [];
 var _PARLIAMENT_PLUS  = [];
 var _JUROR_PLUS       = [];
+var _EVENTS_ACCESS    = [];
+var _EVENTS_MANAGE_ANY = [];
 var _configLoaded     = false;
 
 var _configPromise = fetch('/api/config')
@@ -225,7 +228,10 @@ var _configPromise = fetch('/api/config')
     ESI_BADGES        = cfg.badges       || [];
     _PARLIAMENT_PLUS  = cfg.permissions  ? cfg.permissions.parliamentPlus || [] : [];
     _JUROR_PLUS       = cfg.permissions  ? cfg.permissions.jurorPlus || [] : [];
-    window.ESI_DEV_MODE = !!cfg.devMode;
+    _EVENTS_ACCESS    = cfg.permissions  ? cfg.permissions.eventsAccess || [] : [];
+    _EVENTS_MANAGE_ANY = cfg.permissions ? cfg.permissions.eventsManageAny || [] : [];
+    window.ESI_DEV_MODE     = !!cfg.devMode;
+    window.ESI_DISCORD_GUILD_ID = cfg.guildId || '';
     _configLoaded     = true;
   })
   .catch(function () {});
@@ -468,23 +474,41 @@ fetch('/auth/session', { credentials: 'same-origin' })
     return _JUROR_PLUS.some(function (id) { return roles.includes(id); });
   }
 
+  // true if the user has any role that lets them access the Manage Events page
+  function hasEventsAccess() {
+    if (!state.loggedIn || !state.user) return false;
+    var roles = state.user.roles || [];
+    return _EVENTS_ACCESS.some(function (id) { return roles.includes(id); });
+  }
+
+  // true if the user can manage any event
+  function hasEventsManageAny() {
+    if (!state.loggedIn || !state.user) return false;
+    var roles = state.user.roles || [];
+    return _EVENTS_MANAGE_ANY.some(function (id) { return roles.includes(id); });
+  }
+
   /* permissions */
   function applyPermissions() {
     const activePanel = document.querySelector('.panel.active');
     const canInactivity = hasParliamentPlus();
     const canPromotions = hasJurorPlus();
-    manageSection.style.display = (canInactivity || canPromotions) ? 'block' : 'none';
+    const canEvents     = hasEventsAccess();
+    manageSection.style.display = (canInactivity || canPromotions || canEvents) ? 'block' : 'none';
 
     const inactivityNav = document.querySelector('[data-panel="inactivity"]');
     const promotionsNav = document.querySelector('[data-panel="promotions"]');
+    const eventsNav     = document.querySelector('[data-panel="events"]');
     if (inactivityNav) inactivityNav.parentElement.style.display = canInactivity ? '' : 'none';
     if (promotionsNav) promotionsNav.parentElement.style.display = canPromotions ? '' : 'none';
+    if (eventsNav)     eventsNav.parentElement.style.display     = canEvents     ? '' : 'none';
 
     // if they're on a panel they can't access anymore, bounce them to player
     if (activePanel) {
-      const blocked =
-        (activePanel.id === 'panel-inactivity' && !canInactivity) ||
-        (activePanel.id === 'panel-promotions' && !canPromotions);
+    const blocked =
+        (activePanel.id === 'panel-inactivity'    && !canInactivity) ||
+        (activePanel.id === 'panel-promotions'    && !canPromotions) ||
+        (activePanel.id === 'panel-events-manage' && !canEvents);
       if (blocked) {
         document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
         document.getElementById('panel-player').classList.add('active');
@@ -1049,11 +1073,12 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   /* panel switching */
   function switchToPanel(panel) {
-    const validPanels = ['player', 'guild', 'bot', 'profile', 'inactivity', 'promotions'];
+    const validPanels = ['player', 'guild', 'bot', 'events', 'profile', 'inactivity', 'promotions', 'events-manage'];
     let target = validPanels.includes(panel) ? panel : 'player';
     // quietly fall back if they can't access the panel
-    if (target === 'inactivity' && !hasParliamentPlus()) target = 'player';
-    if (target === 'promotions' && !hasJurorPlus())     target = 'player';
+    if (target === 'inactivity'    && !hasParliamentPlus()) target = 'player';
+    if (target === 'promotions'    && !hasJurorPlus())      target = 'player';
+    if (target === 'events-manage' && !hasEventsAccess())   target = 'player';
     navItems.forEach(n => n.classList.remove('active'));
     const navItem = document.querySelector(`[data-panel="${target}"]`);
     if (navItem) navItem.classList.add('active');
@@ -1073,8 +1098,12 @@ fetch('/auth/session', { credentials: 'same-origin' })
   window.goToPlayer = goToPlayer;
 
   /* expose globals */
-  window.switchToPanel     = switchToPanel;
-  window.hasJurorPlus      = hasJurorPlus;
+  window.switchToPanel        = switchToPanel;
+  window.hasJurorPlus         = hasJurorPlus;
+  window.hasParliamentPlus    = hasParliamentPlus;
+  window.hasEventsAccess      = hasEventsAccess;
+  window.hasEventsManageAny   = hasEventsManageAny;
+  window.renderMarkdown       = renderMarkdown;
   applyPermissions();
 
   /* settings infrastructure */

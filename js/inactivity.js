@@ -722,10 +722,10 @@
 
   function fmtWeek(mon, tue) {
     if (mon.getMonth() === tue.getMonth()) {
-      return mon.getDate() + ' \u2013 ' + tue.getDate() + ' ' + MONTHS[mon.getMonth()];
+      return mon.getDate() + ' - ' + tue.getDate() + ' ' + MONTHS[mon.getMonth()];
     }
     return mon.getDate() + ' ' + MONTHS[mon.getMonth()] +
-           ' \u2013 ' + tue.getDate() + ' ' + MONTHS[tue.getMonth()];
+           ' - ' + tue.getDate() + ' ' + MONTHS[tue.getMonth()];
   }
 
   function fmtWeekValue(w) {

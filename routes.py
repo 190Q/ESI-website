@@ -27,6 +27,7 @@ from config import (
     _BASE_DIR, _ESI_BOT_DIR, _DATA_FOLDER, _API_TRACKING_DIR,
     _ASPECTS_JSON, _INACTIVITY_JSON, _USERNAME_MATCHES_JSON,
     _TRACKED_GUILD_JSON, _GUILD_LEVELS_JSON, _GUILD_TERRITORIES_JSON,
+    _EVENTS_JSON,
     _POINTS_DB, _SNIPES_DB,
     _USER_DB_PATH, _UPLOAD_DIR,
     WYNN_BASE, DISCORD_API, DISCORD_TOKEN, DISCORD_CLIENT_ID,
@@ -37,6 +38,7 @@ from config import (
     _ROLE_VALAENDOR, _ROLE_PARLIAMENT, _ROLE_CONGRESS, _ROLE_JUROR, _ROLE_CITIZEN,
     _ROLE_GRAND_DUKE, _ROLE_ARCHDUKE,
     _PARLIAMENT_PLUS, _JUROR_PLUS, _CHIEF_PLUS, _CITIZEN_PLUS,
+    _EVENTS_ACCESS, _EVENTS_MANAGE_ANY,
     _CLIENT_CONFIG,
     PLAYER_BULK_METRIC_KEYS, GUILD_BULK_METRIC_KEYS,
     BOT_SCREEN_SESSION, TRACKER_SCREEN_SESSION, TRACKER_SCREEN_SPECS,
@@ -1322,6 +1324,808 @@ def inactivity_delete(discord_id):
         del data[discord_id]
         _save_json_file(_INACTIVITY_JSON, data)
     return jsonify({"ok": True})
+
+
+# events
+
+_EVENT_PRIZE_TYPES   = {"esi_points", "item", "other"}
+_EVENT_STATUSES      = {"upcoming", "ongoing", "completed", "cancelled"}
+_EVENT_AUDIENCES     = {"public", "guild_only"}
+_EVENT_DEFAULT_AUDIENCE = "public"
+_EVENT_MAX_NAME      = 120
+_EVENT_MAX_DESC      = 4000
+_EVENT_MAX_PRIZE_VAL = 500
+_EVENT_MAX_PRIZE_DSC = 500
+_EVENT_MAX_LOCATION  = 200
+_EVENT_MAX_PRIZES    = 15
+_EVENT_MAX_POSITION  = 999
+
+
+def _user_can_manage_event(user, event):
+    """True if the logged-in user can edit/delete this event."""
+    if not user or not event:
+        return False
+    user_roles = set(user.get("roles") or [])
+    if user_roles & _EVENTS_MANAGE_ANY:
+        return True
+    created_by = (event.get("created_by") or {}).get("id")
+    return bool(created_by) and str(created_by) == str(user.get("id"))
+
+
+def _user_can_pin_event(user):
+    """True if the user has a role allowed to pin/unpin events."""
+    if not user:
+        return False
+    user_roles = set(user.get("roles") or [])
+    return bool(user_roles & _EVENTS_MANAGE_ANY)
+
+
+def _is_guild_member(user):
+    """True if `user` (a session dict) is logged in with the Sindrian Citizen role.
+
+    Returns False for unauthenticated requests, so anonymous visitors can still
+    load the public events page without seeing guild-only events.
+    """
+    if not user:
+        return False
+    roles = user.get("roles") or []
+    return _ROLE_CITIZEN in roles
+
+
+def _can_view_event_audience(audience, user):
+    """Decide whether `user` may see an event with the given audience setting."""
+    audience = (audience or _EVENT_DEFAULT_AUDIENCE).strip().lower()
+    if audience == "guild_only":
+        return _is_guild_member(user)
+    return True
+
+
+def _unpin_all_events(data, except_id=None):
+    """Mark every event in `data` as not pinned, except optionally one.
+
+    Mutates the dict in place. Used to enforce the "only one pinned event at a
+    time" invariant.
+    """
+    if not isinstance(data, dict):
+        return
+    for evid, ev in data.items():
+        if not isinstance(ev, dict):
+            continue
+        if evid == except_id:
+            continue
+        if ev.get("pinned") or ev.get("pinned_at"):
+            ev["pinned"]    = False
+            ev["pinned_at"] = 0
+
+
+def _enforce_pin_invariants(ev):
+    """Clear `pinned`/`pinned_at` if the event is in a terminal status.
+
+    A completed or cancelled event has no business showing on the pinned
+    banner, so we unpin it automatically wherever it might have transitioned.
+    Returns True if a change was made.
+    """
+    if not isinstance(ev, dict):
+        return False
+    status = (ev.get("status") or "upcoming").strip().lower()
+    if status in ("completed", "cancelled") and (ev.get("pinned") or ev.get("pinned_at")):
+        ev["pinned"]    = False
+        ev["pinned_at"] = 0
+        return True
+    return False
+
+
+def _parse_event_datetime(s):
+    """Parse a `datetime-local` string from the events form. Returns a naive
+    datetime in local time or None on failure.
+    """
+    if not s or not isinstance(s, str):
+        return None
+    s = s.strip()
+    if not s:
+        return None
+    try:
+        return _points_datetime.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def _auto_transition_event_status(ev, now=None):
+    """Promote an event's status based on its start/end times.
+
+    - upcoming + starts_at in the past -> ongoing
+    - any active + ends_at in the past -> completed
+
+    Cancelled and already-completed events are left alone. Returns True if
+    the status was changed (caller should persist).
+    """
+    if not isinstance(ev, dict):
+        return False
+    status = (ev.get("status") or "upcoming").strip().lower()
+    changed = False
+    if status not in ("upcoming", "ongoing"):
+        return _enforce_pin_invariants(ev)
+    if now is None:
+        now = _points_datetime.now()
+    starts = _parse_event_datetime(ev.get("starts_at"))
+    ends   = _parse_event_datetime(ev.get("ends_at"))
+    new_status = status
+    if new_status == "upcoming" and starts is not None and now >= starts:
+        new_status = "ongoing"
+    if ends is not None and now >= ends:
+        new_status = "completed"
+    if new_status != status:
+        ev["status"]     = new_status
+        ev["updated_at"] = time()
+        changed = True
+    # Unpin if we just landed in a terminal state
+    if _enforce_pin_invariants(ev):
+        changed = True
+    return changed
+
+
+def _auto_transition_events(data):
+    """Apply `_auto_transition_event_status` to every event in `data`.
+
+    Returns True if any event was changed.
+    """
+    if not isinstance(data, dict):
+        return False
+    now = _points_datetime.now()
+    changed = False
+    for ev in data.values():
+        if _auto_transition_event_status(ev, now):
+            changed = True
+    return changed
+
+
+def _event_public_view(event):
+    """Return a banner-safe subset of an event for the public pinned endpoint."""
+    if not isinstance(event, dict):
+        return None
+    return {
+        "id":                  event.get("id", ""),
+        "name":                event.get("name", ""),
+        "description":         event.get("description", ""),
+        "prizes":              event.get("prizes") or [],
+        "starts_at":           event.get("starts_at", ""),
+        "ends_at":             event.get("ends_at", ""),
+        "location":            event.get("location", ""),
+        "location_channel_id": event.get("location_channel_id", ""),
+        "status":              event.get("status", "upcoming"),
+        "pinned_at":           event.get("pinned_at", 0),
+        "audience":            (event.get("audience") or _EVENT_DEFAULT_AUDIENCE),
+    }
+
+
+def _clean_prize_entry(raw):
+    """Validate one prize dict. Returns (clean_dict, error_str)."""
+    if not isinstance(raw, dict):
+        return None, "each prize must be an object"
+
+    # position: 1-based rank. multiple prizes may share the same position
+    raw_pos = raw.get("position", 1)
+    try:
+        position = int(raw_pos)
+    except (TypeError, ValueError):
+        return None, "prize position must be an integer"
+    if position < 1 or position > _EVENT_MAX_POSITION:
+        return None, f"prize position must be between 1 and {_EVENT_MAX_POSITION}"
+
+    ptype = (raw.get("type") or "other").strip().lower()
+    if ptype not in _EVENT_PRIZE_TYPES:
+        return None, f"invalid prize type. must be one of {sorted(_EVENT_PRIZE_TYPES)}"
+
+    raw_value = raw.get("value", "")
+    if ptype == "esi_points":
+        try:
+            n = float(raw_value or 0)
+        except (TypeError, ValueError):
+            return None, "prize value must be a number when type is 'esi_points'"
+        if n < 0:
+            return None, "prize value cannot be negative"
+        value = int(n) if n == int(n) else n
+    else:
+        v = "" if raw_value is None else str(raw_value).strip()
+        if len(v) > _EVENT_MAX_PRIZE_VAL:
+            v = v[:_EVENT_MAX_PRIZE_VAL]
+        value = v
+
+    raw_desc = raw.get("description", "")
+    desc = "" if raw_desc is None else str(raw_desc).strip()
+    if len(desc) > _EVENT_MAX_PRIZE_DSC:
+        desc = desc[:_EVENT_MAX_PRIZE_DSC]
+
+    return {
+        "position":    position,
+        "type":        ptype,
+        "value":       value,
+        "description": desc,
+    }, None
+
+
+def _migrate_legacy_prize(event):
+    """If `event` only has the old single-prize fields, populate `prizes`.
+
+    Mutates and returns the event dict. Safe to call repeatedly.
+    """
+    if not isinstance(event, dict):
+        return event
+    prizes = event.get("prizes")
+    if isinstance(prizes, list):
+        return event
+    legacy_type = (event.get("prize_type") or "").strip().lower()
+    if not legacy_type or legacy_type == "none":
+        event["prizes"] = []
+        return event
+    if legacy_type not in _EVENT_PRIZE_TYPES:
+        legacy_type = "other"
+    event["prizes"] = [{
+        "position":    1,
+        "type":        legacy_type,
+        "value":       event.get("prize_value", "") or "",
+        "description": event.get("prize_description", "") or "",
+    }]
+    return event
+
+
+def _clean_event_payload(body, existing=None):
+    """Validate + normalise an event payload. Returns (event_dict, error_str).
+
+    `existing` is the previous version of the event on PATCH so untouched fields
+    can be kept intact.
+    """
+    existing = existing or {}
+    out = dict(existing)
+
+    def _str(field, max_len, required=False, allow_empty=False):
+        val = body.get(field, existing.get(field, ""))
+        if val is None:
+            val = ""
+        if not isinstance(val, str):
+            val = str(val)
+        val = val.strip()
+        if len(val) > max_len:
+            val = val[:max_len]
+        if required and not val and not allow_empty:
+            return None, f"'{field}' is required"
+        return val, None
+
+    name, err = _str("name", _EVENT_MAX_NAME, required=True)
+    if err:
+        return None, err
+    out["name"] = name
+
+    description, err = _str("description", _EVENT_MAX_DESC, allow_empty=True)
+    if err:
+        return None, err
+    out["description"] = description
+
+    # Prizes: an array of {position, type, value, description}. Multiple prizes
+    # may share a position (e.g. 1st place gets both ESI Points + an item).
+    # An empty array means "no prize".
+    raw_prizes = body.get("prizes", None)
+    if raw_prizes is None:
+        # PATCH that doesn't touch prizes: keep whatever's already stored.
+        prizes = existing.get("prizes")
+        if not isinstance(prizes, list):
+            prizes = []
+    else:
+        if not isinstance(raw_prizes, list):
+            return None, "'prizes' must be an array"
+        if len(raw_prizes) > _EVENT_MAX_PRIZES:
+            return None, f"too many prizes (max {_EVENT_MAX_PRIZES})"
+        prizes = []
+        for entry in raw_prizes:
+            cleaned, err_msg = _clean_prize_entry(entry)
+            if err_msg:
+                return None, err_msg
+            prizes.append(cleaned)
+        # Stable sort by position so 1st place is always first in storage.
+        prizes.sort(key=lambda p: p["position"])
+    out["prizes"] = prizes
+
+    # Drop the deprecated single-prize fields so storage doesn't get stale.
+    for legacy in ("prize_type", "prize_value", "prize_description"):
+        out.pop(legacy, None)
+
+    location, err = _str("location", _EVENT_MAX_LOCATION, allow_empty=True)
+    if err:
+        return None, err
+    out["location"] = location
+
+    # Optional Discord voice-channel id that the location refers to
+    raw_cid = body.get("location_channel_id", existing.get("location_channel_id"))
+    if raw_cid is None or raw_cid == "":
+        out["location_channel_id"] = ""
+    else:
+        cid = str(raw_cid).strip()
+        if not cid.isdigit() or len(cid) > 30:
+            return None, "Invalid location_channel_id"
+        out["location_channel_id"] = cid
+
+    # Optional datetime strings (free-form ISO 8601, validated loosely)
+    for key in ("starts_at", "ends_at"):
+        val = body.get(key, existing.get(key, ""))
+        val = "" if val is None else str(val).strip()
+        if len(val) > 64:
+            val = val[:64]
+        out[key] = val
+
+    # Optional max_participants (0/empty = unlimited)
+    raw_cap = body.get("max_participants", existing.get("max_participants"))
+    if raw_cap in (None, "", 0):
+        out["max_participants"] = 0
+    else:
+        try:
+            cap = int(raw_cap)
+        except (TypeError, ValueError):
+            return None, "max_participants must be an integer"
+        if cap < 0:
+            return None, "max_participants cannot be negative"
+        out["max_participants"] = cap
+
+    status = (body.get("status") or existing.get("status") or "upcoming").strip().lower()
+    if status not in _EVENT_STATUSES:
+        return None, f"Invalid status. Must be one of {sorted(_EVENT_STATUSES)}"
+    out["status"] = status
+
+    audience = (
+        body.get("audience")
+        or existing.get("audience")
+        or _EVENT_DEFAULT_AUDIENCE
+    )
+    audience = str(audience).strip().lower()
+    if audience not in _EVENT_AUDIENCES:
+        return None, f"Invalid audience. Must be one of {sorted(_EVENT_AUDIENCES)}"
+    out["audience"] = audience
+
+    return out, None
+
+
+@app.route("/api/events", methods=["GET"])
+@rate_limit(60)
+def events_list():
+    user, err = _require_role(_EVENTS_ACCESS)
+    if err:
+        return err
+    data = _load_json_file(_EVENTS_JSON) or {}
+    # Lazy auto-transition
+    if _auto_transition_events(data):
+        _save_json_file(_EVENTS_JSON, data)
+    user_roles = set(user.get("roles") or [])
+    can_manage_any = bool(user_roles & _EVENTS_MANAGE_ANY)
+    user_id = str(user.get("id") or "")
+    out = []
+    can_pin = _user_can_pin_event(user)
+    for ev in data.values():
+        if not isinstance(ev, dict):
+            continue
+        created_by = (ev.get("created_by") or {}).get("id")
+        can_manage = can_manage_any or (bool(created_by) and str(created_by) == user_id)
+        # copy so we don't mutate storage
+        view = dict(ev)
+        _migrate_legacy_prize(view)
+        view["can_manage"] = can_manage
+        view["can_pin"]    = can_pin
+        view["pinned"]     = bool(ev.get("pinned"))
+        view["pinned_at"]  = ev.get("pinned_at") or 0
+        out.append(view)
+    def _sort_key(ev):
+        status = ev.get("status") or "upcoming"
+        active = status in ("upcoming", "ongoing")
+        is_pinned = bool(ev.get("pinned"))
+        # negate pinned_at so higher timestamps sort first within the pinned group
+        pinned_rank = -float(ev.get("pinned_at") or 0)
+        ts = str(ev.get("starts_at") or ev.get("created_at") or "")
+        created = str(ev.get("created_at") or "")
+        return (
+            0 if is_pinned else 1,
+            pinned_rank,
+            0 if active else 1,
+            ts if active else "",
+            created,
+        )
+    out.sort(key=_sort_key)
+    return jsonify(out)
+
+
+@app.route("/api/events", methods=["POST"])
+@rate_limit(30)
+def events_create():
+    user, err = _require_role(_EVENTS_ACCESS)
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    event, err_msg = _clean_event_payload(body)
+    if err_msg:
+        return jsonify({"error": err_msg}), 400
+    now = time()
+    event_id = secrets.token_urlsafe(10)
+    event["id"] = event_id
+    event["created_by"] = {
+        "id":       str(user.get("id") or ""),
+        "username": user.get("nick") or user.get("username") or "",
+    }
+    event["created_at"] = now
+    event["updated_at"] = now
+    data = _load_json_file(_EVENTS_JSON) or {}
+    # keep storage as a dict keyed by id for O(1) lookups
+    if not isinstance(data, dict):
+        data = {}
+    data[event_id] = event
+    _save_json_file(_EVENTS_JSON, data)
+    out = dict(event)
+    out["can_manage"] = True
+    return jsonify(out), 201
+
+
+@app.route("/api/events/<event_id>", methods=["GET"])
+@rate_limit(60)
+def events_get(event_id):
+    user, err = _require_role(_EVENTS_ACCESS)
+    if err:
+        return err
+    data = _load_json_file(_EVENTS_JSON) or {}
+    ev = data.get(event_id)
+    if not ev:
+        return jsonify({"error": "Event not found"}), 404
+    if _auto_transition_event_status(ev):
+        data[event_id] = ev
+        _save_json_file(_EVENTS_JSON, data)
+    out = dict(ev)
+    _migrate_legacy_prize(out)
+    out["can_manage"] = _user_can_manage_event(user, ev)
+    return jsonify(out)
+
+
+@app.route("/api/events/<event_id>", methods=["PATCH"])
+@rate_limit(30)
+def events_update(event_id):
+    user, err = _require_role(_EVENTS_ACCESS)
+    if err:
+        return err
+    data = _load_json_file(_EVENTS_JSON) or {}
+    ev = data.get(event_id)
+    if not ev:
+        return jsonify({"error": "Event not found"}), 404
+    if not _user_can_manage_event(user, ev):
+        return jsonify({"error": "You can only edit events you created"}), 403
+    body = request.get_json(silent=True) or {}
+    existing = _migrate_legacy_prize(dict(ev))
+    updated, err_msg = _clean_event_payload(body, existing=existing)
+    if err_msg:
+        return jsonify({"error": err_msg}), 400
+    # preserve immutable fields
+    updated["id"]         = ev.get("id", event_id)
+    updated["created_by"] = ev.get("created_by") or updated.get("created_by")
+    updated["created_at"] = ev.get("created_at") or time()
+    updated["updated_at"] = time()
+    _enforce_pin_invariants(updated)
+    data[event_id] = updated
+    _save_json_file(_EVENTS_JSON, data)
+    out = dict(updated)
+    out["can_manage"] = True
+    return jsonify(out)
+
+
+@app.route("/api/events/<event_id>", methods=["DELETE"])
+@rate_limit(30)
+def events_delete(event_id):
+    user, err = _require_role(_EVENTS_ACCESS)
+    if err:
+        return err
+    data = _load_json_file(_EVENTS_JSON) or {}
+    ev = data.get(event_id)
+    if not ev:
+        return jsonify({"ok": True})
+    if not _user_can_manage_event(user, ev):
+        return jsonify({"error": "You can only delete events you created"}), 403
+    del data[event_id]
+    _save_json_file(_EVENTS_JSON, data)
+    return jsonify({"ok": True})
+
+
+# Pin / unpin event
+
+@app.route("/api/events/<event_id>/pin", methods=["POST"])
+@rate_limit(30)
+def events_pin(event_id):
+    user, err = _require_role(_EVENTS_MANAGE_ANY)
+    if err:
+        return err
+    data = _load_json_file(_EVENTS_JSON) or {}
+    ev = data.get(event_id)
+    if not ev:
+        return jsonify({"error": "Event not found"}), 404
+    _unpin_all_events(data, except_id=event_id)
+    ev["pinned"]     = True
+    ev["pinned_at"]  = time()
+    ev["updated_at"] = time()
+    data[event_id] = ev
+    _save_json_file(_EVENTS_JSON, data)
+    out = dict(ev)
+    _migrate_legacy_prize(out)
+    out["can_manage"] = _user_can_manage_event(user, ev)
+    out["can_pin"]    = True
+    return jsonify(out)
+
+
+@app.route("/api/events/<event_id>/pin", methods=["DELETE"])
+@rate_limit(30)
+def events_unpin(event_id):
+    user, err = _require_role(_EVENTS_MANAGE_ANY)
+    if err:
+        return err
+    data = _load_json_file(_EVENTS_JSON) or {}
+    ev = data.get(event_id)
+    if not ev:
+        return jsonify({"error": "Event not found"}), 404
+    ev["pinned"]     = False
+    ev["pinned_at"]  = 0
+    ev["updated_at"] = time()
+    data[event_id] = ev
+    _save_json_file(_EVENTS_JSON, data)
+    out = dict(ev)
+    _migrate_legacy_prize(out)
+    out["can_manage"] = _user_can_manage_event(user, ev)
+    out["can_pin"]    = True
+    return jsonify(out)
+
+
+# Public endpoint: read-only listing of every event
+@app.route("/api/events/public", methods=["GET"])
+@rate_limit(60)
+def events_list_public():
+    data = _load_json_file(_EVENTS_JSON) or {}
+    if _auto_transition_events(data):
+        _save_json_file(_EVENTS_JSON, data)
+    viewer = session.get("user")
+    out = []
+    for ev in (data.values() if isinstance(data, dict) else []):
+        if not isinstance(ev, dict):
+            continue
+        # Hide guild-only events from anyone without the Sindrian Citizen role
+        if not _can_view_event_audience(ev.get("audience"), viewer):
+            continue
+        view = dict(ev)
+        _migrate_legacy_prize(view)
+        public = _event_public_view(view)
+        if not public:
+            continue
+        # extra fields useful for the general events page
+        public["pinned"]   = bool(ev.get("pinned"))
+        cb = ev.get("created_by") or {}
+        public["created_by"] = {"username": cb.get("username") or ""}
+        public["created_at"]      = ev.get("created_at") or 0
+        public["max_participants"] = ev.get("max_participants") or 0
+        out.append(public)
+
+    def _sort_key(ev):
+        status = (ev.get("status") or "upcoming").lower()
+        order = {"ongoing": 0, "upcoming": 1, "completed": 2, "cancelled": 3}.get(status, 4)
+        active = status in ("upcoming", "ongoing")
+        ts = str(ev.get("starts_at") or ev.get("created_at") or "")
+        created = str(ev.get("created_at") or "")
+        # active events ascending by start; archived descending by creation
+        return (order, ts if active else "", created if not active else "")
+    out.sort(key=_sort_key)
+    out_active = [e for e in out if (e.get("status") or "upcoming").lower() in ("upcoming", "ongoing")]
+    out_archived = [e for e in out if (e.get("status") or "upcoming").lower() not in ("upcoming", "ongoing")]
+    out_archived.sort(key=lambda e: str(e.get("created_at") or ""), reverse=True)
+    return jsonify(out_active + out_archived)
+
+
+# Public endpoint: returns the single currently-pinned event
+@app.route("/api/events/pinned", methods=["GET"])
+@rate_limit(60)
+def events_pinned_public():
+    data = _load_json_file(_EVENTS_JSON) or {}
+    # Auto-transition first
+    if _auto_transition_events(data):
+        _save_json_file(_EVENTS_JSON, data)
+    viewer = session.get("user")
+    pinned = []
+    for ev in (data.values() if isinstance(data, dict) else []):
+        if not isinstance(ev, dict):
+            continue
+        if not ev.get("pinned"):
+            continue
+        # Hide cancelled / already-completed events from the public banner
+        if (ev.get("status") or "upcoming") in ("cancelled", "completed"):
+            continue
+        # Guild-only events stay off the banner for non-citizens / anon users
+        if not _can_view_event_audience(ev.get("audience"), viewer):
+            continue
+        view = dict(ev)
+        _migrate_legacy_prize(view)
+        public = _event_public_view(view)
+        if public:
+            pinned.append(public)
+    pinned.sort(key=lambda e: -float(e.get("pinned_at") or 0))
+    return jsonify(pinned[:1])
+
+
+# discord voice-channel list
+
+_DISCORD_VOICE_CACHE = {"ts": 0.0, "data": None}
+_DISCORD_VOICE_TTL   = 60.0
+_discord_voice_lock  = _threading.Lock()
+
+
+@app.route("/api/discord/voice-channels")
+@rate_limit(30)
+def discord_voice_channels():
+    user, err = _require_role(_EVENTS_ACCESS)
+    if err:
+        return err
+    if not DISCORD_TOKEN or not DISCORD_GUILD_ID:
+        return jsonify([])
+    now = time()
+    with _discord_voice_lock:
+        cached = _DISCORD_VOICE_CACHE.get("data")
+        ts     = _DISCORD_VOICE_CACHE.get("ts", 0.0)
+    if cached is not None and now - ts < _DISCORD_VOICE_TTL:
+        return jsonify(cached)
+    try:
+        resp = requests.get(
+            f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/channels",
+            headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+            timeout=10,
+        )
+        if not resp.ok:
+            return jsonify(cached or []), (200 if cached else 502)
+        channels = resp.json()
+    except requests.RequestException:
+        return jsonify(cached or []), (200 if cached else 502)
+    # Discord channel types: 2 = GUILD_VOICE, 4 = GUILD_CATEGORY, 13 = GUILD_STAGE_VOICE
+    # `channels` only contains what the bot itself can see
+    categories = {c["id"]: c.get("name") or "" for c in channels if c.get("type") == 4}
+    voice_category_id = next(
+        (cid for cid, cname in categories.items() if cname.strip().lower() == "voice channels"),
+        None,
+    )
+    out = []
+    for c in channels:
+        ctype = c.get("type")
+        if ctype not in (2, 13):
+            continue
+        if voice_category_id is None or c.get("parent_id") != voice_category_id:
+            continue
+        out.append({
+            "id":       c.get("id"),
+            "name":     c.get("name") or "",
+            "type":     ctype,
+            "category": categories.get(c.get("parent_id") or "", ""),
+            "position": c.get("position", 0),
+        })
+    out.sort(key=lambda x: (
+        x.get("position", 0),
+        (x.get("name") or "").lower(),
+    ))
+    with _discord_voice_lock:
+        _DISCORD_VOICE_CACHE["ts"]   = now
+        _DISCORD_VOICE_CACHE["data"] = out
+    return jsonify(out)
+
+
+_DISCORD_EVENT_URL_RE = _re.compile(
+    r"https?://(?:[\w-]+\.)?discord(?:app)?\.com/events/(\d+)/(\d+)",
+    _re.IGNORECASE,
+)
+
+_DISCORD_CHANNEL_NAME_CACHE: dict = {}
+_DISCORD_CHANNEL_NAME_TTL = 300.0
+_discord_channel_name_lock = _threading.Lock()
+
+
+def _parse_discord_event_ref(raw: str):
+    """Return (guild_id, event_id) for a Discord event URL or just (None, id)
+    for a bare numeric id. Returns (None, None) on failure.
+    """
+    s = (raw or "").strip()
+    if not s:
+        return None, None
+    if s.isdigit():
+        return None, s
+    m = _DISCORD_EVENT_URL_RE.search(s)
+    if not m:
+        return None, None
+    return m.group(1), m.group(2)
+
+
+def _fetch_discord_channel_name(channel_id: str):
+    """Resolve a channel id to its name via the Discord API, with a small TTL
+    cache. Returns the name string or '' on failure.
+    """
+    if not channel_id or not DISCORD_TOKEN:
+        return ""
+    now = time()
+    with _discord_channel_name_lock:
+        cached = _DISCORD_CHANNEL_NAME_CACHE.get(channel_id)
+    if cached and now - cached[0] < _DISCORD_CHANNEL_NAME_TTL:
+        return cached[1]
+    try:
+        resp = requests.get(
+            f"{DISCORD_API}/channels/{channel_id}",
+            headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+            timeout=10,
+        )
+    except requests.RequestException:
+        return cached[1] if cached else ""
+    if not resp.ok:
+        return cached[1] if cached else ""
+    name = (resp.json() or {}).get("name") or ""
+    with _discord_channel_name_lock:
+        _DISCORD_CHANNEL_NAME_CACHE[channel_id] = (now, name)
+    return name
+
+
+@app.route("/api/discord/scheduled-event", methods=["GET"])
+@rate_limit(30)
+def discord_scheduled_event():
+    """Return the metadata for a Discord scheduled event so the manage-events
+    form can prefill its fields. Accepts either a full event URL via ?url=
+    or a numeric ID via ?event_id=.
+    """
+    user, err = _require_role(_EVENTS_ACCESS)
+    if err:
+        return err
+    if not DISCORD_TOKEN or not DISCORD_GUILD_ID:
+        return jsonify({"error": "Discord is not configured on this server."}), 503
+
+    raw = (request.args.get("url") or request.args.get("event_id") or "").strip()
+    if not raw:
+        return jsonify({"error": "Missing url or event_id."}), 400
+    parsed_guild, event_id = _parse_discord_event_ref(raw)
+    if not event_id:
+        return jsonify({"error": "That doesn't look like a Discord event link."}), 400
+    # If the URL included a guild id, only accept events that belong to ours.
+    # Skip this check when running locally in dev mode
+    if not DEV_MODE and parsed_guild and str(parsed_guild) != str(DISCORD_GUILD_ID):
+        return jsonify({"error": "This event isn't from the Sindrian Discord."}), 400
+
+    # In dev mode, use the guild id parsed from the URL
+    fetch_guild_id = parsed_guild if (DEV_MODE and parsed_guild) else DISCORD_GUILD_ID
+    try:
+        resp = requests.get(
+            f"{DISCORD_API}/guilds/{fetch_guild_id}/scheduled-events/{event_id}",
+            headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+            timeout=10,
+        )
+    except requests.RequestException:
+        return jsonify({"error": "Could not reach Discord. Try again in a moment."}), 502
+    if resp.status_code == 404:
+        return jsonify({"error": "Discord couldn't find that scheduled event."}), 404
+    if not resp.ok:
+        return jsonify({"error": "Discord returned an error fetching the event."}), 502
+
+    ev = resp.json() or {}
+
+    # entity_type: 1=STAGE_INSTANCE, 2=VOICE, 3=EXTERNAL
+    entity_type = ev.get("entity_type")
+    channel_id = ev.get("channel_id") or ""
+    channel_name = ""
+    location = ""
+    if entity_type == 3:
+        meta = ev.get("entity_metadata") or {}
+        location = (meta.get("location") or "").strip()
+    elif channel_id:
+        channel_name = _fetch_discord_channel_name(channel_id)
+        if channel_name:
+            location = "#" + channel_name
+
+    return jsonify({
+        "id":           ev.get("id") or event_id,
+        "name":         ev.get("name") or "",
+        "description":  ev.get("description") or "",
+        "starts_at":    ev.get("scheduled_start_time") or "",
+        "ends_at":      ev.get("scheduled_end_time") or "",
+        "location":     location,
+        "channel_id":   channel_id,
+        "channel_name": channel_name,
+        "entity_type":  entity_type,
+    })
 
 
 # guild stats

@@ -32,6 +32,7 @@ _USERNAME_MATCHES_JSON  = os.path.join(_DATA_FOLDER, "username_matches.json")
 _TRACKED_GUILD_JSON     = os.path.join(_DATA_FOLDER, "tracked_guild.json")
 _GUILD_LEVELS_JSON      = os.path.join(_DATA_FOLDER, "guild_levels.json")
 _GUILD_TERRITORIES_JSON = os.path.join(_DATA_FOLDER, "guild_territories.json")
+_EVENTS_JSON            = os.path.join(_DATA_FOLDER, "events.json")
 _API_TRACKING_DIR       = os.path.join(_ESI_BOT_DIR, "databases", "api_tracking")
 _POINTS_DB              = os.path.join(_ESI_BOT_DIR, "databases", "esi_points.db")
 _SNIPES_DB              = os.path.join(_ESI_BOT_DIR, "databases", "claim_snipes.db")
@@ -87,10 +88,19 @@ _ROLE_CITIZEN    = "554889169705500672"
 _ROLE_GRAND_DUKE = "1396112289832243282"
 _ROLE_ARCHDUKE   = "554514823191199747"
 
+# Events-panel roles
+_ROLE_PRIDE             = "683448131148447929"
+_ROLE_EVENT_MANAGER     = "1390342794056569033"
+
 _PARLIAMENT_PLUS = {_ROLE_PARLIAMENT, _ROLE_VALAENDOR}
 _JUROR_PLUS      = {_ROLE_JUROR, _ROLE_CONGRESS, _ROLE_PARLIAMENT, _ROLE_VALAENDOR}
 _CHIEF_PLUS      = {_ROLE_GRAND_DUKE, _ROLE_ARCHDUKE}
 _CITIZEN_PLUS    = {_ROLE_CITIZEN}
+
+# Any of these roles grants access to the Manage Events page
+_EVENTS_ACCESS     = {_ROLE_PRIDE, _ROLE_EVENT_MANAGER, _ROLE_PARLIAMENT}
+# These roles can manage any event
+_EVENTS_MANAGE_ANY = {_ROLE_EVENT_MANAGER, _ROLE_PARLIAMENT}
 
 # Discord badge roles colour
 _BADGE_ROLES_COLOUR = {
@@ -286,8 +296,10 @@ _CLIENT_CONFIG = {
         "citizen":    _ROLE_CITIZEN,
     },
     "permissions": {
-        "parliamentPlus": list(_PARLIAMENT_PLUS),
-        "jurorPlus":      list(_JUROR_PLUS),
+        "parliamentPlus":  list(_PARLIAMENT_PLUS),
+        "jurorPlus":       list(_JUROR_PLUS),
+        "eventsAccess":    list(_EVENTS_ACCESS),
+        "eventsManageAny": list(_EVENTS_MANAGE_ANY),
     },
     "staffRoles": [
         {"name": "Bot Owner",    "color": "#ec00ad", "members": ["967867229410574340"]},
@@ -312,6 +324,7 @@ _CLIENT_CONFIG = {
     "citizenRole": {"id": _ROLE_CITIZEN, "name": "Sindrian Citizen", "color": "#4acf5e"},
     "medals":  _medals_for_client(),
     "badges":  _build_badge_catalog(),
+    "guildId": DISCORD_GUILD_ID,
     "devMode": DEV_MODE,
 }
 

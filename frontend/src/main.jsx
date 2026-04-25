@@ -11,5 +11,6 @@ import '../../css/guild.css'
 import '../../css/bot.css'
 import '../../css/inactivity.css'
 import '../../css/promotions.css'
+import '../../css/events.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />)

@@ -2238,10 +2238,23 @@
   window.addEventListener('resize', () => { if (graphState.data) refreshCompareGraph(); });
 
   /* Path routing */
+  // Map a data-panel identifier to its URL path.
+  function panelToPath(panel) {
+    if (panel === 'events-manage') return '/events/manage';
+    return '/' + panel;
+  }
+
+  // Map a URL pathname back to a data-panel id (and optional sub-segment).
+  function pathToPanel(parts) {
+    var panel = parts[0] || 'player';
+    if (panel === 'events' && parts[1] === 'manage') return 'events-manage';
+    return panel;
+  }
+
   function updateHash() {
     const activeNav = document.querySelector('.nav-item.active');
     const panel     = activeNav ? activeNav.dataset.panel : 'player';
-    let path        = '/' + panel;
+    let path        = panelToPath(panel);
     if (panel === 'player' && playerInput.value.trim()) {
       path += '/' + encodeURIComponent(playerInput.value.trim());
     }
@@ -2253,8 +2266,8 @@
     // strip leading slash and split
     var stripped = pathname.replace(/^\//, '');
     var parts    = stripped.split('/');
-    var panel    = parts[0] || 'player';
-    var username = parts[1] ? decodeURIComponent(parts[1]) : null;
+    var panel    = pathToPanel(parts);
+    var username = (panel === 'player' && parts[1]) ? decodeURIComponent(parts[1]) : null;
     if (panel === 'player' && username) {
       var currentPlayer = state.playerData ? state.playerData.username : '';
       playerInput.value = username;

@@ -195,7 +195,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 _ALLOWED_STATIC_PREFIXES = ("/css/", "/js/", "/images/", "/assets/", "/public/")
 _ALLOWED_STATIC_FILES    = ("/index.html", "/favicon.ico")
-_SPA_PANELS              = ("player", "guild", "bot", "inactivity", "promotions")
+_SPA_PANELS              = ("player", "guild", "bot", "inactivity", "promotions", "events")
 
 # WordPress-probe detection: any hit on one of these paths is almost
 # certainly an automated scanner looking for a WP install to exploit.
@@ -489,6 +489,9 @@ def index():
 @app.route("/bot")
 @app.route("/inactivity")
 @app.route("/promotions")
+@app.route("/events")
+@app.route("/events/", defaults={"_path": ""})
+@app.route("/events/<path:_path>")
 def spa_route(_path=None):
     return send_from_directory(_BASE_DIR, "index.html")
 

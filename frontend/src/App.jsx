@@ -27,9 +27,11 @@ export default function App() {
           <GuildPanel />
           <BotPanel />
 
-          {/* Inactivity & Promotions panels (content injected by their JS files) */}
+          {/* Public events page (General tab) and management panels */}
+          <section className="panel" id="panel-events" />
           <section className="panel" id="panel-inactivity" />
           <section className="panel" id="panel-promotions" />
+          <section className="panel" id="panel-events-manage" />
 
           {/* Site-wide footer with legal info and community links */}
           <Footer />
