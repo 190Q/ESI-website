@@ -181,6 +181,7 @@ def _compute_bulk_playtime():
     metric_dates = []
     debug_members = {}
     invalid_transitions = set()
+    _init_intervals = {}
     queue_totals_by_day = []
     api_days = []
     if os.path.isdir(api_folder):
@@ -257,6 +258,37 @@ def _compute_bulk_playtime():
             if (cur_dt - prev_dt) > _td(days=1):
                 invalid_transitions.add(i)
 
+        # detect intervals where a stat went from 0/None to >0 for every
+        # guild member simultaneously. that pattern indicates the column was
+        # just added/started being tracked rather than real activity, so the
+        # corresponding deltas are skipped further down.
+        _init_intervals = {mk: set() for mk in metric_keys}
+        for i in range(1, len(api_snapshots)):
+            prev_snap = api_snapshots[i - 1]
+            cur_snap = api_snapshots[i]
+            common = [
+                u for u in (set(prev_snap.keys()) & set(cur_snap.keys()))
+                if (cur_snap.get(u, {}).get("guildPrefix") or "").upper() == "ESI"
+                and (prev_snap.get(u, {}).get("guildPrefix") or "").upper() == "ESI"
+            ]
+            if not common:
+                continue
+            for mk in metric_keys:
+                all_prev_zero = True
+                any_curr_positive = False
+                for u in common:
+                    prev_v = prev_snap[u].get(mk)
+                    curr_v = cur_snap[u].get(mk)
+                    prev_n = 0 if prev_v is None else _safe_number(prev_v)
+                    curr_n = 0 if curr_v is None else _safe_number(curr_v)
+                    if prev_n != 0:
+                        all_prev_zero = False
+                        break
+                    if curr_n > 0:
+                        any_curr_positive = True
+                if all_prev_zero and any_curr_positive:
+                    _init_intervals[mk].add(i)
+
         debug_guild_intervals = [
             {
                 "timestamp": api_days[i][0].isoformat(),
@@ -304,6 +336,8 @@ def _compute_bulk_playtime():
                         reason = "missing_snapshot"
                     elif _is_player_api_off(prev_user) or _is_player_api_off(curr_user):
                         reason = "api_off_interval"
+                    elif i in _init_intervals.get(mk, ()):
+                        reason = "column_init"
                     elif _is_reactivation_spike(
                         prev_value, curr_value, metric_seen_non_zero,
                         metric_key=mk, prev_snapshot=prev_user, curr_snapshot=curr_user,
@@ -408,6 +442,8 @@ def _compute_bulk_playtime():
             cur_snap = api_snapshots[i]
             day_ts = api_days[i][0] if i < len(api_days) else None
             day_db = api_days[i][1] if i < len(api_days) else None
+            wars_init = i in _init_intervals.get("wars", ())
+            graids_init = i in _init_intervals.get("guildRaids", ())
 
             interval_debug = {
                 "timestamp": day_ts.isoformat() if day_ts else None,
@@ -447,50 +483,52 @@ def _compute_bulk_playtime():
                         state["guildRaids"] = True
                     continue
 
-                prev_wars = prev_user.get("wars")
-                curr_wars = cur_user.get("wars")
-                raw_wars = None if prev_wars is None or curr_wars is None else _safe_number(curr_wars) - _safe_number(prev_wars)
-                if raw_wars is None:
-                    interval_debug["skippedMissing"] += 1
-                else:
-                    if raw_wars > 0:
-                        interval_debug["warsRawDelta"] += int(round(raw_wars))
-                    if _is_reactivation_spike(
-                        prev_wars, curr_wars, state.get("wars", False),
-                        metric_key="wars", prev_snapshot=prev_user, curr_snapshot=cur_user,
-                    ):
-                        interval_debug["skippedReactivation"] += 1
+                if not wars_init:
+                    prev_wars = prev_user.get("wars")
+                    curr_wars = cur_user.get("wars")
+                    raw_wars = None if prev_wars is None or curr_wars is None else _safe_number(curr_wars) - _safe_number(prev_wars)
+                    if raw_wars is None:
+                        interval_debug["skippedMissing"] += 1
                     else:
-                        applied_wars = raw_wars if raw_wars > 0 else 0
-                        if applied_wars > 0:
-                            guild_wars[day_idx] += int(round(applied_wars))
-                            interval_debug["warsAppliedDelta"] += int(round(applied_wars))
+                        if raw_wars > 0:
+                            interval_debug["warsRawDelta"] += int(round(raw_wars))
+                        if _is_reactivation_spike(
+                            prev_wars, curr_wars, state.get("wars", False),
+                            metric_key="wars", prev_snapshot=prev_user, curr_snapshot=cur_user,
+                        ):
+                            interval_debug["skippedReactivation"] += 1
+                        else:
+                            applied_wars = raw_wars if raw_wars > 0 else 0
+                            if applied_wars > 0:
+                                guild_wars[day_idx] += int(round(applied_wars))
+                                interval_debug["warsAppliedDelta"] += int(round(applied_wars))
 
-                prev_graids = prev_user.get("guildRaids")
-                curr_graids = cur_user.get("guildRaids")
-                raw_graids = None if prev_graids is None or curr_graids is None else _safe_number(curr_graids) - _safe_number(prev_graids)
-                if raw_graids is None:
-                    interval_debug["skippedMissing"] += 1
-                else:
-                    if raw_graids > 0:
-                        interval_debug["guildRaidsRawDelta"] += int(round(raw_graids))
-                    if _is_reactivation_spike(
-                        prev_graids, curr_graids, state.get("guildRaids", False),
-                        metric_key="guildRaids", prev_snapshot=prev_user, curr_snapshot=cur_user,
-                    ):
-                        interval_debug["skippedReactivation"] += 1
-                        if raw_graids > 0 and len(interval_debug["reactivationUsers"]) < 20:
-                            interval_debug["reactivationUsers"].append({
-                                "username": ulow,
-                                "rawDelta": int(round(raw_graids)),
-                                "prev": int(round(_safe_number(prev_graids))),
-                                "curr": int(round(_safe_number(curr_graids))),
-                            })
+                if not graids_init:
+                    prev_graids = prev_user.get("guildRaids")
+                    curr_graids = cur_user.get("guildRaids")
+                    raw_graids = None if prev_graids is None or curr_graids is None else _safe_number(curr_graids) - _safe_number(prev_graids)
+                    if raw_graids is None:
+                        interval_debug["skippedMissing"] += 1
                     else:
-                        applied_graids = raw_graids if raw_graids > 0 else 0
-                        if applied_graids > 0:
-                            guild_raids[day_idx] += int(round(applied_graids))
-                            interval_debug["guildRaidsAppliedDelta"] += int(round(applied_graids))
+                        if raw_graids > 0:
+                            interval_debug["guildRaidsRawDelta"] += int(round(raw_graids))
+                        if _is_reactivation_spike(
+                            prev_graids, curr_graids, state.get("guildRaids", False),
+                            metric_key="guildRaids", prev_snapshot=prev_user, curr_snapshot=cur_user,
+                        ):
+                            interval_debug["skippedReactivation"] += 1
+                            if raw_graids > 0 and len(interval_debug["reactivationUsers"]) < 20:
+                                interval_debug["reactivationUsers"].append({
+                                    "username": ulow,
+                                    "rawDelta": int(round(raw_graids)),
+                                    "prev": int(round(_safe_number(prev_graids))),
+                                    "curr": int(round(_safe_number(curr_graids))),
+                                })
+                        else:
+                            applied_graids = raw_graids if raw_graids > 0 else 0
+                            if applied_graids > 0:
+                                guild_raids[day_idx] += int(round(applied_graids))
+                                interval_debug["guildRaidsAppliedDelta"] += int(round(applied_graids))
 
                 if _safe_number(cur_user.get("wars")) > 0:
                     state["wars"] = True
