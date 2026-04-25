@@ -1063,7 +1063,7 @@
           window.showToast('\u26a0 ' + ((res.data && res.data.error) || 'Failed to update pin.'), 'error');
           return;
         }
-        window.showToast(pin ? '\ud83d\udccc Event pinned.' : 'Event unpinned.', 'success');
+        window.showToast(pin ? 'Event pinned.' : 'Event unpinned.', 'success');
         // Notify the home banner to refresh its pinned-event list
         try {
           window.dispatchEvent(new CustomEvent('esi:pinned-events-changed'));

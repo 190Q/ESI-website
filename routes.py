@@ -1956,8 +1956,11 @@ def events_pinned_public():
         existing = pinned_by_audience.get(bucket)
         if not existing or float(public.get("pinned_at") or 0) > float(existing.get("pinned_at") or 0):
             pinned_by_audience[bucket] = public
-    out = list(pinned_by_audience.values())
-    out.sort(key=lambda e: -float(e.get("pinned_at") or 0))
+    if _is_guild_member(viewer) and pinned_by_audience.get("guild_only"):
+        out = [pinned_by_audience["guild_only"]]
+    else:
+        out = list(pinned_by_audience.values())
+        out.sort(key=lambda e: -float(e.get("pinned_at") or 0))
     return jsonify(out)
 
 
