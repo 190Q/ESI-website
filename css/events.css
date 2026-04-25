@@ -1036,6 +1036,7 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
   padding: 14px 56px 14px 18px;
   border: 1px solid rgba(212,160,23,0.45);
   border-top: none;
+  border-left: none;
   border-radius: 0;
   background: linear-gradient(
     135deg,
@@ -1045,6 +1046,7 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+  clip-path: inset(0 -40px -40px 0);
   overflow: hidden;
 }
 
