@@ -6,6 +6,7 @@
   // Persisted list of event IDs the user has dismissed
   var DISMISS_KEY    = 'esi.dismissedPins';
   var BANNER_CLASS   = 'pinned-banner';
+  var STACK_CLASS    = 'pinned-banner-stack';
 
   // Cached pinned-event list returned by /api/events/pinned
   var _events  = [];
@@ -113,6 +114,8 @@
   function renderBannerHtml(ev) {
     var status = (ev.status || 'upcoming').toLowerCase();
     var ongoing = status === 'ongoing';
+    var audience = (ev.audience || 'public').toLowerCase();
+    var guildOnly = audience === 'guild_only';
 
     // Eyebrow + time text adapt based on status
     var eyebrow;
@@ -124,6 +127,13 @@
     } else {
       eyebrow = '<span class="pinned-banner-eyebrow">Pinned event</span>';
     }
+
+    // Small audience hint so guild members can tell which bucket this pin is
+    var audienceHint = guildOnly
+      ? '<span class="pinned-banner-audience" title="Only Sindrian guild members can see this event">' +
+          '\ud83d\udd12 Guild only' +
+        '</span>'
+      : '';
 
     var whenText;
     if (ongoing) {
@@ -140,6 +150,7 @@
     return '<div class="pinned-banner-body">' +
         '<div class="pinned-banner-head">' +
           eyebrow +
+          audienceHint +
           (whenText ? '<span class="pinned-banner-when">' + esc(whenText) + '</span>' : '') +
         '</div>' +
         '<div class="pinned-banner-title">' + esc(ev.name || 'Untitled event') + '</div>' +
@@ -149,20 +160,26 @@
       '<button class="pinned-banner-close" type="button" aria-label="Dismiss banner" title="Dismiss">\u2715</button>';
   }
 
-  // Find the first non-dismissed pinned event, or null
-  function pickEventToShow() {
-    if (!_events.length) return null;
+  // Return all pinned events the user hasn't dismissed yet
+  function pickEventsToShow() {
+    if (!_events.length) return [];
     var dismissed = getDismissed();
+    var out = [];
     for (var i = 0; i < _events.length; i++) {
-      if (dismissed.indexOf(_events[i].id) === -1) return _events[i];
+      if (dismissed.indexOf(_events[i].id) === -1) out.push(_events[i]);
     }
-    return null;
+    return out;
   }
 
   function clearBanners() {
+    // Remove the stack container
+    var stacks = document.querySelectorAll('.' + STACK_CLASS);
+    for (var i = 0; i < stacks.length; i++) {
+      stacks[i].parentNode && stacks[i].parentNode.removeChild(stacks[i]);
+    }
     var existing = document.querySelectorAll('.' + BANNER_CLASS);
-    for (var i = 0; i < existing.length; i++) {
-      existing[i].parentNode && existing[i].parentNode.removeChild(existing[i]);
+    for (var j = 0; j < existing.length; j++) {
+      existing[j].parentNode && existing[j].parentNode.removeChild(existing[j]);
     }
   }
 
@@ -176,9 +193,9 @@
   }
 
   function updateBannerVisibility() {
-    var banner = document.querySelector('.' + BANNER_CLASS);
-    if (!banner) return;
-    banner.style.display = isGeneralPanelActive() ? 'flex' : 'none';
+    var stack = document.querySelector('.' + STACK_CLASS);
+    if (!stack) return;
+    stack.style.display = isGeneralPanelActive() ? 'flex' : 'none';
   }
 
   // Watch the panels' class attribute
@@ -192,32 +209,45 @@
     });
   }
 
-  function injectBanners(ev) {
+  function injectBanners(events) {
     clearBanners();
-    if (!ev) return;
-    var banner = document.createElement('div');
-    var status = (ev.status || 'upcoming').toLowerCase();
-    banner.className = BANNER_CLASS +
-      (status === 'ongoing' ? ' ' + BANNER_CLASS + '--ongoing' : '');
-    banner.dataset.eventId = ev.id;
-    banner.dataset.status   = status;
-    // ev fields are sanitised inside renderBannerHtml
-    banner.innerHTML = renderBannerHtml(ev);
-    var closeBtn = banner.querySelector('.pinned-banner-close');
-    if (closeBtn) {
-      closeBtn.addEventListener('click', function () {
-        dismissEvent(ev.id);
-        // After dismissing, attempt to show the next non-dismissed pin
-        injectBanners(pickEventToShow());
-      });
-    }
-    document.body.appendChild(banner);
+    events = Array.isArray(events) ? events : [];
+    if (!events.length) return;
+
+    // Single fixed-positioned shell that all individual banners stack inside
+    var stack = document.createElement('div');
+    stack.className = STACK_CLASS;
+
+    events.forEach(function (ev) {
+      var banner = document.createElement('div');
+      var status = (ev.status || 'upcoming').toLowerCase();
+      var audience = (ev.audience || 'public').toLowerCase();
+      banner.className = BANNER_CLASS +
+        (status === 'ongoing' ? ' ' + BANNER_CLASS + '--ongoing' : '') +
+        (audience === 'guild_only' ? ' ' + BANNER_CLASS + '--guild-only' : '');
+      banner.dataset.eventId = ev.id;
+      banner.dataset.status   = status;
+      banner.dataset.audience = audience;
+      // ev fields are sanitised inside renderBannerHtml
+      banner.innerHTML = renderBannerHtml(ev);
+      var closeBtn = banner.querySelector('.pinned-banner-close');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', function () {
+          dismissEvent(ev.id);
+          // After dismissing, redraw with whatever pins remain
+          refreshBanners();
+        });
+      }
+      stack.appendChild(banner);
+    });
+
+    document.body.appendChild(stack);
     updateBannerVisibility();
     watchPanelClassChanges();
   }
 
   function refreshBanners() {
-    injectBanners(pickEventToShow());
+    injectBanners(pickEventsToShow());
   }
 
   function fetchPinned() {

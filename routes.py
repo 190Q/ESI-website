@@ -1380,19 +1380,26 @@ def _can_view_event_audience(audience, user):
     return True
 
 
-def _unpin_all_events(data, except_id=None):
-    """Mark every event in `data` as not pinned, except optionally one.
+def _unpin_all_events(data, except_id=None, audience=None):
+    """Mark events in `data` as not pinned, except optionally one.
 
-    Mutates the dict in place. Used to enforce the "only one pinned event at a
-    time" invariant.
+    If `audience` is given, only events whose `audience` matches are touched.
+    This is what enforces the "one pin per audience bucket" invariant: pinning
+    a public event clears the previous public pin but leaves the guild-only
+    pin alone, and vice versa.
     """
     if not isinstance(data, dict):
         return
+    target_audience = (audience or "").strip().lower() or None
     for evid, ev in data.items():
         if not isinstance(ev, dict):
             continue
         if evid == except_id:
             continue
+        if target_audience is not None:
+            ev_audience = (ev.get("audience") or _EVENT_DEFAULT_AUDIENCE).strip().lower()
+            if ev_audience != target_audience:
+                continue
         if ev.get("pinned") or ev.get("pinned_at"):
             ev["pinned"]    = False
             ev["pinned_at"] = 0
@@ -1838,7 +1845,9 @@ def events_pin(event_id):
     ev = data.get(event_id)
     if not ev:
         return jsonify({"error": "Event not found"}), 404
-    _unpin_all_events(data, except_id=event_id)
+    # Only clear other pins that share this event's audience bucket
+    new_audience = (ev.get("audience") or _EVENT_DEFAULT_AUDIENCE).strip().lower()
+    _unpin_all_events(data, except_id=event_id, audience=new_audience)
     ev["pinned"]     = True
     ev["pinned_at"]  = time()
     ev["updated_at"] = time()
@@ -1925,7 +1934,8 @@ def events_pinned_public():
     if _auto_transition_events(data):
         _save_json_file(_EVENTS_JSON, data)
     viewer = session.get("user")
-    pinned = []
+    # Bucket pinned events by audience
+    pinned_by_audience = {}
     for ev in (data.values() if isinstance(data, dict) else []):
         if not isinstance(ev, dict):
             continue
@@ -1940,10 +1950,15 @@ def events_pinned_public():
         view = dict(ev)
         _migrate_legacy_prize(view)
         public = _event_public_view(view)
-        if public:
-            pinned.append(public)
-    pinned.sort(key=lambda e: -float(e.get("pinned_at") or 0))
-    return jsonify(pinned[:1])
+        if not public:
+            continue
+        bucket = (public.get("audience") or _EVENT_DEFAULT_AUDIENCE)
+        existing = pinned_by_audience.get(bucket)
+        if not existing or float(public.get("pinned_at") or 0) > float(existing.get("pinned_at") or 0):
+            pinned_by_audience[bucket] = public
+    out = list(pinned_by_audience.values())
+    out.sort(key=lambda e: -float(e.get("pinned_at") or 0))
+    return jsonify(out)
 
 
 # discord voice-channel list

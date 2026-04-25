@@ -1005,13 +1005,30 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
   padding: 0;
 }
 
-/* Pinned-event banner displayed on General-category panels */
-.pinned-banner {
+.pinned-banner-stack {
   position: fixed;
   top: var(--navbar-h);
   left: var(--sidebar-w);
   right: 0;
   z-index: 200;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+  transition: left var(--transition);
+}
+
+.pinned-banner-stack > .pinned-banner {
+  pointer-events: auto;
+}
+
+.sidebar.collapsed ~ .content-area .pinned-banner-stack,
+.sidebar.collapsed ~ * .pinned-banner-stack {
+  left: var(--sidebar-w-compact);
+}
+
+/* Pinned-event banner displayed on General-category panels */
+.pinned-banner {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 14px;
@@ -1029,13 +1046,11 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
   -webkit-backdrop-filter: blur(6px);
   box-shadow: 0 6px 18px rgba(0,0,0,0.45);
   overflow: hidden;
-  transition: left var(--transition);
 }
 
-/* Sidebar collapsed -> banner shrinks left edge to the compact sidebar width */
-.sidebar.collapsed ~ .content-area .pinned-banner,
-.sidebar.collapsed ~ * .pinned-banner {
-  left: var(--sidebar-w-compact);
+/* Avoid double dividers between stacked banners */
+.pinned-banner-stack > .pinned-banner + .pinned-banner {
+  border-top: 1px solid rgba(212, 160, 23, 0.25);
 }
 
 .pinned-banner-icon {
@@ -1202,7 +1217,29 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
 }
 
 @media (max-width: 520px) {
-  .pinned-banner {
+  .pinned-banner-stack {
     left: 0;
   }
+}
+
+/* Audience hint chip inside the banner head (e.g. 'Guild only') */
+.pinned-banner-audience {
+  font-family: 'Cinzel', serif;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 3px;
+  border: 1px solid rgba(95, 216, 122, 0.5);
+  background: rgba(59, 165, 92, 0.12);
+  color: #74e08a;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+/* Soft accent on the guild-only banner so it's distinguishable at a glance */
+.pinned-banner--guild-only {
+  border-left: 3px solid rgba(95, 216, 122, 0.6);
 }

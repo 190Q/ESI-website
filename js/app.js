@@ -496,12 +496,12 @@ fetch('/auth/session', { credentials: 'same-origin' })
     const canEvents     = hasEventsAccess();
     manageSection.style.display = (canInactivity || canPromotions || canEvents) ? 'block' : 'none';
 
-    const inactivityNav = document.querySelector('[data-panel="inactivity"]');
-    const promotionsNav = document.querySelector('[data-panel="promotions"]');
-    const eventsNav     = document.querySelector('[data-panel="events"]');
-    if (inactivityNav) inactivityNav.parentElement.style.display = canInactivity ? '' : 'none';
-    if (promotionsNav) promotionsNav.parentElement.style.display = canPromotions ? '' : 'none';
-    if (eventsNav)     eventsNav.parentElement.style.display     = canEvents     ? '' : 'none';
+    const inactivityNav   = document.querySelector('[data-panel="inactivity"]');
+    const promotionsNav   = document.querySelector('[data-panel="promotions"]');
+    const eventsManageNav = document.querySelector('[data-panel="events-manage"]');
+    if (inactivityNav)   inactivityNav.parentElement.style.display   = canInactivity ? '' : 'none';
+    if (promotionsNav)   promotionsNav.parentElement.style.display   = canPromotions ? '' : 'none';
+    if (eventsManageNav) eventsManageNav.parentElement.style.display = canEvents     ? '' : 'none';
 
     // if they're on a panel they can't access anymore, bounce them to player
     if (activePanel) {
