@@ -118,6 +118,16 @@
   to { transform: rotate(360deg); }
 }
 
+@keyframes ev-row-highlight {
+  0%   { box-shadow: 0 0 0 3px rgba(212,160,23,0.0),  0 1px 2px rgba(0,0,0,0.2); }
+  20%  { box-shadow: 0 0 0 4px rgba(212,160,23,0.55), 0 2px 8px rgba(212,160,23,0.2); }
+  100% { box-shadow: 0 0 0 3px rgba(212,160,23,0.0),  0 1px 2px rgba(0,0,0,0.2); }
+}
+
+.ev-row--highlight {
+  animation: ev-row-highlight 1.8s ease-out forwards;
+}
+
 .ev-field {
   display: flex;
   flex-direction: column;
@@ -1048,6 +1058,7 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
   box-shadow: 0 6px 18px rgba(0,0,0,0.45);
   clip-path: inset(0 -40px -40px 0);
   overflow: hidden;
+  transition: padding 0.25s ease, gap 0.25s ease;
 }
 
 /* Avoid double dividers between stacked banners */
@@ -1071,6 +1082,7 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
   flex-direction: column;
   gap: 4px;
   overflow: hidden;
+  transition: gap 0.25s ease;
 }
 
 .pinned-banner-head {
@@ -1078,6 +1090,10 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  max-height: 80px;
+  opacity: 1;
+  overflow: hidden;
+  transition: max-height 0.25s ease, opacity 0.2s ease, margin 0.25s ease;
 }
 
 .pinned-banner-eyebrow {
@@ -1137,8 +1153,8 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
   font-weight: 600;
 }
 
-.pinned-banner--ongoing .pinned-banner-close:hover {
-  border-color: rgba(237,66,69,0.9);
+.pinned-banner--ongoing .pinned-banner-toggle {
+  color: #b9f0c4;
 }
 
 .pinned-banner-when {
@@ -1156,6 +1172,29 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
   line-height: 1.3;
 }
 
+/* Title rendered as a button that links to the public events page */
+button.pinned-banner-title-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: none;
+  transition: color 0.15s, text-shadow 0.15s;
+}
+button.pinned-banner-title-link:hover {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-shadow: 0 0 10px rgba(212,160,23,0.45);
+}
+button.pinned-banner-title-link:focus-visible {
+  outline: 2px solid rgba(212,160,23,0.7);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
 .pinned-banner-prize {
   font-family: 'Crimson Pro', serif;
   font-size: 0.9rem;
@@ -1170,10 +1209,19 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
   word-break: break-word;
   overflow-wrap: anywhere;
   max-height: 4.6em;
+  opacity: 1;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
+  transition: max-height 0.25s ease, opacity 0.2s ease, margin 0.25s ease;
+}
+
+.pinned-banner-when--compact {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 0.25s ease, opacity 0.2s ease 0s;
 }
 
 .pinned-banner-desc p { margin: 2px 0; }
@@ -1182,7 +1230,7 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
   text-decoration: underline;
 }
 
-.pinned-banner-close {
+.pinned-banner-toggle {
   position: absolute;
   top: 10px;
   right: 12px;
@@ -1193,20 +1241,46 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
   align-items: center;
   justify-content: center;
   background: transparent;
-  border-radius: 50%;
   color: var(--gold-light);
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.12s;
 }
 
-.pinned-banner-close:hover {
-  background: rgba(237,66,69,0.85);
-  border-color: rgba(237,66,69,0.9);
-  color: #fff;
-  transform: scale(1.08);
+.pinned-banner-toggle-icon {
+  display: inline-block;
+  pointer-events: none;
+  transition: transform 0.25s ease;
+}
+
+/* Collapsed banner */
+.pinned-banner--collapsed {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  align-items: center;
+}
+
+.pinned-banner--collapsed .pinned-banner-body {
+  gap: 2px;
+}
+
+.pinned-banner--collapsed .pinned-banner-head,
+.pinned-banner--collapsed .pinned-banner-desc {
+  max-height: 0;
+  opacity: 0;
+  margin: 0;
+  pointer-events: none;
+}
+
+.pinned-banner--collapsed .pinned-banner-when--compact {
+  max-height: 40px;
+  opacity: 1;
+}
+
+.pinned-banner--collapsed .pinned-banner-toggle-icon {
+  transform: rotate(180deg);
 }
 
 @media (max-width: 540px) {
