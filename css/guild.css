@@ -749,3 +749,252 @@
 .snipe-participant-me .snipe-participant-name {
   font-weight: 700;
 }
+
+/* Guild Statistics view */
+.guild-stats-filters .info-card-header {
+  font-family: 'Cinzel', serif;
+  letter-spacing: 0.08em;
+}
+.guild-stats-filters-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+  padding: 14px 20px;
+}
+.guild-stats-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 150px;
+}
+.guild-stats-filter-label {
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.guild-stats-rank-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.guild-stats-rank-chip {
+  font-family: 'Cinzel', serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--border-mid);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.guild-stats-rank-chip:hover {
+  color: var(--gold-light);
+  border-color: var(--gold-dim);
+}
+.guild-stats-rank-chip.active {
+  background: rgba(212,160,23,0.18);
+  color: var(--gold-light);
+  border-color: var(--gold-dim);
+  box-shadow: 0 0 0 1px var(--gold-dim) inset;
+}
+.guild-stats-date-input {
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-mid);
+  background: var(--surface-2);
+  color: var(--gold-light);
+  min-width: 150px;
+  color-scheme: dark;
+}
+.guild-stats-reset-btn {
+  font-family: 'Cinzel', serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 7px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-mid);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  cursor: pointer;
+  align-self: flex-end;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.guild-stats-reset-btn:hover {
+  color: var(--gold-light);
+  border-color: var(--gold-dim);
+}
+.guild-stats-filter-summary {
+  padding: 0 20px 14px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.74rem;
+  color: var(--text-dim);
+}
+
+.guild-stats-empty {
+  padding: 14px 20px;
+  color: var(--text-faint);
+  font-style: italic;
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+}
+
+.guild-stats-block {
+  padding: 14px 20px;
+}
+
+.guild-stats-rank-dist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 20px;
+}
+.guild-stats-bar-row {
+  display: grid;
+  grid-template-columns: 130px 1fr 70px 56px;
+  align-items: center;
+  gap: 10px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+.guild-stats-bar-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.guild-stats-bar-track {
+  background: var(--surface-2);
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.guild-stats-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width var(--transition);
+}
+.guild-stats-bar-value {
+  text-align: right;
+  color: var(--gold-light);
+  font-weight: 700;
+}
+.guild-stats-bar-pct {
+  text-align: right;
+  color: var(--text-faint);
+  font-size: 0.72rem;
+}
+
+.guild-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.guild-stats-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+}
+.guild-stats-cell-value {
+  font-family: 'Cinzel', serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--gold-light);
+  line-height: 1.2;
+}
+.guild-stats-cell-label {
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.guild-stats-averages-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  padding: 14px 20px;
+}
+.guild-stats-avg-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.guild-stats-avg-label {
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.guild-stats-avg-value {
+  font-family: 'Cinzel', serif;
+  font-size: 1.18rem;
+  font-weight: 700;
+  color: var(--gold-light);
+  line-height: 1.2;
+}
+.guild-stats-avg-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+.guild-stats-leaderboard {
+  display: flex;
+  flex-direction: column;
+}
+.guild-stats-leaderboard-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid rgba(212,160,23,0.06);
+  transition: background var(--transition);
+}
+.guild-stats-leaderboard-row:last-child { border-bottom: none; }
+.guild-stats-leaderboard-row:hover { background: rgba(212,160,23,0.04); }
+.guild-stats-leaderboard-row .guild-member-name {
+  flex: 1;
+  min-width: 0;
+}
+.guild-stats-leaderboard-count {
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  color: var(--gold-light);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .guild-stats-bar-row {
+    grid-template-columns: 100px 1fr 60px 48px;
+    font-size: 0.72rem;
+  }
+  .guild-stats-filters-body {
+    gap: 10px;
+  }
+}

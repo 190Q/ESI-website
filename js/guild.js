@@ -1385,14 +1385,22 @@
   document.getElementById('guildViewGlobal').addEventListener('click', () => switchGuildView('global'));
   document.getElementById('guildViewLogs').addEventListener('click',  () => switchGuildView('logs'));
   document.getElementById('guildViewSnipes').addEventListener('click', () => switchGuildView('snipes'));
+  if (document.getElementById('guildViewStatistics')) {
+    document.getElementById('guildViewStatistics').addEventListener('click', () => switchGuildView('statistics'));
+  }
 
   function switchGuildView(v) {
     document.getElementById('guildViewGlobal').classList.toggle('active', v === 'global');
     document.getElementById('guildViewLogs').classList.toggle('active',   v === 'logs');
     document.getElementById('guildViewSnipes').classList.toggle('active', v === 'snipes');
+    const statBtn = document.getElementById('guildViewStatistics');
+    if (statBtn) statBtn.classList.toggle('active', v === 'statistics');
     document.getElementById('guildGlobalView').style.display = v === 'global' ? 'block' : 'none';
     document.getElementById('guildLogsView').style.display   = v === 'logs'   ? 'block' : 'none';
     document.getElementById('guildSnipesView').style.display = v === 'snipes' ? 'block' : 'none';
+    const statView = document.getElementById('guildStatisticsView');
+    if (statView) statView.style.display = v === 'statistics' ? 'block' : 'none';
+    if (v === 'statistics') ensureGuildStatisticsLoaded();
   }
 
   /* activity graph */
@@ -1887,6 +1895,483 @@
   // init share buttons for all graph panels
   if (window.GraphShared && window.GraphShared.initShareButtons) {
     window.GraphShared.initShareButtons();
+  }
+
+  /* Statistics view */
+  const STATS_RANK_ORDER = ['owner', 'chief', 'strategist', 'captain', 'recruiter', 'recruit'];
+  const STATS_METRICS = [
+    { key: 'playtime_hours',   label: 'Playtime (hours)',  decimals: 1 },
+    { key: 'wars',             label: 'Wars',              decimals: 1 },
+    { key: 'total_level',      label: 'Total Level',       decimals: 0 },
+    { key: 'mobs_killed',      label: 'Mobs Killed',       decimals: 0 },
+    { key: 'chests_found',     label: 'Chests Found',      decimals: 0 },
+    { key: 'dungeons_total',   label: 'Dungeons Total',    decimals: 0 },
+    { key: 'raids_total',      label: 'Raids Total',       decimals: 0 },
+    { key: 'guild_raids',      label: 'Guild Raids Total', decimals: 0 },
+    { key: 'world_events',     label: 'World Events',      decimals: 0 },
+    { key: 'loot_runs',        label: 'Lootruns',          decimals: 0 },
+    { key: 'caves',            label: 'Caves',             decimals: 0 },
+    { key: 'completed_quests', label: 'Completed Quests',  decimals: 0 },
+    { key: 'pvp_kills',        label: 'PvP Kills',         decimals: 0 },
+    { key: 'pvp_deaths',       label: 'PvP Deaths',        decimals: 0 },
+    { key: 'recruited',        label: 'Recruited Players', decimals: 1 },
+    { key: 'event_points',     label: 'Event Points',      decimals: 1 },
+    { key: 'quest_points',     label: 'Quest Points',      decimals: 1 },
+    { key: 'esi_points',       label: 'ESI Points',        decimals: 1 },
+  ];
+
+  const guildStatsState = {
+    loaded: false,
+    loading: false,
+    data: null,
+    filterRanks: new Set(),       // empty = all
+    filterJoinedFrom: '',         // ISO yyyy-mm-dd
+    filterJoinedTo: '',           // ISO yyyy-mm-dd
+  };
+
+  function ensureGuildStatisticsLoaded() {
+    if (guildStatsState.loading) return;
+    if (guildStatsState.loaded && guildStatsState.data) {
+      renderGuildStatistics();
+      return;
+    }
+    loadGuildStatistics();
+  }
+
+  async function loadGuildStatistics() {
+    guildStatsState.loading = true;
+    const container = document.getElementById('guildStatisticsView');
+    if (container) {
+      const filterSummary = document.getElementById('guildStatsFilterSummary');
+      if (filterSummary) filterSummary.textContent = 'Loading guild statistics\u2026';
+    }
+    try {
+      const result = await DataCache.cachedFetch('/api/guild/statistics');
+      const data = result && result.data;
+      if (!data || !data.available) {
+        renderGuildStatisticsUnavailable();
+        return;
+      }
+      guildStatsState.data = data;
+      guildStatsState.loaded = true;
+      buildGuildStatsRankChips();
+      bindGuildStatsFilters();
+      renderGuildStatistics();
+    } catch (err) {
+      renderGuildStatisticsUnavailable(err && err.message);
+    } finally {
+      guildStatsState.loading = false;
+    }
+  }
+
+  function renderGuildStatisticsUnavailable(msg) {
+    const summary = document.getElementById('guildStatsFilterSummary');
+    if (summary) {
+      summary.textContent = msg
+        ? '\u26a0 Could not load statistics: ' + msg
+        : '\u26a0 Statistics are not available right now.';
+    }
+    ['guildStatsRankDist', 'guildStatsQueue', 'guildStatsFlow', 'guildStatsLeavesByRank',
+     'guildStatsLeavesByTenure', 'guildStatsAverages', 'guildStatsTopRecruiters'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '';
+    });
+  }
+
+  function buildGuildStatsRankChips() {
+    const wrap = document.getElementById('guildStatsRankChips');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    STATS_RANK_ORDER.forEach(function (rank) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'guild-stats-rank-chip guild-rank-' + rank;
+      chip.dataset.rank = rank;
+      chip.textContent = capFirst(rank);
+      chip.addEventListener('click', function () {
+        if (guildStatsState.filterRanks.has(rank)) {
+          guildStatsState.filterRanks.delete(rank);
+          chip.classList.remove('active');
+        } else {
+          guildStatsState.filterRanks.add(rank);
+          chip.classList.add('active');
+        }
+        renderGuildStatistics();
+      });
+      wrap.appendChild(chip);
+    });
+  }
+
+  function bindGuildStatsFilters() {
+    const fromEl = document.getElementById('guildStatsJoinedFrom');
+    const toEl   = document.getElementById('guildStatsJoinedTo');
+    const reset  = document.getElementById('guildStatsResetBtn');
+    if (fromEl && !fromEl.dataset.bound) {
+      fromEl.dataset.bound = '1';
+      fromEl.addEventListener('change', function () {
+        guildStatsState.filterJoinedFrom = this.value || '';
+        renderGuildStatistics();
+      });
+    }
+    if (toEl && !toEl.dataset.bound) {
+      toEl.dataset.bound = '1';
+      toEl.addEventListener('change', function () {
+        guildStatsState.filterJoinedTo = this.value || '';
+        renderGuildStatistics();
+      });
+    }
+    if (reset && !reset.dataset.bound) {
+      reset.dataset.bound = '1';
+      reset.addEventListener('click', function () {
+        guildStatsState.filterRanks.clear();
+        guildStatsState.filterJoinedFrom = '';
+        guildStatsState.filterJoinedTo = '';
+        if (fromEl) fromEl.value = '';
+        if (toEl) toEl.value = '';
+        document.querySelectorAll('#guildStatsRankChips .guild-stats-rank-chip').forEach(function (el) {
+          el.classList.remove('active');
+        });
+        renderGuildStatistics();
+      });
+    }
+  }
+
+  function statsFilterMember(m) {
+    if (guildStatsState.filterRanks.size && !guildStatsState.filterRanks.has(m.rank || '')) return false;
+    const j = m.joined;
+    if (guildStatsState.filterJoinedFrom) {
+      if (!j || j < guildStatsState.filterJoinedFrom) return false;
+    }
+    if (guildStatsState.filterJoinedTo) {
+      if (!j) return false;
+      // inclusive end-of-day comparison
+      const cutoff = guildStatsState.filterJoinedTo + 'T23:59:59.999Z';
+      if (j > cutoff) return false;
+    }
+    return true;
+  }
+
+  function statsFilterEvent(ev) {
+    if (guildStatsState.filterRanks.size && !guildStatsState.filterRanks.has(ev.rank || '')) return false;
+    return true;
+  }
+
+  function statsAverage(values) {
+    if (!values.length) return 0;
+    let sum = 0;
+    for (let i = 0; i < values.length; i++) sum += values[i];
+    return sum / values.length;
+  }
+
+  function statsMedian(values) {
+    if (!values.length) return 0;
+    const arr = values.slice().sort((a, b) => a - b);
+    const m = Math.floor(arr.length / 2);
+    return arr.length % 2 ? arr[m] : (arr[m - 1] + arr[m]) / 2;
+  }
+
+  function statsFmt(value, decimals) {
+    if (!Number.isFinite(value)) return '0';
+    if (decimals && decimals > 0) {
+      return Number(value).toLocaleString(undefined, {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      });
+    }
+    return Math.round(value).toLocaleString();
+  }
+
+  function statsFmtTenure(seconds) {
+    if (!Number.isFinite(seconds) || seconds <= 0) return '\u2014';
+    const days = seconds / 86400;
+    if (days < 1) {
+      const hrs = Math.max(1, Math.round(seconds / 3600));
+      return hrs + 'h';
+    }
+    if (days < 30) return days.toFixed(1) + 'd';
+    const months = days / 30.4375;
+    if (months < 12) return months.toFixed(1) + 'mo';
+    return (days / 365.25).toFixed(1) + 'y';
+  }
+
+  function statsParseIso(value) {
+    if (!value) return null;
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function statsWeeksBetween(timestamps) {
+    if (!timestamps.length) return 0;
+    let min = Infinity;
+    let max = -Infinity;
+    for (let i = 0; i < timestamps.length; i++) {
+      const v = timestamps[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return 0;
+    return Math.max(1, (max - min) / (7 * 86400000));
+  }
+
+  function statsBuildBar(label, value, total, color, valueText) {
+    const pct = total > 0 ? (value / total) * 100 : 0;
+    const widthPct = Math.max(0, Math.min(100, pct));
+    return (
+      '<div class="guild-stats-bar-row">' +
+      '  <span class="guild-stats-bar-label">' + label + '</span>' +
+      '  <div class="guild-stats-bar-track">' +
+      '    <div class="guild-stats-bar-fill" style="width:' + widthPct.toFixed(2) + '%;background:' + color + '"></div>' +
+      '  </div>' +
+      '  <span class="guild-stats-bar-value">' + (valueText != null ? valueText : value) + '</span>' +
+      '  <span class="guild-stats-bar-pct">' + pct.toFixed(1) + '%</span>' +
+      '</div>'
+    );
+  }
+
+  function statsRankColor(rank) {
+    switch (rank) {
+      case 'owner':      return '#e0c558';
+      case 'chief':      return '#d44d4d';
+      case 'strategist': return '#cb6dde';
+      case 'captain':    return '#4caf50';
+      case 'recruiter':  return '#3a9bd0';
+      case 'recruit':    return '#8a93a4';
+      default:           return '#5b6275';
+    }
+  }
+
+  function renderGuildStatistics() {
+    if (!guildStatsState.data) return;
+    const data = guildStatsState.data;
+    const allMembers = data.members || [];
+    const filteredMembers = allMembers.filter(statsFilterMember);
+
+    const summary = document.getElementById('guildStatsFilterSummary');
+    if (summary) {
+      const parts = [];
+      parts.push('Showing ' + filteredMembers.length + ' / ' + allMembers.length + ' members');
+      if (guildStatsState.filterRanks.size) {
+        parts.push('Ranks: ' + Array.from(guildStatsState.filterRanks).map(capFirst).join(', '));
+      }
+      if (guildStatsState.filterJoinedFrom) parts.push('Joined \u2265 ' + guildStatsState.filterJoinedFrom);
+      if (guildStatsState.filterJoinedTo)   parts.push('Joined \u2264 ' + guildStatsState.filterJoinedTo);
+      summary.textContent = parts.join('  \u00b7  ');
+    }
+
+    renderStatsRankDistribution(filteredMembers);
+    renderStatsQueue(data.queue);
+    renderStatsFlow(data.joins, data.leaves);
+    renderStatsLeavesByRank(data.leaves);
+    renderStatsLeavesByTenure(data.leaves);
+    renderStatsAverages(filteredMembers);
+    renderStatsTopRecruiters(filteredMembers);
+  }
+
+  function renderStatsRankDistribution(members) {
+    const wrap = document.getElementById('guildStatsRankDist');
+    if (!wrap) return;
+    if (!members.length) { wrap.innerHTML = '<div class="guild-stats-empty">No members match the current filters.</div>'; return; }
+    const counts = {};
+    STATS_RANK_ORDER.forEach(r => counts[r] = 0);
+    members.forEach(m => {
+      const r = m.rank || 'recruit';
+      counts[r] = (counts[r] || 0) + 1;
+    });
+    const total = members.length;
+    let html = '';
+    STATS_RANK_ORDER.forEach(function (r) {
+      const v = counts[r] || 0;
+      html += statsBuildBar(
+        '<span class="guild-rank-badge guild-rank-' + r + '">' + capFirst(r) + '</span>',
+        v, total, statsRankColor(r), v.toLocaleString()
+      );
+    });
+    wrap.innerHTML = html;
+  }
+
+  function renderStatsQueue(queue) {
+    const wrap = document.getElementById('guildStatsQueue');
+    if (!wrap || !queue) return;
+    const history = Array.isArray(queue.history) ? queue.history : [];
+    const totals = history.map(h => Number(h.total) || 0);
+    const dailyAvg = totals.length ? statsAverage(totals) : 0;
+    const weeklyAvg = dailyAvg * 7;  // average people-days per week (avg daily * 7)
+    const weeklyMean = totals.length ? statsAverage(weeklyChunk(totals, 7)) : 0;
+    const median = statsMedian(totals);
+    const max = totals.length ? Math.max.apply(null, totals) : 0;
+    const current = (queue.current && Number(queue.current.total)) || 0;
+    wrap.innerHTML =
+      '<div class="guild-stats-grid">' +
+        statsCell('Current', current.toLocaleString()) +
+        statsCell('Avg / day',    statsFmt(dailyAvg, 1)) +
+        statsCell('Avg / week',   statsFmt(weeklyMean, 1)) +
+        statsCell('Median / day', statsFmt(median, 1)) +
+        statsCell('Peak / day',   max.toLocaleString()) +
+        statsCell('Days sampled', totals.length.toLocaleString()) +
+      '</div>';
+  }
+
+  function weeklyChunk(values, size) {
+    if (!values.length) return [];
+    const out = [];
+    for (let i = 0; i < values.length; i += size) {
+      const slice = values.slice(i, i + size);
+      if (!slice.length) continue;
+      let s = 0;
+      for (let j = 0; j < slice.length; j++) s += slice[j];
+      out.push(s / slice.length);
+    }
+    return out;
+  }
+
+  function statsCell(label, value) {
+    return '<div class="guild-stats-cell"><span class="guild-stats-cell-value">' + value +
+      '</span><span class="guild-stats-cell-label">' + label + '</span></div>';
+  }
+
+  function renderStatsFlow(joins, leaves) {
+    const wrap = document.getElementById('guildStatsFlow');
+    if (!wrap) return;
+    joins  = (joins  || []).filter(statsFilterEvent);
+    leaves = (leaves || []).filter(statsFilterEvent);
+    const joinTs  = joins .map(j => +new Date(j.timestamp)).filter(t => Number.isFinite(t));
+    const leaveTs = leaves.map(j => +new Date(j.timestamp)).filter(t => Number.isFinite(t));
+    const allTs = joinTs.concat(leaveTs);
+    const weeks = statsWeeksBetween(allTs);
+    const joinsPerWeek  = joinTs.length  / Math.max(1, weeks);
+    const leavesPerWeek = leaveTs.length / Math.max(1, weeks);
+    const net = joinsPerWeek - leavesPerWeek;
+    const netSign = net > 0 ? '+' : (net < 0 ? '\u2212' : '');
+    wrap.innerHTML =
+      '<div class="guild-stats-grid">' +
+        statsCell('Joins (total)',     joinTs.length.toLocaleString()) +
+        statsCell('Leaves (total)',    leaveTs.length.toLocaleString()) +
+        statsCell('Joins / week',      statsFmt(joinsPerWeek, 1)) +
+        statsCell('Leaves / week',     statsFmt(leavesPerWeek, 1)) +
+        statsCell('Net / week',        netSign + statsFmt(Math.abs(net), 1)) +
+        statsCell('Span (weeks)',      statsFmt(weeks, 1)) +
+      '</div>';
+  }
+
+  function renderStatsLeavesByRank(leaves) {
+    const wrap = document.getElementById('guildStatsLeavesByRank');
+    if (!wrap) return;
+    const list = (leaves || []).filter(statsFilterEvent);
+    if (!list.length) {
+      wrap.innerHTML = '<div class="guild-stats-empty">No leave events match the filters.</div>';
+      return;
+    }
+    const counts = {};
+    STATS_RANK_ORDER.forEach(r => counts[r] = 0);
+    list.forEach(function (e) {
+      const r = (e.rank || 'recruit').toLowerCase();
+      counts[r] = (counts[r] || 0) + 1;
+    });
+    let html = '';
+    STATS_RANK_ORDER.forEach(function (r) {
+      html += statsBuildBar(
+        '<span class="guild-rank-badge guild-rank-' + r + '">' + capFirst(r) + '</span>',
+        counts[r] || 0, list.length, statsRankColor(r), (counts[r] || 0).toLocaleString()
+      );
+    });
+    wrap.innerHTML = html;
+  }
+
+  function renderStatsLeavesByTenure(leaves) {
+    const wrap = document.getElementById('guildStatsLeavesByTenure');
+    if (!wrap) return;
+    const list = (leaves || []).filter(statsFilterEvent).filter(e => Number.isFinite(e.tenure_seconds));
+    if (!list.length) {
+      wrap.innerHTML = '<div class="guild-stats-empty">No tenure data available for the filtered leaves.</div>';
+      return;
+    }
+    const buckets = [
+      { label: '< 1 day',     min: 0,                max: 86400 },
+      { label: '1\u20137 days',  min: 86400,            max: 7 * 86400 },
+      { label: '1\u20134 weeks', min: 7 * 86400,        max: 28 * 86400 },
+      { label: '1\u20133 mo',    min: 28 * 86400,       max: 90 * 86400 },
+      { label: '3\u20136 mo',    min: 90 * 86400,       max: 180 * 86400 },
+      { label: '6\u201312 mo',   min: 180 * 86400,      max: 365 * 86400 },
+      { label: '\u2265 1 year',  min: 365 * 86400,      max: Infinity },
+    ];
+    const counts = buckets.map(() => 0);
+    let totalTenure = 0;
+    list.forEach(function (e) {
+      const t = e.tenure_seconds;
+      totalTenure += t;
+      for (let i = 0; i < buckets.length; i++) {
+        if (t >= buckets[i].min && t < buckets[i].max) { counts[i]++; break; }
+      }
+    });
+    const tenures = list.map(e => e.tenure_seconds).sort((a, b) => a - b);
+    const median = tenures[Math.floor(tenures.length / 2)] || 0;
+    const avg = totalTenure / list.length;
+    let html =
+      '<div class="guild-stats-grid" style="margin-bottom:0.6rem">' +
+        statsCell('Avg tenure',    statsFmtTenure(avg)) +
+        statsCell('Median tenure', statsFmtTenure(median)) +
+        statsCell('Sample size',   list.length.toLocaleString()) +
+      '</div>';
+    buckets.forEach(function (b, i) {
+      html += statsBuildBar(b.label, counts[i], list.length, '#3a9bd0', counts[i].toLocaleString());
+    });
+    wrap.innerHTML = html;
+  }
+
+  function renderStatsAverages(members) {
+    const wrap = document.getElementById('guildStatsAverages');
+    if (!wrap) return;
+    if (!members.length) { wrap.innerHTML = '<div class="guild-stats-empty">No members match the current filters.</div>'; return; }
+    let html = '<div class="guild-stats-averages-grid">';
+    STATS_METRICS.forEach(function (metric) {
+      const values = members.map(m => Number(m[metric.key]) || 0);
+      const avg = statsAverage(values);
+      const med = statsMedian(values);
+      const max = Math.max.apply(null, values);
+      html +=
+        '<div class="guild-stats-avg-card">' +
+          '<div class="guild-stats-avg-label">' + metric.label + '</div>' +
+          '<div class="guild-stats-avg-value">' + statsFmt(avg, metric.decimals) + '</div>' +
+          '<div class="guild-stats-avg-meta">' +
+            '<span>median ' + statsFmt(med, metric.decimals) + '</span>' +
+            '<span>max ' + statsFmt(max, metric.decimals) + '</span>' +
+          '</div>' +
+        '</div>';
+    });
+    html += '</div>';
+    wrap.innerHTML = html;
+  }
+
+  function renderStatsTopRecruiters(members) {
+    const wrap = document.getElementById('guildStatsTopRecruiters');
+    if (!wrap) return;
+    const list = members
+      .filter(m => (m.recruited || 0) > 0)
+      .sort((a, b) => (b.recruited || 0) - (a.recruited || 0))
+      .slice(0, 15);
+    if (!list.length) {
+      wrap.innerHTML = '<div class="guild-stats-empty">No recruits recorded for the current filters.</div>';
+      return;
+    }
+    let html = '';
+    list.forEach(function (m, i) {
+      const rankClass = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
+      const safeRank = m.rank ? String(m.rank).replace(/[^a-z]/gi, '') : '';
+      const rank = safeRank ? '<span class="guild-rank-badge guild-rank-' + safeRank + '">' + escHtml(capFirst(safeRank)) + '</span>' : '';
+      html +=
+        '<div class="guild-stats-leaderboard-row">' +
+          '<span class="guild-member-rank-num ' + rankClass + '">#' + (i + 1) + '</span>' +
+          '<span class="guild-member-name guild-log-name-link" data-username="' + escAttr(m.username) + '">' +
+            escHtml(m.username) +
+          '</span>' +
+          rank +
+          '<span class="guild-stats-leaderboard-count">' + (m.recruited || 0).toLocaleString() + ' recruited</span>' +
+        '</div>';
+    });
+    wrap.innerHTML = _safeSanitize(html);
+    wrap.querySelectorAll('.guild-log-name-link').forEach(function (el) {
+      el.addEventListener('click', function () { window.goToPlayer(el.dataset.username); });
+    });
   }
 
 })();

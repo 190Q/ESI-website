@@ -2243,6 +2243,274 @@ def guild_stats():
         return jsonify({"error": str(e)}), 500
 
 
+# Statistics view (per-member rollup + queue/joins/leaves history)
+
+def _statistics_esi_points_by_user():
+    """Sum total ESI points per username (lower-cased) across all cycles."""
+    if not os.path.exists(_POINTS_DB):
+        return {}
+    try:
+        conn = _sqlite3.connect(_POINTS_DB)
+        rows = conn.execute(
+            "SELECT username, SUM(points) FROM esi_points GROUP BY uuid"
+        ).fetchall()
+        conn.close()
+    except _sqlite3.OperationalError:
+        return {}
+    out = {}
+    for username, pts in rows:
+        if not username:
+            continue
+        out[username.lower()] = int(pts or 0)
+    return out
+
+
+def _statistics_queue_history(days=60):
+    """Sample queue_stats from up to *days* most recent api_tracking dbs (last snapshot per day)."""
+    from datetime import datetime as _dt
+    if not os.path.isdir(_API_TRACKING_DIR):
+        return []
+    api_days = []
+    for name in os.listdir(_API_TRACKING_DIR):
+        if not name.startswith("api_"):
+            continue
+        path = os.path.join(_API_TRACKING_DIR, name)
+        if not os.path.isdir(path):
+            continue
+        try:
+            day_dt = _dt.strptime(name[4:], "%d-%m-%Y")
+        except ValueError:
+            continue
+        files = sorted(f for f in os.listdir(path) if f.endswith(".db"))
+        if files:
+            api_days.append((day_dt, os.path.join(path, files[-1])))
+    api_days.sort(key=lambda x: x[0])
+    api_days = api_days[-days:]
+    history = []
+    for day_dt, db_path in api_days:
+        try:
+            c = _sqlite3.connect(db_path, check_same_thread=False)
+            row = c.execute(
+                "SELECT total_count, timestamp FROM queue_stats ORDER BY rowid DESC LIMIT 1"
+            ).fetchone()
+            c.close()
+        except Exception:
+            continue
+        if not row:
+            continue
+        history.append({
+            "date":      day_dt.date().isoformat(),
+            "total":     int(row[0] or 0),
+            "timestamp": row[1],
+        })
+    return history
+
+
+@app.route("/api/guild/statistics")
+@rate_limit(20)
+def guild_statistics():
+    """Aggregated guild statistics for the Statistics view.
+
+    Returns per-member stats (filtered by guild_prefix=ESI), queue history,
+    and join/leave events with tenure information.
+    """
+    latest_db = _get_latest_api_db()
+    if not latest_db:
+        resp = jsonify({"available": False, "reason": "no api db"})
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["X-Frame-Options"] = "DENY"
+        resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return resp
+
+    try:
+        conn = _sqlite3.connect(latest_db, check_same_thread=False)
+
+        member_rows = conn.execute("""
+            SELECT username, uuid, guild_rank, playtime, wars, total_level,
+                   mobs_killed, chests_found, dungeons_total, raids_total,
+                   world_events, loot_runs, caves, completed_quests,
+                   pvp_kills, pvp_deaths
+              FROM player_stats
+             WHERE UPPER(guild_prefix) = 'ESI'
+        """).fetchall()
+
+        # Guild raid totals - keyed by uuid (and lowercase username as fallback)
+        graid_by_uuid = {}
+        graid_by_user = {}
+        try:
+            for row in conn.execute(
+                "SELECT username, uuid, total_graids FROM guild_raid_stats"
+            ).fetchall():
+                if row[1]:
+                    graid_by_uuid[row[1]] = int(row[2] or 0)
+                if row[0]:
+                    graid_by_user[row[0].lower()] = int(row[2] or 0)
+        except _sqlite3.OperationalError:
+            pass
+
+        # Recruited counts by recruiter UUID
+        recruited_counts = {}
+        try:
+            for r in conn.execute(
+                "SELECT recruiter, COUNT(*) FROM recruited GROUP BY recruiter"
+            ).fetchall():
+                if r[0]:
+                    recruited_counts[r[0]] = int(r[1] or 0)
+        except _sqlite3.OperationalError:
+            pass
+
+        event_points = {}
+        try:
+            for r in conn.execute("SELECT player, points FROM event_progress").fetchall():
+                if r[0]:
+                    event_points[r[0].lower()] = int(r[1] or 0)
+        except _sqlite3.OperationalError:
+            pass
+
+        quest_points = {}
+        try:
+            for r in conn.execute("SELECT player, points FROM quest_progress").fetchall():
+                if r[0]:
+                    quest_points[r[0].lower()] = int(r[1] or 0)
+        except _sqlite3.OperationalError:
+            pass
+
+        queue_now = {"total": 0, "timestamp": None}
+        try:
+            qrow = conn.execute(
+                "SELECT total_count, timestamp FROM queue_stats ORDER BY rowid DESC LIMIT 1"
+            ).fetchone()
+            if qrow:
+                queue_now = {
+                    "total":     max(0, int(qrow[0] or 0)),
+                    "timestamp": qrow[1],
+                }
+        except _sqlite3.OperationalError:
+            pass
+
+        conn.close()
+    except Exception as exc:
+        resp = jsonify({"available": False, "error": str(exc)})
+        resp.status_code = 500
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["X-Frame-Options"] = "DENY"
+        resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return resp
+
+    esi_points_by_user = _statistics_esi_points_by_user()
+
+    # joined-date and tenure info from tracked_guild.json
+    tracked = _load_json_file(_TRACKED_GUILD_JSON) or {}
+    member_history = tracked.get("member_history", {}) or {}
+    joined_by_uuid = {}
+    joined_by_username = {}
+    for entry in member_history.values():
+        if not isinstance(entry, dict):
+            continue
+        # Only the most recent (still-in-guild) record is relevant for joined date.
+        if entry.get("left"):
+            continue
+        joined = entry.get("joined")
+        if not joined:
+            continue
+        uuid = entry.get("uuid")
+        username = (entry.get("username") or "").lower()
+        if uuid:
+            joined_by_uuid[uuid] = joined
+        if username:
+            joined_by_username[username] = joined
+
+    members = []
+    for r in member_rows:
+        username = r[0] or ""
+        uuid = r[1] or ""
+        ulow = username.lower()
+        members.append({
+            "username":         username,
+            "uuid":             uuid,
+            "rank":             ((r[2] or "").lower() or None),
+            "joined":           joined_by_uuid.get(uuid) or joined_by_username.get(ulow),
+            "playtime_hours":   round((r[3] or 0) / 3600.0, 1),
+            "wars":             int(r[4] or 0),
+            "total_level":      int(r[5] or 0),
+            "mobs_killed":      int(r[6] or 0),
+            "chests_found":     int(r[7] or 0),
+            "dungeons_total":   int(r[8] or 0),
+            "raids_total":      int(r[9] or 0),
+            "world_events":     int(r[10] or 0),
+            "loot_runs":        int(r[11] or 0),
+            "caves":            int(r[12] or 0),
+            "completed_quests": int(r[13] or 0),
+            "pvp_kills":        int(r[14] or 0),
+            "pvp_deaths":       int(r[15] or 0),
+            "guild_raids":      int(graid_by_uuid.get(uuid, graid_by_user.get(ulow, 0)) or 0),
+            "recruited":        int(recruited_counts.get(uuid, 0)),
+            "event_points":     int(event_points.get(ulow, 0)),
+            "quest_points":     int(quest_points.get(ulow, 0)),
+            "esi_points":       int(esi_points_by_user.get(ulow, 0)),
+        })
+
+    # joins/leaves history - unbounded by what's stored in event_history
+    events = tracked.get("event_history", []) or []
+    from datetime import datetime as _dt
+
+    def _parse_iso(value):
+        if not value:
+            return None
+        try:
+            return _dt.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+
+    joins = []
+    leaves = []
+    for ev in events:
+        etype = ev.get("type")
+        if etype == "member_joined":
+            joins.append({
+                "username":  ev.get("username"),
+                "uuid":      ev.get("uuid"),
+                "rank":      ev.get("rank"),
+                "timestamp": ev.get("timestamp"),
+            })
+        elif etype == "member_left":
+            uuid = ev.get("uuid")
+            tenure_seconds = None
+            mh = member_history.get(uuid) if uuid else None
+            mh_joined = mh.get("joined") if isinstance(mh, dict) else None
+            ts_left = _parse_iso(ev.get("timestamp"))
+            ts_joined = _parse_iso(mh_joined)
+            if ts_left and ts_joined:
+                try:
+                    tenure_seconds = max(0, int((ts_left - ts_joined).total_seconds()))
+                except (TypeError, ValueError):
+                    tenure_seconds = None
+            leaves.append({
+                "username":       ev.get("username"),
+                "uuid":           uuid,
+                "rank":           ev.get("rank"),
+                "timestamp":      ev.get("timestamp"),
+                "tenure_seconds": tenure_seconds,
+                "contributed":    ev.get("contributed"),
+            })
+
+    queue_history = _statistics_queue_history(60)
+
+    payload = {
+        "available":     True,
+        "members":       members,
+        "queue":         {"current": queue_now, "history": queue_history},
+        "joins":         joins,
+        "leaves":        leaves,
+        "member_count":  len(members),
+    }
+    resp = jsonify(payload)
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return resp
+
+
 @app.route("/api/player/<username>")
 @rate_limit(10)
 def player(username: str):
