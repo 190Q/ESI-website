@@ -3,14 +3,16 @@
 
   // Panels under the "General" category that should display the banner
   var GENERAL_PANELS = ['panel-player', 'panel-guild', 'panel-bot'];
-  // Persisted list of event IDs the user has dismissed
-  var DISMISS_KEY    = 'esi.dismissedPins';
+  // Persisted list of event IDs the user has collapsed
+  var COLLAPSE_KEY   = 'esi.collapsedPins';
   var BANNER_CLASS   = 'pinned-banner';
   var STACK_CLASS    = 'pinned-banner-stack';
+  var COLLAPSED_MOD  = 'pinned-banner--collapsed';
 
   // Cached pinned-event list returned by /api/events/pinned
-  var _events  = [];
-  var _fetched = false;
+  var _events   = [];
+  var _fetched  = false;
+  var _loading  = false;
 
   /* helpers */
 
@@ -23,27 +25,36 @@
       .replace(/'/g, '&#39;');
   }
 
-  function getDismissed() {
+  function getCollapsed() {
     try {
-      var raw = localStorage.getItem(DISMISS_KEY);
+      var raw = localStorage.getItem(COLLAPSE_KEY);
       if (!raw) return [];
       var arr = JSON.parse(raw);
       return Array.isArray(arr) ? arr : [];
     } catch (e) { return []; }
   }
 
-  function saveDismissed(arr) {
+  function saveCollapsed(arr) {
     try {
-      localStorage.setItem(DISMISS_KEY, JSON.stringify(arr));
+      localStorage.setItem(COLLAPSE_KEY, JSON.stringify(arr));
     } catch (e) { /* storage might be disabled - just no-op */ }
   }
 
-  function dismissEvent(eventId) {
+  function isCollapsed(eventId) {
+    if (!eventId) return false;
+    return getCollapsed().indexOf(eventId) !== -1;
+  }
+
+  function setCollapsed(eventId, collapsed) {
     if (!eventId) return;
-    var arr = getDismissed();
-    if (arr.indexOf(eventId) === -1) {
+    var arr = getCollapsed();
+    var idx = arr.indexOf(eventId);
+    if (collapsed && idx === -1) {
       arr.push(eventId);
-      saveDismissed(arr);
+      saveCollapsed(arr);
+    } else if (!collapsed && idx !== -1) {
+      arr.splice(idx, 1);
+      saveCollapsed(arr);
     }
   }
 
@@ -95,38 +106,43 @@
     return ordinal(positions[0]) + ' place: ' + summary + more;
   }
 
+  // Auto-link bare http(s)/www URLs by rewriting them into [url](url)
+  function autoLinkBareUrls(src) {
+    if (!src) return src;
+    var BARE_URL_RE = /(\bhttps?:\/\/[^\s<>)\]'"]+)/g;
+    var WWW_URL_RE  = /(^|[\s(])(www\.[^\s<>)\]'"]+)/g;
+    var SPLIT_RE = /(```[\s\S]*?```|`[^`]+`|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\))/g;
+    var parts = src.split(SPLIT_RE);
+    return parts.map(function (part, idx) {
+      if (idx % 2 === 1) return part; // preserved token
+      return part
+        .replace(BARE_URL_RE, '[$1]($1)')
+        .replace(WWW_URL_RE, '$1[$2](https://$2)');
+    }).join('');
+  }
+
   // Sanitised rendering of the event description
   function renderDescriptionHtml(src) {
     if (!src) return '';
+    var processed = autoLinkBareUrls(src);
     var rendered = typeof window.renderMarkdown === 'function'
-      ? window.renderMarkdown(src)
-      : esc(src).replace(/\n/g, '<br>');
+      ? window.renderMarkdown(processed)
+      : esc(processed).replace(/\n/g, '<br>');
     if (typeof DOMPurify !== 'undefined') {
       return DOMPurify.sanitize(rendered, {
         ADD_TAGS: ['details', 'summary'],
-        ADD_ATTR: ['target', 'rel'],
+        ADD_ATTR: ['target', 'rel', 'style'],
       });
     }
     // DOMPurify hasn't loaded yet - fall back to plain escaped text
-    return esc(src).replace(/\n/g, '<br>');
+    return esc(processed).replace(/\n/g, '<br>');
   }
 
-  function renderBannerHtml(ev) {
+  function renderBannerHtml(ev, collapsed) {
     var status = (ev.status || 'upcoming').toLowerCase();
     var ongoing = status === 'ongoing';
     var audience = (ev.audience || 'public').toLowerCase();
     var guildOnly = audience === 'guild_only';
-
-    // Eyebrow + time text adapt based on status
-    var eyebrow;
-    if (ongoing) {
-      eyebrow = '<span class="pinned-banner-eyebrow pinned-banner-eyebrow--live">' +
-        '<span class="pinned-banner-live-dot" aria-hidden="true"></span>' +
-        'Live now' +
-      '</span>';
-    } else {
-      eyebrow = '<span class="pinned-banner-eyebrow">Pinned event</span>';
-    }
 
     // Small audience hint so guild members can tell which bucket this pin is
     var audienceHint = guildOnly
@@ -135,6 +151,7 @@
         '</span>'
       : '';
 
+    // Full-state "when" text adapts based on status
     var whenText;
     if (ongoing) {
       whenText = ev.ends_at
@@ -144,31 +161,43 @@
       whenText = ev.starts_at ? 'Starts ' + fmtDateTime(ev.starts_at) : '';
     }
 
+
+    var startText = ongoing
+      ? whenText
+      : (ev.starts_at ? 'Starts ' + fmtDateTime(ev.starts_at) : '');
+
     var prizeText = formatPrizesShort(ev.prizes || []);
     var descHtml = renderDescriptionHtml(ev.description || '');
 
+    var toggleLabel = collapsed ? 'Expand banner' : 'Collapse banner';
+    var toggleBtn =
+      '<button class="pinned-banner-toggle" type="button"' +
+        ' aria-label="' + toggleLabel + '" title="' + toggleLabel + '"' +
+        ' aria-expanded="' + (collapsed ? 'false' : 'true') + '">' +
+        '<span class="pinned-banner-toggle-icon" aria-hidden="true">\u25B4</span>' +
+      '</button>';
+
+
     return '<div class="pinned-banner-body">' +
         '<div class="pinned-banner-head">' +
-          eyebrow +
           audienceHint +
           (whenText ? '<span class="pinned-banner-when">' + esc(whenText) + '</span>' : '') +
         '</div>' +
-        '<div class="pinned-banner-title">' + esc(ev.name || 'Untitled event') + '</div>' +
+        '<button type="button" class="pinned-banner-title pinned-banner-title-link"' +
+          ' data-event-id="' + esc(ev.id) + '"' +
+          ' title="View on Events page">' +
+          esc(ev.name || 'Untitled event') +
+        '</button>' +
+        (startText ? '<div class="pinned-banner-when pinned-banner-when--compact">' + esc(startText) + '</div>' : '') +
         (prizeText ? '<div class="pinned-banner-prize">\ud83c\udfc6 ' + esc(prizeText) + '</div>' : '') +
         (descHtml ? '<div class="pinned-banner-desc">' + descHtml + '</div>' : '') +
       '</div>' +
-      '<button class="pinned-banner-close" type="button" aria-label="Dismiss banner" title="Dismiss">\u2715</button>';
+      toggleBtn;
   }
 
-  // Return all pinned events the user hasn't dismissed yet
+  // Always show every pinned event - users can collapse rather than remove
   function pickEventsToShow() {
-    if (!_events.length) return [];
-    var dismissed = getDismissed();
-    var out = [];
-    for (var i = 0; i < _events.length; i++) {
-      if (dismissed.indexOf(_events[i].id) === -1) out.push(_events[i]);
-    }
-    return out;
+    return _events.slice();
   }
 
   function clearBanners() {
@@ -222,22 +251,17 @@
       var banner = document.createElement('div');
       var status = (ev.status || 'upcoming').toLowerCase();
       var audience = (ev.audience || 'public').toLowerCase();
+      var collapsed = isCollapsed(ev.id);
       banner.className = BANNER_CLASS +
         (status === 'ongoing' ? ' ' + BANNER_CLASS + '--ongoing' : '') +
-        (audience === 'guild_only' ? ' ' + BANNER_CLASS + '--guild-only' : '');
+        (audience === 'guild_only' ? ' ' + BANNER_CLASS + '--guild-only' : '') +
+        (collapsed ? ' ' + COLLAPSED_MOD : '');
       banner.dataset.eventId = ev.id;
       banner.dataset.status   = status;
       banner.dataset.audience = audience;
       // ev fields are sanitised inside renderBannerHtml
-      banner.innerHTML = renderBannerHtml(ev);
-      var closeBtn = banner.querySelector('.pinned-banner-close');
-      if (closeBtn) {
-        closeBtn.addEventListener('click', function () {
-          dismissEvent(ev.id);
-          // After dismissing, redraw with whatever pins remain
-          refreshBanners();
-        });
-      }
+      banner.innerHTML = renderBannerHtml(ev, collapsed);
+      bindToggle(banner, ev);
       stack.appendChild(banner);
     });
 
@@ -246,25 +270,53 @@
     watchPanelClassChanges();
   }
 
+  function bindToggle(banner, ev) {
+    var titleBtn = banner.querySelector('.pinned-banner-title-link');
+    if (titleBtn) {
+      titleBtn.addEventListener('click', function () {
+        if (typeof window.evpFocusEvent === 'function') {
+          window.evpFocusEvent(ev.id);
+        } else if (typeof window.switchToPanel === 'function') {
+          window.switchToPanel('events');
+        }
+      });
+    }
+
+    var toggleBtn = banner.querySelector('.pinned-banner-toggle');
+    if (!toggleBtn) return;
+    toggleBtn.addEventListener('click', function () {
+      var nextCollapsed = !banner.classList.contains(COLLAPSED_MOD);
+      setCollapsed(ev.id, nextCollapsed);
+      banner.classList.toggle(COLLAPSED_MOD, nextCollapsed);
+      var label = nextCollapsed ? 'Expand banner' : 'Collapse banner';
+      toggleBtn.setAttribute('aria-label', label);
+      toggleBtn.setAttribute('title', label);
+      toggleBtn.setAttribute('aria-expanded', nextCollapsed ? 'false' : 'true');
+    });
+  }
+
   function refreshBanners() {
     injectBanners(pickEventsToShow());
   }
 
   function fetchPinned() {
-    return fetch('/api/events/pinned', { credentials: 'same-origin' })
+    if (_loading) return;
+    _loading = true;
+    fetch('/api/events/pinned', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : []; })
       .then(function (data) {
         _events = Array.isArray(data) ? data : [];
         _fetched = true;
-        // Clean up dismissed entries for events that aren't pinned anymore
+        // Clean up collapsed entries for events that aren't pinned anymore
         var pinnedIds = _events.map(function (e) { return e.id; });
-        var dismissed = getDismissed().filter(function (id) {
+        var collapsed = getCollapsed().filter(function (id) {
           return pinnedIds.indexOf(id) !== -1;
         });
-        saveDismissed(dismissed);
+        saveCollapsed(collapsed);
         refreshBanners();
       })
-      .catch(function () { /* network errors are non-fatal */ });
+      .catch(function () { /* network errors are non-fatal */ })
+      .finally(function () { _loading = false; });
   }
 
   // Initial fetch: wait for the React panels to be present in the DOM
@@ -285,7 +337,7 @@
   window.esiPinnedBanner = {
     refresh: fetchPinned,
     reset: function () {
-      saveDismissed([]);
+      saveCollapsed([]);
       refreshBanners();
     },
   };

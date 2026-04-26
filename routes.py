@@ -1747,6 +1747,36 @@ def events_create():
     event, err_msg = _clean_event_payload(body)
     if err_msg:
         return jsonify({"error": err_msg}), 400
+
+    data = _load_json_file(_EVENTS_JSON) or {}
+    if not isinstance(data, dict):
+        data = {}
+    if _auto_transition_events(data):
+        _save_json_file(_EVENTS_JSON, data)
+
+    # Sindrian Pride members are limited to one active (upcoming/ongoing) event at once
+    user_roles = set(user.get("roles") or [])
+    if not (user_roles & _EVENTS_MANAGE_ANY):
+        user_id = str(user.get("id") or "")
+        active_count = 0
+        for ev in data.values():
+            if not isinstance(ev, dict):
+                continue
+            creator = (ev.get("created_by") or {}).get("id")
+            if str(creator or "") != user_id:
+                continue
+            status = (ev.get("status") or "upcoming").lower()
+            if status in ("cancelled", "completed"):
+                continue
+            active_count += 1
+        if active_count >= 1:
+            return jsonify({
+                "error": (
+                    "You already have an active event. Cancel or wait for it "
+                    "to finish before creating another."
+                )
+            }), 403
+
     now = time()
     event_id = secrets.token_urlsafe(10)
     event["id"] = event_id
@@ -1756,10 +1786,6 @@ def events_create():
     }
     event["created_at"] = now
     event["updated_at"] = now
-    data = _load_json_file(_EVENTS_JSON) or {}
-    # keep storage as a dict keyed by id for O(1) lookups
-    if not isinstance(data, dict):
-        data = {}
     data[event_id] = event
     _save_json_file(_EVENTS_JSON, data)
     out = dict(event)
@@ -1882,6 +1908,28 @@ def events_unpin(event_id):
     return jsonify(out)
 
 
+def _public_events_response(payload, max_age=60):
+    """Wrap a list payload in a JSON response with ETag + Cache-Control.
+
+    The response is marked private because the payload is filtered per-viewer
+    (guild-only events are hidden from non-citizens). Browsers and our
+    Service-Worker may cache it locally, but shared/CDN caches must not.
+    A conditional request with a matching If-None-Match returns 304 with no
+    body to short-circuit the bulk of network/serialisation cost.
+    """
+    resp = jsonify(payload)
+    etag = _hashlib.sha1(resp.get_data()).hexdigest()
+    inm = request.headers.get("If-None-Match", "")
+    # Strip W/ prefix and surrounding quotes from any inbound ETag(s)
+    inm_tags = {t.strip().lstrip("W/").strip('"') for t in inm.split(",") if t.strip()}
+    if etag in inm_tags:
+        resp = app.response_class(status=304)
+    resp.headers["ETag"] = f'"{etag}"'
+    resp.headers["Cache-Control"] = f"private, max-age={int(max_age)}"
+    resp.headers["Vary"] = "Cookie"
+    return resp
+
+
 # Public endpoint: read-only listing of every event
 @app.route("/api/events/public", methods=["GET"])
 @rate_limit(60)
@@ -1922,7 +1970,7 @@ def events_list_public():
     out_active = [e for e in out if (e.get("status") or "upcoming").lower() in ("upcoming", "ongoing")]
     out_archived = [e for e in out if (e.get("status") or "upcoming").lower() not in ("upcoming", "ongoing")]
     out_archived.sort(key=lambda e: str(e.get("created_at") or ""), reverse=True)
-    return jsonify(out_active + out_archived)
+    return _public_events_response(out_active + out_archived, max_age=60)
 
 
 # Public endpoint: returns the single currently-pinned event
@@ -1961,7 +2009,7 @@ def events_pinned_public():
     else:
         out = list(pinned_by_audience.values())
         out.sort(key=lambda e: -float(e.get("pinned_at") or 0))
-    return jsonify(out)
+    return _public_events_response(out, max_age=60)
 
 
 # discord voice-channel list
@@ -2031,6 +2079,11 @@ _DISCORD_EVENT_URL_RE = _re.compile(
     r"https?://(?:[\w-]+\.)?discord(?:app)?\.com/events/(\d+)/(\d+)",
     _re.IGNORECASE,
 )
+# Invite links that carry the event id as a query parameter
+_DISCORD_INVITE_EVENT_RE = _re.compile(
+    r"https?://discord\.gg/[^?#\s]+\?(?:[^#\s]*&)?event=(\d+)",
+    _re.IGNORECASE,
+)
 
 _DISCORD_CHANNEL_NAME_CACHE: dict = {}
 _DISCORD_CHANNEL_NAME_TTL = 300.0
@@ -2047,9 +2100,12 @@ def _parse_discord_event_ref(raw: str):
     if s.isdigit():
         return None, s
     m = _DISCORD_EVENT_URL_RE.search(s)
-    if not m:
-        return None, None
-    return m.group(1), m.group(2)
+    if m:
+        return m.group(1), m.group(2)
+    m = _DISCORD_INVITE_EVENT_RE.search(s)
+    if m:
+        return None, m.group(1)
+    return None, None
 
 
 def _fetch_discord_channel_name(channel_id: str):
@@ -2165,6 +2221,15 @@ def guild_stats():
                 ROUND(SUM(playtime) / 3600.0)
             FROM player_stats
         """).fetchone()
+        queue_total = 0
+        try:
+            queue_row = conn.execute(
+                "SELECT total_count FROM queue_stats ORDER BY rowid DESC LIMIT 1"
+            ).fetchone()
+            if queue_row and queue_row[0] is not None:
+                queue_total = max(0, int(round(_safe_number(queue_row[0]))))
+        except Exception:
+            queue_total = 0
         conn.close()
         return jsonify({
             "mobsKilled":      int(row[0] or 0),
@@ -2172,6 +2237,7 @@ def guild_stats():
             "questsCompleted": int(row[2] or 0),
             "contentDone":     int(row[3] or 0),
             "totalPlaytime":   int(row[4] or 0),
+            "queueTotal":      queue_total,
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500

@@ -398,7 +398,7 @@
         document.getElementById('guildCardFounded').textContent = '-';
         document.getElementById('guildCardOwner').textContent = '';
         document.getElementById('guildOwedCards').innerHTML = '';
-        var failLabels = ['Guild Level','Members','Online Now','Total Wars','Guild Raids','Founded','Mobs Killed','Quests Completed','Chests Found','Content Done'];
+        var failLabels = ['Guild Level','Members','Online Now','Queue','Total Wars','Guild Raids','Founded','Mobs Killed','Quests Completed','Chests Found','Content Done'];
         document.getElementById('guildStatsGrid').innerHTML = failLabels.map(function (lbl) {
           return '<div class="stat-list-row"><span class="stat-list-label">' + lbl + '</span><span class="stat-list-value" style="color:var(--text-faint)">-</span></div>';
         }).join('');
@@ -434,7 +434,7 @@
         '<div class="owed-card"><div class="owed-value" style="color:var(--text-faint)">\u2026</div><div class="owed-label">Loading</div></div>' +
         '<div class="owed-card"><div class="owed-value" style="color:var(--text-faint)">\u2026</div><div class="owed-label">Loading</div></div>';
       // stats placeholders
-      var guildStatsLabels = ['Guild Level','Members','Online Now','Total Wars','Guild Raids','Founded','Mobs Killed','Quests Completed','Chests Found','Content Done'];
+      var guildStatsLabels = ['Guild Level','Members','Online Now','Queue','Total Wars','Guild Raids','Founded','Mobs Killed','Quests Completed','Chests Found','Content Done'];
       var statsGrid = document.getElementById('guildStatsGrid');
       statsGrid.innerHTML = guildStatsLabels.map(function (lbl) {
         return '<div class="stat-list-row"><span class="stat-list-label">' + lbl + '</span><span class="stat-list-value" style="color:var(--text-faint);font-style:italic">\u2026</span></div>';
@@ -915,6 +915,7 @@
         { label: 'Guild Level',     val: fmt(data.level) + (data.xpPercent != null ? `  <span style="color:var(--text-faint);font-size:0.8em">(${data.xpPercent}%)</span>` : '') },
         { label: 'Members',          val: `${fmt(members.total || flatMembers.length)}` },
         { label: 'Online Now',       val: fmt(onlineCount) },
+        { label: 'Queue',            val: totals.queueTotal      != null ? fmt(totals.queueTotal)      : 'N/A' },
         { label: 'Total Wars',       val: fmt(data.wars) },
         { label: 'Guild Raids',      val: fmt(raidsAgg.total) },
         { label: 'Founded',          val: fmtDate(data.created) },

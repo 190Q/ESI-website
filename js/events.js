@@ -696,12 +696,14 @@
 
   // Match a Discord event URL on any subdomain (canary/ptb/etc) or a bare numeric ID
   var DISCORD_EVENT_URL_RE = /https?:\/\/(?:[\w-]+\.)?discord(?:app)?\.com\/events\/(\d+)\/(\d+)/i;
+  // Match a Discord invite link with an ?event= query param (e.g. https://discord.gg/wynn?event=123)
+  var DISCORD_INVITE_EVENT_RE = /https?:\/\/discord\.gg\/[^?#\s]+\?(?:[^#\s]*&)?event=(\d+)/i;
 
   function looksLikeDiscordEventRef(s) {
     s = (s || '').trim();
     if (!s) return false;
     if (/^\d{15,}$/.test(s)) return true;
-    return DISCORD_EVENT_URL_RE.test(s);
+    return DISCORD_EVENT_URL_RE.test(s) || DISCORD_INVITE_EVENT_RE.test(s);
   }
 
   function wireDiscordImport() {

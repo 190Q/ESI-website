@@ -20,29 +20,73 @@
   var _fetched      = false;
   var _activeToast  = null;
 
+
+  var STATUS_TICK_MS = 30 * 1000;
+
   var panel = document.getElementById('panel-events');
   if (!panel) return;
 
   // If the panel becomes active and we have no shell yet, make sure it gets one
   var observer = new MutationObserver(function () {
     if (!panel.classList.contains('active')) return;
-    if (!_fetched) {
-      loadEvents();
-    } else if (!document.getElementById('evpShell')) {
-      buildShell();
-    }
+    if (!_fetched) return; // initial fetch is still in flight
+    if (!document.getElementById('evpShell')) buildShell();
   });
   observer.observe(panel, { attributes: true, attributeFilter: ['class'] });
 
 
   loadEvents();
 
-  // Refresh after admins pin/unpin so the "Pinned" highlight stays in sync
-  window.addEventListener('esi:pinned-events-changed', function () {
-    loadEvents();
-  });
+  // Re-evaluate statuses on a local timer
+  setInterval(tickStatuses, STATUS_TICK_MS);
 
-  setInterval(function () { loadEvents(); }, 60 * 1000);
+  /* client-side status auto-transition */
+
+  // Mirrors `_auto_transition_event_status` on the server
+  function recomputeStatuses() {
+    var now = Date.now();
+    var changed = false;
+    for (var i = 0; i < _events.length; i++) {
+      var ev = _events[i];
+      if (!ev) continue;
+      var status = String(ev.status || 'upcoming').toLowerCase();
+      if (status !== 'upcoming' && status !== 'ongoing') continue;
+      var startMs = parseLocalDate(ev.starts_at);
+      var endMs   = parseLocalDate(ev.ends_at);
+      var next = status;
+      if (next === 'upcoming' && startMs !== null && now >= startMs) {
+        next = 'ongoing';
+      }
+      if (endMs !== null && now >= endMs) {
+        next = 'completed';
+      }
+      if (next !== status) {
+        ev.status = next;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  function tickStatuses() {
+    if (!_fetched) return;
+    if (!recomputeStatuses()) return;
+    updateOngoingIndicator();
+    if (document.getElementById('evpShell')) {
+      renderTabs();
+      renderList();
+    }
+  }
+
+  // Parse an ISO-ish datetime that the server stored as local-naive
+  function parseLocalDate(s) {
+    if (s == null || s === '') return null;
+    if (typeof s === 'number') return s * 1000;
+    var str = String(s);
+    var d = new Date(str);
+    var t = d.getTime();
+    return isNaN(t) ? null : t;
+  }
 
   /* helpers */
 
@@ -171,7 +215,7 @@
   /* data */
 
   function loadEvents() {
-    if (_loading) return;
+    if (_loading || _fetched) return;
     _loading = true;
 
     var hasShell = !!document.getElementById('evpShell');
@@ -203,6 +247,8 @@
         if (!data) return;
         _events = Array.isArray(data) ? data : [];
         _fetched = true;
+        // Apply local time-based status transitions before the first render
+        recomputeStatuses();
         updateOngoingIndicator();
         // Always render once data is in
         if (!document.getElementById('evpShell')) buildShell();
@@ -391,7 +437,8 @@
           '\ud83d\udd12 Guild only</span>'
         : '';
 
-      return '<div class="ev-row' + (isPinned ? ' ev-row-pinned' : '') + '">' +
+      return '<div class="ev-row' + (isPinned ? ' ev-row-pinned' : '') + '"' +
+        ' id="evp-event-' + esc(ev.id) + '">' +
         '<div class="ev-row-head">' +
           '<span class="ev-status ev-status-' + esc(status) + '">' + esc(statusLabel(status)) + '</span>' +
           pinnedBadgeHtml +
@@ -468,4 +515,47 @@
         '</div>';
     }
   }
+
+  // Public API: navigate to the events panel and scroll to a specific event card
+  window.evpFocusEvent = function (eventId) {
+    if (typeof window.switchToPanel === 'function') {
+      window.switchToPanel('events');
+    }
+
+    function tryScroll() {
+      var el = document.getElementById('evp-event-' + eventId);
+      if (!el) return false;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ev-row--highlight');
+      setTimeout(function () { el.classList.remove('ev-row--highlight'); }, 1800);
+      return true;
+    }
+
+    // Ensure the right tab is selected for non-pinned / non-ongoing events
+    function ensureTab() {
+      var ev = null;
+      for (var i = 0; i < _events.length; i++) {
+        if (_events[i].id === eventId) { ev = _events[i]; break; }
+      }
+      if (!ev) return;
+      var st = (ev.status || 'upcoming').toLowerCase();
+      // Pinned and ongoing events are always visible outside the tabs
+      if (ev.pinned || st === 'ongoing') return;
+      if (_activeStatus !== st) {
+        _activeStatus = st;
+        renderTabs();
+        renderList();
+      }
+    }
+
+    if (!tryScroll()) {
+      ensureTab();
+      // Retry a few times while the panel renders / events load
+      var attempts = 0;
+      var iv = setInterval(function () {
+        ensureTab();
+        if (tryScroll() || ++attempts >= 12) clearInterval(iv);
+      }, 120);
+    }
+  };
 })();
