@@ -1020,7 +1020,7 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
   top: var(--navbar-h);
   left: var(--sidebar-w);
   right: 0;
-  z-index: 200;
+  z-index: 100;
   display: flex;
   flex-direction: column;
   pointer-events: none;
