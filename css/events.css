@@ -1,13 +1,16 @@
 .ev-split-layout {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 20px;
-  align-items: flex-start;
+  align-items: start;
+  width: 100%;
+  min-width: 0;
 }
 
 .ev-left-col,
 .ev-right-col {
-  flex: 1 1 0;
   min-width: 0;
+  max-width: 100%;
 }
 
 .ev-left-col {
@@ -16,7 +19,7 @@
 }
 
 @media (max-width: 960px) {
-  .ev-split-layout { flex-direction: column; }
+  .ev-split-layout { grid-template-columns: minmax(0, 1fr); }
   .ev-left-col { position: static; }
 }
 
@@ -276,6 +279,7 @@ input.inac-input[type="number"] {
   flex-direction: column;
   gap: 12px;
   padding: 14px;
+  min-width: 0;
 }
 
 .ev-row {
@@ -289,6 +293,9 @@ input.inac-input[type="number"] {
   gap: 6px;
   transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.15s;
   box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .ev-row::before {
@@ -314,6 +321,8 @@ input.inac-input[type="number"] {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  width: 100%;
 }
 
 .ev-name {
@@ -321,7 +330,7 @@ input.inac-input[type="number"] {
   font-size: 0.95rem;
   color: var(--gold-light);
   font-weight: 600;
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -334,6 +343,8 @@ input.inac-input[type="number"] {
   color: var(--text-dim);
   line-height: 1.5;
   word-wrap: break-word;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .ev-description.ticket-preview-content h1 { font-size: 1.15rem; margin: 8px 0 6px; }
@@ -349,6 +360,7 @@ input.inac-input[type="number"] {
   align-items: center;
   gap: 8px;
   margin-top: 2px;
+  min-width: 0;
 }
 
 .ev-when {
@@ -356,6 +368,8 @@ input.inac-input[type="number"] {
   font-size: 0.82rem;
   color: var(--text-faint);
   font-style: italic;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .ev-sub-meta {
@@ -363,6 +377,8 @@ input.inac-input[type="number"] {
   font-size: 0.76rem;
   color: var(--text-faint);
   font-style: italic;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .ev-prize-desc {
@@ -957,6 +973,7 @@ input.inac-input[type="number"] {
 /* Manage Events: status-grouped sections */
 .evm-section {
   margin: 0 14px 14px;
+  min-width: 0;
 }
 
 .evm-section:first-child { margin-top: 14px; }
@@ -1059,6 +1076,7 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
 }
 
 #evList {
