@@ -900,8 +900,26 @@
           window.showToast('\u26a0 ' + ((res.data && res.data.error) || 'Failed to change status.'), 'error');
           return;
         }
-        window.showToast('Status set to ' + statusLabel(res.data.status || target) + '.', 'success');
+        var updated = res.data || {};
+        window.showToast('Status set to ' + statusLabel(updated.status || target) + '.', 'success');
         cancelEdit();
+        // Update the local cache and re-render immediately
+        var found = false;
+        for (var i = 0; i < _events.length; i++) {
+          if (_events[i] && _events[i].id === eventId) {
+            _events[i] = Object.assign({}, _events[i], updated);
+            found = true;
+            break;
+          }
+        }
+        if (found) renderList();
+        // Notify other panels
+        try {
+          window.dispatchEvent(new CustomEvent('esi:event-status-changed', {
+            detail: { id: eventId, status: updated.status || target, event: updated },
+          }));
+          window.dispatchEvent(new CustomEvent('esi:pinned-events-changed'));
+        } catch (e) { /* CustomEvent may not exist on very old browsers */ }
         loadEvents();
       })
       .catch(function () { window.showToast('\u26a0 Request failed.', 'error'); });

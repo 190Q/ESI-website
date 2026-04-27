@@ -214,8 +214,10 @@
 
   /* data */
 
-  function loadEvents() {
-    if (_loading || _fetched) return;
+  function loadEvents(opts) {
+    var force = !!(opts && opts.force);
+    if (_loading) return;
+    if (_fetched && !force) return;
     _loading = true;
 
     var hasShell = !!document.getElementById('evpShell');
@@ -564,6 +566,34 @@
   window.evpRefreshNavIndicators = function () {
     try { updateNavIndicators(); } catch (e) { /* nav not in DOM yet */ }
   };
+
+  window.evpRefresh = function () { loadEvents({ force: true }); };
+
+  window.addEventListener('esi:event-status-changed', function (e) {
+    var detail = (e && e.detail) || {};
+    var id = detail.id;
+    var ev = detail.event;
+    if (id && ev && _fetched) {
+      var found = false;
+      for (var i = 0; i < _events.length; i++) {
+        if (_events[i] && _events[i].id === id) {
+          _events[i] = Object.assign({}, _events[i], ev);
+          found = true;
+          break;
+        }
+      }
+      if (found) {
+        recomputeStatuses();
+        updateNavIndicators();
+        if (document.getElementById('evpShell')) {
+          renderTabs();
+          renderList();
+        }
+      }
+    }
+    // Pull canonical state in the background
+    loadEvents({ force: true });
+  });
 
   // Public API: navigate to the events panel and scroll to a specific event card
   window.evpFocusEvent = function (eventId) {
