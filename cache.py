@@ -183,6 +183,7 @@ def _compute_bulk_playtime():
     invalid_transitions = set()
     _init_intervals = {}
     queue_totals_by_day = []
+    pending_totals_by_day = []
     api_days = []
     if os.path.isdir(api_folder):
         for name in os.listdir(api_folder):
@@ -250,8 +251,24 @@ def _compute_bulk_playtime():
             except Exception:
                 return 0
 
+        def read_pending_total(db_path):
+            try:
+                c = _sqlite3.connect(db_path, check_same_thread=False)
+                row = c.execute(
+                    "SELECT COUNT(*) FROM pending_invites"
+                ).fetchone()
+                c.close()
+                if not row:
+                    return 0
+                return max(0, int(round(_safe_number(row[0]))))
+            except Exception:
+                return 0
+
         with ThreadPoolExecutor(max_workers=8) as ex:
             queue_totals_by_day = list(ex.map(read_queue_total, [d[1] for d in api_days]))
+
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            pending_totals_by_day = list(ex.map(read_pending_total, [d[1] for d in api_days]))
 
         for i in range(1, len(api_days)):
             prev_dt, cur_dt = api_days[i - 1][0], api_days[i][0]
@@ -557,7 +574,9 @@ def _compute_bulk_playtime():
                 if (snap.get("guildPrefix") or "").upper() == "ESI"
             )
             queue_total = queue_totals_by_day[i] if i < len(queue_totals_by_day) else 0
-            total_members[day_idx] = guild_total
+            pending_total = pending_totals_by_day[i] if i < len(pending_totals_by_day) else 0
+            pending_total = max(0, int(round(_safe_number(pending_total))))
+            total_members[day_idx] = guild_total + pending_total
             overflow_members[day_idx] = guild_total + max(0, int(round(_safe_number(queue_total))))
 
     new_members = [0] * num_mk_days
