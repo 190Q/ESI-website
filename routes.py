@@ -1437,38 +1437,83 @@ def _parse_event_datetime(s):
         return None
 
 
-def _auto_transition_event_status(ev, now=None):
-    """Promote an event's status based on its start/end times.
+def _derived_event_status(ev, now=None):
+    """Return the timestamp-derived status of an event.
 
-    - upcoming + starts_at in the past -> ongoing
-    - any active + ends_at in the past -> completed
-
-    Cancelled and already-completed events are left alone. Returns True if
-    the status was changed (caller should persist).
+    - starts_at unset             -> 'upcoming' (display fallback)
+    - starts_at in the future     -> 'upcoming'
+    - starts_at in the past, no ends_at or ends_at in the future -> 'ongoing'
+    - ends_at in the past         -> 'completed'
     """
-    if not isinstance(ev, dict):
-        return False
-    status = (ev.get("status") or "upcoming").strip().lower()
-    changed = False
-    if status not in ("upcoming", "ongoing"):
-        return _enforce_pin_invariants(ev)
     if now is None:
         now = _points_datetime.now()
     starts = _parse_event_datetime(ev.get("starts_at"))
     ends   = _parse_event_datetime(ev.get("ends_at"))
-    new_status = status
-    if new_status == "upcoming" and starts is not None and now >= starts:
-        new_status = "ongoing"
     if ends is not None and now >= ends:
-        new_status = "completed"
-    if new_status != status:
-        ev["status"]     = new_status
+        return "completed"
+    if starts is not None and now >= starts:
+        return "ongoing"
+    return "upcoming"
+
+
+def _auto_transition_event_status(ev, now=None):
+    """Reconcile an event's status with its timestamps.
+
+    If the event's status is forced (status_forced=True) we leave it alone,
+    only enforcing pin invariants. Otherwise we recompute the status from
+    starts_at / ends_at and persist it.
+
+    Returns True if anything was changed (caller should persist).
+    """
+    if not isinstance(ev, dict):
+        return False
+    forced = bool(ev.get("status_forced"))
+    status = (ev.get("status") or "upcoming").strip().lower()
+    changed = False
+    if forced:
+        # Forced statuses never auto-transition
+        return _enforce_pin_invariants(ev)
+    derived = _derived_event_status(ev, now=now)
+    if derived != status:
+        ev["status"]     = derived
         ev["updated_at"] = time()
         changed = True
-    # Unpin if we just landed in a terminal state
     if _enforce_pin_invariants(ev):
         changed = True
     return changed
+
+
+# Ranking used to detect downgrades on un-timed events
+_STATUS_RANK = {"upcoming": 0, "ongoing": 1, "completed": 2, "cancelled": 2}
+
+
+def _allowed_manual_statuses(ev, user, now=None):
+    """Return the set of statuses a user is allowed to manually move `ev` to.
+
+    Implements the per-scenario rules:
+        - Scenario 1 (starts_at only):  Completed / Cancelled
+        - Scenario 2 (starts + ends):   Cancelled
+        - Scenario 3 (no timestamps):   Any non-downgrade transition
+    Event Managers / Parliament members are unrestricted (every status).
+    """
+    if not user:
+        return set()
+    user_roles = set(user.get("roles") or [])
+    if user_roles & _EVENTS_MANAGE_ANY:
+        return {"upcoming", "ongoing", "completed", "cancelled"}
+    starts = _parse_event_datetime(ev.get("starts_at"))
+    ends   = _parse_event_datetime(ev.get("ends_at"))
+    current = (ev.get("status") or "upcoming").strip().lower()
+    # Terminal states are immutable for non-managers regardless of scenario
+    if current in ("completed", "cancelled"):
+        return set()
+    if starts is not None and ends is not None:
+        return {"cancelled"}
+    if starts is not None:
+        return {"completed", "cancelled"}
+    # Scenario 3: no timestamps - allow any forward transition only
+    cur_rank = _STATUS_RANK.get(current, 0)
+    return {s for s, rank in _STATUS_RANK.items() if rank >= cur_rank and s != current}
 
 
 def _auto_transition_events(data):
@@ -1672,10 +1717,8 @@ def _clean_event_payload(body, existing=None):
             return None, "max_participants cannot be negative"
         out["max_participants"] = cap
 
-    status = (body.get("status") or existing.get("status") or "upcoming").strip().lower()
-    if status not in _EVENT_STATUSES:
-        return None, f"Invalid status. Must be one of {sorted(_EVENT_STATUSES)}"
-    out["status"] = status
+    out["status"] = (existing.get("status") or "upcoming").strip().lower()
+    out["status_forced"] = bool(existing.get("status_forced"))
 
     audience = (
         body.get("audience")
@@ -1713,10 +1756,14 @@ def events_list():
         # copy so we don't mutate storage
         view = dict(ev)
         _migrate_legacy_prize(view)
-        view["can_manage"] = can_manage
-        view["can_pin"]    = can_pin
-        view["pinned"]     = bool(ev.get("pinned"))
-        view["pinned_at"]  = ev.get("pinned_at") or 0
+        view["can_manage"]    = can_manage
+        view["can_pin"]       = can_pin
+        view["pinned"]        = bool(ev.get("pinned"))
+        view["pinned_at"]     = ev.get("pinned_at") or 0
+        view["status_forced"] = bool(ev.get("status_forced"))
+        view["allowed_status_transitions"] = sorted(
+            _allowed_manual_statuses(ev, user)
+        )
         out.append(view)
     def _sort_key(ev):
         status = ev.get("status") or "upcoming"
@@ -1784,12 +1831,16 @@ def events_create():
         "id":       str(user.get("id") or ""),
         "username": user.get("nick") or user.get("username") or "",
     }
-    event["created_at"] = now
-    event["updated_at"] = now
+    event["created_at"]    = now
+    event["updated_at"]    = now
+    event["status"]        = "upcoming"
+    event["status_forced"] = False
+    _auto_transition_event_status(event)
     data[event_id] = event
     _save_json_file(_EVENTS_JSON, data)
     out = dict(event)
-    out["can_manage"] = True
+    out["can_manage"]    = True
+    out["status_forced"] = bool(event.get("status_forced"))
     return jsonify(out), 201
 
 
@@ -1824,6 +1875,14 @@ def events_update(event_id):
         return jsonify({"error": "Event not found"}), 404
     if not _user_can_manage_event(user, ev):
         return jsonify({"error": "You can only edit events you created"}), 403
+    user_roles = set(user.get("roles") or [])
+    if _auto_transition_event_status(ev):
+        data[event_id] = ev
+    current_status = (ev.get("status") or "upcoming").strip().lower()
+    if current_status in ("completed", "cancelled") and not (user_roles & _EVENTS_MANAGE_ANY):
+        return jsonify({
+            "error": "This event is closed and can only be edited by an Event Manager or Parliament.",
+        }), 403
     body = request.get_json(silent=True) or {}
     existing = _migrate_legacy_prize(dict(ev))
     updated, err_msg = _clean_event_payload(body, existing=existing)
@@ -1834,26 +1893,75 @@ def events_update(event_id):
     updated["created_by"] = ev.get("created_by") or updated.get("created_by")
     updated["created_at"] = ev.get("created_at") or time()
     updated["updated_at"] = time()
+    if not updated.get("status_forced"):
+        _auto_transition_event_status(updated)
     _enforce_pin_invariants(updated)
     data[event_id] = updated
     _save_json_file(_EVENTS_JSON, data)
     out = dict(updated)
-    out["can_manage"] = True
+    out["can_manage"]    = True
+    out["status_forced"] = bool(updated.get("status_forced"))
     return jsonify(out)
 
 
-@app.route("/api/events/<event_id>", methods=["DELETE"])
+@app.route("/api/events/<event_id>/status", methods=["PATCH"])
 @rate_limit(30)
-def events_delete(event_id):
+def events_set_status(event_id):
+    """Manually move an event into a different lifecycle status.
+
+    Sets `status_forced=True` so the auto-transition pass leaves the new
+    value alone. Allowed transitions are gated by `_allowed_manual_statuses`.
+    """
     user, err = _require_role(_EVENTS_ACCESS)
     if err:
         return err
     data = _load_json_file(_EVENTS_JSON) or {}
     ev = data.get(event_id)
     if not ev:
-        return jsonify({"ok": True})
+        return jsonify({"error": "Event not found"}), 404
     if not _user_can_manage_event(user, ev):
-        return jsonify({"error": "You can only delete events you created"}), 403
+        return jsonify({"error": "You can only edit events you created"}), 403
+    if _auto_transition_event_status(ev):
+        data[event_id] = ev
+    body = request.get_json(silent=True) or {}
+    target = (body.get("status") or "").strip().lower()
+    if target not in _EVENT_STATUSES:
+        return jsonify({"error": f"Invalid status. Must be one of {sorted(_EVENT_STATUSES)}"}), 400
+    current = (ev.get("status") or "upcoming").strip().lower()
+    if target == current:
+        out = dict(ev)
+        _migrate_legacy_prize(out)
+        out["can_manage"]    = True
+        out["status_forced"] = bool(ev.get("status_forced"))
+        return jsonify(out)
+    allowed = _allowed_manual_statuses(ev, user)
+    if target not in allowed:
+        return jsonify({
+            "error": "That status change isn't allowed for this event.",
+        }), 403
+    ev["status"]        = target
+    ev["status_forced"] = True
+    ev["updated_at"]    = time()
+    _enforce_pin_invariants(ev)
+    data[event_id] = ev
+    _save_json_file(_EVENTS_JSON, data)
+    out = dict(ev)
+    _migrate_legacy_prize(out)
+    out["can_manage"]    = True
+    out["status_forced"] = bool(ev.get("status_forced"))
+    return jsonify(out)
+
+
+@app.route("/api/events/<event_id>", methods=["DELETE"])
+@rate_limit(30)
+def events_delete(event_id):
+    user, err = _require_role(_EVENTS_MANAGE_ANY)
+    if err:
+        return err
+    data = _load_json_file(_EVENTS_JSON) or {}
+    ev = data.get(event_id)
+    if not ev:
+        return jsonify({"ok": True})
     del data[event_id]
     _save_json_file(_EVENTS_JSON, data)
     return jsonify({"ok": True})
@@ -1871,6 +1979,12 @@ def events_pin(event_id):
     ev = data.get(event_id)
     if not ev:
         return jsonify({"error": "Event not found"}), 404
+    # Completed / cancelled events cannot be pinned
+    current_status = (ev.get("status") or "upcoming").strip().lower()
+    if current_status in ("completed", "cancelled"):
+        return jsonify({
+            "error": "Completed or cancelled events cannot be pinned.",
+        }), 400
     # Only clear other pins that share this event's audience bucket
     new_audience = (ev.get("audience") or _EVENT_DEFAULT_AUDIENCE).strip().lower()
     _unpin_all_events(data, except_id=event_id, audience=new_audience)

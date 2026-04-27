@@ -432,6 +432,18 @@ input.inac-input[type="number"] {
   background:   rgba(237,66,69,0.08);
 }
 
+.ev-status-hint {
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  font-style: italic;
+  margin: 4px 0 0;
+}
+.ev-status-field select:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+}
+
 /* Prize badges */
 .ev-prize-badge {
   font-family: 'Cinzel', serif;

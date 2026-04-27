@@ -440,9 +440,6 @@
   }
 
   function buildFormHtml() {
-    var statusOpts = STATUSES.map(function (s) {
-      return '<option value="' + esc(s.value) + '">' + esc(s.label) + '</option>';
-    }).join('');
     var audienceOpts = AUDIENCES.map(function (a) {
       return '<option value="' + esc(a.value) + '">' + esc(a.label) + '</option>';
     }).join('');
@@ -516,9 +513,10 @@
         '<p class="ev-prize-empty" id="evPrizeEmpty">No prizes set. Click "Add Prize" to add one.</p>' +
       '</div>' +
       '<div class="ev-grid-2">' +
-        '<div class="ev-field">' +
-          '<label class="inac-label" for="evStatus">Status</label>' +
-          '<select class="inac-input ev-select" id="evStatus" aria-label="Event status">' + statusOpts + '</select>' +
+        '<div class="ev-field ev-status-field" id="evStatusField" style="display:none">' +
+          '<label class="inac-label" for="evStatusChange">Status</label>' +
+          '<select class="inac-input ev-select" id="evStatusChange" aria-label="Event status"></select>' +
+          '<p class="ev-status-hint" id="evStatusHint" style="font-weight:500;display:none"></p>' +
         '</div>' +
         '<div class="ev-field">' +
           '<label class="inac-label" for="evAudience">Audience</label>' +
@@ -824,13 +822,89 @@
     var ids = ['evName','evDescription','evStartsAt','evEndsAt','evLocation',
                'evMaxParticipants','evDiscordImport'];
     ids.forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ''; });
-    var status = document.getElementById('evStatus');
-    if (status) status.value = 'upcoming';
     var audience = document.getElementById('evAudience');
     if (audience) audience.value = 'public';
+    var statusField = document.getElementById('evStatusField');
+    if (statusField) statusField.style.display = 'none';
     if (typeof window._evRenderPrizes === 'function') window._evRenderPrizes([]);
     // drop the VC pill styling since the Location field is now empty
     syncLocationVoiceStyle();
+  }
+
+  // Render the status block while editing
+  function renderStatusEditor(ev) {
+    var field  = document.getElementById('evStatusField');
+    var select = document.getElementById('evStatusChange');
+    var hintEl = document.getElementById('evStatusHint');
+    if (!field || !select) return;
+    field.style.display = '';
+
+    var currentStatus = (ev.status || 'upcoming').toLowerCase();
+    var modeLabel = ev.status_forced ? 'Forced' : 'Auto';
+    var currentLabel = statusLabel(currentStatus) + ' (' + modeLabel + ')';
+    var allowed = Array.isArray(ev.allowed_status_transitions)
+      ? ev.allowed_status_transitions.slice()
+      : [];
+
+    select.innerHTML =
+      '<option value="" selected disabled>' + esc(currentLabel) + '</option>' +
+      allowed.map(function (s) {
+        return '<option value="' + esc(s) + '">' + esc(statusLabel(s)) + '</option>';
+      }).join('');
+    select.value = '';
+    select.disabled = !allowed.length;
+    select.title = ev.status_forced
+      ? 'This status was set manually and won\u2019t auto-update.'
+      : 'Status is computed from “Starts at” and “Ends at”.';
+
+    if (hintEl) {
+      var canManageAny = (typeof window.hasEventsManageAny === 'function') && window.hasEventsManageAny();
+      var hint = '';
+      if (!allowed.length) {
+        hint = (currentStatus === 'completed' || currentStatus === 'cancelled')
+          ? 'This event is closed.'
+          : 'No status changes are available for this event.';
+      } else if (!canManageAny) {
+        hint = 'Heads up: status changes are permanent and can\u2019t be reverted by you.';
+      }
+      hintEl.textContent = hint;
+      hintEl.style.display = hint ? '' : 'none';
+    }
+
+    select.onchange = function () {
+      var target = select.value;
+      if (!target || !_editingId) return;
+      var canManageAny = (typeof window.hasEventsManageAny === 'function') && window.hasEventsManageAny();
+      var msg = canManageAny
+        ? 'Set status to ' + statusLabel(target) + '?'
+        : 'Set status to ' + statusLabel(target) + '? You won\u2019t be able to change it back.';
+      if (!window.confirm(msg)) {
+        select.value = '';
+        return;
+      }
+      select.disabled = true;
+      changeStatus(_editingId, target);
+    };
+  }
+
+  function changeStatus(eventId, target) {
+    fetch('/api/events/' + encodeURIComponent(eventId) + '/status', {
+      method:      'PATCH',
+      credentials: 'same-origin',
+      headers:     { 'Content-Type': 'application/json' },
+      body:        JSON.stringify({ status: target }),
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          window.showToast('\u26a0 ' + ((res.data && res.data.error) || 'Failed to change status.'), 'error');
+          return;
+        }
+        window.showToast('Status set to ' + statusLabel(res.data.status || target) + '.', 'success');
+        cancelEdit();
+        loadEvents();
+      })
+      .catch(function () { window.showToast('\u26a0 Request failed.', 'error'); });
   }
 
   /* list render */
@@ -850,6 +924,10 @@
       var canManage = !!ev.can_manage;
       var canPin    = !!ev.can_pin;
       var isPinned  = !!ev.pinned;
+      var isTerminal = status === 'completed' || status === 'cancelled';
+      var canManageAny = (typeof window.hasEventsManageAny === 'function') && window.hasEventsManageAny();
+      var canEdit = canManage && (!isTerminal || canManageAny);
+      var canPinNow = canPin && !isTerminal;
 
       var whenBits = [];
       if (starts) whenBits.push('Starts ' + starts);
@@ -891,7 +969,7 @@
       metaBits.push('By ' + creator);
       if (created)  metaBits.push(created);
 
-      var pinBtnHtml = canPin
+      var pinBtnHtml = canPinNow
         ? '<button class="ev-pin-btn' + (isPinned ? ' is-pinned' : '') + '"' +
             ' data-id="' + esc(ev.id) + '"' +
             ' data-pinned="' + (isPinned ? '1' : '0') + '"' +
@@ -900,14 +978,12 @@
             '\ud83d\udccc' +
           '</button>'
         : '';
-      var btnsHtml = (canManage || canPin)
-        ? '<div class="ev-row-btns">' +
-            pinBtnHtml +
-            (canManage
-              ? '<button class="inac-edit-btn"   data-id="' + esc(ev.id) + '" title="Edit">&#x270e;</button>' +
-                '<button class="inac-remove-btn" data-id="' + esc(ev.id) + '" title="Delete">&#x2715;</button>'
-              : '') +
-          '</div>'
+      var canDelete = canManageAny;
+      var manageBtnsHtml =
+        (canEdit   ? '<button class="inac-edit-btn"   data-id="' + esc(ev.id) + '" title="Edit">&#x270e;</button>'   : '') +
+        (canDelete ? '<button class="inac-remove-btn" data-id="' + esc(ev.id) + '" title="Delete">&#x2715;</button>' : '');
+      var btnsHtml = (pinBtnHtml || manageBtnsHtml)
+        ? '<div class="ev-row-btns">' + pinBtnHtml + manageBtnsHtml + '</div>'
         : '';
 
       // Group prizes by place so each placement gets its own line
@@ -1120,7 +1196,6 @@
       location_channel_id: locationChannelId,
       max_participants:    parseInt(document.getElementById('evMaxParticipants').value, 10) || 0,
       prizes:              prizes,
-      status:              document.getElementById('evStatus').value            || 'upcoming',
       audience:            audience,
     };
   }
@@ -1193,7 +1268,7 @@
       window._evRenderPrizes(Array.isArray(ev.prizes) ? ev.prizes : []);
     }
 
-    document.getElementById('evStatus').value            = ev.status || 'upcoming';
+    renderStatusEditor(ev);
     var audEl = document.getElementById('evAudience');
     if (audEl) audEl.value = ev.audience || 'public';
 
