@@ -1917,7 +1917,6 @@
     { key: 'recruited',        label: 'Recruited Players', decimals: 1 },
     { key: 'event_points',     label: 'Event Points',      decimals: 1 },
     { key: 'quest_points',     label: 'Quest Points',      decimals: 1 },
-    { key: 'esi_points',       label: 'ESI Points',        decimals: 1 },
   ];
 
   const guildStatsState = {
@@ -1972,7 +1971,8 @@
         : '\u26a0 Statistics are not available right now.';
     }
     ['guildStatsRankDist', 'guildStatsQueue', 'guildStatsFlow', 'guildStatsLeavesByRank',
-     'guildStatsLeavesByTenure', 'guildStatsAverages', 'guildStatsTopRecruiters'].forEach(function (id) {
+     'guildStatsLeavesByTenure', 'guildStatsAverages', 'guildStatsEsiPointsByRank',
+     'guildStatsTopRecruiters'].forEach(function (id) {
       const el = document.getElementById(id);
       if (el) el.innerHTML = '';
     });
@@ -2164,6 +2164,7 @@
     renderStatsLeavesByRank(data.leaves);
     renderStatsLeavesByTenure(data.leaves);
     renderStatsAverages(filteredMembers);
+    renderStatsEsiPointsByRank(filteredMembers);
     renderStatsTopRecruiters(filteredMembers);
   }
 
@@ -2339,6 +2340,38 @@
         '</div>';
     });
     html += '</div>';
+    wrap.innerHTML = html;
+  }
+
+  function renderStatsEsiPointsByRank(members) {
+    const wrap = document.getElementById('guildStatsEsiPointsByRank');
+    if (!wrap) return;
+    if (!members.length) {
+      wrap.innerHTML = '<div class="guild-stats-empty">No members match the current filters.</div>';
+      return;
+    }
+    const totals = {};
+    const counts = {};
+    STATS_RANK_ORDER.forEach(function (r) { totals[r] = 0; counts[r] = 0; });
+    let grandTotal = 0;
+    members.forEach(function (m) {
+      const r = m.rank || 'recruit';
+      const pts = Number(m.esi_points) || 0;
+      totals[r] = (totals[r] || 0) + pts;
+      counts[r] = (counts[r] || 0) + 1;
+      grandTotal += pts;
+    });
+    let html = '';
+    STATS_RANK_ORDER.forEach(function (r) {
+      const v = totals[r] || 0;
+      const n = counts[r] || 0;
+      const avg = n > 0 ? v / n : 0;
+      const valueText = v.toLocaleString() + ' <span style="color:var(--text-faint);font-size:0.8em">(avg ' + statsFmt(avg, 1) + ')</span>';
+      html += statsBuildBar(
+        '<span class="guild-rank-badge guild-rank-' + r + '">' + capFirst(r) + '</span>',
+        v, grandTotal, statsRankColor(r), valueText
+      );
+    });
     wrap.innerHTML = html;
   }
 

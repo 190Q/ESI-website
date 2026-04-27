@@ -193,6 +193,11 @@ export default function GuildPanel() {
               </div>
 
               <div className="info-card">
+                <div className="info-card-header">ESI Points by Rank</div>
+                <div id="guildStatsEsiPointsByRank" className="guild-stats-rank-dist guild-stats-rank-dist--wide-value" />
+              </div>
+
+              <div className="info-card">
                 <div className="info-card-header">Average Per-Member Stats</div>
                 <div id="guildStatsAverages" className="guild-stats-averages" />
               </div>
