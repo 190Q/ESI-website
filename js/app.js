@@ -1118,8 +1118,11 @@ fetch('/auth/session', { credentials: 'same-origin' })
     promotionsTab:      'recruiter',
     toastDuration:      7,
     toastMax:           3,
+    toastsEnabled:      true,
     guildDefaultMetric: 'playerCount',
     guildDefaultRange:  30,
+    showEventsNavBadge: true,
+    showPinnedBanner:   true,
   };
 
   function _readAllSettings() {
@@ -1221,6 +1224,16 @@ fetch('/auth/session', { credentials: 'same-origin' })
   var _sPromTab  = document.getElementById('settingPromotionsTab');
   var _sToastDur = document.getElementById('settingToastDuration');
   var _sToastMax = document.getElementById('settingToastMax');
+  var _sEventsNavBadge = document.getElementById('settingEventsNavBadge');
+  var _sPinnedBanner   = document.getElementById('settingPinnedBanner');
+  var _sToastsEnabled  = document.getElementById('settingToastsEnabled');
+  var _sToastRow       = document.getElementById('settingToastRow');
+
+  function _applyToastRowVisibility() {
+    if (_sToastRow) {
+      _sToastRow.style.display = (_sToastsEnabled && _sToastsEnabled.checked) ? '' : 'none';
+    }
+  }
 
   function _populateSettingsForm() {
     var s = _readAllSettings();
@@ -1237,6 +1250,10 @@ fetch('/auth/session', { credentials: 'same-origin' })
     _sPromTab.value  = s.promotionsTab      || 'recruiter';
     _sToastDur.value = s.toastDuration != null ? s.toastDuration : 7;
     _sToastMax.value = s.toastMax != null    ? s.toastMax : 3;
+    _sEventsNavBadge.checked = s.showEventsNavBadge !== false;
+    _sPinnedBanner.checked   = s.showPinnedBanner   !== false;
+    _sToastsEnabled.checked  = s.toastsEnabled      !== false;
+    _applyToastRowVisibility();
   }
 
   function _readFormValues() {
@@ -1252,6 +1269,9 @@ fetch('/auth/session', { credentials: 'same-origin' })
       promotionsTab:      _sPromTab.value,
       toastDuration:      Math.max(1, Math.min(30, parseInt(_sToastDur.value, 10) || 7)),
       toastMax:           Math.max(1, Math.min(6, parseInt(_sToastMax.value, 10) || 3)),
+      showEventsNavBadge: !!_sEventsNavBadge.checked,
+      showPinnedBanner:   !!_sPinnedBanner.checked,
+      toastsEnabled:      !!_sToastsEnabled.checked,
     };
   }
 
@@ -1279,10 +1299,10 @@ fetch('/auth/session', { credentials: 'same-origin' })
     if (promRow  && !canPromotions) promRow.remove();
 
     // remove the entire section if nothing remains
-    var loginSection = document.getElementById('settingsLoginSection');
-    if (loginSection) {
-      var remaining = loginSection.querySelectorAll('.settings-row');
-      if (!remaining.length) loginSection.remove();
+    var memberMgmtSection = document.getElementById('settingsMemberMgmtSection');
+    if (memberMgmtSection) {
+      var remaining = memberMgmtSection.querySelectorAll('.settings-row');
+      if (!remaining.length) memberMgmtSection.remove();
     }
   }
 
@@ -1302,27 +1322,68 @@ fetch('/auth/session', { credentials: 'same-origin' })
   /* track changes — don't save yet, just show the save button */
   _sRange.addEventListener('input', function () { _sRangeVal.textContent = _sRange.value; _updateSaveBtn(); });
   _sGuildRange.addEventListener('input', function () { _sGuildRangeVal.textContent = _sGuildRange.value; _updateSaveBtn(); });
-  [_sMetric, _sGuildMetric, _sPlayer, _sChkType, _sChkHours, _sChkTab, _sPromTab, _sToastDur, _sToastMax].forEach(function (el) {
+  [_sMetric, _sGuildMetric, _sPlayer, _sChkType, _sChkHours, _sChkTab, _sPromTab, _sToastDur, _sToastMax, _sEventsNavBadge, _sPinnedBanner, _sToastsEnabled].forEach(function (el) {
     el.addEventListener('change', _updateSaveBtn);
     el.addEventListener('input', _updateSaveBtn);
   });
 
+  // Live-hide the toast customization row when toasts are disabled
+  _sToastsEnabled.addEventListener('change', _applyToastRowVisibility);
+
+  // Settings whose effects are picked up live
+  var LIVE_APPLIED_KEYS = {
+    showEventsNavBadge: true,
+    showPinnedBanner:   true,
+    toastsEnabled:      true,
+    toastDuration:      true,
+    toastMax:           true,
+  };
+
+  // Apply settings whose effects can take hold without a reload
+  function _applyLiveSettings(prev, next) {
+    var fullyLive = true;
+    var changed = {};
+    Object.keys(next).forEach(function (k) {
+      if (!prev || prev[k] !== next[k]) {
+        changed[k] = true;
+        if (!LIVE_APPLIED_KEYS[k]) fullyLive = false;
+      }
+    });
+
+    if (changed.showEventsNavBadge && typeof window.evpRefreshNavIndicators === 'function') {
+      window.evpRefreshNavIndicators();
+    }
+    if (changed.showPinnedBanner && window.esiPinnedBanner &&
+        typeof window.esiPinnedBanner.applyVisibility === 'function') {
+      window.esiPinnedBanner.applyVisibility();
+    }
+    return fullyLive;
+  }
+
   /* save button — persist all current form values, then apply live */
   settingsSaveBtn.addEventListener('click', function () {
     var values = _readFormValues();
+    var prev   = _settingsSnapshot;
     _writeAllSettings(values);
     _pushSettingsToServer(values);
     _settingsSnapshot = values;
     _updateSaveBtn();
-    showToast('\u2713 Settings saved. Reload the page to fully apply all changes.', 'success');
+    var fullyLive = _applyLiveSettings(prev, values);
+    if (fullyLive) {
+      showToast('\u2713 Settings saved.', 'success');
+    } else {
+      showToast('\u2713 Settings saved. Reload the page to fully apply all changes.', 'success');
+    }
   });
 
   /* reset button */
   settingsResetBtn.addEventListener('click', function () {
+    var prev = _settingsSnapshot;
     esiSettings.reset();
     _populateSettingsForm();
     _settingsSnapshot = _readFormValues();
     _updateSaveBtn();
+    _applyLiveSettings(prev, _settingsSnapshot);
     showToast('Settings reset to defaults.', 'info');
   });
 

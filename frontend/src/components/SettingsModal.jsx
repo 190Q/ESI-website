@@ -8,9 +8,9 @@ export default function SettingsModal() {
 
         <div className="settings-body">
 
-          {/* Public settings */}
-          <div className="settings-section">
-            <div className="settings-section-label">General</div>
+          {/* Search & Lookup */}
+          <div className="settings-section" id="settingsSearchSection">
+            <div className="settings-section-label">Search &amp; Lookup</div>
 
             {/* Default player lookup */}
             <div className="settings-row">
@@ -30,6 +30,11 @@ export default function SettingsModal() {
                 />
               </div>
             </div>
+          </div>
+
+          {/* Graphs & Metrics */}
+          <div className="settings-section" id="settingsGraphsSection">
+            <div className="settings-section-label">Graphs &amp; Metrics</div>
 
             {/* Default player graph metric */}
             <div className="settings-row">
@@ -119,13 +124,36 @@ export default function SettingsModal() {
                 <span className="settings-range-val" id="settingGuildRangeVal">30</span>
               </div>
             </div>
+          </div>
+
+          {/* Notifications */}
+          <div className="settings-section" id="settingsNotificationsSection">
+            <div className="settings-section-label">Notifications</div>
+
+            {/* Toast notifications master toggle */}
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <div className="settings-row-title">Toast notifications</div>
+                <div className="settings-row-desc">
+                  Enable or disable in-app toast notifications entirely
+                </div>
+              </div>
+              <div className="settings-row-control">
+                <label className="settings-toggle">
+                  <input type="checkbox" id="settingToastsEnabled" aria-label="Enable toast notifications" />
+                  <span className="settings-toggle-track" aria-hidden="true">
+                    <span className="settings-toggle-thumb"></span>
+                  </span>
+                </label>
+              </div>
+            </div>
 
             {/* Toast notification customization */}
             <div className="settings-row" id="settingToastRow">
               <div className="settings-row-info">
-                <div className="settings-row-title">Toast notifications</div>
+                <div className="settings-row-title">Toast customization</div>
                 <div className="settings-row-desc">
-                  Duration, maximum visible, and color scheme
+                  Duration and maximum visible at once
                 </div>
               </div>
               <div className="settings-row-control settings-multi-control">
@@ -155,13 +183,47 @@ export default function SettingsModal() {
                 </div>
               </div>
             </div>
+
+            {/* Events nav badge toggle */}
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <div className="settings-row-title">Events nav badge</div>
+                <div className="settings-row-desc">
+                  Show the upcoming/ongoing indicator on the Events sidebar button
+                </div>
+              </div>
+              <div className="settings-row-control">
+                <label className="settings-toggle">
+                  <input type="checkbox" id="settingEventsNavBadge" aria-label="Show events nav badge" />
+                  <span className="settings-toggle-track" aria-hidden="true">
+                    <span className="settings-toggle-thumb"></span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Pinned events banner toggle */}
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <div className="settings-row-title">Pinned events banner</div>
+                <div className="settings-row-desc">
+                  Display the pinned events banner across every page
+                </div>
+              </div>
+              <div className="settings-row-control">
+                <label className="settings-toggle">
+                  <input type="checkbox" id="settingPinnedBanner" aria-label="Show pinned events banner" />
+                  <span className="settings-toggle-track" aria-hidden="true">
+                    <span className="settings-toggle-thumb"></span>
+                  </span>
+                </label>
+              </div>
+            </div>
           </div>
 
-          {/* Login-required settings */}
-          <div className="settings-section" id="settingsLoginSection">
-            <div className="settings-section-label">
-              Requires Login
-            </div>
+          {/* Member Management */}
+          <div className="settings-section" id="settingsMemberMgmtSection">
+            <div className="settings-section-label">Member Management</div>
 
             {/* Inactivity checker defaults */}
             <div className="settings-row settings-row-login" id="settingInactivityRow">

@@ -1492,6 +1492,60 @@ button { cursor: pointer; border: none; font-family: inherit; }
   opacity: 0.4;
   pointer-events: none;
 }
+
+/* Toggle slider */
+.settings-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+.settings-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.settings-toggle-track {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 20px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  transition: background var(--transition), border-color var(--transition), box-shadow var(--transition);
+}
+.settings-toggle-thumb {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transform: translateY(-50%);
+  transition: left var(--transition), background var(--transition), box-shadow var(--transition);
+}
+.settings-toggle:hover .settings-toggle-track {
+  border-color: var(--border-mid);
+}
+.settings-toggle input:focus-visible + .settings-toggle-track {
+  box-shadow: 0 0 0 3px var(--gold-glow);
+  border-color: var(--gold-dim);
+}
+.settings-toggle input:checked + .settings-toggle-track {
+  background: linear-gradient(135deg, var(--gold-dim), var(--gold));
+  border-color: var(--gold-dim);
+  box-shadow: 0 0 6px var(--gold-glow);
+}
+.settings-toggle input:checked + .settings-toggle-track .settings-toggle-thumb {
+  left: calc(100% - 16px);
+  background: var(--green-deep);
+  box-shadow: 0 0 4px rgba(0,0,0,0.35);
+}
 .settings-footer {
   padding: 16px 36px;
   border-top: 1px solid var(--border);

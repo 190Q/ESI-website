@@ -5,12 +5,16 @@
     try { var s = JSON.parse(localStorage.getItem('esi_settings')); return s && key in s ? s[key] : undefined; }
     catch (e) { return undefined; }
   }
-  var _settingsToastDur = _readSetting('toastDuration');
-  var _settingsToastMax = _readSetting('toastMax');
-  var TOAST_DURATION  = (_settingsToastDur != null ? Math.max(1, Math.min(30, _settingsToastDur)) : 7) * 1000;
+  function _toastDuration() {
+    var v = _readSetting('toastDuration');
+    return (v != null ? Math.max(1, Math.min(30, v)) : 7) * 1000;
+  }
+  function _maxToasts() {
+    var v = _readSetting('toastMax');
+    return v != null ? Math.max(1, Math.min(6, v)) : 3;
+  }
   var _toastContainer = null;
   var _toastQueue     = [];
-  var MAX_TOASTS      = _settingsToastMax != null ? Math.max(1, Math.min(6, _settingsToastMax)) : 3;
   var _queueBadge     = null;
   var _toastStates    = [];
   var _rafHandle      = null;
@@ -81,13 +85,13 @@
         var s = active[j];
         if (!s.el.parentNode) continue;
         if (j >= minHovered) {
-          s.remaining = TOAST_DURATION;
+          s.remaining = s.total;
           s.bar.style.transform = 'scaleX(1)';
           continue;
         }
         s.remaining -= dt;
         if (s.remaining <= 0) { _dismissToast(s.el); continue; }
-        s.bar.style.transform = 'scaleX(' + (s.remaining / TOAST_DURATION) + ')';
+        s.bar.style.transform = 'scaleX(' + (s.remaining / s.total) + ')';
       }
       _rafHandle = requestAnimationFrame(loop);
     }
@@ -95,7 +99,8 @@
   }
 
   function _registerTimer(toast, bar) {
-    var state = { el: toast, remaining: TOAST_DURATION, bar: bar, hovered: false };
+    var dur = _toastDuration();
+    var state = { el: toast, remaining: dur, total: dur, bar: bar, hovered: false };
     _toastStates.push(state);
     toast.addEventListener('mouseenter', function () { state.hovered = true; });
     toast.addEventListener('mouseleave', function () { state.hovered = false; });
@@ -122,7 +127,7 @@
   }
 
   function _drainQueue() {
-    while (_toastQueue.length > 0 && _visibleToastCount() < MAX_TOASTS) {
+    while (_toastQueue.length > 0 && _visibleToastCount() < _maxToasts()) {
       var next = _toastQueue.shift();
       if (next.element) {
         _ensureToastContainer().appendChild(next.element);
@@ -184,10 +189,16 @@
     return false;
   }
 
+  function _toastsEnabled() {
+    var v = _readSetting('toastsEnabled');
+    return v !== false;
+  }
+
   function showToast(message, type) {
+    if (!_toastsEnabled()) return;
     if (typeof type === 'undefined') type = 'info';
     if (_isDuplicateToast(message)) return;
-    if (_visibleToastCount() < MAX_TOASTS) {
+    if (_visibleToastCount() < _maxToasts()) {
       _renderToast(message, type);
     } else {
       _toastQueue.push({ message: message, type: type });
@@ -195,7 +206,18 @@
     }
   }
 
+  function _noopProgressCtrl() {
+    var ctrl = {
+      addItem:    function () { return ctrl; },
+      updateItem: function () { return ctrl; },
+      finish:     function () {},
+      dismiss:    function () {},
+    };
+    return ctrl;
+  }
+
   function showProgressToast(title) {
+    if (!_toastsEnabled()) return _noopProgressCtrl();
     var container = _ensureToastContainer();
     var COLORS = { info: '#5865F2', success: '#3BA55C', warn: '#FAA61A', error: '#ED4245' };
     var items = {};
@@ -243,7 +265,7 @@
 
     toast.appendChild(finishBar);
 
-    if (_visibleToastCount() < MAX_TOASTS) { container.appendChild(toast); }
+    if (_visibleToastCount() < _maxToasts()) { container.appendChild(toast); }
     else { _toastQueue.push({ element: toast }); _updateQueueBadge(); }
 
     function rebuildDetails() {

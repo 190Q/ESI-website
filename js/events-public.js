@@ -273,9 +273,26 @@
 
   /* sidebar indicators */
 
+  function _navBadgeEnabled() {
+    try {
+      var s = JSON.parse(localStorage.getItem('esi_settings'));
+      return !s || s.showEventsNavBadge !== false;
+    } catch (e) { return true; }
+  }
+
   function updateNavIndicators() {
     var navItem = document.querySelector('.nav-item[data-panel="events"]');
     if (!navItem) return;
+
+    // If the user disabled the nav badge, ensure no indicators are present
+    if (!_navBadgeEnabled()) {
+      navItem.classList.remove('nav-item-has-ongoing');
+      navItem.classList.remove('nav-item-has-upcoming');
+      var existing = navItem.querySelector('.nav-upcoming-badge');
+      if (existing) existing.remove();
+      navItem.removeAttribute('title');
+      return;
+    }
 
     var hasOngoing = _events.some(function (ev) {
       return (ev.status || '').toLowerCase() === 'ongoing';
@@ -543,6 +560,10 @@
         '</div>';
     }
   }
+
+  window.evpRefreshNavIndicators = function () {
+    try { updateNavIndicators(); } catch (e) { /* nav not in DOM yet */ }
+  };
 
   // Public API: navigate to the events panel and scroll to a specific event card
   window.evpFocusEvent = function (eventId) {

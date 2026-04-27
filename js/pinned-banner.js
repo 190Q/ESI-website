@@ -195,8 +195,16 @@
       toggleBtn;
   }
 
+  function _bannerEnabled() {
+    try {
+      var s = JSON.parse(localStorage.getItem('esi_settings'));
+      return !s || s.showPinnedBanner !== false;
+    } catch (e) { return true; }
+  }
+
   // Always show every pinned event - users can collapse rather than remove
   function pickEventsToShow() {
+    if (!_bannerEnabled()) return [];
     return _events.slice();
   }
 
@@ -224,6 +232,7 @@
   function updateBannerVisibility() {
     var stack = document.querySelector('.' + STACK_CLASS);
     if (!stack) return;
+    if (!_bannerEnabled()) { stack.style.display = 'none'; return; }
     stack.style.display = isGeneralPanelActive() ? 'flex' : 'none';
   }
 
@@ -336,6 +345,10 @@
   // Public API for debugging / settings UI
   window.esiPinnedBanner = {
     refresh: fetchPinned,
+    applyVisibility: function () {
+      if (_fetched) refreshBanners();
+      else fetchPinned();
+    },
     reset: function () {
       saveCollapsed([]);
       refreshBanners();
