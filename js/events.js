@@ -1066,11 +1066,65 @@
       '</div>';
   }
 
+  function _userHasActiveEvent() {
+    if (!window.state || !window.state.user) return false;
+    if (typeof window.hasEventsManageAny === 'function' && window.hasEventsManageAny()) {
+      return false;
+    }
+    var uid = String(window.state.user.id || '');
+    if (!uid) return false;
+    for (var i = 0; i < _events.length; i++) {
+      var ev = _events[i];
+      if (!ev || !ev.created_by) continue;
+      if (String(ev.created_by.id || '') !== uid) continue;
+      var st = (ev.status || 'upcoming').toLowerCase();
+      if (st === 'cancelled' || st === 'completed') continue;
+      return true;
+    }
+    return false;
+  }
+
+  function _updateCreateFormVisibility() {
+    var form       = document.getElementById('evForm');
+    var formHeader = document.getElementById('evFormHeader');
+    if (!form || !formHeader) return;
+
+    var notice = document.getElementById('evCreateLimitNotice');
+
+    // Editing always wins: never hide the form mid-edit
+    if (_editingId) {
+      if (notice) notice.style.display = 'none';
+      form.style.display = '';
+      return;
+    }
+
+    if (_userHasActiveEvent()) {
+      form.style.display = 'none';
+      formHeader.textContent = 'Create Event';
+      if (!notice) {
+        notice = document.createElement('div');
+        notice.id = 'evCreateLimitNotice';
+        notice.className = 'inac-empty';
+        notice.style.cssText = 'padding: 18px 20px; font-style: italic; font-weight: 500;';
+        notice.textContent =
+          'You already have an active event. Cancel it or wait for it to finish ' +
+          'before creating another.';
+        form.parentNode.insertBefore(notice, form);
+      } else {
+        notice.style.display = '';
+      }
+    } else {
+      if (notice) notice.style.display = 'none';
+      form.style.display = '';
+    }
+  }
+
   function renderList() {
     var listEl  = document.getElementById('evList');
     var countEl = document.getElementById('evCount');
     if (!listEl) return;
     if (countEl) countEl.textContent = '(' + _events.length + ')';
+    _updateCreateFormVisibility();
 
     if (!_events.length) {
       listEl.innerHTML = '<div class="inac-empty" style="font-weight:500;">No events yet. Create the first one!</div>';
@@ -1322,6 +1376,7 @@
     }
     var cancel = document.getElementById('evCancel');
     if (cancel) cancel.remove();
+    _updateCreateFormVisibility();
   }
 
   function removeEvent(eventId) {
