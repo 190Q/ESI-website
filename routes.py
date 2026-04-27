@@ -2399,7 +2399,7 @@ def guild_statistics():
 
     esi_points_by_user = _statistics_esi_points_by_user()
 
-    # joined-date and tenure info from tracked_guild.json
+    # The current guild member list comes straight from the latest api_tracking
     tracked = _load_json_file(_TRACKED_GUILD_JSON) or {}
     member_history = tracked.get("member_history", {}) or {}
     joined_by_uuid = {}
@@ -2407,7 +2407,6 @@ def guild_statistics():
     for entry in member_history.values():
         if not isinstance(entry, dict):
             continue
-        # Only the most recent (still-in-guild) record is relevant for joined date.
         if entry.get("left"):
             continue
         joined = entry.get("joined")

@@ -904,6 +904,44 @@ input.inac-input[type="number"] {
   right: 8px;
 }
 
+.nav-upcoming-badge {
+  position: absolute;
+  top: 5px;
+  right: 8px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--gold-dim), var(--gold));
+  color: var(--green-deep);
+  font-family: 'Cinzel', serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  box-shadow: 0 0 6px rgba(212,160,23,0.45);
+  pointer-events: none;
+  animation: evp-upcoming-pop 0.25s ease-out;
+}
+
+@keyframes evp-upcoming-pop {
+  from { transform: scale(0.6); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+.sidebar.collapsed .nav-upcoming-badge,
+.sidebar-pre-collapsed #sidebar .nav-upcoming-badge {
+  top: 4px;
+  right: 4px;
+  min-width: 15px;
+  height: 14px;
+  font-size: 0.56rem;
+  padding: 0 4px;
+}
+
 /* Manage Events: status-grouped sections */
 .evm-section {
   margin: 0 14px 14px;

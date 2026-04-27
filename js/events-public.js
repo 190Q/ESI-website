@@ -71,7 +71,7 @@
   function tickStatuses() {
     if (!_fetched) return;
     if (!recomputeStatuses()) return;
-    updateOngoingIndicator();
+    updateNavIndicators();
     if (document.getElementById('evpShell')) {
       renderTabs();
       renderList();
@@ -249,7 +249,7 @@
         _fetched = true;
         // Apply local time-based status transitions before the first render
         recomputeStatuses();
-        updateOngoingIndicator();
+        updateNavIndicators();
         // Always render once data is in
         if (!document.getElementById('evpShell')) buildShell();
         else { renderTabs(); renderList(); }
@@ -271,15 +271,43 @@
       '<div class="inac-empty" style="font-style:italic;">Loading events\u2026</div>';
   }
 
-  /* sidebar live indicator */
+  /* sidebar indicators */
 
-  function updateOngoingIndicator() {
+  function updateNavIndicators() {
     var navItem = document.querySelector('.nav-item[data-panel="events"]');
     if (!navItem) return;
+
     var hasOngoing = _events.some(function (ev) {
       return (ev.status || '').toLowerCase() === 'ongoing';
     });
     navItem.classList.toggle('nav-item-has-ongoing', hasOngoing);
+
+    var upcomingCount = 0;
+    for (var i = 0; i < _events.length; i++) {
+      var st = (_events[i].status || '').toLowerCase();
+      if (st === 'upcoming') upcomingCount++;
+    }
+
+    var showUpcoming = upcomingCount > 0 && !hasOngoing;
+    navItem.classList.toggle('nav-item-has-upcoming', showUpcoming);
+
+    var badge = navItem.querySelector('.nav-upcoming-badge');
+    if (showUpcoming) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'nav-upcoming-badge';
+        badge.setAttribute('aria-hidden', 'true');
+        navItem.appendChild(badge);
+      }
+      badge.textContent = upcomingCount > 9 ? '9+' : String(upcomingCount);
+      navItem.setAttribute(
+        'title',
+        upcomingCount + ' upcoming event' + (upcomingCount === 1 ? '' : 's')
+      );
+    } else {
+      if (badge) badge.remove();
+      navItem.removeAttribute('title');
+    }
   }
 
   /* shell */
