@@ -993,6 +993,38 @@
   white-space: nowrap;
 }
 
+.guild-stats-snipe-roles-list {
+  display: flex;
+  flex-direction: column;
+}
+.guild-stats-snipe-rank-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  border-bottom: 1px solid rgba(212,160,23,0.06);
+}
+.guild-stats-snipe-rank-row:last-child { border-bottom: none; }
+.guild-stats-snipe-rank-row > .guild-rank-badge {
+  min-width: 90px;
+}
+.guild-stats-snipe-rank-roles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 120px;
+}
+.guild-stats-snipe-rank-total {
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  color: var(--gold-light);
+  font-weight: 700;
+  min-width: 60px;
+  text-align: right;
+}
+
 @media (max-width: 600px) {
   .guild-stats-bar-row {
     grid-template-columns: 100px 1fr 60px 48px;

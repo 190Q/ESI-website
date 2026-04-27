@@ -1972,6 +1972,7 @@
     }
     ['guildStatsRankDist', 'guildStatsQueue', 'guildStatsFlow', 'guildStatsLeavesByRank',
      'guildStatsLeavesByTenure', 'guildStatsAverages', 'guildStatsEsiPointsByRank',
+     'guildStatsSnipesByRank', 'guildStatsSnipeRolesByRank',
      'guildStatsTopRecruiters'].forEach(function (id) {
       const el = document.getElementById(id);
       if (el) el.innerHTML = '';
@@ -2165,6 +2166,8 @@
     renderStatsLeavesByTenure(data.leaves);
     renderStatsAverages(filteredMembers);
     renderStatsEsiPointsByRank(filteredMembers);
+    renderStatsSnipesByRank(filteredMembers);
+    renderStatsSnipeRolesByRank(filteredMembers);
     renderStatsTopRecruiters(filteredMembers);
   }
 
@@ -2373,6 +2376,95 @@
       );
     });
     wrap.innerHTML = html;
+  }
+
+  function renderStatsSnipesByRank(members) {
+    const wrap = document.getElementById('guildStatsSnipesByRank');
+    if (!wrap) return;
+    if (!members.length) {
+      wrap.innerHTML = '<div class="guild-stats-empty">No members match the current filters.</div>';
+      return;
+    }
+    const counts = {};
+    const points = {};
+    STATS_RANK_ORDER.forEach(function (r) { counts[r] = 0; points[r] = 0; });
+    let totalSnipes = 0;
+    members.forEach(function (m) {
+      const r = m.rank || 'recruit';
+      const c = Number(m.snipe_count) || 0;
+      const p = Number(m.snipe_points) || 0;
+      counts[r] = (counts[r] || 0) + c;
+      points[r] = (points[r] || 0) + p;
+      totalSnipes += c;
+    });
+    if (!totalSnipes) {
+      wrap.innerHTML = '<div class="guild-stats-empty">No snipes recorded for the current filters.</div>';
+      return;
+    }
+    let html = '';
+    STATS_RANK_ORDER.forEach(function (r) {
+      const v = counts[r] || 0;
+      const p = points[r] || 0;
+      const valueText = v.toLocaleString() +
+        ' <span style="color:var(--text-faint);font-size:0.8em">(' + p.toLocaleString() + ' pts)</span>';
+      html += statsBuildBar(
+        '<span class="guild-rank-badge guild-rank-' + r + '">' + capFirst(r) + '</span>',
+        v, totalSnipes, statsRankColor(r), valueText
+      );
+    });
+    wrap.innerHTML = _safeSanitize(html);
+  }
+
+  function renderStatsSnipeRolesByRank(members) {
+    const wrap = document.getElementById('guildStatsSnipeRolesByRank');
+    if (!wrap) return;
+    if (!members.length) {
+      wrap.innerHTML = '<div class="guild-stats-empty">No members match the current filters.</div>';
+      return;
+    }
+    const ROLE_ORDER = ['DPS', 'Tank', 'Healer', 'Solo'];
+    const seenRoles = new Set();
+    const byRank = {};
+    STATS_RANK_ORDER.forEach(function (r) { byRank[r] = {}; });
+    let grandTotal = 0;
+    members.forEach(function (m) {
+      const rank = m.rank || 'recruit';
+      const roles = m.snipe_roles || {};
+      Object.keys(roles).forEach(function (role) {
+        const n = Number(roles[role]) || 0;
+        if (!n) return;
+        seenRoles.add(role);
+        if (!byRank[rank]) byRank[rank] = {};
+        byRank[rank][role] = (byRank[rank][role] || 0) + n;
+        grandTotal += n;
+      });
+    });
+    if (!grandTotal) {
+      wrap.innerHTML = '<div class="guild-stats-empty">No snipe roles recorded for the current filters.</div>';
+      return;
+    }
+    const orderedRoles = ROLE_ORDER.filter(function (r) { return seenRoles.has(r); })
+      .concat(Array.from(seenRoles).filter(function (r) { return ROLE_ORDER.indexOf(r) === -1; }).sort());
+    let html = '';
+    STATS_RANK_ORDER.forEach(function (r) {
+      const roles = byRank[r] || {};
+      const rankTotal = orderedRoles.reduce(function (sum, role) { return sum + (roles[role] || 0); }, 0);
+      if (!rankTotal) return;
+      const badges = orderedRoles.map(function (role) {
+        const n = roles[role] || 0;
+        if (!n) return '';
+        return snipeRoleBadge(role) +
+          '<span class="snipe-role-count">\u00D7' + fmt(n) + '</span>';
+      }).join('');
+      html +=
+        '<div class="guild-stats-snipe-rank-row">' +
+          '<span class="guild-rank-badge guild-rank-' + r + '">' + capFirst(r) + '</span>' +
+          '<span class="guild-stats-snipe-rank-roles">' + badges + '</span>' +
+          '<span class="guild-stats-snipe-rank-total">' + rankTotal.toLocaleString() + '</span>' +
+        '</div>';
+    });
+    wrap.innerHTML = _safeSanitize(html ||
+      '<div class="guild-stats-empty">No snipe roles recorded for the current filters.</div>');
   }
 
   function renderStatsTopRecruiters(members) {

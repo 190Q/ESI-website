@@ -2420,6 +2420,64 @@ def _statistics_queue_history(days=60):
     return history
 
 
+def _load_snipes_by_uuid():
+    """Aggregate claim_snipes.db rows into per-uuid totals.
+
+    Returns a dict ``{uuid: {"snipe_count": int, "total_points": int,
+    "roles": {role: count}}}``. Empty when the snipes DB is missing or empty
+    so callers can safely treat it as a default.
+    """
+    if not os.path.exists(_SNIPES_DB):
+        return {}
+    try:
+        conn = _sqlite3.connect(_SNIPES_DB)
+        conn.row_factory = _sqlite3.Row
+        c = conn.cursor()
+
+        c.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='snipes'"
+        )
+        if not c.fetchone():
+            conn.close()
+            return {}
+
+        snipe_points_by_id = {}
+        for r in c.execute("SELECT snipe_id, points FROM snipes").fetchall():
+            snipe_points_by_id[r["snipe_id"]] = int(r["points"] or 0)
+
+        c.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'player_%'"
+        )
+        tables = [row[0] for row in c.fetchall()]
+
+        result: dict = {}
+        for table in tables:
+            if not table.startswith("player_"):
+                continue
+            uuid = table[len("player_"):].replace("_", "-")
+            try:
+                rows = c.execute(
+                    f'SELECT snipe_id, role FROM "{table}"'
+                ).fetchall()
+            except _sqlite3.OperationalError:
+                continue
+            entry = result.setdefault(uuid, {
+                "snipe_count": 0,
+                "total_points": 0,
+                "roles": {},
+            })
+            for r in rows:
+                role = r[1] or "Unknown"
+                entry["snipe_count"] += 1
+                entry["total_points"] += snipe_points_by_id.get(r[0], 0)
+                entry["roles"][role] = entry["roles"].get(role, 0) + 1
+
+        conn.close()
+        return result
+    except _sqlite3.Error:
+        return {}
+
+
 @app.route("/api/guild/statistics")
 @rate_limit(20)
 def guild_statistics():
@@ -2533,11 +2591,14 @@ def guild_statistics():
         if username:
             joined_by_username[username] = joined
 
+    snipes_by_uuid = _load_snipes_by_uuid()
+
     members = []
     for r in member_rows:
         username = r[0] or ""
         uuid = r[1] or ""
         ulow = username.lower()
+        snipe_entry = snipes_by_uuid.get(uuid) or {}
         members.append({
             "username":         username,
             "uuid":             uuid,
@@ -2561,6 +2622,9 @@ def guild_statistics():
             "event_points":     int(event_points.get(ulow, 0)),
             "quest_points":     int(quest_points.get(ulow, 0)),
             "esi_points":       int(esi_points_by_user.get(ulow, 0)),
+            "snipe_count":      int(snipe_entry.get("snipe_count", 0)),
+            "snipe_points":     int(snipe_entry.get("total_points", 0)),
+            "snipe_roles":      dict(snipe_entry.get("roles", {})),
         })
 
     # joins/leaves history - unbounded by what's stored in event_history

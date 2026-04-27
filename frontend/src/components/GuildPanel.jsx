@@ -198,6 +198,16 @@ export default function GuildPanel() {
               </div>
 
               <div className="info-card">
+                <div className="info-card-header">Snipes by Rank</div>
+                <div id="guildStatsSnipesByRank" className="guild-stats-rank-dist guild-stats-rank-dist--wide-value" />
+              </div>
+
+              <div className="info-card">
+                <div className="info-card-header">Snipe Roles by Rank</div>
+                <div id="guildStatsSnipeRolesByRank" className="guild-stats-snipe-roles-list" />
+              </div>
+
+              <div className="info-card">
                 <div className="info-card-header">Average Per-Member Stats</div>
                 <div id="guildStatsAverages" className="guild-stats-averages" />
               </div>
