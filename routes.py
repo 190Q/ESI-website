@@ -3787,6 +3787,77 @@ def bot_databases():
 
 # user settings
 
+# Whitelist + validation rules. Anything not listed here is dropped.
+_SETTINGS_STRING_ENUMS = {
+    "defaultGraphMetric": {
+        "playtime", "wars", "guildRaids", "mobsKilled", "chestsFound",
+        "questsDone", "totalLevel", "contentDone", "dungeons", "raids",
+        "worldEvents", "caves",
+    },
+    "guildDefaultMetric": {
+        "playerCount", "wars", "guildRaids", "newMembers", "totalMembers",
+    },
+    "checkerType":   {"first", "second"},
+    # "acive" preserved for back-compat with the existing typoed option value
+    "checkerTab":    {"inactive", "active", "acive", "exempt"},
+    "promotionsTab": {"recruiter", "captain"},
+}
+
+_SETTINGS_INT_RANGES = {
+    "defaultGraphRange": (2, 60),
+    "guildDefaultRange": (2, 60),
+    "checkerHours":      (0, 10),
+    "toastDuration":     (1, 15),
+    "toastMax":          (1, 6),
+}
+
+_SETTINGS_BOOLS = {
+    "toastsEnabled", "showEventsNavBadge", "showPinnedBanner",
+}
+
+_SETTINGS_STRING_MAXLEN = {
+    "defaultPlayer": 16,  # Minecraft/Wynncraft username max length
+}
+
+_USERNAME_RE = _re.compile(r"^[A-Za-z0-9_]{0,16}$")
+
+_SETTINGS_MAX_BODY_BYTES = 8 * 1024  # 8 KB - more than enough for the whitelist
+
+
+def _sanitize_settings(body):
+    """Return a new dict containing only known, validated settings."""
+    clean = {}
+    for key, val in body.items():
+        if not isinstance(key, str):
+            continue
+        if key in _SETTINGS_STRING_ENUMS:
+            if isinstance(val, str) and val in _SETTINGS_STRING_ENUMS[key]:
+                clean[key] = val
+        elif key in _SETTINGS_INT_RANGES:
+            if isinstance(val, bool):
+                continue  # bool is an int subclass, reject explicitly
+            try:
+                num = int(val)
+            except (TypeError, ValueError):
+                continue
+            lo, hi = _SETTINGS_INT_RANGES[key]
+            clean[key] = max(lo, min(hi, num))
+        elif key in _SETTINGS_BOOLS:
+            if isinstance(val, bool):
+                clean[key] = val
+        elif key in _SETTINGS_STRING_MAXLEN:
+            if not isinstance(val, str):
+                continue
+            trimmed = val.strip()[: _SETTINGS_STRING_MAXLEN[key]]
+            if key == "defaultPlayer":
+                if trimmed == "" or _USERNAME_RE.match(trimmed):
+                    clean[key] = trimmed
+            else:
+                clean[key] = trimmed
+        # unknown keys are silently dropped
+    return clean
+
+
 @app.route("/api/settings", methods=["GET"])
 @rate_limit(60)
 def settings_get():
@@ -3813,11 +3884,14 @@ def settings_put():
     if err:
         return err
     discord_id = user.get("id", "")
+    if request.content_length is not None and request.content_length > _SETTINGS_MAX_BODY_BYTES:
+        return jsonify({"error": "Settings payload too large"}), 413
     body = request.get_json(silent=True)
     if body is None or not isinstance(body, dict):
         return jsonify({"error": "Invalid settings"}), 400
+    clean = _sanitize_settings(body)
     now = time()
-    settings_str = json.dumps(body)
+    settings_str = json.dumps(clean)
     conn = _get_db()
     conn.execute(
         "INSERT INTO user_settings (discord_id, settings, updated_at) VALUES (?, ?, ?)"

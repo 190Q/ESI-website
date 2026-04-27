@@ -1319,6 +1319,20 @@ fetch('/auth/session', { credentials: 'same-origin' })
   _clampOnBlur(_sToastDur, 1, 15, 7);
   _clampOnBlur(_sToastMax, 1, 6, 3);
 
+  /* enforce character limits on number inputs */
+  function _enforceMaxLen(el, maxLen) {
+    if (!el) return;
+    el.addEventListener('input', function () {
+      var digits = String(this.value || '').replace(/\D/g, '');
+      if (digits.length > maxLen) {
+        this.value = digits.slice(0, maxLen);
+      }
+    });
+  }
+  _enforceMaxLen(_sChkHours, 2);
+  _enforceMaxLen(_sToastDur, 2);
+  _enforceMaxLen(_sToastMax, 1);
+
   /* track changes — don't save yet, just show the save button */
   _sRange.addEventListener('input', function () { _sRangeVal.textContent = _sRange.value; _updateSaveBtn(); });
   _sGuildRange.addEventListener('input', function () { _sGuildRangeVal.textContent = _sGuildRange.value; _updateSaveBtn(); });

@@ -27,6 +27,7 @@ export default function SettingsModal() {
                   id="settingDefaultPlayer"
                   placeholder="Username..."
                   aria-label="Default player"
+                  maxLength={16}
                 />
               </div>
             </div>
@@ -164,6 +165,7 @@ export default function SettingsModal() {
                     id="settingToastDuration"
                     min="1"
                     max="15"
+                    maxLength={2}
                     defaultValue="7"
                     aria-label="Toast duration in seconds"
                   />
@@ -177,6 +179,7 @@ export default function SettingsModal() {
                     id="settingToastMax"
                     min="1"
                     max="6"
+                    maxLength={1}
                     defaultValue="3"
                     aria-label="Maximum visible toasts"
                   />
@@ -245,6 +248,7 @@ export default function SettingsModal() {
                     id="settingCheckerHours"
                     min="0"
                     max="10"
+                    maxLength={2}
                     defaultValue="2"
                     aria-label="Hours threshold"
                   />
