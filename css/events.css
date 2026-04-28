@@ -854,12 +854,14 @@ input.inac-input[type="number"] {
 .evp-list-wrap {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 #evpList {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
 }
 
 /* Pinned + Ongoing top sections */
@@ -868,18 +870,21 @@ input.inac-input[type="number"] {
   flex-direction: column;
   gap: 18px;
   margin-bottom: 18px;
+  min-width: 0;
 }
 
 .evp-section {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
 }
 
 .evp-section-body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
 }
 
 .evp-section-title {
