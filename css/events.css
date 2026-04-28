@@ -388,9 +388,14 @@ input.inac-input[type="number"] {
   padding-left: 8px;
   border-left: 2px solid var(--border);
   line-height: 1.5;
+  min-width: 0;
+  max-width: 100%;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .ev-prize-desc p    { margin: 2px 0; }
+.ev-prize-desc pre,
 .ev-prize-desc code {
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -399,6 +404,10 @@ input.inac-input[type="number"] {
   font-family: 'Consolas', monospace;
   font-size: 0.85em;
   color: var(--gold-light);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 .ev-prize-desc strong { color: var(--text-main); font-weight: 700; }
 .ev-prize-desc em     { font-style: italic; }
