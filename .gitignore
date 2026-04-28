@@ -235,3 +235,6 @@ gdpr_exports
 
 # git file
 ESI-website.git
+
+# UI artifacts
+scripts/ui_artifacts
