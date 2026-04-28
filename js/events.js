@@ -475,7 +475,7 @@
           idBase:     'evDescription',
           textareaId: 'evDescription',
           rows:       5,
-          maxlength:  4000,
+          maxlength:  1000,
           placeholder:'What is this event about?',
           ariaLabel:  'Event description',
         }) +
@@ -493,14 +493,14 @@
       '<div class="ev-grid-2">' +
         '<div class="ev-field">' +
           '<label class="inac-label" for="evLocation">Location / Voice channel</label>' +
-          '<input type="text" class="inac-input" id="evLocation" maxlength="200"' +
+          '<input type="text" class="inac-input" id="evLocation" maxlength="30"' +
             ' placeholder="Pick a voice channel or type a custom location\u2026"' +
             ' list="evVoiceChannelList" aria-label="Location or voice channel" />' +
           '<datalist id="evVoiceChannelList"></datalist>' +
         '</div>' +
         '<div class="ev-field">' +
           '<label class="inac-label" for="evMaxParticipants">Max participants</label>' +
-          '<input type="number" class="inac-input" id="evMaxParticipants" min="0" step="1" placeholder="0 = unlimited" aria-label="Max participants" />' +
+          '<input type="number" class="inac-input" id="evMaxParticipants" min="0" max="99" step="1" placeholder="0 = unlimited" aria-label="Max participants" />' +
         '</div>' +
       '</div>' +
       '<div class="ev-field ev-prizes-field">' +
@@ -530,6 +530,8 @@
   }
 
   // Build markup for a single prize row in the form
+  var MAX_PRIZES = 5;
+
   function buildPrizeRowHtml(prize) {
     prize = prize || {};
     var rid    = 'evPrize-' + (++_prizeRowSeq);
@@ -560,13 +562,13 @@
         '<div class="ev-prize-cell ev-prize-cell-value">' +
           '<label class="inac-label" for="' + esc(valId) + '">Value</label>' +
           '<input type="text" class="inac-input ev-prize-value" id="' + esc(valId) + '"' +
-            ' maxlength="500" value="' + esc(val) + '" aria-label="Prize value" />' +
+            ' maxlength="9" value="' + esc(val) + '" aria-label="Prize value" />' +
         '</div>' +
       '</div>' +
       '<div class="ev-prize-cell ev-prize-cell-desc">' +
         '<label class="inac-label" for="' + esc(descId) + '">Details (optional)</label>' +
         '<textarea class="inac-input ev-prize-description" id="' + esc(descId) + '"' +
-          ' rows="2" maxlength="500" placeholder="Extra prize details (markdown supported)"' +
+          ' rows="2" maxlength="50" placeholder="Extra prize details (markdown supported)"' +
           ' aria-label="Prize description">' + esc(desc) + '</textarea>' +
       '</div>' +
       '<button type="button" class="inac-remove-btn ev-prize-remove" aria-label="Remove prize" title="Remove prize">&#x2715;</button>' +
@@ -589,6 +591,34 @@
       locationEl.addEventListener('input',  syncLocationVoiceStyle);
       locationEl.addEventListener('change', syncLocationVoiceStyle);
     }
+
+    function clampIntInput(el, min, max) {
+      if (!el) return;
+      function sanitize() {
+        var raw = el.value || '';
+        // strip everything that isn't a digit
+        var digits = raw.replace(/\D+/g, '');
+        // clamp to max (drop leading zeros while we're at it)
+        if (digits) {
+          var n = parseInt(digits, 10);
+          if (!isFinite(n)) n = min;
+          if (n > max) n = max;
+          if (n < min) n = min;
+          digits = String(n);
+        }
+        if (raw !== digits) el.value = digits;
+      }
+      el.addEventListener('input',  sanitize);
+      el.addEventListener('change', sanitize);
+      el.addEventListener('blur',   sanitize);
+      el.addEventListener('keydown', function (e) {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        // allow editing/navigation keys
+        if (e.key.length > 1) return;
+        if (!/^[0-9]$/.test(e.key)) e.preventDefault();
+      });
+    }
+    clampIntInput(document.getElementById('evMaxParticipants'), 0, 99);
 
     var prizeListEl  = document.getElementById('evPrizeList');
     var prizeEmptyEl = document.getElementById('evPrizeEmpty');
@@ -622,17 +652,35 @@
       if (!prizeEmptyEl || !prizeListEl) return;
       var n = prizeListEl.querySelectorAll('.ev-prize-row').length;
       prizeEmptyEl.style.display = n ? 'none' : '';
+      if (addBtn) {
+        var atCap = n >= MAX_PRIZES;
+        addBtn.disabled = atCap;
+        addBtn.title = atCap
+          ? 'Maximum of ' + MAX_PRIZES + ' prizes reached'
+          : '';
+      }
     }
 
     function renderPrizeRows(prizes) {
       if (!prizeListEl) return;
-      prizeListEl.innerHTML = (prizes || []).map(buildPrizeRowHtml).join('');
+      var src = (prizes || []).slice(0, MAX_PRIZES);
+      prizeListEl.innerHTML = src.map(buildPrizeRowHtml).join('');
       prizeListEl.querySelectorAll('.ev-prize-row').forEach(syncPrizeRowValueInput);
       syncPrizeEmpty();
     }
 
     function appendPrizeRow(prize) {
       if (!prizeListEl) return;
+      var existing = prizeListEl.querySelectorAll('.ev-prize-row').length;
+      if (existing >= MAX_PRIZES) {
+        if (window.showToast) {
+          window.showToast(
+            '\u26a0 You can add at most ' + MAX_PRIZES + ' prizes.',
+            'warn'
+          );
+        }
+        return null;
+      }
       var holder = document.createElement('div');
       holder.innerHTML = buildPrizeRowHtml(prize || {});
       var row = holder.firstChild;
@@ -672,6 +720,27 @@
         if (!ev.target.classList.contains('ev-prize-type')) return;
         var row = ev.target.closest('.ev-prize-row');
         syncPrizeRowValueInput(row);
+      });
+      function clampPos(el) {
+        if (!el) return;
+        var raw = el.value || '';
+        var digits = raw.replace(/\D+/g, '');
+        if (digits) {
+          var n = parseInt(digits, 10);
+          if (!isFinite(n) || n < 1) n = 1;
+          if (n > 999) n = 999;
+          digits = String(n);
+        }
+        if (raw !== digits) el.value = digits;
+      }
+      prizeListEl.addEventListener('input', function (ev) {
+        if (ev.target.classList.contains('ev-prize-position')) clampPos(ev.target);
+      });
+      prizeListEl.addEventListener('keydown', function (ev) {
+        if (!ev.target.classList.contains('ev-prize-position')) return;
+        if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        if (ev.key.length > 1) return;
+        if (!/^[0-9]$/.test(ev.key)) ev.preventDefault();
       });
     }
 
@@ -1275,6 +1344,48 @@
   function submitEvent() {
     var body = readForm();
     if (!body.name) { window.showToast('\u26a0 Enter an event name.', 'warn'); return; }
+
+    if ((body.name || '').length > 120) {
+      window.showToast('\u26a0 Event name is too long (max 120).', 'warn'); return;
+    }
+    if ((body.description || '').length > 1000) {
+      window.showToast('\u26a0 Description is too long (max 1000).', 'warn'); return;
+    }
+    if ((body.location || '').length > 30) {
+      window.showToast('\u26a0 Location is too long (max 30).', 'warn'); return;
+    }
+    if (Number(body.max_participants) > 99) {
+      window.showToast('\u26a0 Max participants cannot exceed 99.', 'warn'); return;
+    }
+    if (Array.isArray(body.prizes) && body.prizes.length > MAX_PRIZES) {
+      window.showToast(
+        '\u26a0 Too many prizes (max ' + MAX_PRIZES + ').', 'warn'
+      );
+      return;
+    }
+    for (var pi = 0; pi < (body.prizes || []).length; pi++) {
+      var pr = body.prizes[pi] || {};
+      if (String(pr.value || '').length > 9) {
+        window.showToast(
+          '\u26a0 Prize #' + (pi + 1) + ' value is too long (max 9).', 'warn'
+        );
+        return;
+      }
+      if (String(pr.description || '').length > 50) {
+        window.showToast(
+          '\u26a0 Prize #' + (pi + 1) + ' details are too long (max 50).', 'warn'
+        );
+        return;
+      }
+      var prPos = Number(pr.position);
+      if (!isFinite(prPos) || prPos < 1 || prPos > 999) {
+        window.showToast(
+          '\u26a0 Prize #' + (pi + 1) + ' place must be between 1 and 999.',
+          'warn'
+        );
+        return;
+      }
+    }
 
     var btn = document.getElementById('evSubmit');
     btn.disabled = true;

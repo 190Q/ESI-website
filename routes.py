@@ -1333,12 +1333,13 @@ _EVENT_STATUSES      = {"upcoming", "ongoing", "completed", "cancelled"}
 _EVENT_AUDIENCES     = {"public", "guild_only"}
 _EVENT_DEFAULT_AUDIENCE = "public"
 _EVENT_MAX_NAME      = 120
-_EVENT_MAX_DESC      = 4000
-_EVENT_MAX_PRIZE_VAL = 500
-_EVENT_MAX_PRIZE_DSC = 500
-_EVENT_MAX_LOCATION  = 200
-_EVENT_MAX_PRIZES    = 15
+_EVENT_MAX_DESC      = 1000
+_EVENT_MAX_PRIZE_VAL = 9
+_EVENT_MAX_PRIZE_DSC = 50
+_EVENT_MAX_LOCATION  = 30
+_EVENT_MAX_PRIZES    = 5
 _EVENT_MAX_POSITION  = 999
+_EVENT_MAX_PARTICIPANTS = 99
 
 
 def _user_can_manage_event(user, event):
@@ -1715,6 +1716,8 @@ def _clean_event_payload(body, existing=None):
             return None, "max_participants must be an integer"
         if cap < 0:
             return None, "max_participants cannot be negative"
+        if cap > _EVENT_MAX_PARTICIPANTS:
+            return None, f"max_participants cannot exceed {_EVENT_MAX_PARTICIPANTS}"
         out["max_participants"] = cap
 
     out["status"] = (existing.get("status") or "upcoming").strip().lower()
