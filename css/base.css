@@ -760,11 +760,24 @@ button { cursor: pointer; border: none; font-family: inherit; }
   flex-direction: column;
   padding-bottom: 0;
 }
+.modal--ticket #ticketFormView {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.modal--ticket #ticketFormView .modal-title,
+.modal--ticket #ticketFormView .modal-sub {
+  flex-shrink: 0;
+}
 .modal--ticket .ticket-form {
   overflow-y: auto;
   flex: 1;
   min-height: 0;
   padding-bottom: 36px;
+}
+.modal--ticket {
+  overflow: auto;
 }
 
 /* Ticket form */
