@@ -100,9 +100,9 @@ export default function GuildPanel() {
 
             <div className="view-selector">
               <button className="view-btn active" id="guildViewGlobal">Global Data</button>
-              <button className="view-btn" id="guildViewLogs">Guild Logs</button>
-              <button className="view-btn" id="guildViewSnipes" style={{ display: 'none' }}>Snipes</button>
               <button className="view-btn" id="guildViewStatistics">Statistics</button>
+              <button className="view-btn" id="guildViewSnipes" style={{ display: 'none' }}>Snipes</button>
+              <button className="view-btn" id="guildViewLogs">Guild Logs</button>
             </div>
 
             {/* Global */}
