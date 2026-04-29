@@ -1382,14 +1382,19 @@
   }
 
   /* view toggle */
-  document.getElementById('guildViewGlobal').addEventListener('click', () => switchGuildView('global'));
-  document.getElementById('guildViewLogs').addEventListener('click',  () => switchGuildView('logs'));
-  document.getElementById('guildViewSnipes').addEventListener('click', () => switchGuildView('snipes'));
+  const GUILD_VIEWS = ['global', 'logs', 'snipes', 'statistics'];
+  let _activeGuildView = 'global';
+
+  document.getElementById('guildViewGlobal').addEventListener('click', () => { switchGuildView('global'); _onGuildStateChanged(); });
+  document.getElementById('guildViewLogs').addEventListener('click',  () => { switchGuildView('logs');   _onGuildStateChanged(); });
+  document.getElementById('guildViewSnipes').addEventListener('click', () => { switchGuildView('snipes'); _onGuildStateChanged(); });
   if (document.getElementById('guildViewStatistics')) {
-    document.getElementById('guildViewStatistics').addEventListener('click', () => switchGuildView('statistics'));
+    document.getElementById('guildViewStatistics').addEventListener('click', () => { switchGuildView('statistics'); _onGuildStateChanged(); });
   }
 
   function switchGuildView(v) {
+    if (GUILD_VIEWS.indexOf(v) === -1) v = 'global';
+    _activeGuildView = v;
     document.getElementById('guildViewGlobal').classList.toggle('active', v === 'global');
     document.getElementById('guildViewLogs').classList.toggle('active',   v === 'logs');
     document.getElementById('guildViewSnipes').classList.toggle('active', v === 'snipes');
@@ -1402,6 +1407,66 @@
     if (statView) statView.style.display = v === 'statistics' ? 'block' : 'none';
     if (v === 'statistics') ensureGuildStatisticsLoaded();
   }
+
+  window.buildGuildQueryString = function () {
+    var params = new URLSearchParams();
+    if (_activeGuildView && _activeGuildView !== 'global') {
+      params.set('view', _activeGuildView);
+    }
+    if (Array.isArray(guildGraph.metrics) && guildGraph.metrics.length) {
+      var isDefault = guildGraph.metrics.length === 1 && guildGraph.metrics[0] === _guildInitMetric;
+      if (!isDefault) params.set('metrics', guildGraph.metrics.join(','));
+    }
+    if (guildGraph.days && guildGraph.days !== _guildDefaultRange) {
+      params.set('range', String(guildGraph.days));
+    }
+    return params.toString();
+  };
+
+  function _onGuildStateChanged() {
+    if (typeof window.updateHash === 'function') window.updateHash();
+  }
+
+  function applyGuildQueryParams() {
+    var sp = new URLSearchParams(window.location.search || '');
+    var view = (sp.get('view') || '').trim();
+    if (view && GUILD_VIEWS.indexOf(view) !== -1) {
+      switchGuildView(view);
+    }
+    var rawMetrics = sp.get('metrics');
+    if (rawMetrics) {
+      var validKeys = GUILD_GRAPH_METRICS.map(function (m) { return m.key; })
+        .concat(GUILD_COMPARE_METRICS.map(function (m) { return m.key; }));
+      var seen = {};
+      var metrics = rawMetrics.split(',')
+        .map(function (s) { return s.trim(); })
+        .filter(function (k) {
+          if (!k || validKeys.indexOf(k) === -1 || seen[k]) return false;
+          seen[k] = true;
+          return true;
+        })
+        .slice(0, MAX_METRICS);
+      if (metrics.length) {
+        guildGraph.metrics = metrics;
+        if (typeof renderGuildMetricRows === 'function') renderGuildMetricRows();
+        if (typeof refreshGuildGraph === 'function' && guildGraphState.data) refreshGuildGraph();
+      }
+    }
+    var rawRange = parseInt(sp.get('range'), 10);
+    if (Number.isFinite(rawRange) && guildGraph.range) {
+      var min = parseInt(guildGraph.range.min, 10) || 2;
+      var max = parseInt(guildGraph.range.max, 10) || 60;
+      var range = Math.max(min, Math.min(max, rawRange));
+      guildGraph.days = range;
+      guildGraph.range.value = String(range);
+      guildGraph.daysLbl.textContent = range + 'd';
+      if (typeof refreshGuildGraph === 'function' && guildGraphState.data) refreshGuildGraph();
+    }
+  }
+
+  // Run on initial load + popstate
+  applyGuildQueryParams();
+  window.addEventListener('popstate', applyGuildQueryParams);
 
   /* activity graph */
   function buildGuildMetricRow(metricKey, index, available) {
@@ -1433,6 +1498,7 @@
       guildGraph.metrics[index] = this.value;
       renderGuildMetricRows();
       refreshGuildGraph();
+      _onGuildStateChanged();
     });
     row.appendChild(sel);
 
@@ -1468,6 +1534,7 @@
     guildGraph.metrics.push(next.key);
     renderGuildMetricRows();
     refreshGuildGraph();
+    _onGuildStateChanged();
   }
 
   function removeGuildMetric(index) {
@@ -1475,6 +1542,7 @@
     guildGraph.metrics.splice(index, 1);
     renderGuildMetricRows();
     refreshGuildGraph();
+    _onGuildStateChanged();
   }
 
   /* apply saved range default to slider */
@@ -1486,6 +1554,7 @@
     guildGraph.days = parseInt(this.value);
     guildGraph.daysLbl.textContent = guildGraph.days + 'd';
     refreshGuildGraph();
+    _onGuildStateChanged();
   });
 
   /* guild graph compare */
@@ -1622,12 +1691,17 @@
 
   guildGraph.compareInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') {
+      const name = this.value.trim();
+      if (!name) return;
+      if (typeof window.esiTrySpaNavigateFromText === 'function' &&
+          window.esiTrySpaNavigateFromText(name)) {
+        cancelGuildCompareInput();
+        return;
+      }
       if (!guildGraphState.graphReady || !guildGraphState.data) {
         setGuildCompareStatus('Wait for activity data to finish loading.', true);
         return;
       }
-      const name = this.value.trim();
-      if (!name) return;
       loadGuildComparePlayer(name);
     }
     if (e.key === 'Escape') cancelGuildCompareInput();

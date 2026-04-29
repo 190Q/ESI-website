@@ -39,21 +39,64 @@
   else if (!playerInput.value) playerInput.value = '190Q';
 
   /* events */
-  searchBtn.addEventListener('click', () => {
-    const username = playerInput.value.trim();
-    if (username) { lookupPlayer(username); updateHash(); }
-  });
-  playerInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
-      const username = playerInput.value.trim();
-      if (username) { lookupPlayer(username); updateHash(); }
+  function _parsePlayerSearchInput(raw) {
+    var s = (raw || '').trim();
+    if (!s) return null;
+    if (!/[\/?]/.test(s) && !/^https?:/i.test(s)) return null;
+    var url;
+    try {
+      url = new URL(s, window.location.origin);
+    } catch (e) {
+      return null;
     }
+    var parts = url.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+    if (!parts.length) return null;
+    if (parts[0] === 'player' && parts[1]) {
+      return { panel: 'player', username: decodeURIComponent(parts[1]), search: url.search };
+    }
+    if (parts[0] === 'guild' || parts[0] === 'bot' || parts[0] === 'events') {
+      return { panel: parts[0], search: url.search };
+    }
+    return null;
+  }
+
+  function _trySpaNavigateFromText(raw) {
+    var parsedLink = _parsePlayerSearchInput(raw);
+    if (!parsedLink) return false;
+    var newPath = parsedLink.panel === 'player'
+      ? '/player/' + encodeURIComponent(parsedLink.username)
+      : '/' + parsedLink.panel;
+    var newUrl = newPath + (parsedLink.search || '');
+    if (window.location.pathname + window.location.search !== newUrl) {
+      history.pushState(null, '', newUrl);
+    }
+    navigateFromPath();
+    if (parsedLink.panel !== 'player') {
+      try { window.dispatchEvent(new PopStateEvent('popstate')); } catch (e) {}
+    }
+    return true;
+  }
+  window.esiTrySpaNavigateFromText = _trySpaNavigateFromText;
+
+  function _runPlayerSearch() {
+    var raw = playerInput.value.trim();
+    if (!raw) return;
+    if (_trySpaNavigateFromText(raw)) return;
+    lookupPlayer(raw);
+    updateHash();
+  }
+
+  searchBtn.addEventListener('click', _runPlayerSearch);
+  playerInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') _runPlayerSearch();
   });
 
-  document.getElementById('viewGlobal').addEventListener('click',    () => switchView('global'));
-  document.getElementById('viewCharacter').addEventListener('click', () => switchView('character'));
-  document.getElementById('viewRankHistory').addEventListener('click', () => switchView('rankHistory'));
-  document.getElementById('viewSnipes').addEventListener('click',    () => switchView('snipes'));
+  document.getElementById('viewGlobal').addEventListener('click',    () => { switchView('global');      updateHash(); });
+  document.getElementById('viewCharacter').addEventListener('click', () => { switchView('character');   updateHash(); });
+  document.getElementById('viewRankHistory').addEventListener('click', () => { switchView('rankHistory'); updateHash(); });
+  document.getElementById('viewSnipes').addEventListener('click',    () => { switchView('snipes');      updateHash(); });
+
+  const PLAYER_VIEWS = ['global', 'character', 'rankHistory', 'snipes'];
 
   function switchView(v) {
     state.currentView = v;
@@ -1710,9 +1753,10 @@
         if (conflictIndex !== -1 && conflictIndex !== index) {
           compareGraph.metrics[conflictIndex] = prev;
         }
-        compareGraph.metrics[index] = this.value;
+      compareGraph.metrics[index] = this.value;
         renderMetricRows();
         refreshCompareGraph();
+        updateHash();
       });
       row.appendChild(sel);
     }
@@ -1754,6 +1798,7 @@
     compareGraph.metrics.push(next.key);
     renderMetricRows();
     refreshCompareGraph();
+    updateHash();
   }
 
   function removeMetric(index) {
@@ -1761,6 +1806,7 @@
     compareGraph.metrics.splice(index, 1);
     renderMetricRows();
     refreshCompareGraph();
+    updateHash();
   }
 
   compareGraph.addBtn.addEventListener('click', addMetric);
@@ -1768,6 +1814,7 @@
     compareGraph.days = parseInt(this.value);
     compareGraph.daysLbl.textContent = compareGraph.days + 'd';
     refreshCompareGraph();
+    updateHash();
   });
   compareGraph.daysLbl.textContent = parseInt(compareGraph.range.value) + 'd';
 
@@ -1786,12 +1833,17 @@
 
   compareGraph.compareInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') {
+      const name = this.value.trim();
+      if (!name) return;
+      if (typeof window.esiTrySpaNavigateFromText === 'function' &&
+          window.esiTrySpaNavigateFromText(name)) {
+        cancelCompareInput();
+        return;
+      }
       if (!graphState.graphReady || !graphState.data) {
         setCompareStatus('Wait for activity data to finish loading.', true);
         return;
       }
-      const name = this.value.trim();
-      if (!name) return;
       if (state.playerData && name.toLowerCase() === state.playerData.username.toLowerCase()) {
         setCompareStatus('Pick a different player to compare.', true);
         return;
@@ -2251,6 +2303,22 @@
     return panel;
   }
 
+  function buildPlayerQueryString() {
+    var params = new URLSearchParams();
+    var view = state.currentView || 'global';
+    if (view && view !== 'global') params.set('view', view);
+    if (compareGraph && Array.isArray(compareGraph.metrics) && compareGraph.metrics.length) {
+      var metrics = compareGraph.metrics.slice();
+      // Only encode when it's not just the saved default single metric
+      var isDefault = metrics.length === 1 && metrics[0] === _initMetric;
+      if (!isDefault) params.set('metrics', metrics.join(','));
+    }
+    if (compareGraph && compareGraph.days && compareGraph.days !== _defaultRange) {
+      params.set('range', String(compareGraph.days));
+    }
+    return params.toString();
+  }
+
   function updateHash() {
     const activeNav = document.querySelector('.nav-item.active');
     const panel     = activeNav ? activeNav.dataset.panel : 'player';
@@ -2258,7 +2326,65 @@
     if (panel === 'player' && playerInput.value.trim()) {
       path += '/' + encodeURIComponent(playerInput.value.trim());
     }
-    if (window.location.pathname !== path) history.pushState(null, '', path);
+
+    var qs = '';
+    if (panel === 'player') {
+      qs = buildPlayerQueryString();
+    } else if (panel === 'guild' && typeof window.buildGuildQueryString === 'function') {
+      qs = window.buildGuildQueryString();
+    }
+
+    var fullUrl = path + (qs ? '?' + qs : '');
+    var currentSearch = (window.location.search || '').replace(/^\?/, '');
+    if (window.location.pathname !== path) {
+      history.pushState(null, '', fullUrl);
+    } else if (currentSearch !== qs) {
+      // Same path, just state changes
+      history.replaceState(null, '', fullUrl);
+    }
+  }
+
+  function parsePlayerQueryParams(search) {
+    var sp = new URLSearchParams(search || '');
+    var rawView = (sp.get('view') || '').trim();
+    var view = PLAYER_VIEWS.indexOf(rawView) !== -1 ? rawView : null;
+
+    var metrics = null;
+    var rawMetrics = sp.get('metrics');
+    if (rawMetrics) {
+      var validKeys = GRAPH_METRICS.map(function (m) { return m.key; });
+      var requested = rawMetrics.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+      var seen = {};
+      var unique = [];
+      requested.forEach(function (k) {
+        if (validKeys.indexOf(k) === -1 || seen[k]) return;
+        seen[k] = true;
+        unique.push(k);
+      });
+      if (unique.length) metrics = unique.slice(0, 4);
+    }
+
+    var range = null;
+    var rawRange = parseInt(sp.get('range'), 10);
+    if (Number.isFinite(rawRange)) {
+      var min = parseInt(compareGraph.range.min, 10) || 2;
+      var max = parseInt(compareGraph.range.max, 10) || 60;
+      range = Math.max(min, Math.min(max, rawRange));
+    }
+
+    return { view: view, metrics: metrics, range: range };
+  }
+
+  function applyPlayerStateFromQuery(parsed) {
+    if (!parsed) return;
+    if (parsed.range != null) {
+      compareGraph.days = parsed.range;
+      compareGraph.range.value = String(parsed.range);
+      compareGraph.daysLbl.textContent = parsed.range + 'd';
+    }
+    if (parsed.view) {
+      switchView(parsed.view);
+    }
   }
 
   function navigateFromPath() {
@@ -2268,13 +2394,27 @@
     var parts    = stripped.split('/');
     var panel    = pathToPanel(parts);
     var username = (panel === 'player' && parts[1]) ? decodeURIComponent(parts[1]) : null;
+    var parsed   = panel === 'player' ? parsePlayerQueryParams(window.location.search) : null;
     if (panel === 'player' && username) {
       var currentPlayer = state.playerData ? state.playerData.username : '';
       playerInput.value = username;
       // look up if it's a different player than what's already loaded
       if (username.toLowerCase() !== currentPlayer.toLowerCase()) {
-        lookupPlayer(username);
+        lookupPlayer(username, parsed && parsed.metrics ? { graphMetrics: parsed.metrics } : null);
+      } else if (parsed && parsed.metrics && parsed.metrics.length && graphState.graphReady) {
+        // Same player already loaded so just swap the metric set immediately
+        var available = getAvailableMetrics();
+        var valid = parsed.metrics.filter(function (k) {
+          return available.some(function (m) { return m.key === k; });
+        });
+        if (valid.length) {
+          compareGraph.metrics = valid;
+          renderMetricRows();
+          refreshCompareGraph();
+        }
       }
+      // Apply view/range immediately
+      if (parsed) applyPlayerStateFromQuery(parsed);
     } else if (panel === 'player') {
       playerInput.value = '';
     }
