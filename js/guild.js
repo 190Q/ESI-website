@@ -274,6 +274,9 @@
   let guildLoaded = false;
   var _guildStatsTotalsP = null;
 
+  const GUILD_VIEWS = ['global', 'logs', 'snipes', 'statistics'];
+  let _activeGuildView = 'global';
+
   function tryLoad() {
     if (!guildLoaded) loadGuild();
   }
@@ -1382,9 +1385,6 @@
   }
 
   /* view toggle */
-  const GUILD_VIEWS = ['global', 'logs', 'snipes', 'statistics'];
-  let _activeGuildView = 'global';
-
   document.getElementById('guildViewGlobal').addEventListener('click', () => { switchGuildView('global'); _onGuildStateChanged(); });
   document.getElementById('guildViewLogs').addEventListener('click',  () => { switchGuildView('logs');   _onGuildStateChanged(); });
   document.getElementById('guildViewSnipes').addEventListener('click', () => { switchGuildView('snipes'); _onGuildStateChanged(); });
