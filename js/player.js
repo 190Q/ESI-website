@@ -620,7 +620,7 @@
       setGraphLoading(true);
       setPlayerCompareEnabled(false, 'Loading activity data\u2026');
       compareGraph.daysLbl.textContent = parseInt(compareGraph.range.value) + 'd';
-      switchView('global');
+      switchView(state.currentView || 'global');
     }
   }
 
@@ -1272,7 +1272,7 @@
     buildCharSelect(chars);
 
     document.getElementById('playerContent').style.display = 'block';
-    switchView('global');
+    switchView(state.currentView || 'global');
   }
 
   /* raid/dungeon helpers */
@@ -2092,6 +2092,7 @@
       graphState.data = data;
       compareGraph.days = parseInt(compareGraph.range.value);
       compareGraph.daysLbl.textContent = compareGraph.days + 'd';
+      var _allMetricKeys = GRAPH_METRICS.map(function (m) { return m.key; });
       if (!isRefetch) {
         applyPendingGraphFocus(
           graphFocus,
@@ -2099,8 +2100,7 @@
           username
         );
         if (requestedMetrics && requestedMetrics.length) {
-          var available = getAvailableMetrics();
-          var valid = requestedMetrics.filter(function (k) { return available.some(function (m) { return m.key === k; }); });
+          var valid = requestedMetrics.filter(function (k) { return _allMetricKeys.indexOf(k) !== -1; });
           if (valid.length) compareGraph.metrics = valid;
         }
         renderMetricRows();
@@ -2115,8 +2115,7 @@
           )
         }
         if (hasNewMetrics) {
-          var available = getAvailableMetrics();
-          var valid = requestedMetrics.filter(function (k) { return available.some(function (m) { return m.key === k; }); });
+          var valid = requestedMetrics.filter(function (k) { return _allMetricKeys.indexOf(k) !== -1; });
           if (valid.length) compareGraph.metrics = valid;
         }
         if (hasNewFocus || hasNewMetrics) renderMetricRows();
@@ -2428,6 +2427,7 @@
   new MutationObserver(function () {
     if (playerPanel.classList.contains('active')) {
       if (!state.playerData) {
+        if (searchBtn.disabled) return;
         var username = playerInput.value.trim();
         if (username) lookupPlayer(username);
       } else if (graphState.data) {

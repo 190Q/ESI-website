@@ -277,6 +277,15 @@
   const GUILD_VIEWS = ['global', 'logs', 'snipes', 'statistics'];
   let _activeGuildView = 'global';
 
+  const guildStatsState = {
+    loaded: false,
+    loading: false,
+    data: null,
+    filterRanks: new Set(),
+    filterJoinedFrom: '',
+    filterJoinedTo: '',
+  };
+
   function tryLoad() {
     if (!guildLoaded) loadGuild();
   }
@@ -944,7 +953,7 @@
 
     /* show content */
     document.getElementById('guildContent').style.display = 'block';
-    switchGuildView('global');
+    switchGuildView(_activeGuildView || 'global');
   }
 
   function renderGuildCard(data, flatMembers, onlineCount, onlinePlayers) {
@@ -1464,8 +1473,6 @@
     }
   }
 
-  // Run on initial load + popstate
-  applyGuildQueryParams();
   window.addEventListener('popstate', applyGuildQueryParams);
 
   /* activity graph */
@@ -1548,6 +1555,7 @@
   /* apply saved range default to slider */
   guildGraph.range.value = _guildDefaultRange;
   guildGraph.daysLbl.textContent = _guildDefaultRange + 'd';
+  applyGuildQueryParams();
 
   guildGraph.addBtn.addEventListener('click', addGuildMetric);
   guildGraph.range.addEventListener('input', function () {
@@ -1992,15 +2000,6 @@
     { key: 'event_points',     label: 'Event Points',      decimals: 1 },
     { key: 'quest_points',     label: 'Quest Points',      decimals: 1 },
   ];
-
-  const guildStatsState = {
-    loaded: false,
-    loading: false,
-    data: null,
-    filterRanks: new Set(),       // empty = all
-    filterJoinedFrom: '',         // ISO yyyy-mm-dd
-    filterJoinedTo: '',           // ISO yyyy-mm-dd
-  };
 
   function ensureGuildStatisticsLoaded() {
     if (guildStatsState.loading) return;
