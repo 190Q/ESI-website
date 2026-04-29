@@ -282,8 +282,9 @@
     loading: false,
     data: null,
     filterRanks: new Set(),
-    filterJoinedFrom: '',
-    filterJoinedTo: '',
+    // dates are 'YYYY-MM-DD' strings
+    filterAfter:  '',
+    filterBefore: '',
   };
 
   function tryLoad() {
@@ -2077,20 +2078,20 @@
   }
 
   function bindGuildStatsFilters() {
-    const fromEl = document.getElementById('guildStatsJoinedFrom');
-    const toEl   = document.getElementById('guildStatsJoinedTo');
-    const reset  = document.getElementById('guildStatsResetBtn');
-    if (fromEl && !fromEl.dataset.bound) {
-      fromEl.dataset.bound = '1';
-      fromEl.addEventListener('change', function () {
-        guildStatsState.filterJoinedFrom = this.value || '';
+    const afterEl  = document.getElementById('guildStatsAfter');
+    const beforeEl = document.getElementById('guildStatsBefore');
+    const reset    = document.getElementById('guildStatsResetBtn');
+    if (afterEl && !afterEl.dataset.bound) {
+      afterEl.dataset.bound = '1';
+      afterEl.addEventListener('change', function () {
+        guildStatsState.filterAfter = this.value || '';
         renderGuildStatistics();
       });
     }
-    if (toEl && !toEl.dataset.bound) {
-      toEl.dataset.bound = '1';
-      toEl.addEventListener('change', function () {
-        guildStatsState.filterJoinedTo = this.value || '';
+    if (beforeEl && !beforeEl.dataset.bound) {
+      beforeEl.dataset.bound = '1';
+      beforeEl.addEventListener('change', function () {
+        guildStatsState.filterBefore = this.value || '';
         renderGuildStatistics();
       });
     }
@@ -2098,10 +2099,10 @@
       reset.dataset.bound = '1';
       reset.addEventListener('click', function () {
         guildStatsState.filterRanks.clear();
-        guildStatsState.filterJoinedFrom = '';
-        guildStatsState.filterJoinedTo = '';
-        if (fromEl) fromEl.value = '';
-        if (toEl) toEl.value = '';
+        guildStatsState.filterAfter  = '';
+        guildStatsState.filterBefore = '';
+        if (afterEl)  afterEl.value  = '';
+        if (beforeEl) beforeEl.value = '';
         document.querySelectorAll('#guildStatsRankChips .guild-stats-rank-chip').forEach(function (el) {
           el.classList.remove('active');
         });
@@ -2110,24 +2111,29 @@
     }
   }
 
-  function statsFilterMember(m) {
-    if (guildStatsState.filterRanks.size && !guildStatsState.filterRanks.has(m.rank || '')) return false;
-    const j = m.joined;
-    if (guildStatsState.filterJoinedFrom) {
-      if (!j || j < guildStatsState.filterJoinedFrom) return false;
-    }
-    if (guildStatsState.filterJoinedTo) {
-      if (!j) return false;
-      // inclusive end-of-day comparison
-      const cutoff = guildStatsState.filterJoinedTo + 'T23:59:59.999Z';
-      if (j > cutoff) return false;
+  // Returns true if a date/datetime string falls within the active After/Before filters
+  function statsDateInRange(value) {
+    const after  = guildStatsState.filterAfter;
+    const before = guildStatsState.filterBefore;
+    if (!after && !before) return true;
+    if (!value) return false;
+    if (after && value < after) return false;
+    if (before) {
+      // inclusive end-of-day so a value on the same calendar day still passes
+      const cutoff = before + 'T23:59:59.999Z';
+      if (value > cutoff) return false;
     }
     return true;
   }
 
+  function statsFilterMember(m) {
+    if (guildStatsState.filterRanks.size && !guildStatsState.filterRanks.has(m.rank || '')) return false;
+    return statsDateInRange(m.joined);
+  }
+
   function statsFilterEvent(ev) {
     if (guildStatsState.filterRanks.size && !guildStatsState.filterRanks.has(ev.rank || '')) return false;
-    return true;
+    return statsDateInRange(ev.timestamp);
   }
 
   function statsAverage(values) {
@@ -2227,8 +2233,8 @@
       if (guildStatsState.filterRanks.size) {
         parts.push('Ranks: ' + Array.from(guildStatsState.filterRanks).map(capFirst).join(', '));
       }
-      if (guildStatsState.filterJoinedFrom) parts.push('Joined \u2265 ' + guildStatsState.filterJoinedFrom);
-      if (guildStatsState.filterJoinedTo)   parts.push('Joined \u2264 ' + guildStatsState.filterJoinedTo);
+      if (guildStatsState.filterAfter)  parts.push('After ' + guildStatsState.filterAfter);
+      if (guildStatsState.filterBefore) parts.push('Before ' + guildStatsState.filterBefore);
       summary.textContent = parts.join('  \u00b7  ');
     }
 
@@ -2269,7 +2275,8 @@
   function renderStatsQueue(queue) {
     const wrap = document.getElementById('guildStatsQueue');
     if (!wrap || !queue) return;
-    const history = Array.isArray(queue.history) ? queue.history : [];
+    const rawHistory = Array.isArray(queue.history) ? queue.history : [];
+    const history = rawHistory.filter(h => statsDateInRange(h.date || h.timestamp));
     const totals = history.map(h => Number(h.total) || 0);
     const dailyAvg = totals.length ? statsAverage(totals) : 0;
     const weeklyAvg = dailyAvg * 7;  // average people-days per week (avg daily * 7)

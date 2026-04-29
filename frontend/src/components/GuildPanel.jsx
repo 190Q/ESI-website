@@ -155,12 +155,12 @@ export default function GuildPanel() {
                     <div className="guild-stats-rank-chips" id="guildStatsRankChips" />
                   </div>
                   <div className="guild-stats-filter-group">
-                    <label className="guild-stats-filter-label" htmlFor="guildStatsJoinedFrom">Joined From</label>
-                    <input type="date" id="guildStatsJoinedFrom" className="guild-stats-date-input" />
+                    <label className="guild-stats-filter-label" htmlFor="guildStatsAfter">After</label>
+                    <input type="date" id="guildStatsAfter" className="guild-stats-date-input" />
                   </div>
                   <div className="guild-stats-filter-group">
-                    <label className="guild-stats-filter-label" htmlFor="guildStatsJoinedTo">Joined To</label>
-                    <input type="date" id="guildStatsJoinedTo" className="guild-stats-date-input" />
+                    <label className="guild-stats-filter-label" htmlFor="guildStatsBefore">Before</label>
+                    <input type="date" id="guildStatsBefore" className="guild-stats-date-input" />
                   </div>
                   <button className="guild-stats-reset-btn" id="guildStatsResetBtn" type="button">Reset</button>
                 </div>
