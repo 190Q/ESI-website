@@ -566,11 +566,13 @@
 .esi-points-popup .owed-aspects-row .owed-aspects-player-count {
   min-width: 48px;
   text-align: right;
+  white-space: nowrap;
 }
 .esi-points-popup .owed-aspects-row .owed-aspects-right > span:last-child {
-  min-width: 44px;
+  min-width: 60px;
   text-align: right;
   margin-left: 0 !important;
+  white-space: nowrap;
 }
 
 /* Non-interactive reason label inside a points history row */
