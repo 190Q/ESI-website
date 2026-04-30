@@ -131,17 +131,18 @@ body::-webkit-scrollbar-thumb:hover { background: var(--gold-light); }
   animation: wpFadeIn 0.45s ease both;
 }
 
-.wp-card::before {
-  content: '⚜';
+.wp-emblem {
   position: absolute;
-  top: -14px;
+  top: 0;
   left: 50%;
-  transform: translateX(-50%);
-  background: var(--parchment);
-  color: var(--gold);
-  font-size: 1.15rem;
-  padding: 0 12px;
-  text-shadow: 0 0 12px var(--gold-glow);
+  transform: translate(-50%, -50%);
+  height: 56px;
+  width: auto;
+  pointer-events: none;
+  filter: drop-shadow(0 0 12px var(--gold-glow));
+  user-select: none;
+  -webkit-user-drag: none;
+  z-index: 2;
 }
 
 @keyframes wpFadeIn {
