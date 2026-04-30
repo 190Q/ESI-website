@@ -1334,11 +1334,12 @@ _EVENT_AUDIENCES     = {"public", "guild_only"}
 _EVENT_DEFAULT_AUDIENCE = "public"
 _EVENT_MAX_NAME      = 120
 _EVENT_MAX_DESC      = 1000
-_EVENT_MAX_PRIZE_VAL = 9
-_EVENT_MAX_PRIZE_DSC = 50
+_EVENT_MAX_PRIZE_VAL = 40
+_EVENT_MAX_PRIZE_DSC = 150
 _EVENT_MAX_LOCATION  = 30
 _EVENT_MAX_PRIZES    = 5
-_EVENT_MAX_POSITION  = 999
+_EVENT_PARTICIPATION_POSITION = 0
+_EVENT_MAX_ESI_POINTS_VALUE   = 10000
 _EVENT_MAX_PARTICIPANTS = 99
 
 
@@ -1556,14 +1557,17 @@ def _clean_prize_entry(raw):
     if not isinstance(raw, dict):
         return None, "each prize must be an object"
 
-    # position: 1-based rank. multiple prizes may share the same position
+    # position: 0 is the participation prize, 1..N are normal placements
     raw_pos = raw.get("position", 1)
     try:
         position = int(raw_pos)
     except (TypeError, ValueError):
         return None, "prize position must be an integer"
-    if position < 1 or position > _EVENT_MAX_POSITION:
-        return None, f"prize position must be between 1 and {_EVENT_MAX_POSITION}"
+    if position < 0 or position > _EVENT_MAX_PRIZES:
+        return None, (
+            f"prize position must be between 0 (participation) and "
+            f"{_EVENT_MAX_PRIZES}"
+        )
 
     ptype = (raw.get("type") or "other").strip().lower()
     if ptype not in _EVENT_PRIZE_TYPES:
@@ -1577,6 +1581,11 @@ def _clean_prize_entry(raw):
             return None, "prize value must be a number when type is 'esi_points'"
         if n < 0:
             return None, "prize value cannot be negative"
+        if n > _EVENT_MAX_ESI_POINTS_VALUE:
+            return None, (
+                f"prize value cannot exceed {_EVENT_MAX_ESI_POINTS_VALUE} "
+                f"ESI Points"
+            )
         value = int(n) if n == int(n) else n
     else:
         v = "" if raw_value is None else str(raw_value).strip()
@@ -1675,7 +1684,7 @@ def _clean_event_payload(body, existing=None):
                 return None, err_msg
             prizes.append(cleaned)
         # Stable sort by position so 1st place is always first in storage.
-        prizes.sort(key=lambda p: p["position"])
+        prizes.sort(key=lambda p: (p["position"] == 0, p["position"]))
     out["prizes"] = prizes
 
     # Drop the deprecated single-prize fields so storage doesn't get stale.

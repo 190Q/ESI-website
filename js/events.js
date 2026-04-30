@@ -133,7 +133,17 @@
   }
 
   function placeLabel(n) {
-    return ordinal(n) + ' place';
+    var v = Number(n);
+    if (v === 0) return 'Participation Prize';
+    return ordinal(v) + ' place';
+  }
+
+  // Position 0 means participation prize
+  function prizePosition(p) {
+    if (!p) return 1;
+    var raw = Number(p.position);
+    if (!isFinite(raw)) return 1;
+    return raw < 0 ? 1 : raw;
   }
 
   // Group prizes by their position so the list view can show one row per place
@@ -141,13 +151,17 @@
     var groups = {};
     (prizes || []).forEach(function (p) {
       if (!p) return;
-      var pos = Number(p.position) || 1;
+      var pos = prizePosition(p);
       if (!groups[pos]) groups[pos] = [];
       groups[pos].push(p);
     });
     return Object.keys(groups)
       .map(Number)
-      .sort(function (a, b) { return a - b; })
+      .sort(function (a, b) {
+        if (a === 0) return 1;
+        if (b === 0) return -1;
+        return a - b;
+      })
       .map(function (pos) { return { position: pos, prizes: groups[pos] }; });
   }
 
@@ -508,7 +522,7 @@
           '<label class="inac-label">Prizes</label>' +
           '<button type="button" class="inac-btn inac-btn-secondary ev-add-prize-btn" id="evAddPrize" aria-label="Add prize">+ Add Prize</button>' +
         '</div>' +
-        '<p class="ev-prizes-hint" style="font-weight:500;">Use the place number to set ranking (1 = top, 2 = second, etc). Add multiple rows with the same place to give one person several rewards.</p>' +
+        '<p class="ev-prizes-hint" style="font-weight:500;">Use the place number to set ranking (1 = top, 2 = second, etc). Set the place to 0 to mark a prize as the participation prize. Add multiple rows with the same place to give one person several rewards.</p>' +
         '<div class="ev-prize-list" id="evPrizeList"></div>' +
         '<p class="ev-prize-empty" id="evPrizeEmpty">No prizes set. Click "Add Prize" to add one.</p>' +
       '</div>' +
@@ -530,7 +544,11 @@
   }
 
   // Build markup for a single prize row in the form
-  var MAX_PRIZES = 5;
+  var MAX_PRIZES             = 5;
+  var MAX_PRIZE_VALUE_LEN    = 40;
+  var MAX_PRIZE_DESC_LEN     = 150;
+  var MAX_ESI_POINTS_VALUE   = 10000;
+  var PARTICIPATION_POSITION = 0;
 
   function buildPrizeRowHtml(prize) {
     prize = prize || {};
@@ -552,8 +570,8 @@
         '<div class="ev-prize-cell ev-prize-cell-pos">' +
           '<label class="inac-label" for="' + esc(posId) + '">Place</label>' +
           '<input type="number" class="inac-input ev-prize-position" id="' + esc(posId) + '"' +
-            ' min="1" max="999" step="1" value="' + esc(pos) + '"' +
-            ' aria-label="Prize placement (1 = top, 2 = second, etc)" />' +
+            ' min="0" max="' + MAX_PRIZES + '" step="1" maxlength="2" value="' + esc(pos) + '"' +
+            ' aria-label="Prize placement (0 = participation, 1 = top, 2 = second, etc)" />' +
         '</div>' +
         '<div class="ev-prize-cell ev-prize-cell-type">' +
           '<label class="inac-label" for="' + esc(typeId) + '">Type</label>' +
@@ -562,13 +580,13 @@
         '<div class="ev-prize-cell ev-prize-cell-value">' +
           '<label class="inac-label" for="' + esc(valId) + '">Value</label>' +
           '<input type="text" class="inac-input ev-prize-value" id="' + esc(valId) + '"' +
-            ' maxlength="9" value="' + esc(val) + '" aria-label="Prize value" />' +
+            ' maxlength="' + MAX_PRIZE_VALUE_LEN + '" value="' + esc(val) + '" aria-label="Prize value" />' +
         '</div>' +
       '</div>' +
       '<div class="ev-prize-cell ev-prize-cell-desc">' +
         '<label class="inac-label" for="' + esc(descId) + '">Details (optional)</label>' +
         '<textarea class="inac-input ev-prize-description" id="' + esc(descId) + '"' +
-          ' rows="2" maxlength="50" placeholder="Extra prize details (markdown supported)"' +
+          ' rows="2" maxlength="' + MAX_PRIZE_DESC_LEN + '" placeholder="Extra prize details (markdown supported)"' +
           ' aria-label="Prize description">' + esc(desc) + '</textarea>' +
       '</div>' +
       '<button type="button" class="inac-remove-btn ev-prize-remove" aria-label="Remove prize" title="Remove prize">&#x2715;</button>' +
@@ -633,19 +651,53 @@
       if (t === 'esi_points') {
         valueEl.type = 'number';
         valueEl.min  = '0';
+        valueEl.max  = String(MAX_ESI_POINTS_VALUE);
         valueEl.step = '1';
         valueEl.placeholder = 'e.g. 250';
+        valueEl.setAttribute('inputmode', 'numeric');
+        valueEl.setAttribute('pattern', '[0-9]*');
+        clampEsiPointsValue(valueEl);
       } else if (t === 'item') {
         valueEl.type = 'text';
         valueEl.removeAttribute('min');
+        valueEl.removeAttribute('max');
         valueEl.removeAttribute('step');
+        valueEl.removeAttribute('inputmode');
+        valueEl.removeAttribute('pattern');
         valueEl.placeholder = 'e.g. Mythic weapon';
       } else {
         valueEl.type = 'text';
         valueEl.removeAttribute('min');
+        valueEl.removeAttribute('max');
         valueEl.removeAttribute('step');
+        valueEl.removeAttribute('inputmode');
+        valueEl.removeAttribute('pattern');
         valueEl.placeholder = 'e.g. Custom reward';
       }
+    }
+
+    // True if the ESI-Points input rules apply to this value element
+    function isEsiPointsValueEl(el) {
+      if (!el || !el.classList || !el.classList.contains('ev-prize-value')) {
+        return false;
+      }
+      var row    = el.closest('.ev-prize-row');
+      var typeEl = row && row.querySelector('.ev-prize-type');
+      return !!(typeEl && typeEl.value === 'esi_points');
+    }
+
+    // Clamp an ESI Points value field to digits-only and 0..MAX_ESI_POINTS_VALUE
+    function clampEsiPointsValue(el) {
+      if (!el) return;
+      var raw = el.value || '';
+      var digits = raw.replace(/\D+/g, '');
+      if (digits) {
+        var n = parseInt(digits, 10);
+        if (!isFinite(n) || n < 0) n = 0;
+        if (n > MAX_ESI_POINTS_VALUE) n = MAX_ESI_POINTS_VALUE;
+        digits = String(n);
+      }
+      if (raw !== digits) el.value = digits;
     }
 
     function syncPrizeEmpty() {
@@ -695,10 +747,13 @@
         // pick a default place: one above the current highest
         var maxPos = 0;
         prizeListEl.querySelectorAll('.ev-prize-position').forEach(function (el) {
-          var p = parseInt(el.value, 10) || 0;
+          var p = parseInt(el.value, 10);
+          if (!isFinite(p) || p === PARTICIPATION_POSITION) return;
           if (p > maxPos) maxPos = p;
         });
-        var row = appendPrizeRow({ position: maxPos + 1, type: 'esi_points' });
+        var nextPos = maxPos + 1;
+        if (nextPos > MAX_PRIZES) nextPos = MAX_PRIZES;
+        var row = appendPrizeRow({ position: nextPos, type: 'esi_points' });
         if (row) {
           var firstInput = row.querySelector('.ev-prize-value');
           if (firstInput) firstInput.focus();
@@ -721,26 +776,82 @@
         var row = ev.target.closest('.ev-prize-row');
         syncPrizeRowValueInput(row);
       });
+      // Clamp the place input to 0..MAX_PRIZES (0 = participation prize)
       function clampPos(el) {
         if (!el) return;
         var raw = el.value || '';
         var digits = raw.replace(/\D+/g, '');
         if (digits) {
           var n = parseInt(digits, 10);
-          if (!isFinite(n) || n < 1) n = 1;
-          if (n > 999) n = 999;
+          if (!isFinite(n) || n < 0) n = 0;
+          if (n > MAX_PRIZES) n = MAX_PRIZES;
           digits = String(n);
         }
         if (raw !== digits) el.value = digits;
       }
       prizeListEl.addEventListener('input', function (ev) {
-        if (ev.target.classList.contains('ev-prize-position')) clampPos(ev.target);
+        if (ev.target.classList.contains('ev-prize-position')) {
+          clampPos(ev.target);
+        } else if (isEsiPointsValueEl(ev.target)) {
+          clampEsiPointsValue(ev.target);
+        }
       });
+      prizeListEl.addEventListener('change', function (ev) {
+        if (isEsiPointsValueEl(ev.target)) clampEsiPointsValue(ev.target);
+      });
+      prizeListEl.addEventListener('blur', function (ev) {
+        if (isEsiPointsValueEl(ev.target)) clampEsiPointsValue(ev.target);
+      }, true);
       prizeListEl.addEventListener('keydown', function (ev) {
-        if (!ev.target.classList.contains('ev-prize-position')) return;
-        if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
-        if (ev.key.length > 1) return;
-        if (!/^[0-9]$/.test(ev.key)) ev.preventDefault();
+        // Place input: digits only
+        if (ev.target.classList.contains('ev-prize-position')) {
+          if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+          if (ev.key.length > 1) return;
+          if (!/^[0-9]$/.test(ev.key)) ev.preventDefault();
+          return;
+        }
+        // Value input: digits only when the prize type is ESI Points
+        if (isEsiPointsValueEl(ev.target)) {
+          if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+          if (ev.key.length > 1) return;
+          if (!/^[0-9]$/.test(ev.key)) ev.preventDefault();
+        }
+      });
+      prizeListEl.addEventListener('beforeinput', function (ev) {
+        if (!isEsiPointsValueEl(ev.target)) return;
+        var data = ev.data;
+        if (data == null) return; // deletions, composition end, etc
+        if (!/^[0-9]+$/.test(String(data))) ev.preventDefault();
+      });
+      // Belt-and-braces paste handler for browsers that don't fire beforeinpu
+      prizeListEl.addEventListener('paste', function (ev) {
+        if (!isEsiPointsValueEl(ev.target)) return;
+        var cd = ev.clipboardData || window.clipboardData;
+        if (!cd) return;
+        var text = '';
+        try { text = cd.getData('text') || ''; } catch (e) { return; }
+        var digits = text.replace(/\D+/g, '');
+        if (digits === text) return; // already digits-only - let it through
+        ev.preventDefault();
+        if (!digits) return;
+        var el = ev.target;
+        // Splice the sanitised digits at the current selection
+        var start = el.selectionStart != null ? el.selectionStart : el.value.length;
+        var end   = el.selectionEnd   != null ? el.selectionEnd   : el.value.length;
+        var current = el.value || '';
+        el.value = current.slice(0, start) + digits + current.slice(end);
+        try { el.setSelectionRange(start + digits.length, start + digits.length); }
+        catch (e) { /* type="number" doesn't support selection ranges */ }
+        clampEsiPointsValue(el);
+      });
+      // Drag-and-drop fallback for the same reason
+      prizeListEl.addEventListener('drop', function (ev) {
+        if (!isEsiPointsValueEl(ev.target)) return;
+        var dt = ev.dataTransfer;
+        if (!dt) return;
+        var text = '';
+        try { text = dt.getData('text') || ''; } catch (e) { return; }
+        if (/\D/.test(text)) ev.preventDefault();
       });
     }
 
@@ -1095,7 +1206,7 @@
         .map(function (p) {
           return '<div class="ev-prize-desc">' +
             '<span class="ev-prize-desc-label">' +
-              esc(placeLabel(p.position || 1) + ' \u00b7 ' + prizeTypeLabel(p.type)) +
+              esc(placeLabel(prizePosition(p)) + ' \u00b7 ' + prizeTypeLabel(p.type)) +
             '</span>' +
             renderDescription(p.description) +
           '</div>';
@@ -1315,8 +1426,10 @@
       var typeEl = row.querySelector('.ev-prize-type');
       var valEl  = row.querySelector('.ev-prize-value');
       var dscEl  = row.querySelector('.ev-prize-description');
+      // Position 0 is intentionally allowed for the participation prize
       var pos = parseInt(posEl ? posEl.value : '1', 10);
-      if (!isFinite(pos) || pos < 1) pos = 1;
+      if (!isFinite(pos) || pos < 0) pos = 1;
+      if (pos > MAX_PRIZES) pos = MAX_PRIZES;
       prizes.push({
         position:    pos,
         type:        typeEl ? typeEl.value : 'other',
@@ -1365,25 +1478,48 @@
     }
     for (var pi = 0; pi < (body.prizes || []).length; pi++) {
       var pr = body.prizes[pi] || {};
-      if (String(pr.value || '').length > 9) {
+      if (String(pr.value || '').length > MAX_PRIZE_VALUE_LEN) {
         window.showToast(
-          '\u26a0 Prize #' + (pi + 1) + ' value is too long (max 9).', 'warn'
+          '\u26a0 Prize #' + (pi + 1) + ' value is too long (max ' +
+          MAX_PRIZE_VALUE_LEN + ').',
+          'warn'
         );
         return;
       }
-      if (String(pr.description || '').length > 50) {
+      if (String(pr.description || '').length > MAX_PRIZE_DESC_LEN) {
         window.showToast(
-          '\u26a0 Prize #' + (pi + 1) + ' details are too long (max 50).', 'warn'
+          '\u26a0 Prize #' + (pi + 1) + ' details are too long (max ' +
+          MAX_PRIZE_DESC_LEN + ').',
+          'warn'
         );
         return;
       }
       var prPos = Number(pr.position);
-      if (!isFinite(prPos) || prPos < 1 || prPos > 999) {
+      if (!isFinite(prPos) || prPos < 0 || prPos > MAX_PRIZES) {
         window.showToast(
-          '\u26a0 Prize #' + (pi + 1) + ' place must be between 1 and 999.',
+          '\u26a0 Prize #' + (pi + 1) + ' place must be between 0 ' +
+          '(participation) and ' + MAX_PRIZES + '.',
           'warn'
         );
         return;
+      }
+      if (pr.type === 'esi_points') {
+        var prVal = Number(pr.value || 0);
+        if (!isFinite(prVal) || prVal < 0) {
+          window.showToast(
+            '\u26a0 Prize #' + (pi + 1) + ' value must be a non-negative number.',
+            'warn'
+          );
+          return;
+        }
+        if (prVal > MAX_ESI_POINTS_VALUE) {
+          window.showToast(
+            '\u26a0 Prize #' + (pi + 1) + ' ESI Points value cannot exceed ' +
+            MAX_ESI_POINTS_VALUE + '.',
+            'warn'
+          );
+          return;
+        }
       }
     }
 

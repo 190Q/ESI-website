@@ -87,11 +87,16 @@
     var byPos = {};
     prizes.forEach(function (p) {
       if (!p) return;
-      var pos = Number(p.position) || 1;
+      var raw = Number(p.position);
+      var pos = isFinite(raw) && raw >= 0 ? raw : 1;
       if (!byPos[pos]) byPos[pos] = [];
       byPos[pos].push(p);
     });
-    var positions = Object.keys(byPos).map(Number).sort(function (a, b) { return a - b; });
+    var positions = Object.keys(byPos).map(Number).sort(function (a, b) {
+      if (a === 0) return 1;
+      if (b === 0) return -1;
+      return a - b;
+    });
     if (!positions.length) return '';
     var top = byPos[positions[0]];
     var summary = top.map(function (p) {
@@ -103,7 +108,10 @@
       return p.value || (p.type === 'item' ? 'Item' : 'Other');
     }).join(' + ');
     var more = positions.length > 1 ? ' \u00b7 +' + (positions.length - 1) + ' more place' + (positions.length > 2 ? 's' : '') : '';
-    return ordinal(positions[0]) + ' place: ' + summary + more;
+    var label = positions[0] === 0
+      ? 'Participation Prize'
+      : ordinal(positions[0]) + ' place';
+    return label + ': ' + summary + more;
   }
 
   // Auto-link bare http(s)/www URLs by rewriting them into [url](url)

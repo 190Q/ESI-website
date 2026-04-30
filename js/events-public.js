@@ -123,7 +123,17 @@
   }
 
   function placeLabel(n) {
-    return ordinal(n) + ' place';
+    var v = Number(n);
+    if (v === 0) return 'Participation Prize';
+    return ordinal(v) + ' place';
+  }
+
+  // Position 0 = participation prize
+  function prizePosition(p) {
+    if (!p) return 1;
+    var raw = Number(p.position);
+    if (!isFinite(raw)) return 1;
+    return raw < 0 ? 1 : raw;
   }
 
   function statusLabel(status) {
@@ -152,17 +162,22 @@
     return p.value ? esc(p.value) : 'Other';
   }
 
+  // Group prizes by their position
   function groupPrizesByPosition(prizes) {
     var groups = {};
     (prizes || []).forEach(function (p) {
       if (!p) return;
-      var pos = Number(p.position) || 1;
+      var pos = prizePosition(p);
       if (!groups[pos]) groups[pos] = [];
       groups[pos].push(p);
     });
     return Object.keys(groups)
       .map(Number)
-      .sort(function (a, b) { return a - b; })
+      .sort(function (a, b) {
+        if (a === 0) return 1;
+        if (b === 0) return -1;
+        return a - b;
+      })
       .map(function (pos) { return { position: pos, prizes: groups[pos] }; });
   }
 
@@ -461,7 +476,7 @@
         .map(function (p) {
           return '<div class="ev-prize-desc">' +
             '<span class="ev-prize-desc-label">' +
-              esc(placeLabel(p.position || 1) + ' \u00b7 ' + prizeTypeLabel(p.type)) +
+              esc(placeLabel(prizePosition(p)) + ' \u00b7 ' + prizeTypeLabel(p.type)) +
             '</span>' +
             renderDescription(p.description) +
           '</div>';
