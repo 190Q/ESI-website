@@ -78,13 +78,14 @@
     }
   }
 
-  // Parse an ISO-ish datetime that the server stored as local-naive
+  // Parse a server-stored datetime (naive in the server's wall-clock
   function parseLocalDate(s) {
     if (s == null || s === '') return null;
     if (typeof s === 'number') return s * 1000;
-    var str = String(s);
-    var d = new Date(str);
-    var t = d.getTime();
+    var d = (window.ESI_TZ && window.ESI_TZ.serverStoredToDate)
+      ? window.ESI_TZ.serverStoredToDate(s)
+      : new Date(String(s));
+    var t = d ? d.getTime() : NaN;
     return isNaN(t) ? null : t;
   }
 
@@ -99,15 +100,12 @@
       .replace(/'/g, '&#39;');
   }
 
-  function fmtDateTime(iso) {
-    if (!iso) return '';
-    var d;
-    if (typeof iso === 'number') {
-      d = new Date(iso * 1000);
-    } else {
-      d = new Date(iso);
-    }
-    if (isNaN(d.getTime())) return esc(iso);
+  function fmtDateTime(stored) {
+    if (!stored) return '';
+    var d = (window.ESI_TZ && window.ESI_TZ.serverStoredToDate)
+      ? window.ESI_TZ.serverStoredToDate(stored)
+      : (typeof stored === 'number' ? new Date(stored * 1000) : new Date(stored));
+    if (!d || isNaN(d.getTime())) return esc(stored);
     return d.toLocaleString('en-GB', {
       day: 'numeric', month: 'short', year: 'numeric',
       hour: '2-digit', minute: '2-digit',

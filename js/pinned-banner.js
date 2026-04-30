@@ -58,15 +58,12 @@
     }
   }
 
-  function fmtDateTime(iso) {
-    if (!iso) return '';
-    var d;
-    if (typeof iso === 'number') {
-      d = new Date(iso * 1000);
-    } else {
-      d = new Date(iso);
-    }
-    if (isNaN(d.getTime())) return esc(iso);
+  function fmtDateTime(stored) {
+    if (!stored) return '';
+    var d = (window.ESI_TZ && window.ESI_TZ.serverStoredToDate)
+      ? window.ESI_TZ.serverStoredToDate(stored)
+      : (typeof stored === 'number' ? new Date(stored * 1000) : new Date(stored));
+    if (!d || isNaN(d.getTime())) return esc(stored);
     return d.toLocaleString('en-GB', {
       day: 'numeric', month: 'short',
       hour: '2-digit', minute: '2-digit',

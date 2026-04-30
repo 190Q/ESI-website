@@ -40,6 +40,30 @@ _SNIPES_DB              = os.path.join(_ESI_BOT_DIR, "databases", "claim_snipes.
 _USER_DB_PATH = os.path.join(_BASE_DIR, "user_data.db")
 _UPLOAD_DIR   = os.path.join(_BASE_DIR, "uploads")
 
+
+def _detect_server_tz_name():
+    env = (os.environ.get("ESI_SERVER_TIMEZONE") or os.environ.get("TZ") or "").strip()
+    if env:
+        return env
+    try:
+        link = os.readlink("/etc/localtime")
+        marker = "zoneinfo/"
+        idx = link.find(marker)
+        if idx >= 0:
+            return link[idx + len(marker):]
+    except OSError:
+        pass
+    try:
+        with open("/etc/timezone", "r", encoding="utf-8") as fh:
+            name = fh.read().strip()
+            if name:
+                return name
+    except OSError:
+        pass
+    return "UTC"
+
+_SERVER_TIMEZONE = _detect_server_tz_name()
+
 # API URLs and tokens
 
 WYNN_BASE             = "https://api.wynncraft.com/v3"
@@ -326,6 +350,7 @@ _CLIENT_CONFIG = {
     "badges":  _build_badge_catalog(),
     "guildId": DISCORD_GUILD_ID,
     "devMode": DEV_MODE,
+    "serverTimezone": _SERVER_TIMEZONE,
 }
 
 # metric keys

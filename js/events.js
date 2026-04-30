@@ -71,31 +71,98 @@
       .replace(/'/g, '&#39;');
   }
 
-  function fmtDateTime(iso) {
-    if (!iso) return '';
-    // accept both ISO strings and unix epoch seconds
-    var d;
-    if (typeof iso === 'number') {
-      d = new Date(iso * 1000);
-    } else {
-      // `datetime-local` input gives us "YYYY-MM-DDTHH:MM" with no timezone:
-      // treat those as local time.
-      d = new Date(iso);
+  var TZ_NAIVE_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
+  var TZ_AWARE_RE = /(?:[Zz]|[+-]\d{2}:?\d{2})$/;
+
+  function _serverTz() { return window.ESI_SERVER_TZ || 'UTC'; }
+
+  // Return 'YYYY-MM-DDTHH:MM' wall-clock for `date` in the given IANA zone
+  function formatInTz(date, tz) {
+    if (!date || isNaN(date.getTime())) return '';
+    try {
+      var parts = {};
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone:   tz,
+        hourCycle:  'h23',
+        year:  'numeric', month: '2-digit', day: '2-digit',
+        hour:  '2-digit', minute: '2-digit',
+      }).formatToParts(date).forEach(function (p) { parts[p.type] = p.value; });
+      var hh = parts.hour === '24' ? '00' : parts.hour;
+      return parts.year + '-' + parts.month + '-' + parts.day + 'T' + hh + ':' + parts.minute;
+    } catch (e) { return ''; }
+  }
+
+  function parseInTz(naive, tz) {
+    if (!naive) return null;
+    var m = TZ_NAIVE_RE.exec(String(naive));
+    if (!m) return null;
+    var Y = +m[1], Mo = +m[2], D = +m[3], H = +m[4], Mi = +m[5];
+    var asUtc = Date.UTC(Y, Mo - 1, D, H, Mi, 0);
+    var t = asUtc;
+    for (var i = 0; i < 2; i++) {
+      var fmt = formatInTz(new Date(t), tz);
+      var fm  = TZ_NAIVE_RE.exec(fmt);
+      if (!fm) break;
+      var fAsUtc = Date.UTC(+fm[1], +fm[2] - 1, +fm[3], +fm[4], +fm[5], 0);
+      var diff = asUtc - fAsUtc;
+      if (!diff) break;
+      t += diff;
     }
-    if (isNaN(d.getTime())) return esc(iso);
+    return new Date(t);
+  }
+
+  function serverStoredToDate(stored) {
+    if (stored == null || stored === '') return null;
+    if (typeof stored === 'number') return new Date(stored * 1000);
+    var s = String(stored).trim();
+    if (!s) return null;
+    if (TZ_AWARE_RE.test(s)) {
+      var d = new Date(s);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    return parseInTz(s, _serverTz());
+  }
+
+  // Convert a server-stored naive wall-clock to the user's local naive wall-clock
+  function serverNaiveToUserNaive(stored) {
+    var d = serverStoredToDate(stored);
+    if (!d || isNaN(d.getTime())) return '';
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+      + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  // Convert a user-local naive wall-clock
+  function userNaiveToServerNaive(userNaive) {
+    if (!userNaive) return '';
+    var s = String(userNaive).trim();
+    if (!s) return '';
+    var d = TZ_AWARE_RE.test(s) ? new Date(s) : new Date(s);
+    if (isNaN(d.getTime())) return s;
+    return formatInTz(d, _serverTz());
+  }
+
+  // Expose for the other event modules
+  window.ESI_TZ = window.ESI_TZ || {
+    serverStoredToDate:     serverStoredToDate,
+    serverNaiveToUserNaive: serverNaiveToUserNaive,
+    userNaiveToServerNaive: userNaiveToServerNaive,
+    formatInTz:             formatInTz,
+    parseInTz:              parseInTz,
+  };
+
+  function fmtDateTime(stored) {
+    if (!stored) return '';
+    var d = serverStoredToDate(stored);
+    if (!d || isNaN(d.getTime())) return esc(stored);
     return d.toLocaleString('en-GB', {
       day: 'numeric', month: 'short', year: 'numeric',
       hour: '2-digit', minute: '2-digit',
     });
   }
 
-  function isoToDatetimeLocal(iso) {
-    if (!iso) return '';
-    var d = new Date(iso);
-    if (isNaN(d.getTime())) return '';
-    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
-    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
-      + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  function isoToDatetimeLocal(stored) {
+    return serverNaiveToUserNaive(stored);
   }
 
   function prizeTypeLabel(type) {
@@ -1547,11 +1614,14 @@
     var passiveEl = document.getElementById('evPassive');
     var passive   = !!(passiveEl && passiveEl.checked);
 
+    var rawStarts = (document.getElementById('evStartsAt').value || '').trim();
+    var rawEnds   = (document.getElementById('evEndsAt').value   || '').trim();
+
     return {
       name:                (document.getElementById('evName').value             || '').trim(),
       description:         (document.getElementById('evDescription').value      || '').trim(),
-      starts_at:           (document.getElementById('evStartsAt').value         || '').trim(),
-      ends_at:             (document.getElementById('evEndsAt').value           || '').trim(),
+      starts_at:           userNaiveToServerNaive(rawStarts),
+      ends_at:             userNaiveToServerNaive(rawEnds),
       location:            location,
       location_channel_id: locationChannelId,
       max_participants:    parseInt(document.getElementById('evMaxParticipants').value, 10) || 0,

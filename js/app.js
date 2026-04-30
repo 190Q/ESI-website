@@ -232,6 +232,7 @@ var _configPromise = fetch('/api/config')
     _EVENTS_MANAGE_ANY = cfg.permissions ? cfg.permissions.eventsManageAny || [] : [];
     window.ESI_DEV_MODE     = !!cfg.devMode;
     window.ESI_DISCORD_GUILD_ID = cfg.guildId || '';
+    window.ESI_SERVER_TZ    = cfg.serverTimezone || 'UTC';
     _configLoaded     = true;
   })
   .catch(function () {});
