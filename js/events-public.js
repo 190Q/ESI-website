@@ -311,8 +311,10 @@
       return;
     }
 
+    // Passive ongoing events are intentionally excluded from the breathing-dot indicator
     var hasOngoing = _events.some(function (ev) {
-      return (ev.status || '').toLowerCase() === 'ongoing';
+      if ((ev.status || '').toLowerCase() !== 'ongoing') return false;
+      return !ev.passive;
     });
     navItem.classList.toggle('nav-item-has-ongoing', hasOngoing);
 
@@ -499,12 +501,19 @@
           '\ud83d\udd12 Guild only</span>'
         : '';
 
+      var passiveBadgeHtml = ev.passive
+        ? '<span class="ev-passive-badge"' +
+          ' title="Passive event: no breathing dot indicator while ongoing">' +
+          '\ud83d\udd15 Passive</span>'
+        : '';
+
       return '<div class="ev-row' + (isPinned ? ' ev-row-pinned' : '') + '"' +
         ' id="evp-event-' + esc(ev.id) + '">' +
         '<div class="ev-row-head">' +
           '<span class="ev-status ev-status-' + esc(status) + '">' + esc(statusLabel(status)) + '</span>' +
           pinnedBadgeHtml +
           audienceBadgeHtml +
+          passiveBadgeHtml +
           '<span class="ev-name">' + esc(ev.name || '(untitled)') + '</span>' +
         '</div>' +
         (ev.description

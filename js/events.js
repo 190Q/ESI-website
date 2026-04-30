@@ -537,6 +537,16 @@
           '<select class="inac-input ev-select" id="evAudience" aria-label="Who can see this event">' + audienceOpts + '</select>' +
         '</div>' +
       '</div>' +
+      '<div class="ev-field ev-passive-field">' +
+        '<label class="settings-toggle ev-passive-toggle" for="evPassive">' +
+          '<input type="checkbox" id="evPassive" aria-describedby="evPassiveHint" />' +
+          '<span class="settings-toggle-track" aria-hidden="true">' +
+            '<span class="settings-toggle-thumb"></span>' +
+          '</span>' +
+          '<span class="ev-passive-label">Passive event</span>' +
+        '</label>' +
+        '<p class="ev-passive-hint" id="evPassiveHint" style="font-weight:500;">When this event is ongoing, the sidebar won\u2019t show the breathing green dot. Useful for long-duration events.</p>' +
+      '</div>' +
       '<div id="evBtnRow" class="ev-btn-row">' +
         '<button class="inac-btn inac-btn-approve" id="evSubmit" style="flex:1;justify-content:center">Create Event</button>' +
       '</div>' +
@@ -1004,6 +1014,8 @@
     ids.forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ''; });
     var audience = document.getElementById('evAudience');
     if (audience) audience.value = 'public';
+    var passive = document.getElementById('evPassive');
+    if (passive) passive.checked = false;
     var statusField = document.getElementById('evStatusField');
     if (statusField) statusField.style.display = 'none';
     if (typeof window._evRenderPrizes === 'function') window._evRenderPrizes([]);
@@ -1229,11 +1241,18 @@
           '\ud83d\udd12 Guild only</span>'
         : '';
 
+      var passiveBadgeHtml = ev.passive
+        ? '<span class="ev-passive-badge"' +
+          ' title="Passive event: no breathing dot indicator while ongoing">' +
+          '\ud83d\udd15 Passive</span>'
+        : '';
+
       return '<div class="ev-row' + (isPinned ? ' ev-row-pinned' : '') + '">' +
         '<div class="ev-row-head">' +
           '<span class="ev-status ev-status-' + esc(status) + '">' + esc(statusLabel(status)) + '</span>' +
           pinnedBadgeHtml +
           audienceBadgeHtml +
+          passiveBadgeHtml +
           '<span class="ev-name">' + esc(ev.name || '(untitled)') + '</span>' +
           btnsHtml +
         '</div>' +
@@ -1441,6 +1460,9 @@
     var audienceEl = document.getElementById('evAudience');
     var audience   = audienceEl ? (audienceEl.value || 'public') : 'public';
 
+    var passiveEl = document.getElementById('evPassive');
+    var passive   = !!(passiveEl && passiveEl.checked);
+
     return {
       name:                (document.getElementById('evName').value             || '').trim(),
       description:         (document.getElementById('evDescription').value      || '').trim(),
@@ -1451,6 +1473,7 @@
       max_participants:    parseInt(document.getElementById('evMaxParticipants').value, 10) || 0,
       prizes:              prizes,
       audience:            audience,
+      passive:             passive,
     };
   }
 
@@ -1590,6 +1613,8 @@
     renderStatusEditor(ev);
     var audEl = document.getElementById('evAudience');
     if (audEl) audEl.value = ev.audience || 'public';
+    var passiveEl = document.getElementById('evPassive');
+    if (passiveEl) passiveEl.checked = !!ev.passive;
 
     var header = document.getElementById('evFormHeader');
     if (header) header.innerHTML = '&#x270e; Edit Event';

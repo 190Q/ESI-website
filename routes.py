@@ -1549,6 +1549,7 @@ def _event_public_view(event):
         "status":              event.get("status", "upcoming"),
         "pinned_at":           event.get("pinned_at", 0),
         "audience":            (event.get("audience") or _EVENT_DEFAULT_AUDIENCE),
+        "passive":             bool(event.get("passive")),
     }
 
 
@@ -1742,6 +1743,10 @@ def _clean_event_payload(body, existing=None):
         return None, f"Invalid audience. Must be one of {sorted(_EVENT_AUDIENCES)}"
     out["audience"] = audience
 
+    # Optional `passive` flag: a passive ongoing event won't trigger the breathing-dot sidebar indicator
+    raw_passive = body.get("passive", existing.get("passive", False))
+    out["passive"] = bool(raw_passive)
+
     return out, None
 
 
@@ -1847,6 +1852,7 @@ def events_create():
     event["updated_at"]    = now
     event["status"]        = "upcoming"
     event["status_forced"] = False
+    event.setdefault("passive", False)
     _auto_transition_event_status(event)
     data[event_id] = event
     _save_json_file(_EVENTS_JSON, data)
