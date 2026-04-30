@@ -2594,6 +2594,26 @@ def guild_statistics():
     member_history = tracked.get("member_history", {}) or {}
     joined_by_uuid = {}
     joined_by_username = {}
+
+    prev_members = ((tracked.get("previous_data") or {}).get("members") or {})
+    if isinstance(prev_members, dict):
+        for rank_list in prev_members.values():
+            if not isinstance(rank_list, list):
+                continue
+            for entry in rank_list:
+                if not isinstance(entry, dict):
+                    continue
+                joined = entry.get("joined")
+                if not joined:
+                    continue
+                uuid = entry.get("uuid")
+                username = (entry.get("username") or "").lower()
+                if uuid:
+                    joined_by_uuid[uuid] = joined
+                if username:
+                    joined_by_username[username] = joined
+
+    # member_history acts as a fallback for anyone missing from the snapshot above
     for entry in member_history.values():
         if not isinstance(entry, dict):
             continue
@@ -2604,9 +2624,9 @@ def guild_statistics():
             continue
         uuid = entry.get("uuid")
         username = (entry.get("username") or "").lower()
-        if uuid:
+        if uuid and uuid not in joined_by_uuid:
             joined_by_uuid[uuid] = joined
-        if username:
+        if username and username not in joined_by_username:
             joined_by_username[username] = joined
 
     snipes_by_uuid = _load_snipes_by_uuid()

@@ -2117,11 +2117,17 @@
     const before = guildStatsState.filterBefore;
     if (!after && !before) return true;
     if (!value) return false;
-    if (after && value < after) return false;
+    // Normalise to a comparable ISO datetime
+    const valueStr = String(value);
+    if (after) {
+      // "after" is exclusive of values strictly before the start-of-day cutoff
+      const afterCutoff = after + 'T00:00:00.000Z';
+      if (valueStr < afterCutoff) return false;
+    }
     if (before) {
       // inclusive end-of-day so a value on the same calendar day still passes
-      const cutoff = before + 'T23:59:59.999Z';
-      if (value > cutoff) return false;
+      const beforeCutoff = before + 'T23:59:59.999Z';
+      if (valueStr > beforeCutoff) return false;
     }
     return true;
   }
@@ -2253,14 +2259,27 @@
   function renderStatsRankDistribution(members) {
     const wrap = document.getElementById('guildStatsRankDist');
     if (!wrap) return;
-    if (!members.length) { wrap.innerHTML = '<div class="guild-stats-empty">No members match the current filters.</div>'; return; }
+
+    if (!members.length) {
+      wrap.innerHTML = '<div class="guild-stats-empty">No members match the current filters.</div>';
+      return;
+    }
+
+    // Sort current players by their join date (newest first) before tallying
+    const sorted = members.slice().sort(function (a, b) {
+      const aj = a.joined || '';
+      const bj = b.joined || '';
+      if (aj === bj) return 0;
+      return aj < bj ? 1 : -1;
+    });
+
     const counts = {};
     STATS_RANK_ORDER.forEach(r => counts[r] = 0);
-    members.forEach(m => {
+    sorted.forEach(m => {
       const r = m.rank || 'recruit';
       counts[r] = (counts[r] || 0) + 1;
     });
-    const total = members.length;
+    const total = sorted.length;
     let html = '';
     STATS_RANK_ORDER.forEach(function (r) {
       const v = counts[r] || 0;
