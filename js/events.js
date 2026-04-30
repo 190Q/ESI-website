@@ -28,6 +28,7 @@
   var _activeToast    = null;
   var _voiceChannels  = [];
   var _voiceFetched   = false;
+  var _pendingStatus  = null;
 
   // Persisted collapse state for the manage-events status sections
   var COLLAPSE_KEY = 'esi.eventsManageCollapse';
@@ -1037,22 +1038,34 @@
     var allowed = Array.isArray(ev.allowed_status_transitions)
       ? ev.allowed_status_transitions.slice()
       : [];
+    var canManageAny = (typeof window.hasEventsManageAny === 'function') && window.hasEventsManageAny();
+    var canSwitchToAuto = !!ev.status_forced && (
+      canManageAny || (currentStatus !== 'completed' && currentStatus !== 'cancelled')
+    );
 
-    select.innerHTML =
-      '<option value="" selected disabled>' + esc(currentLabel) + '</option>' +
-      allowed.map(function (s) {
+    _pendingStatus = null;
+
+    var transitionOpts = allowed
+      .filter(function (s) { return s !== currentStatus; })
+      .map(function (s) {
         return '<option value="' + esc(s) + '">' + esc(statusLabel(s)) + '</option>';
-      }).join('');
+      })
+      .join('');
+    select.innerHTML =
+      '<option value="" selected>' + esc(currentLabel) + '</option>' +
+      (canSwitchToAuto
+        ? '<option value="auto">Auto (resume from times)</option>'
+        : '') +
+      transitionOpts;
     select.value = '';
-    select.disabled = !allowed.length;
+    select.disabled = !transitionOpts && !canSwitchToAuto;
     select.title = ev.status_forced
       ? 'This status was set manually and won\u2019t auto-update.'
       : 'Status is computed from “Starts at” and “Ends at”.';
 
     if (hintEl) {
-      var canManageAny = (typeof window.hasEventsManageAny === 'function') && window.hasEventsManageAny();
       var hint = '';
-      if (!allowed.length) {
+      if (!allowed.length && !canSwitchToAuto) {
         hint = (currentStatus === 'completed' || currentStatus === 'cancelled')
           ? 'This event is closed.'
           : 'No status changes are available for this event.';
@@ -1064,18 +1077,89 @@
     }
 
     select.onchange = function () {
-      var target = select.value;
-      if (!target || !_editingId) return;
-      var canManageAny = (typeof window.hasEventsManageAny === 'function') && window.hasEventsManageAny();
-      var msg = canManageAny
-        ? 'Set status to ' + statusLabel(target) + '?'
-        : 'Set status to ' + statusLabel(target) + '? You won\u2019t be able to change it back.';
-      if (!window.confirm(msg)) {
-        select.value = '';
-        return;
-      }
-      select.disabled = true;
-      changeStatus(_editingId, target);
+      _pendingStatus = select.value || null;
+    };
+  }
+
+  /* custom confirm modal (used at save-time for status changes) */
+
+  function ensureStatusConfirmModal() {
+    var bd = document.getElementById('evConfirmBackdrop');
+    if (bd) return bd;
+    bd = document.createElement('div');
+    bd.id = 'evConfirmBackdrop';
+    bd.className = 'modal-backdrop ev-confirm-backdrop';
+    bd.innerHTML =
+      '<div class="modal ev-confirm-modal">' +
+        '<button class="modal-close" id="evConfirmClose" aria-label="Close">\u2715</button>' +
+        '<h2 class="modal-title" id="evConfirmTitle">Confirm status change</h2>' +
+        '<p class="modal-sub" id="evConfirmMessage" style="font-weight:500"></p>' +
+        '<div class="ev-confirm-btns" style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">' +
+          '<button type="button" class="inac-btn inac-btn-secondary" id="evConfirmCancel">Cancel</button>' +
+          '<button type="button" class="inac-btn inac-btn-deny"      id="evConfirmOk">Save &amp; confirm</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(bd);
+    if (window.Popup && typeof window.Popup.register === 'function') {
+      window.Popup.register(bd, { closeBtn: '#evConfirmClose' });
+    }
+    return bd;
+  }
+
+  function showStatusConfirm(opts) {
+    opts = opts || {};
+    var bd = ensureStatusConfirmModal();
+    var titleEl  = bd.querySelector('#evConfirmTitle');
+    var msgEl    = bd.querySelector('#evConfirmMessage');
+    var okBtn    = bd.querySelector('#evConfirmOk');
+    var cancelBtn= bd.querySelector('#evConfirmCancel');
+    var closeBtn = bd.querySelector('#evConfirmClose');
+    if (titleEl)  titleEl.textContent  = opts.title    || 'Confirm status change';
+    if (msgEl)    msgEl.textContent    = opts.message  || '';
+    if (okBtn)    okBtn.textContent    = opts.okLabel  || 'Save & confirm';
+    if (cancelBtn) cancelBtn.textContent = opts.cancelLabel || 'Cancel';
+
+    function close() {
+      if (window.Popup) window.Popup.close(bd);
+      else              bd.classList.remove('open');
+    }
+    function settle(confirmed) {
+      okBtn.onclick     = null;
+      cancelBtn.onclick = null;
+      if (closeBtn) closeBtn.onclick = null;
+      close();
+      if (confirmed && typeof opts.onConfirm === 'function') opts.onConfirm();
+      else if (!confirmed && typeof opts.onCancel === 'function') opts.onCancel();
+    }
+    okBtn.onclick     = function () { settle(true);  };
+    cancelBtn.onclick = function () { settle(false); };
+    if (closeBtn) closeBtn.onclick = function () { settle(false); };
+
+    if (window.Popup) window.Popup.open(bd);
+    else              bd.classList.add('open');
+  }
+
+  function buildStatusConfirmCopy(target) {
+    var canManageAny = (typeof window.hasEventsManageAny === 'function') && window.hasEventsManageAny();
+    if (target === 'auto') {
+      return {
+        title:   'Resume automatic status?',
+        message: 'This event\u2019s status will be derived again from “Starts at” / “Ends at”. ' +
+                 'You can force a status again later.',
+      };
+    }
+    var label = statusLabel(target);
+    if (canManageAny) {
+      return {
+        title:   'Set status to ' + label + '?',
+        message: 'You\u2019re about to mark this event as ' + label + '. ' +
+                 'It won\u2019t auto-update from the start/end times until you switch it back to Auto.',
+      };
+    }
+    return {
+      title:   'Set status to ' + label + '?',
+      message: 'You won\u2019t be able to change this event\u2019s status back. ' +
+               'Make sure you really want to mark it as ' + label + ' before saving.',
     };
   }
 
@@ -1547,9 +1631,26 @@
     }
 
     var btn = document.getElementById('evSubmit');
+    var pendingStatus = _editingId ? _pendingStatus : null;
+    if (pendingStatus) {
+      var copy = buildStatusConfirmCopy(pendingStatus);
+      showStatusConfirm({
+        title:    copy.title,
+        message:  copy.message,
+        onConfirm: function () { _performSave(body, pendingStatus); },
+        onCancel:  function () { /* leave the form open so the user can tweak */ },
+      });
+      return;
+    }
+    _performSave(body, null);
+  }
+
+  function _performSave(body, pendingStatus) {
+    var btn = document.getElementById('evSubmit');
     btn.disabled = true;
     var url    = _editingId ? '/api/events/' + encodeURIComponent(_editingId) : '/api/events';
     var method = _editingId ? 'PATCH' : 'POST';
+    var editingId = _editingId;
 
     fetch(url, {
       method:      method,
@@ -1559,12 +1660,35 @@
     })
     .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
     .then(function (res) {
-      btn.disabled = false;
       if (!res.ok) {
+        btn.disabled = false;
         window.showToast('\u26a0 ' + ((res.data && res.data.error) || 'Failed to save event.'), 'error');
-        return;
+        return null;
       }
-      window.showToast((_editingId ? 'Updated ' : 'Created ') + (res.data.name || 'event') + '.', 'success');
+      if (!pendingStatus || !editingId) return res;
+      // Chain the status change on top of the successful event save
+      return fetch('/api/events/' + encodeURIComponent(editingId) + '/status', {
+        method:      'PATCH',
+        credentials: 'same-origin',
+        headers:     { 'Content-Type': 'application/json' },
+        body:        JSON.stringify({ status: pendingStatus }),
+      })
+        .then(function (r2) { return r2.json().then(function (d2) { return { ok: r2.ok, data: d2 }; }); })
+        .then(function (res2) {
+          if (!res2.ok) {
+            window.showToast(
+              '\u26a0 Event saved, but status update failed: ' +
+              ((res2.data && res2.data.error) || 'Unknown error.'),
+              'warn'
+            );
+          }
+          return res2.ok ? res2 : res;
+        });
+    })
+    .then(function (res) {
+      if (!res) return; // hard failure already toasted above
+      btn.disabled = false;
+      window.showToast((editingId ? 'Updated ' : 'Created ') + (res.data.name || 'event') + '.', 'success');
       cancelEdit();
       loadEvents();
     })
@@ -1638,6 +1762,7 @@
 
   function cancelEdit() {
     _editingId = null;
+    _pendingStatus = null;
     resetFormDefaults();
     var header = document.getElementById('evFormHeader');
     if (header) header.innerHTML = 'Create Event';

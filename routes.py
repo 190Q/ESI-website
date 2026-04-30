@@ -1929,6 +1929,9 @@ def events_set_status(event_id):
 
     Sets `status_forced=True` so the auto-transition pass leaves the new
     value alone. Allowed transitions are gated by `_allowed_manual_statuses`.
+
+    A special target of `"auto"` clears the forced flag and resumes
+    auto-derived status from starts_at / ends_at.
     """
     user, err = _require_role(_EVENTS_ACCESS)
     if err:
@@ -1943,6 +1946,30 @@ def events_set_status(event_id):
         data[event_id] = ev
     body = request.get_json(silent=True) or {}
     target = (body.get("status") or "").strip().lower()
+    user_roles = set(user.get("roles") or [])
+    if target == "auto":
+        if not ev.get("status_forced"):
+            out = dict(ev)
+            _migrate_legacy_prize(out)
+            out["can_manage"]    = True
+            out["status_forced"] = False
+            return jsonify(out)
+        current = (ev.get("status") or "upcoming").strip().lower()
+        if current in ("completed", "cancelled") and not (user_roles & _EVENTS_MANAGE_ANY):
+            return jsonify({
+                "error": "This event is closed and can only be reopened by an Event Manager or Parliament.",
+            }), 403
+        ev["status_forced"] = False
+        _auto_transition_event_status(ev)
+        ev["updated_at"]    = time()
+        _enforce_pin_invariants(ev)
+        data[event_id] = ev
+        _save_json_file(_EVENTS_JSON, data)
+        out = dict(ev)
+        _migrate_legacy_prize(out)
+        out["can_manage"]    = True
+        out["status_forced"] = bool(ev.get("status_forced"))
+        return jsonify(out)
     if target not in _EVENT_STATUSES:
         return jsonify({"error": f"Invalid status. Must be one of {sorted(_EVENT_STATUSES)}"}), 400
     current = (ev.get("status") or "upcoming").strip().lower()
