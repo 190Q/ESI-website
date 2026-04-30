@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wynn Piece - Empire of Sindria</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="stylesheet" href="/wynnpiece/css/wynnpiece.css" />
+</head>
+<body>
+  <main class="wp-stage" id="wp-root">
+    <section class="wp-card wp-state" id="wp-loading" aria-live="polite">
+      <div class="wp-ornament wp-ornament-top"></div>
+      <h1 class="wp-title">Wynn Piece</h1>
+      <p class="wp-subtitle">Preparing the expedition&hellip;</p>
+      <div class="wp-ornament wp-ornament-bottom"></div>
+    </section>
+
+    <section class="wp-card wp-state hidden" id="wp-locked" aria-live="polite">
+      <div class="wp-ornament wp-ornament-top"></div>
+      <h1 class="wp-title">Wynn Piece</h1>
+      <p class="wp-subtitle">A special event of the Empire of Sindria</p>
+      <p class="wp-message">
+        You must be logged in to participate in this event.
+      </p>
+      <button type="button" class="wp-btn wp-btn-discord" id="wp-login-btn">
+        <span id="wp-login-btn-label">Login with Discord</span>
+      </button>
+      <div class="wp-ornament wp-ornament-bottom"></div>
+    </section>
+
+    <section class="wp-card wp-state hidden" id="wp-content" aria-live="polite">
+      <div class="wp-ornament wp-ornament-top"></div>
+      <h1 class="wp-title">Wynn Piece</h1>
+      <p class="wp-subtitle">Welcome, <span id="wp-username"></span></p>
+      <p class="wp-message">
+        The Wynn Piece event is being prepared. Full details and the
+        experience itself will appear here once the expedition launches.
+      </p>
+      <p class="wp-meta">Stay tuned, adventurer.</p>
+      <div class="wp-ornament wp-ornament-bottom"></div>
+    </section>
+  </main>
+  <script src="/wynnpiece/js/wynnpiece.js"></script>
+</body>
+</html>

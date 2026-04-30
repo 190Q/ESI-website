@@ -193,8 +193,8 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 # static file gating
 
-_ALLOWED_STATIC_PREFIXES = ("/css/", "/js/", "/images/", "/assets/", "/public/")
-_ALLOWED_STATIC_FILES    = ("/index.html", "/favicon.ico")
+_ALLOWED_STATIC_PREFIXES = ("/css/", "/js/", "/images/", "/assets/", "/public/", "/wynnpiece/")
+_ALLOWED_STATIC_FILES    = ("/index.html", "/favicon.ico", "/wynnpiece")
 _SPA_PANELS              = ("player", "guild", "bot", "inactivity", "promotions", "events")
 
 # WordPress-probe detection: any hit on one of these paths is almost
@@ -494,6 +494,16 @@ def index():
 @app.route("/events/<path:_path>")
 def spa_route(_path=None):
     return send_from_directory(_BASE_DIR, "index.html")
+
+
+# Wynn Piece special-event landing page (standalone, not part of the SPA)
+@app.route("/wynnpiece")
+@app.route("/wynnpiece/")
+def wynnpiece():
+    return send_from_directory(
+        os.path.join(_BASE_DIR, "wynnpiece", "html"),
+        "wynnpiece.html",
+    )
 
 
 @app.route("/uploads/<string:filename>")

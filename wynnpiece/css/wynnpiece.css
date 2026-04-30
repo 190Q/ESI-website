@@ -1,0 +1,261 @@
+@font-face {
+  font-family: 'Cinzel Decorative';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/public/fonts/cinzel-decorative-v19-latin-regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Cinzel Decorative';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/public/fonts/cinzel-decorative-v19-latin-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Cinzel Decorative';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('/public/fonts/cinzel-decorative-v19-latin-900.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Cinzel';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/public/fonts/cinzel-v26-latin-regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Cinzel';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/public/fonts/cinzel-v26-latin-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Cinzel';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/public/fonts/cinzel-v26-latin-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Crimson Pro';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/public/fonts/crimson-pro-v28-latin-regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Crimson Pro';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/public/fonts/crimson-pro-v28-latin-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Crimson Pro';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/public/fonts/crimson-pro-v28-latin-italic.woff2') format('woff2');
+}
+
+/* Shared design tokens */
+:root {
+  --gold:        #D4A017;
+  --gold-light:  #F0C040;
+  --gold-dim:    #c28e16;
+  --gold-glow:   rgba(212, 160, 23, 0.25);
+  --green-dark:  #1A3A1A;
+  --green-mid:   #2A5A2A;
+  --green-deep:  #0F2210;
+  --parchment:   #0D1A0D;
+  --surface:     #142114;
+  --surface-2:   #1C2E1C;
+  --surface-3:   #243624;
+  --text-main:   #E8D8A0;
+  --text-dim:    #8faa90;
+  --text-faint:  #849b6e;
+  --border:      rgba(212, 160, 23, 0.18);
+  --border-mid:  rgba(212, 160, 23, 0.35);
+  --discord:     #5865F2;
+  --radius:      6px;
+  --transition:  0.22s ease;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { height: 100%; }
+
+body {
+  font-family: 'Crimson Pro', Georgia, serif;
+  background-color: var(--parchment);
+  color: var(--text-main);
+  min-height: 100vh;
+  overflow-x: hidden;
+  background-image:
+    radial-gradient(ellipse at 80% 0%, rgba(42,90,42,0.18) 0%, transparent 55%),
+    radial-gradient(ellipse at 20% 90%, rgba(212,160,23,0.06) 0%, transparent 45%);
+}
+
+body::-webkit-scrollbar { width: 6px; height: 6px; }
+body::-webkit-scrollbar-track { background: var(--green-deep); }
+body::-webkit-scrollbar-thumb { background: var(--gold-dim); border-radius: 3px; }
+body::-webkit-scrollbar-thumb:hover { background: var(--gold-light); }
+
+.wp-stage {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  position: relative;
+}
+
+/* Card */
+.wp-card {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--green-deep) 100%);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  padding: 48px 44px 40px;
+  max-width: 560px;
+  width: 100%;
+  text-align: center;
+  position: relative;
+  box-shadow:
+    0 24px 48px rgba(0, 0, 0, 0.55),
+    0 0 0 1px var(--border),
+    0 0 36px rgba(212, 160, 23, 0.08);
+  animation: wpFadeIn 0.45s ease both;
+}
+
+.wp-card::before {
+  content: '⚜';
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--parchment);
+  color: var(--gold);
+  font-size: 1.15rem;
+  padding: 0 12px;
+  text-shadow: 0 0 12px var(--gold-glow);
+}
+
+@keyframes wpFadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Top/bottom ornamental bands */
+.wp-ornament {
+  height: 3px;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0px,
+    transparent 8px,
+    var(--gold-dim) 8px,
+    var(--gold-dim) 10px
+  );
+  opacity: 0.45;
+  margin: 0 auto;
+  width: 80%;
+}
+.wp-ornament-top { margin-bottom: 28px; }
+.wp-ornament-bottom { margin-top: 28px; }
+
+/* Title */
+.wp-title {
+  font-family: 'Cinzel Decorative', serif;
+  font-size: 2.4rem;
+  font-weight: 900;
+  color: var(--gold-light);
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 20px rgba(212, 160, 23, 0.35);
+  margin-bottom: 8px;
+  line-height: 1.05;
+}
+
+.wp-subtitle {
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 22px;
+}
+
+#wp-username {
+  color: var(--gold-light);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.wp-message {
+  font-family: 'Crimson Pro', Georgia, serif;
+  font-size: 1.02rem;
+  line-height: 1.6;
+  color: var(--text-main);
+  margin: 0 auto 24px;
+  max-width: 440px;
+}
+
+.wp-meta {
+  font-family: 'Crimson Pro', Georgia, serif;
+  font-style: italic;
+  font-size: 0.92rem;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+/* Button */
+.wp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 11px 26px;
+  border-radius: var(--radius);
+  font-family: 'Cinzel', serif;
+  font-size: 0.86rem;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+  transition: all var(--transition);
+  text-transform: uppercase;
+}
+
+.wp-btn-discord {
+  background: var(--discord);
+  color: #ffffff;
+  box-shadow: 0 2px 12px rgba(88, 101, 242, 0.35);
+}
+.wp-btn-discord:hover {
+  background: #6875f5;
+  box-shadow: 0 4px 20px rgba(88, 101, 242, 0.55);
+  transform: translateY(-1px);
+}
+.wp-btn-discord:active {
+  transform: translateY(0);
+}
+
+/* State visibility */
+.wp-state.hidden { display: none; }
+
+/* Loading state - dim subtitle */
+#wp-loading .wp-subtitle {
+  color: var(--text-faint);
+  letter-spacing: 0.18em;
+}
+
+@media (max-width: 520px) {
+  .wp-stage { padding: 32px 16px; }
+  .wp-card { padding: 36px 22px 30px; }
+  .wp-title { font-size: 1.9rem; }
+  .wp-subtitle { font-size: 0.74rem; letter-spacing: 0.18em; }
+  .wp-message { font-size: 0.96rem; }
+}
