@@ -363,6 +363,9 @@ def _gate_requests():
         elif cf_skip:
             _log_cf_skip(peer, reason)
 
+    # Wynnpiece requests: skip all scanner/injection blacklisting
+    _is_wp = path.startswith("/wynnpiece") or path.startswith("/api/wynnpiece")
+
     # reject banned IPs immediately
     if _HAS_BAN and ip and is_banned(ip):
         print(
@@ -372,7 +375,7 @@ def _gate_requests():
         )
         abort(403)
     # HTTP methods only scanners / attackers send (XST, WebDAV, proxy abuse)
-    if request.method.upper() in _BANNED_METHODS:
+    if not _is_wp and request.method.upper() in _BANNED_METHODS:
         print(
             f"[IP-BAN] gate: banned-method trigger  ip={ip}  peer={peer}  "
             f"method={request.method}  cf_skip={cf_skip}  has_ban={_HAS_BAN}",
@@ -382,41 +385,42 @@ def _gate_requests():
         _do_blacklist(f"Banned method: {request.method}")
         abort(403)
     # Request smuggling: both Content-Length and Transfer-Encoding present
-    if request.headers.get("Transfer-Encoding") and request.headers.get("Content-Length"):
+    if not _is_wp and request.headers.get("Transfer-Encoding") and request.headers.get("Content-Length"):
         _do_blacklist("Request smuggling: CL + TE")
         abort(400)
     path = request.path
-    # HTTP/1.0 direct to the gateway (no upstream proxy header) is a scanner
-    # fingerprint, real browsers are 1.1+, and nginx/Cloudflare always set
-    # X-Forwarded-For.  Insta-blacklist.
-    protocol = request.environ.get("SERVER_PROTOCOL", "")
-    if protocol == "HTTP/1.0" and not request.headers.get("X-Forwarded-For"):
-        _do_blacklist(f"Non-human pattern: direct {protocol} request")
-        abort(403)
-    # WordPress probe → instant permanent blacklist
-    if _WORDPRESS_PATH_RE.search(path):
-        _do_blacklist(f"WordPress probe: {path}")
-        abort(403)
-    # Generic exploit-scanner probe -> instant permanent blacklist
-    if _SCANNER_PATH_RE.search(path):
-        _do_blacklist(f"Scanner probe: {path}")
-        abort(403)
-    # Injection / traversal payload in URL or query string
-    try:
-        qs = request.query_string.decode("utf-8", "replace")
-    except Exception:
-        qs = ""
-    raw = path + ("?" + qs if qs else "")
-    if _INJECTION_RE.search(raw):
-        _do_blacklist(f"Injection payload: {path}")
-        abort(403)
-    # Debugger / profiler trigger probe (Xdebug / Zend / Symfony / Laravel)
-    if _DEBUG_PROBE_RE.search(raw):
-        _do_blacklist(f"Debugger probe: {path}?{qs}" if qs else f"Debugger probe: {path}")
-        abort(403)
-    # block dotfiles
-    if "/." in path or path.startswith("."):
-        abort(403)
+    if not _is_wp:
+        # HTTP/1.0 direct to the gateway (no upstream proxy header) is a scanner
+        # fingerprint, real browsers are 1.1+, and nginx/Cloudflare always set
+        # X-Forwarded-For.  Insta-blacklist.
+        protocol = request.environ.get("SERVER_PROTOCOL", "")
+        if protocol == "HTTP/1.0" and not request.headers.get("X-Forwarded-For"):
+            _do_blacklist(f"Non-human pattern: direct {protocol} request")
+            abort(403)
+        # WordPress probe → instant permanent blacklist
+        if _WORDPRESS_PATH_RE.search(path):
+            _do_blacklist(f"WordPress probe: {path}")
+            abort(403)
+        # Generic exploit-scanner probe -> instant permanent blacklist
+        if _SCANNER_PATH_RE.search(path):
+            _do_blacklist(f"Scanner probe: {path}")
+            abort(403)
+        # Injection / traversal payload in URL or query string
+        try:
+            qs = request.query_string.decode("utf-8", "replace")
+        except Exception:
+            qs = ""
+        raw = path + ("?" + qs if qs else "")
+        if _INJECTION_RE.search(raw):
+            _do_blacklist(f"Injection payload: {path}")
+            abort(403)
+        # Debugger / profiler trigger probe (Xdebug / Zend / Symfony / Laravel)
+        if _DEBUG_PROBE_RE.search(raw):
+            _do_blacklist(f"Debugger probe: {path}?{qs}" if qs else f"Debugger probe: {path}")
+            abort(403)
+        # block dotfiles
+        if "/." in path or path.startswith("."):
+            abort(403)
     # API and auth go through the proxy routes below
     if path.startswith(("/api/", "/auth/")):
         return
@@ -429,6 +433,12 @@ def _gate_requests():
     if path in _ALLOWED_STATIC_FILES:
         return
     if any(path.startswith(p) for p in _ALLOWED_STATIC_PREFIXES):
+        # block sensitive files inside allowed prefixes
+        if path.startswith("/wynnpiece/") and path.rsplit(".", 1)[-1] in ("db", "py", "db-shm", "db-wal"):
+            abort(403)
+        # block direct access to wynnpiece attachments (served via gated route)
+        if path.startswith("/wynnpiece/attachments/"):
+            abort(403)
         return
     # allow SPA panel routes (e.g. /player/190Q, /guild, /bot)
     stripped = path.strip("/").split("/")[0]
@@ -446,14 +456,15 @@ def _after_request(response):
     # Don't feed strikes against the Cloudflare edge itself.
     peer = request.environ.get("REMOTE_ADDR") or request.remote_addr
     strike_ip = ip if not (_is_cloudflare_peer(peer) and ip == peer) else None
-    # record strikes for the ip ban system
-    if _HAS_BAN and strike_ip:
+    # record strikes for the ip ban system (skip for wynnpiece paths)
+    _is_wp = request.path.startswith("/wynnpiece") or request.path.startswith("/api/wynnpiece")
+    if _HAS_BAN and strike_ip and not _is_wp:
         if response.status_code == 403:
             record_strike(strike_ip, "blocked")
         elif response.status_code == 429:
             record_strike(strike_ip, "rate_limit")
-    # only log blocked requests to DB + access.log
-    if _HAS_LOGGER and response.status_code == 403:
+    # only log blocked requests to DB + access.log (skip for wynnpiece)
+    if _HAS_LOGGER and response.status_code == 403 and not _is_wp:
         _log_blocked(
             ip=ip,
             method=request.method,
