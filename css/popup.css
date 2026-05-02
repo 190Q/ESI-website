@@ -116,5 +116,7 @@
  * Body scroll lock - single mechanism used by the shared Popup JS.
  * ------------------------------------------------------------------------- */
 body.popup-scroll-lock {
-  overflow: hidden;
+  position: fixed;
+  overflow-y: scroll;
+  width: 100%;
 }

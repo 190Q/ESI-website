@@ -21,9 +21,17 @@
 
   var openStack = [];   // stack of currently-open elements (top = last opened)
   var registry  = new WeakMap();  // element -> options record
+  var _savedScrollY = 0;  // scroll position saved when the first popup opens
 
-  function _lockBody()   { document.body.classList.add('popup-scroll-lock'); }
-  function _unlockBody() { document.body.classList.remove('popup-scroll-lock'); }
+  function _lockBody() {
+    document.body.style.top = '-' + _savedScrollY + 'px';
+    document.body.classList.add('popup-scroll-lock');
+  }
+  function _unlockBody() {
+    document.body.classList.remove('popup-scroll-lock');
+    document.body.style.top = '';
+    window.scrollTo(0, _savedScrollY);
+  }
 
   function _syncScrollLock() {
     if (openStack.length === 0) _unlockBody();
@@ -36,6 +44,10 @@
 
   function open(el, opts) {
     if (!el || isOpen(el)) return;
+    // capture scroll position before the first popup locks the body
+    if (openStack.length === 0) {
+      _savedScrollY = window.pageYOffset || document.documentElement.scrollTop;
+    }
     el.classList.add('open');
     // also open the paired overlay if one was registered
     var record = registry.get(el);
