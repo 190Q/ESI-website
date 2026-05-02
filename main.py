@@ -435,7 +435,7 @@ def _gate_requests():
         return
     if any(path.startswith(p) for p in _ALLOWED_STATIC_PREFIXES):
         # block sensitive files inside allowed prefixes
-        if path.startswith("/wynnpiece/") and path.rsplit(".", 1)[-1] in ("db", "py", "db-shm", "db-wal"):
+        if path.startswith("/wynnpiece/") and path.rsplit(".", 1)[-1] in ("db", "py", "db-shm", "db-wal", "json"):
             abort(403)
         # block direct access to wynnpiece attachments (served via gated route)
         if path.startswith("/wynnpiece/attachments/"):
