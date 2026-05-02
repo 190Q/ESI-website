@@ -62,8 +62,11 @@ app.config["SESSION_COOKIE_SECURE"] = DISCORD_REDIRECT_URI.startswith("https://"
 
 os.makedirs(_UPLOAD_DIR, exist_ok=True)
 
-from wynnpiece.routes import bp as _wp_bp
-app.register_blueprint(_wp_bp)
+try:
+    from wynnpiece.routes import bp as _wp_bp
+    app.register_blueprint(_wp_bp)
+except ImportError:
+    pass
 
 
 # cache service helpers
