@@ -363,6 +363,8 @@ def _gate_requests():
         elif cf_skip:
             _log_cf_skip(peer, reason)
 
+    path = request.path
+
     # Wynnpiece requests: skip all scanner/injection blacklisting
     _is_wp = path.startswith("/wynnpiece") or path.startswith("/api/wynnpiece")
 
@@ -388,7 +390,6 @@ def _gate_requests():
     if not _is_wp and request.headers.get("Transfer-Encoding") and request.headers.get("Content-Length"):
         _do_blacklist("Request smuggling: CL + TE")
         abort(400)
-    path = request.path
     if not _is_wp:
         # HTTP/1.0 direct to the gateway (no upstream proxy header) is a scanner
         # fingerprint, real browsers are 1.1+, and nginx/Cloudflare always set
