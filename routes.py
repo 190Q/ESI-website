@@ -40,6 +40,7 @@ from config import (
     _PARLIAMENT_PLUS, _JUROR_PLUS, _CHIEF_PLUS, _CITIZEN_PLUS,
     _EVENTS_ACCESS, _EVENTS_MANAGE_ANY,
     _CLIENT_CONFIG,
+    _TICKET_GUILD_ID, _STAFF_ROLE_DEFS,
     PLAYER_BULK_METRIC_KEYS, GUILD_BULK_METRIC_KEYS,
     BOT_SCREEN_SESSION, TRACKER_SCREEN_SESSION, TRACKER_SCREEN_SPECS,
     DEV_MODE,
@@ -384,11 +385,63 @@ def _after(response):
     return response
 
 
+# staff roles (fetched from ticket server)
+
+_staff_roles_cache = {"data": None, "ts": 0}
+_STAFF_ROLES_TTL = 300
+
+
+def _fetch_staff_roles():
+    now = time()
+    cached = _staff_roles_cache
+    if cached["data"] is not None and now - cached["ts"] < _STAFF_ROLES_TTL:
+        return cached["data"]
+    try:
+        members = []
+        after = "0"
+        while True:
+            resp = requests.get(
+                f"{DISCORD_API}/guilds/{_TICKET_GUILD_ID}/members",
+                params={"limit": 1000, "after": after},
+                headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+                timeout=10,
+            )
+            if not resp.ok:
+                break
+            batch = resp.json()
+            if not batch:
+                break
+            members.extend(batch)
+            if len(batch) < 1000:
+                break
+            after = batch[-1]["user"]["id"]
+        result = []
+        for rd in _STAFF_ROLE_DEFS:
+            role_members = [
+                m["user"]["id"] for m in members
+                if rd["role_id"] in m.get("roles", [])
+            ]
+            result.append({
+                "name": rd["name"],
+                "color": rd["color"],
+                "members": role_members,
+            })
+        cached["data"] = result
+        cached["ts"] = now
+        return result
+    except Exception as exc:
+        import sys
+        print(f"[STAFF] Failed to fetch staff roles: {exc}", file=sys.stderr)
+        return cached["data"] or []
+
+
 # public config endpoint
 
 @app.route("/api/config")
 def client_config():
-    return jsonify(_CLIENT_CONFIG)
+    cfg = dict(_CLIENT_CONFIG)
+    cfg["staffRoles"] = _fetch_staff_roles()
+    return jsonify(cfg)
 
 
 # OAuth2 auth routes

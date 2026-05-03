@@ -112,6 +112,14 @@ _ROLE_CITIZEN    = "554889169705500672"
 _ROLE_GRAND_DUKE = "1396112289832243282"
 _ROLE_ARCHDUKE   = "554514823191199747"
 
+# Ticket-server staff roles
+_TICKET_GUILD_ID = "1448532791686860923"
+_STAFF_ROLE_DEFS = [
+    {"role_id": "1448533030091227227", "name": "Bot Owner",    "color": "#ec00ad"},
+    {"role_id": "1464696049896788104", "name": "Developer",    "color": "#0896d3"},
+    {"role_id": "1464695189380530423", "name": "User Support", "color": "#4933c5"},
+]
+
 # Events-panel roles
 _ROLE_PRIDE             = "683448131148447929"
 _ROLE_EVENT_MANAGER     = "1390342794056569033"
@@ -325,11 +333,7 @@ _CLIENT_CONFIG = {
         "eventsAccess":    list(_EVENTS_ACCESS),
         "eventsManageAny": list(_EVENTS_MANAGE_ANY),
     },
-    "staffRoles": [
-        {"name": "Bot Owner",    "color": "#ec00ad", "members": ["967867229410574340"]},
-        {"name": "Developer",    "color": "#0896d3", "members": ["454260696172068879"]},
-        {"name": "User Support", "color": "#4933c5", "members": ["516954338225160195"]},
-    ],
+    "staffRoles": [],  # populated dynamically by routes.py from ticket server
     "rankRoles": [
         {"id": "554506531949772812",  "name": "Emperor",    "color": "#5c11ad"},
         {"id": "554514823191199747",  "name": "Archduke",   "color": "#b5fff6"},

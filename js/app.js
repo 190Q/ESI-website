@@ -251,11 +251,10 @@ function renderAccountModalRoles(userRoles, userId) {
   if (!el) return;
   el.innerHTML = '';
 
-  // Staff badges (set manually by user ID)
+  // Staff badge
   if (userId) {
-    ESI_STAFF_ROLES.forEach(function(role) {
-      if (role.members.includes(userId)) el.appendChild(_esiRoleBadgeEl(role.name, role.color, true));
-    });
+    var _staffRole = ESI_STAFF_ROLES.find(function(role) { return role.members.includes(userId); });
+    if (_staffRole) el.appendChild(_esiRoleBadgeEl(_staffRole.name, _staffRole.color, true));
   }
 
   // Upper Echelon: Parliament supersedes Congress; Juror shown independently
