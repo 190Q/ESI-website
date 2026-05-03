@@ -26,6 +26,11 @@ app = Flask(__name__)
 _bulk_playtime_cache = {"data": None, "debug": None, "ts": 0}
 _bulk_playtime_lock  = threading.Lock()
 
+# TTL cache for non-guild player playtime lookups
+_nonguild_pt_cache = {}
+_nonguild_pt_lock  = threading.Lock()
+_NONGUILD_PT_TTL   = 300
+
 
 # bulk computation (transplanted verbatim from server.py)
 
@@ -703,6 +708,73 @@ def cache_activity_debug():
     return jsonify({})
 
 
+def _read_nonguild_playtime(ulow):
+    """Read playtime history for a non-guild player from the raw playtime databases."""
+    from datetime import datetime as _dt
+    from concurrent.futures import ThreadPoolExecutor
+
+    now = time()
+    with _nonguild_pt_lock:
+        cached = _nonguild_pt_cache.get(ulow)
+        if cached and now - cached[0] < _NONGUILD_PT_TTL:
+            return cached[1]
+
+    tracking_folder = os.path.join(_ESI_BOT_DIR, "databases", "playtime_tracking")
+    if not os.path.isdir(tracking_folder):
+        return None
+
+    day_entries = []
+    for name in os.listdir(tracking_folder):
+        if not name.startswith("playtime_"):
+            continue
+        path = os.path.join(tracking_folder, name)
+        if not os.path.isdir(path):
+            continue
+        date_str = name.replace("playtime_", "")
+        try:
+            day_dt = _dt.strptime(date_str, "%d-%m-%Y")
+        except ValueError:
+            continue
+        files = sorted(f for f in os.listdir(path) if f.endswith(".db"))
+        if files:
+            day_entries.append((day_dt, os.path.join(path, files[-1])))
+
+    if not day_entries:
+        return None
+
+    day_entries.sort(key=lambda x: x[0])
+    day_entries = day_entries[-60:]
+
+    def read_single(db_path):
+        try:
+            c = _sqlite3.connect(db_path, check_same_thread=False)
+            row = c.execute(
+                "SELECT playtime_seconds FROM playtime WHERE LOWER(username) = ?",
+                (ulow,),
+            ).fetchone()
+            c.close()
+            return round(row[0] / 3600, 1) if row else 0.0
+        except Exception:
+            return 0.0
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        data = list(ex.map(read_single, [db for _, db in day_entries]))
+
+    dates = [d.date().isoformat() for d, _ in day_entries]
+    has_data = any(v > 0 for v in data)
+    result = {"username": ulow, "data": data, "dates": dates} if has_data else None
+
+    with _nonguild_pt_lock:
+        _nonguild_pt_cache[ulow] = (now, result)
+        if len(_nonguild_pt_cache) > 500:
+            cutoff = now - _NONGUILD_PT_TTL * 2
+            stale = [k for k, v in _nonguild_pt_cache.items() if v[0] < cutoff]
+            for k in stale:
+                del _nonguild_pt_cache[k]
+
+    return result
+
+
 @app.route("/cache/activity/member/<username>")
 def cache_activity_member(username):
     ulow = username.lower()
@@ -711,6 +783,10 @@ def cache_activity_member(username):
     member = (bulk.get("members") or {}).get(ulow)
     if member:
         return jsonify(member)
+    # Fallback: read playtime from raw databases for non-guild players
+    result = _read_nonguild_playtime(ulow)
+    if result:
+        return jsonify(result)
     return jsonify(None)
 
 
