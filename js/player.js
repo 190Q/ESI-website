@@ -699,17 +699,14 @@
   function formatInt(n) { return Number(n || 0).toLocaleString(); }
   function capFirstSimple(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 
-  /* decorations (Discord medals + badge pills) */
+  /* decorations (Discord medals) */
   var _decorationsReq = 0;
   function clearPlayerDecorations() {
     var medalsEl = document.getElementById('playerMedalsRow');
-    var badgesEl = document.getElementById('playerBadgesCol');
     if (medalsEl) medalsEl.textContent = '';
-    if (badgesEl) badgesEl.textContent = '';
   }
-  function renderPlayerDecorations(medals, badges) {
+  function renderPlayerDecorations(medals) {
     var medalsEl = document.getElementById('playerMedalsRow');
-    var badgesEl = document.getElementById('playerBadgesCol');
     if (medalsEl) {
       medalsEl.textContent = '';
       (medals || []).slice(0, 8).forEach(function (m) {
@@ -724,19 +721,6 @@
         medalsEl.appendChild(wrap);
       });
     }
-    if (badgesEl) {
-      badgesEl.textContent = '';
-      (badges || []).slice(0, 4).forEach(function (b) {
-        var pill = document.createElement('span');
-        pill.className = 'profile-badge-pill';
-        var colour = b.colour || '#b68344';
-        pill.style.color = colour;
-        pill.style.background = colour + '22';
-        pill.style.borderColor = colour + '66';
-        pill.textContent = b.label || '';
-        badgesEl.appendChild(pill);
-      });
-    }
   }
   function fetchPlayerDecorations(username) {
     if (!username) { clearPlayerDecorations(); return; }
@@ -747,7 +731,7 @@
         // only apply if this is still the latest lookup
         if (reqId !== _decorationsReq) return;
         if (!data) { clearPlayerDecorations(); return; }
-        renderPlayerDecorations(data.medals || [], data.badges || []);
+        renderPlayerDecorations(data.medals || []);
       })
       .catch(function () {
         if (reqId === _decorationsReq) clearPlayerDecorations();

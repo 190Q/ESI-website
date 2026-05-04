@@ -204,7 +204,7 @@
   }
 
 
-// role config — loaded from /api/config (single source of truth on the server)
+// role config - loaded from /api/config (single source of truth on the server)
 var ESI_STAFF_ROLES   = [];
 var ESI_RANK_ROLES    = [];
 var ESI_ECHELON_ROLES = [];
@@ -226,6 +226,7 @@ var _configPromise = fetch('/api/config')
     ESI_CITIZEN_ROLE  = cfg.citizenRole  || ESI_CITIZEN_ROLE;
     ESI_MEDALS        = cfg.medals       || [];
     ESI_BADGES        = cfg.badges       || [];
+    _ESI_APP_FORMS    = cfg.applicationForms || {};
     _PARLIAMENT_PLUS  = cfg.permissions  ? cfg.permissions.parliamentPlus || [] : [];
     _JUROR_PLUS       = cfg.permissions  ? cfg.permissions.jurorPlus || [] : [];
     _EVENTS_ACCESS    = cfg.permissions  ? cfg.permissions.eventsAccess || [] : [];
@@ -237,52 +238,505 @@ var _configPromise = fetch('/api/config')
   })
   .catch(function () {});
 
-function _esiRoleBadgeEl(name, color, large) {
-  var span = document.createElement('span');
-  span.className = 'account-role-badge';
-  span.style.cssText = 'color:' + color + ';background:' + color + '22;border-color:' + color + '66;'
-    + (large ? 'font-size:0.78rem;font-weight:600;padding:5px 18px;' : 'font-size:0.67rem;padding:3px 12px;');
-  span.textContent = name;
-  return span;
+/* Account modal tab switching */
+document.getElementById('accountModalTabs').addEventListener('click', function (e) {
+  var btn = e.target.closest('.account-tab');
+  if (!btn) return;
+  var tab = btn.getAttribute('data-acctab');
+  if (!tab) return;
+  document.querySelectorAll('.account-tab').forEach(function (t) { t.classList.remove('active'); });
+  btn.classList.add('active');
+  document.querySelectorAll('.account-tab-panel').forEach(function (p) { p.classList.remove('active'); });
+  var panel = document.getElementById('accountTab' + tab.charAt(0).toUpperCase() + tab.slice(1));
+  if (panel) panel.classList.add('active');
+  // lazy-fetch badge progress on first open
+  if (tab === 'badges' && !_badgeProgressFetched) _fetchBadgeProgress();
+});
+
+var _badgeProgressData = null;
+var _badgeProgressFetched = false;
+var _ESI_APP_FORMS = {};
+
+function _renderAccountModal(userRoles) {
+  _renderRankTree(userRoles);
+  _renderEchelonGrid(userRoles);
+  // reset badge fetch so it re-fetches on next tab open
+  _badgeProgressFetched = false;
+  _badgeProgressData = null;
+  _renderBadges(userRoles, null);
 }
 
-function renderAccountModalRoles(userRoles, userId) {
-  var el = document.getElementById('accountModalRoles');
-  if (!el) return;
-  el.innerHTML = '';
+function _fetchBadgeProgress() {
+  _badgeProgressFetched = true;
+  fetch('/api/me/badge-progress', { credentials: 'same-origin' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      if (!data || !data.linked) return;
+      _badgeProgressData = data.counts || {};
+      if (state.user) _renderBadges(state.user.roles || [], _badgeProgressData);
+    })
+    .catch(function () {});
+}
 
-  // Staff badge
-  if (userId) {
-    var _staffRole = ESI_STAFF_ROLES.find(function(role) { return role.members.includes(userId); });
-    if (_staffRole) el.appendChild(_esiRoleBadgeEl(_staffRole.name, _staffRole.color, true));
+/* Info tooltip (shared by rank tree + echelon) */
+var _infoTooltipEl = (function () {
+  var el = document.createElement('div');
+  el.className = 'account-info-tooltip';
+  el.style.display = 'none';
+  document.body.appendChild(el);
+  return el;
+})();
+var _infoTooltipHideTimer = null;
+var _infoTooltipVisible = false;
+
+function _showInfoTooltip(anchor, data) {
+  clearTimeout(_infoTooltipHideTimer);
+  _infoTooltipEl.innerHTML = '';
+
+  var title = document.createElement('div');
+  title.className = 'account-info-tooltip-title';
+  title.textContent = data.title || '';
+  _infoTooltipEl.appendChild(title);
+
+  var body = document.createElement('div');
+  body.className = 'account-info-tooltip-body';
+  body.textContent = data.body || '';
+  _infoTooltipEl.appendChild(body);
+
+  if (data.extra) {
+    var extra = document.createElement('div');
+    extra.className = 'account-info-tooltip-extra';
+    extra.textContent = data.extra;
+    _infoTooltipEl.appendChild(extra);
   }
 
-  // Upper Echelon: Parliament supersedes Congress; Juror shown independently
-  var _echelonIds = ESI_ECHELON_ROLES.map(function(r) { return r.id; });
-  var _valaendorId = _PARLIAMENT_PLUS.find(function(id) { return !_echelonIds.includes(id); }) || '';
-  var _parli = ESI_ECHELON_ROLES.find(function(r) { return r.name === 'Parliament'; });
-  var _cong  = ESI_ECHELON_ROLES.find(function(r) { return r.name === 'Congress'; });
-  var _jur   = ESI_ECHELON_ROLES.find(function(r) { return r.name === 'Juror'; });
-  var hasValaendor  = _valaendorId && userRoles.includes(_valaendorId);
-  var hasParliament = _parli ? userRoles.includes(_parli.id) : false;
-  var hasCongress   = _cong  ? userRoles.includes(_cong.id)  : false;
-  var hasJuror      = _jur   ? userRoles.includes(_jur.id)   : false;
-  if (hasValaendor) {
-    el.appendChild(_esiRoleBadgeEl('\ud83d\udc51 Valaendor', '#7744b6', true));
-  } else if (hasParliament) {
-    el.appendChild(_esiRoleBadgeEl('\ud83c\udfdb\ufe0f Parliament', '#afb3d1', true));
-  } else if (hasCongress) {
-    el.appendChild(_esiRoleBadgeEl('\ud83c\udff5\ufe0f Congress', '#7289da', true));
-  }
-  if (hasJuror && !hasParliament && !hasCongress) {
-    el.appendChild(_esiRoleBadgeEl('\u2696 Juror', '#ffc332', true));
+  _infoTooltipEl.style.display = 'block';
+  _infoTooltipVisible = true;
+
+  // position to the right of the modal (or left if no room)
+  var modal = anchor.closest('.account-modal');
+  var modalRect = modal ? modal.getBoundingClientRect() : null;
+  var anchorRect = anchor.getBoundingClientRect();
+  var margin = 10;
+  var tw = _infoTooltipEl.offsetWidth;
+  var th = _infoTooltipEl.offsetHeight;
+
+  var top = anchorRect.top;
+  var left;
+
+  if (modalRect && modalRect.right + margin + tw < window.innerWidth) {
+    // place to the right of the modal
+    left = modalRect.right + margin;
+  } else if (modalRect && modalRect.left - margin - tw > 0) {
+    // place to the left of the modal
+    left = modalRect.left - tw - margin;
+  } else {
+    // fallback: below the element
+    top = anchorRect.bottom + 6;
+    left = anchorRect.left;
+    if (left + tw > window.innerWidth - margin) left = window.innerWidth - tw - margin;
   }
 
-  // Highest rank only (shown below Upper Echelon)
-  var rank = ESI_RANK_ROLES.find(function(r) { return userRoles.includes(r.id); });
-  if (rank) el.appendChild(_esiRoleBadgeEl(rank.name, rank.color, false));
+  // keep within viewport vertically
+  if (top + th > window.innerHeight - margin) top = window.innerHeight - th - margin;
+  if (top < margin) top = margin;
+  if (left < margin) left = margin;
 
-  el.style.display = el.children.length ? '' : 'none';
+  _infoTooltipEl.style.top = top + 'px';
+  _infoTooltipEl.style.left = left + 'px';
+}
+
+function _hideInfoTooltip() {
+  clearTimeout(_infoTooltipHideTimer);
+  _infoTooltipHideTimer = setTimeout(function () {
+    _infoTooltipEl.style.display = 'none';
+    _infoTooltipVisible = false;
+  }, 120);
+}
+
+_infoTooltipEl.addEventListener('mouseenter', function () { clearTimeout(_infoTooltipHideTimer); });
+_infoTooltipEl.addEventListener('mouseleave', _hideInfoTooltip);
+
+function _attachInfoTooltip(element, data) {
+  element.addEventListener('mouseenter', function () { _showInfoTooltip(element, data); });
+  element.addEventListener('mouseleave', _hideInfoTooltip);
+}
+
+/* Rank Progression Tree */
+function _renderRankTree(userRoles) {
+  var container = document.getElementById('accountRankTree');
+  if (!container) return;
+  container.innerHTML = '';
+
+  var ranks = (ESI_RANK_ROLES || []).slice().reverse();
+  var userRankIdx = -1;
+  for (var i = ranks.length - 1; i >= 0; i--) {
+    if (userRoles.includes(ranks[i].id)) { userRankIdx = i; break; }
+  }
+
+  // the rank one step above the user's current rank
+  var nextRankIdx = userRankIdx + 1;
+
+  ranks.forEach(function(r, idx) {
+    var node = document.createElement('div');
+    node.className = 'rank-tree-node';
+    if (idx === userRankIdx)    node.classList.add('rank-tree-node--current');
+    else if (idx < userRankIdx) node.classList.add('rank-tree-node--completed');
+    else                        node.classList.add('rank-tree-node--locked');
+
+    if (idx > 0) {
+      var line = document.createElement('div');
+      line.className = 'rank-tree-line';
+      if (idx <= userRankIdx) line.classList.add('rank-tree-line--filled');
+      container.appendChild(line);
+    }
+
+    var dot = document.createElement('div');
+    dot.className = 'rank-tree-dot';
+    dot.style.borderColor = r.color;
+    if (idx <= userRankIdx) dot.style.background = r.color;
+
+    var info = document.createElement('div');
+    info.className = 'rank-tree-info';
+    var nameRow = document.createElement('div');
+    nameRow.className = 'rank-tree-name';
+    nameRow.style.color = r.color;
+    nameRow.textContent = (r.icon || '') + ' ' + r.name;
+    var sub = document.createElement('div');
+    sub.className = 'rank-tree-ingame';
+    sub.textContent = r.ingame || '';
+    info.appendChild(nameRow);
+    info.appendChild(sub);
+
+    // description
+    if (r.desc) {
+      var descEl = document.createElement('div');
+      descEl.className = 'rank-tree-desc';
+      descEl.textContent = r.desc;
+      info.appendChild(descEl);
+    }
+
+    // hover tooltip for full description
+    if (r.fullDesc) {
+      var tooltipData = { title: r.icon + ' ' + r.name, body: r.fullDesc };
+      if (r.promotion && r.promotion.hint) {
+        tooltipData.extra = r.promotion.hint;
+      }
+      _attachInfoTooltip(node, tooltipData);
+    }
+
+    // promotion info - show on the rank directly above the user's current rank
+    if (idx === nextRankIdx && nextRankIdx < ranks.length && r.promotion) {
+      var promo = r.promotion;
+      var promoWrap = document.createElement('div');
+      promoWrap.className = 'rank-tree-promo';
+
+      var hintEl = document.createElement('span');
+      hintEl.className = 'rank-tree-promo-hint';
+      hintEl.textContent = promo.hint || '';
+      promoWrap.appendChild(hintEl);
+
+      if (promo.method === 'apply' && promo.formType && _ESI_APP_FORMS[promo.formType]) {
+        var applyBtn = document.createElement('button');
+        applyBtn.className = 'rank-tree-apply-btn';
+        applyBtn.textContent = 'Apply';
+        applyBtn.setAttribute('data-form-type', promo.formType);
+        applyBtn.addEventListener('click', function () { _openApplyForm(promo.formType); });
+        promoWrap.appendChild(applyBtn);
+      }
+      info.appendChild(promoWrap);
+    }
+
+    node.appendChild(dot);
+    node.appendChild(info);
+    container.appendChild(node);
+  });
+}
+
+/* Upper Echelon Grid */
+function _renderEchelonGrid(userRoles) {
+  var container = document.getElementById('accountEchelonGrid');
+  if (!container) return;
+  container.innerHTML = '';
+
+  (ESI_ECHELON_ROLES || []).forEach(function(role) {
+    var has = userRoles.includes(role.id);
+    var card = document.createElement('div');
+    card.className = 'echelon-card' + (has ? ' echelon-card--active' : '');
+    card.style.setProperty('--ec-color', role.color);
+
+    var icon = document.createElement('div');
+    icon.className = 'echelon-card-icon';
+    icon.textContent = role.icon || '';
+    var name = document.createElement('div');
+    name.className = 'echelon-card-name';
+    name.textContent = role.name;
+    var desc = document.createElement('div');
+    desc.className = 'echelon-card-desc';
+    desc.textContent = role.desc || '';
+
+    // hover tooltip for full description
+    if (role.fullDesc) {
+      _attachInfoTooltip(card, { title: role.icon + ' ' + role.name, body: role.fullDesc });
+    }
+
+    card.appendChild(icon);
+    card.appendChild(name);
+    card.appendChild(desc);
+
+    // Apply button for echelon roles that support it
+    if (role.applyForm && !has && _ESI_APP_FORMS[role.applyForm]) {
+      var form = _ESI_APP_FORMS[role.applyForm];
+      // check rank requirement
+      var meetsRank = !form.requireRank || _userHasMinRank(userRoles, form.requireRank);
+      if (meetsRank) {
+        var ecApply = document.createElement('button');
+        ecApply.className = 'echelon-apply-btn';
+        ecApply.textContent = 'Apply';
+        ecApply.style.setProperty('--ec-color', role.color);
+        ecApply.addEventListener('click', function () { _openApplyForm(role.applyForm); });
+        card.appendChild(ecApply);
+      }
+    }
+
+    container.appendChild(card);
+  });
+}
+
+/* rank requirement check */
+function _userHasMinRank(userRoles, minRankName) {
+  if (!minRankName) return true;
+  var target = minRankName.toLowerCase();
+  var ranks = ESI_RANK_ROLES || [];
+  var targetIdx = -1;
+  for (var i = 0; i < ranks.length; i++) {
+    if (ranks[i].name.toLowerCase() === target) { targetIdx = i; break; }
+  }
+  if (targetIdx < 0) return false;
+  // ranks are highest-first; user needs any role at targetIdx or lower index
+  for (var j = 0; j <= targetIdx; j++) {
+    if (userRoles.includes(ranks[j].id)) return true;
+  }
+  return false;
+}
+
+/* Application form */
+var _applyFormType = null;
+
+function _openApplyForm(formType) {
+  var form = _ESI_APP_FORMS[formType];
+  if (!form) return;
+  _applyFormType = formType;
+
+  // hide tabs + tab panels, show the form
+  document.getElementById('accountModalTabs').style.display = 'none';
+  document.querySelectorAll('.account-tab-panel').forEach(function (p) { p.style.display = 'none'; });
+  var formEl = document.getElementById('accountApplyForm');
+  formEl.style.display = '';
+
+  document.getElementById('accountApplyTitle').textContent = form.title;
+  var qContainer = document.getElementById('accountApplyQuestions');
+  qContainer.innerHTML = '';
+
+  // requirements box
+  var reqs = form.requirements || [];
+  if (reqs.length) {
+    var reqBox = document.createElement('div');
+    reqBox.className = 'apply-requirements';
+    var reqTitle = document.createElement('div');
+    reqTitle.className = 'apply-requirements-title';
+    reqTitle.textContent = 'Requirements';
+    reqBox.appendChild(reqTitle);
+    reqs.forEach(function (r) {
+      var li = document.createElement('div');
+      li.className = 'apply-requirements-item';
+      li.textContent = r;
+      reqBox.appendChild(li);
+    });
+    qContainer.appendChild(reqBox);
+  }
+
+  (form.questions || []).forEach(function (q, idx) {
+    var wrap = document.createElement('div');
+    wrap.className = 'apply-question';
+    var label = document.createElement('label');
+    label.className = 'apply-question-label';
+    label.textContent = (idx + 1) + '. ' + q;
+    label.setAttribute('for', 'applyQ' + idx);
+    var textarea = document.createElement('textarea');
+    textarea.className = 'apply-question-input';
+    textarea.id = 'applyQ' + idx;
+    textarea.rows = 3;
+    textarea.maxLength = 2000;
+    textarea.placeholder = 'Your answer\u2026';
+    wrap.appendChild(label);
+    wrap.appendChild(textarea);
+    qContainer.appendChild(wrap);
+  });
+  var submitBtn = document.getElementById('accountApplySubmit');
+  submitBtn.disabled = false;
+  submitBtn.textContent = 'Submit Application';
+
+  // scroll to top
+  document.getElementById('accountModalBody').scrollTop = 0;
+}
+
+function _closeApplyForm() {
+  _applyFormType = null;
+  document.getElementById('accountApplyForm').style.display = 'none';
+  document.getElementById('accountModalTabs').style.display = '';
+  document.querySelectorAll('.account-tab-panel').forEach(function (p) { p.style.display = ''; });
+}
+
+document.getElementById('accountApplyBack').addEventListener('click', _closeApplyForm);
+
+var _applyConfirmPending = false;
+
+document.getElementById('accountApplySubmit').addEventListener('click', function () {
+  if (!_applyFormType) return;
+  var form = _ESI_APP_FORMS[_applyFormType];
+  if (!form) return;
+  var answers = [];
+  var allFilled = true;
+  (form.questions || []).forEach(function (_, idx) {
+    var el = document.getElementById('applyQ' + idx);
+    var val = el ? el.value.trim() : '';
+    if (!val) allFilled = false;
+    answers.push(val);
+  });
+  if (!allFilled) {
+    showToast('\u26a0 Please answer all questions.', 'warn');
+    return;
+  }
+
+  var submitBtn = document.getElementById('accountApplySubmit');
+
+  // first click: ask to confirm
+  if (!_applyConfirmPending) {
+    _applyConfirmPending = true;
+    submitBtn.textContent = 'Are you sure? Click again to confirm';
+    submitBtn.classList.add('account-apply-submit--confirm');
+    // reset after 5s if they don't click again
+    setTimeout(function () {
+      if (_applyConfirmPending) {
+        _applyConfirmPending = false;
+        submitBtn.textContent = 'Submit Application';
+        submitBtn.classList.remove('account-apply-submit--confirm');
+      }
+    }, 5000);
+    return;
+  }
+
+  // second click: actually submit
+  _applyConfirmPending = false;
+  submitBtn.classList.remove('account-apply-submit--confirm');
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Submitting\u2026';
+
+  fetch('/api/applications', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type: _applyFormType, answers: answers }),
+  })
+  .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+  .then(function (result) {
+    if (result.ok) {
+      showToast('\u2713 Application submitted!', 'success');
+      _closeApplyForm();
+    } else {
+      showToast('\u26a0 ' + (result.data.error || 'Failed to submit.'), 'warn');
+    }
+  })
+  .catch(function () {
+    showToast('\u26a0 Network error. Please try again.', 'warn');
+  })
+  .finally(function () {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Submit Application';
+  });
+});
+
+/* Badges (progress bar) */
+function _renderBadges(userRoles, counts) {
+  var container = document.getElementById('accountBadges');
+  if (!container) return;
+  container.innerHTML = '';
+
+  (ESI_BADGES || []).forEach(function(cat) {
+    var tiers = (cat.tiers || []).slice().reverse(); // low-to-high
+    var countKey = cat.countKey || '';
+    var currentCount = counts ? (counts[countKey] || 0) : null;
+
+    // find highest owned tier
+    var ownedIdx = -1;
+    for (var i = tiers.length - 1; i >= 0; i--) {
+      if (userRoles.includes(tiers[i].role_id)) { ownedIdx = i; break; }
+    }
+
+    var row = document.createElement('div');
+    row.className = 'badge-row';
+
+    // header: label + current tier
+    var header = document.createElement('div');
+    header.className = 'badge-row-header';
+    var label = document.createElement('span');
+    label.className = 'badge-row-label';
+    label.textContent = cat.singular || cat.label;
+    header.appendChild(label);
+    var tierText = document.createElement('span');
+    tierText.className = 'badge-row-tier';
+    if (ownedIdx >= 0) {
+      tierText.textContent = tiers[ownedIdx].tier_name;
+      tierText.style.color = tiers[ownedIdx].colour || '#b68344';
+    } else {
+      tierText.textContent = 'No badge';
+      tierText.style.color = 'var(--text-faint)';
+    }
+    header.appendChild(tierText);
+    row.appendChild(header);
+
+    // progress bar
+    var nextTier = ownedIdx < tiers.length - 1 ? tiers[ownedIdx + 1] : null;
+    var prevThreshold = ownedIdx >= 0 ? tiers[ownedIdx].threshold : 0;
+    var nextThreshold = nextTier ? nextTier.threshold : prevThreshold;
+    var barColor = nextTier ? (nextTier.colour || '#b68344') : (ownedIdx >= 0 ? tiers[ownedIdx].colour : 'var(--gold-dim)');
+
+    var barWrap = document.createElement('div');
+    barWrap.className = 'badge-bar-wrap';
+    var barFill = document.createElement('div');
+    barFill.className = 'badge-bar-fill';
+    barFill.style.background = barColor;
+
+    if (currentCount !== null && nextTier) {
+      var range = nextThreshold - prevThreshold;
+      var progress = range > 0 ? Math.min(1, Math.max(0, (currentCount - prevThreshold) / range)) : 0;
+      barFill.style.width = (progress * 100).toFixed(1) + '%';
+    } else if (ownedIdx === tiers.length - 1) {
+      barFill.style.width = '100%';
+    } else {
+      barFill.style.width = '0%';
+    }
+    barWrap.appendChild(barFill);
+    row.appendChild(barWrap);
+
+    // count / next info
+    var info = document.createElement('div');
+    info.className = 'badge-row-info';
+    if (currentCount !== null && nextTier) {
+      info.textContent = currentCount.toLocaleString() + ' / ' + nextThreshold.toLocaleString() + ' \u2192 ' + nextTier.tier_name;
+      info.style.color = nextTier.colour || 'var(--text-faint)';
+    } else if (currentCount !== null && !nextTier && ownedIdx >= 0) {
+      info.textContent = currentCount.toLocaleString() + ' - Max tier!';
+      info.style.color = 'var(--gold-light)';
+    } else if (currentCount === null) {
+      info.textContent = 'Loading\u2026';
+      info.style.color = 'var(--text-faint)';
+    }
+    row.appendChild(info);
+
+    container.appendChild(row);
+  });
 }
 
 // strip sensitive data before caching to localStorage
@@ -305,7 +759,7 @@ function applyLogin(user) {
     _configPromise.then(function () {
       applyPermissions();
       renderProfile(user);
-      renderAccountModalRoles(user.roles || [], user.id);
+      _renderAccountModal(user.roles || []);
     });
 
     // sync settings from server (first login on this device restores them)
@@ -370,7 +824,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
             // also refresh in the background so it catches role changes / deauthorization
             _refreshSession();
         } else {
-            // not logged in (or session expired) — clear any stale local state
+            // not logged in (or session expired) - clear any stale local state
             if (state.loggedIn) {
                 localStorage.removeItem('esi_user');
                 state.loggedIn = false;
@@ -448,7 +902,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
       document.getElementById('accountModalName').innerHTML =
         displayName + (isCitizen ? ' <span style="' + citizenStyle + '">Citizen</span>' : '');
       document.getElementById('accountModalSub').textContent = '@' + u.username + '  ·  ' + u.id;
-      renderAccountModalRoles(u.roles || [], u.id);
+      _renderAccountModal(u.roles || []);
     } else {
       closeAccountModal();
       loginBtn.classList.remove('btn-discord--account');
@@ -461,7 +915,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
     }
   }
 
-  /* role checks — uses permission groups from /api/config */
+  /* role checks - uses permission groups from /api/config */
   function hasParliamentPlus() {
     if (!state.loggedIn || !state.user) return false;
     var roles = state.user.roles || [];
@@ -929,7 +1383,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
       _showSlashDropdown(command.sub.map(function (s) { return { name: s }; }), _handleSlashSelect);
       return;
     }
-    // no sub — insert directly
+    // no sub - insert directly
     if (command.name === '/details') {
       _insertAtCursor(textarea, '<details><summary>Details</summary>\n<p>\n\n</p>\n</details>');
     } else if (command.name === '/table') {
@@ -1166,7 +1620,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
       .then(function (serverSettings) {
         if (!serverSettings || typeof serverSettings !== 'object') return;
         if (Object.keys(serverSettings).length === 0) {
-          // no server settings yet — push current local settings up
+          // no server settings yet - push current local settings up
           _pushSettingsToServer(_readAllSettings());
           return;
         }
@@ -1333,7 +1787,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
   _enforceMaxLen(_sToastDur, 2);
   _enforceMaxLen(_sToastMax, 1);
 
-  /* track changes — don't save yet, just show the save button */
+  /* track changes - don't save yet, just show the save button */
   _sRange.addEventListener('input', function () { _sRangeVal.textContent = _sRange.value; _updateSaveBtn(); });
   _sGuildRange.addEventListener('input', function () { _sGuildRangeVal.textContent = _sGuildRange.value; _updateSaveBtn(); });
   [_sMetric, _sGuildMetric, _sPlayer, _sChkType, _sChkHours, _sChkTab, _sPromTab, _sToastDur, _sToastMax, _sEventsNavBadge, _sPinnedBanner, _sToastsEnabled].forEach(function (el) {
@@ -1374,7 +1828,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
     return fullyLive;
   }
 
-  /* save button — persist all current form values, then apply live */
+  /* save button - persist all current form values, then apply live */
   settingsSaveBtn.addEventListener('click', function () {
     var values = _readFormValues();
     var prev   = _settingsSnapshot;

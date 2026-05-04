@@ -47,6 +47,8 @@ from config import (
     _safe_number, _parse_bool, _load_json_file, _save_json_file,
     _mc_username, _get_secret_key, _get_latest_api_db,
     _medals_for_client, _build_badge_catalog,
+    _APPLICATION_FORMS, _APPLICATIONS_JSON, _user_has_min_rank,
+    _APPLICATION_DISCORD, _PARLI_SERVER_ID, _PARLI_PARLI_ROLE, _DEV_SERVER_ID,
 )
 import ipaddress
 
@@ -816,6 +818,341 @@ def player_decorations(username: str):
             for k in stale:
                 del _DECORATIONS_CACHE[k]
     return jsonify(payload)
+
+
+@app.route("/api/me/badge-progress")
+@rate_limit(30)
+def me_badge_progress():
+    """Return the logged-in user's counts relevant to badge progression."""
+    user, err = _require_login()
+    if err:
+        return err
+    discord_id = user.get("id", "")
+    matches = _load_json_file(_USERNAME_MATCHES_JSON)
+    mc_username = _mc_username(discord_id, matches)
+    if not mc_username:
+        return jsonify({"linked": False, "counts": {}})
+    latest_db = _get_latest_api_db()
+    if not latest_db:
+        return jsonify({"linked": True, "username": mc_username, "counts": {}})
+    counts = {"wars": 0, "guild_raids": 0, "quests": 0, "recruited": 0, "events": 0}
+    try:
+        conn = _sqlite3.connect(latest_db, check_same_thread=False)
+        ulow = mc_username.lower()
+        # wars + uuid from player_stats
+        row = conn.execute(
+            "SELECT wars, uuid FROM player_stats WHERE LOWER(username) = ? AND UPPER(guild_prefix) = 'ESI'",
+            (ulow,),
+        ).fetchone()
+        uuid = None
+        if row:
+            counts["wars"] = int(row[0] or 0)
+            uuid = row[1] or None
+        # guild raids
+        try:
+            gr = None
+            if uuid:
+                gr = conn.execute("SELECT total_graids FROM guild_raid_stats WHERE uuid = ?", (uuid,)).fetchone()
+            if not gr:
+                gr = conn.execute("SELECT total_graids FROM guild_raid_stats WHERE LOWER(username) = ?", (ulow,)).fetchone()
+            if gr:
+                counts["guild_raids"] = int(gr[0] or 0)
+        except _sqlite3.OperationalError:
+            pass
+        # recruited
+        if uuid:
+            try:
+                rec = conn.execute("SELECT COUNT(*) FROM recruited WHERE recruiter = ?", (uuid,)).fetchone()
+                if rec:
+                    counts["recruited"] = int(rec[0] or 0)
+            except _sqlite3.OperationalError:
+                pass
+        # events
+        try:
+            ev = conn.execute("SELECT points FROM event_progress WHERE LOWER(player) = ?", (ulow,)).fetchone()
+            if ev:
+                counts["events"] = int(ev[0] or 0)
+        except _sqlite3.OperationalError:
+            pass
+        # quests
+        try:
+            q = conn.execute("SELECT points FROM quest_progress WHERE LOWER(player) = ?", (ulow,)).fetchone()
+            if q:
+                counts["quests"] = int(q[0] or 0)
+        except _sqlite3.OperationalError:
+            pass
+        conn.close()
+    except Exception:
+        pass
+    return jsonify({"linked": True, "username": mc_username, "counts": counts})
+
+
+import uuid as _uuid_mod
+
+_APPLICATIONS_LOCK = _threading.Lock()
+
+
+@app.route("/api/applications", methods=["POST"])
+@rate_limit(2, 600)
+def submit_application():
+    """Submit a guild application (rank, echelon role)."""
+    user, err = _require_login()
+    if err:
+        return err
+    body = request.get_json(silent=True)
+    if not body or not isinstance(body, dict):
+        return jsonify({"error": "Invalid request"}), 400
+    form_type = (body.get("type") or "").strip()
+    if form_type not in _APPLICATION_FORMS:
+        return jsonify({"error": "Unknown application type"}), 400
+    form = _APPLICATION_FORMS[form_type]
+    # rank check
+    user_roles = set(user.get("roles") or [])
+    if not _user_has_min_rank(list(user_roles), form["requireRank"]):
+        return jsonify({"error": "You do not meet the rank requirement for this application."}), 403
+    # validate answers
+    answers = body.get("answers")
+    if not isinstance(answers, list) or len(answers) != len(form["questions"]):
+        return jsonify({"error": "Please answer all questions."}), 400
+    for a in answers:
+        if not isinstance(a, str) or not a.strip():
+            return jsonify({"error": "Please answer all questions."}), 400
+    answers = [a.strip()[:2000] for a in answers]  # cap length
+    discord_id = user.get("id", "")
+    matches = _load_json_file(_USERNAME_MATCHES_JSON)
+    mc_username = _mc_username(discord_id, matches)
+    now_iso = _points_datetime.now(_points_timezone.utc).isoformat()
+    with _APPLICATIONS_LOCK:
+        data = _load_json_file(_APPLICATIONS_JSON)
+        if not isinstance(data, dict) or "applications" not in data:
+            data = {"applications": []}
+        # prevent duplicate pending applications of the same type
+        for existing in data["applications"]:
+            if (existing.get("discord_id") == discord_id
+                    and existing.get("type") == form_type
+                    and existing.get("status") == "pending"):
+                return jsonify({"error": "You already have a pending application for this."}), 409
+        entry = {
+            "id": str(_uuid_mod.uuid4()),
+            "type": form_type,
+            "title": form["title"],
+            "discord_id": discord_id,
+            "username": user.get("nick") or user.get("username", ""),
+            "mc_username": mc_username,
+            "questions": form["questions"],
+            "answers": answers,
+            "submitted_at": now_iso,
+            "status": "pending",
+        }
+        data["applications"].append(entry)
+        _save_json_file(_APPLICATIONS_JSON, data)
+    # post to Discord in the background so the response is fast
+    _post_application_discord(entry)
+    return jsonify({"ok": True, "id": entry["id"]})
+
+
+# Discord application posting
+def _format_application_message(entry):
+    """Format an application as a Discord message (bold Q, quoted A)."""
+    username = entry.get("username", "Unknown")
+    discord_id = entry.get("discord_id", "")
+    mc = entry.get("mc_username") or "Not linked"
+    title = entry.get("title", entry.get("type", ""))
+    questions = entry.get("questions", [])
+    answers = entry.get("answers", [])
+    lines = [f"# {title}", f"Submitted by `{mc}` (<@{discord_id}>)", ""]
+    for i, (q, a) in enumerate(zip(questions, answers)):
+        lines.append(f"**{i + 1}. {q}**")
+        for al in a.split("\n"):
+            lines.append(f"> {al}")
+        lines.append("")
+    text = "\n".join(lines).strip()
+    return text[:2000] if len(text) > 2000 else text
+
+
+def _discord_poll_object(question_text, hours, multiselect=False):
+    return {
+        "question": {"text": question_text[:300]},
+        "answers": [
+            {"poll_media": {"text": "Yes"}},
+            {"poll_media": {"text": "No"}},
+        ],
+        "duration": hours,
+        "allow_multiselect": multiselect,
+    }
+
+
+def _discord_headers():
+    return {"Authorization": f"Bot {DISCORD_TOKEN}", "Content-Type": "application/json"}
+
+
+def _post_application_discord(entry):
+    """Fire-and-forget: post the application to Discord in a background thread."""
+    def _worker():
+        try:
+            _do_post_application_discord(entry)
+        except Exception as exc:
+            import sys
+            print(f"[APP] Discord post failed for {entry.get('type')}: {exc}", file=sys.stderr)
+    _threading.Thread(target=_worker, daemon=True).start()
+
+
+def _do_post_application_discord(entry):
+    form_type = entry["type"]
+    dc = _APPLICATION_DISCORD.get(form_type)
+    if not dc or not DISCORD_TOKEN:
+        return
+
+    channel = dc["dev_channel"] if DEV_MODE else dc["channel"]
+    headers = _discord_headers()
+    content = _format_application_message(entry)
+    username = entry.get("username", "Unknown")
+    mc_username = entry.get("mc_username", "Unknown")
+    title = entry.get("title", form_type)
+    poll_q = f"{mc_username} {title.replace(' Application', '')}"
+    poll_hours = dc.get("poll_hours", 24)
+    ping_role = dc.get("ping_role")
+    use_thread = dc.get("use_thread", False)
+
+    if use_thread:
+        _post_grand_duke(entry, dc, channel, headers, content, poll_q, poll_hours)
+        return
+
+    # Standard flow: message + poll
+    msg_content = content
+    allowed = {}
+    if ping_role:
+        msg_content = f"<@&{ping_role}>\n\n{content}"
+        allowed = {"allowed_mentions": {"roles": [ping_role]}}
+
+    resp = requests.post(
+        f"{DISCORD_API}/channels/{channel}/messages",
+        json={"content": msg_content, **allowed},
+        headers=headers, timeout=15,
+    )
+    if not resp.ok:
+        return
+
+    # poll as a follow-up message
+    requests.post(
+        f"{DISCORD_API}/channels/{channel}/messages",
+        json={"poll": _discord_poll_object(poll_q, poll_hours)},
+        headers=headers, timeout=15,
+    )
+
+
+def _post_grand_duke(entry, dc, channel, headers, content, poll_q, poll_hours):
+    discord_id = entry.get("discord_id", "")
+    username = entry.get("username", "Unknown")
+
+    # check if applicant has Parliament role in the parli server
+    check_server = _DEV_SERVER_ID if DEV_MODE else _PARLI_SERVER_ID
+    has_parli = False
+    try:
+        r = requests.get(
+            f"{DISCORD_API}/guilds/{check_server}/members/{discord_id}",
+            headers=headers, timeout=10,
+        )
+        if r.ok:
+            has_parli = _PARLI_PARLI_ROLE in (r.json().get("roles") or [])
+    except requests.RequestException:
+        pass
+
+    if has_parli:
+        # private thread → post app inside → poll → ping individuals
+        tr = requests.post(
+            f"{DISCORD_API}/channels/{channel}/threads",
+            json={"name": f"Grand Duke Application - {username}"[:100],
+                  "type": 12, "auto_archive_duration": 1440},
+            headers=headers, timeout=15,
+        )
+    else:
+        # post app in channel → public thread from it
+        mr = requests.post(
+            f"{DISCORD_API}/channels/{channel}/messages",
+            json={"content": content},
+            headers=headers, timeout=15,
+        )
+        if not mr.ok:
+            return
+        msg_id = mr.json().get("id")
+        tr = requests.post(
+            f"{DISCORD_API}/channels/{channel}/messages/{msg_id}/threads",
+            json={"name": f"Grand Duke Application - {username}"[:100],
+                  "auto_archive_duration": 1440},
+            headers=headers, timeout=15,
+        )
+
+    if not tr.ok:
+        return
+    thread_id = tr.json().get("id")
+
+    # if private thread, the app text goes inside
+    if has_parli:
+        requests.post(
+            f"{DISCORD_API}/channels/{thread_id}/messages",
+            json={"content": content},
+            headers=headers, timeout=15,
+        )
+
+    # poll inside the thread
+    requests.post(
+        f"{DISCORD_API}/channels/{thread_id}/messages",
+        json={"poll": _discord_poll_object(poll_q, poll_hours)},
+        headers=headers, timeout=15,
+    )
+
+    # pings
+    if has_parli:
+        # ping every Parliament member individually (except the applicant)
+        try:
+            members = []
+            after = "0"
+            while True:
+                r = requests.get(
+                    f"{DISCORD_API}/guilds/{check_server}/members",
+                    params={"limit": 1000, "after": after},
+                    headers=headers, timeout=10,
+                )
+                if not r.ok:
+                    break
+                batch = r.json()
+                if not batch:
+                    break
+                members.extend(batch)
+                if len(batch) < 1000:
+                    break
+                after = batch[-1]["user"]["id"]
+            parli_ids = [
+                m["user"]["id"] for m in members
+                if _PARLI_PARLI_ROLE in m.get("roles", []) and m["user"]["id"] != discord_id
+            ]
+            if parli_ids:
+                ping = " ".join(f"<@{uid}>" for uid in parli_ids)
+                # split into 2000-char chunks without breaking mentions
+                while ping:
+                    chunk = ping[:2000]
+                    if len(ping) > 2000:
+                        cut = chunk.rfind(" ")
+                        if cut > 0:
+                            chunk = chunk[:cut]
+                    requests.post(
+                        f"{DISCORD_API}/channels/{thread_id}/messages",
+                        json={"content": chunk,
+                              "allowed_mentions": {"users": [uid for uid in parli_ids[:100]]}},
+                        headers=headers, timeout=15,
+                    )
+                    ping = ping[len(chunk):].strip()
+        except requests.RequestException:
+            pass
+    else:
+        # ping Parliament role
+        requests.post(
+            f"{DISCORD_API}/channels/{thread_id}/messages",
+            json={"content": f"<@&{_PARLI_PARLI_ROLE}>",
+                  "allowed_mentions": {"roles": [_PARLI_PARLI_ROLE]}},
+            headers=headers, timeout=15,
+        )
 
 
 @app.route("/api/player/<username>/rank-history")

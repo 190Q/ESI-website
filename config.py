@@ -32,13 +32,14 @@ _USERNAME_MATCHES_JSON  = os.path.join(_DATA_FOLDER, "username_matches.json")
 _TRACKED_GUILD_JSON     = os.path.join(_DATA_FOLDER, "tracked_guild.json")
 _GUILD_LEVELS_JSON      = os.path.join(_DATA_FOLDER, "guild_levels.json")
 _GUILD_TERRITORIES_JSON = os.path.join(_DATA_FOLDER, "guild_territories.json")
+_APPLICATIONS_JSON      = os.path.join(_DATA_FOLDER, "applications.json")
 _EVENTS_JSON            = os.path.join(_DATA_FOLDER, "events.json")
 _API_TRACKING_DIR       = os.path.join(_ESI_BOT_DIR, "databases", "api_tracking")
 _POINTS_DB              = os.path.join(_ESI_BOT_DIR, "databases", "esi_points.db")
 _SNIPES_DB              = os.path.join(_ESI_BOT_DIR, "databases", "claim_snipes.db")
 
-_USER_DB_PATH = os.path.join(_BASE_DIR, "user_data.db")
-_UPLOAD_DIR   = os.path.join(_BASE_DIR, "uploads")
+_USER_DB_PATH           = os.path.join(_BASE_DIR, "user_data.db")
+_UPLOAD_DIR             = os.path.join(_BASE_DIR, "uploads")
 
 
 def _detect_server_tz_name():
@@ -250,6 +251,15 @@ _BADGE_SINGULAR = {
     "Event Badges":       "Event",
 }
 
+# Maps badge category → key returned by /api/me/badge-progress
+_BADGE_COUNT_KEY = {
+    "War Badges":         "wars",
+    "Quest Badges":       "quests",
+    "Recruitment Badges": "recruited",
+    "Raid Badges":        "guild_raids",
+    "Event Badges":       "events",
+}
+
 # Map each category's ordered values
 _BADGE_TIER_DEFS = {
     "War Badges":         WAR_BADGE_TIERS,
@@ -265,9 +275,11 @@ def _build_badge_catalog():
     for category, role_map in BADGE_ROLES.items():
         tier_defs = _BADGE_TIER_DEFS.get(category, [])
         singular  = _BADGE_SINGULAR.get(category, category.rstrip("s"))
+        count_key = _BADGE_COUNT_KEY.get(category, "")
         tiers = []
         value_items = list(role_map.items())
         for idx, (value, role_id) in enumerate(value_items):
+            threshold = tier_defs[idx][0] if idx < len(tier_defs) else 0
             tier_name = tier_defs[idx][1] if idx < len(tier_defs) else "No badge"
             is_top = tier_name not in _BADGE_ROLES_COLOUR
             colour_key = "[name]" if is_top else tier_name
@@ -280,6 +292,7 @@ def _build_badge_catalog():
             tiers.append({
                 "role_id":   role_id,
                 "value":     value,
+                "threshold": threshold,
                 "tier_name": tier_name,
                 "colour":    colour,
                 "label":     label,
@@ -288,6 +301,7 @@ def _build_badge_catalog():
             "key":      category,
             "label":    category,
             "singular": singular,
+            "countKey": count_key,
             "tiers":    tiers,
         })
     return catalog
@@ -317,6 +331,143 @@ def _medals_for_client():
         for m in _MEDAL_ROLES
     ]
 
+# application forms
+_APPLICATION_FORMS = {
+    "congress": {
+        "title": "Sindrian Congress Application",
+        "requireRank": "viscount",
+        "requirements": [
+            "Must be at least Viscount rank.",
+        ],
+        "questions": [
+            "Have you contributed in policy changes in other guilds/communities, and if so, what?",
+            "As things stand, do you believe yourself mature enough to hold discussions and listen to differing opinions?",
+            "Are there any major issues you see within the guild, and if so, how would you address them?",
+            "Are you willing to put in time to help develop policies in the guild's best interest?",
+        ],
+    },
+    "pride": {
+        "title": "Sindrian Pride Application",
+        "requireRank": None,
+        "requirements": [
+            "Open to all guild members.",
+        ],
+        "questions": [
+            "Why do you want to join Sindrian Pride?",
+            "If you were present for any, what events have you liked in the past, and why?",
+            "Have you ever helped organise an event before, both in and outside of ESI? If so, what kind?",
+            "If you have attended events before, do you have any constructive criticism?",
+            "Do you have any current event ideas?",
+        ],
+    },
+    "viscount": {
+        "title": "Viscount Application",
+        "requireRank": "knight",
+        "requirements": [
+            "Have a war count of 50, OR a raid count of 25, OR actively host events.",
+            "Application is optional - you can also be promoted without one.",
+        ],
+        "questions": [
+            "Please explain, in your own words, what FFAs are, and how alliances function.",
+            "Do you have any current warring experience? Have you interacted with the mechanics of aura dodging yet?",
+            "In what situation does one ping Sindrian Vanguard and Sindrian Crusader, respectively?",
+            "Have you assisted in or hosted any community related events? Are there any you would like to organize in the future?",
+            "What do you think your responsibilities as viscount would be, and how would you go about them?",
+        ],
+    },
+    "count": {
+        "title": "Count Application",
+        "requireRank": "viscount",
+        "requirements": [
+            "Show an interest in learning Economy.",
+        ],
+        "questions": [
+            "Do you have any experience regarding guild economy management, and would you be willing to put effort into learning (more) about it?",
+            "Have you actively involved yourself in defending our claim or organizing FFAs?",
+            "Do you have any experience hosting community events, and have you hosted any within ESI so far?",
+            "How active would you say you are when participating in guild raids?",
+            "Do you consider yourself responsible and reasonable enough to be a potential future representative of this guild?",
+        ],
+    },
+    "grand_duke": {
+        "title": "Grand Duke Application",
+        "requireRank": "duke",
+        "requirements": [
+            "Have at least 2 war builds (Solo, Healer, Tank, DPS).",
+            "Have completed advanced eco courses + exam.",
+            "Be capable of warring when necessary.",
+            "Display a sufficient level of maturity, leadership skills, and contribution to the guild.",
+        ],
+        "questions": [
+            "Are you active in any Wynn-related discords other than ESI? If so, how do you typically behave in such servers?",
+            "As things stand, do you believe yourself mature enough to act as a potential representative of ESI to other guilds?",
+            "What is/are your current war build(s)?",
+            "How involved have you been in ESI's community? Are there any changes you would suggest on the discord management side of things?",
+            "As a chief of ESI, what kind of person do you want to be in the guild? Do you have a specific role you want to fulfill?",
+        ],
+    },
+}
+
+# Discord servers and channels for application posting
+_PARLI_SERVER_ID   = "802999599060221992"
+_PARLI_PARLI_ROLE  = "804211709166354432"   # Parliament role in the parli server
+_DEV_SERVER_ID     = "1442126799369670770"
+
+_APPLICATION_DISCORD = {
+    "congress": {
+        "server":      _PARLI_SERVER_ID,
+        "channel":     "804268052194787349",
+        "dev_channel": "1500652489379414016",
+        "poll_hours":  24,
+    },
+    "pride": {
+        "server":      DISCORD_GUILD_ID,
+        "channel":     "830884793230426142",
+        "dev_channel": "1500652489379414016",
+        "poll_hours":  24,
+        "ping_role":   _ROLE_EVENT_MANAGER,
+    },
+    "viscount": {
+        "server":      DISCORD_GUILD_ID,
+        "channel":     "1402383960046043146",
+        "dev_channel": "1500654682765262909",
+        "poll_hours":  24,
+    },
+    "count": {
+        "server":      DISCORD_GUILD_ID,
+        "channel":     "1443193393328164964",
+        "dev_channel": "1500654682765262909",
+        "poll_hours":  24,
+    },
+    "grand_duke": {
+        "server":      _PARLI_SERVER_ID,
+        "channel":     "804268052194787349",
+        "dev_channel": "1500652489379414016",
+        "poll_hours":  48,
+        "use_thread":  True,
+    },
+}
+
+# Rank names ordered highest-first (must match rankRoles order) for rank checks
+_RANK_HIERARCHY = ["emperor", "archduke", "grand duke", "duke", "count", "viscount", "knight", "squire"]
+
+
+def _user_has_min_rank(user_roles, min_rank_name):
+    """Check if the user's roles include min_rank_name or any rank above it."""
+    if not min_rank_name:
+        return True
+    target = min_rank_name.lower()
+    try:
+        target_idx = _RANK_HIERARCHY.index(target)
+    except ValueError:
+        return False
+    rank_ids = [r["id"] for r in _CLIENT_CONFIG["rankRoles"]]
+    for i, rid in enumerate(rank_ids):
+        if i <= target_idx and rid in (user_roles or []):
+            return True
+    return False
+
+
 # client config (exposed via /api/config)
 
 _CLIENT_CONFIG = {
@@ -333,25 +484,126 @@ _CLIENT_CONFIG = {
         "eventsAccess":    list(_EVENTS_ACCESS),
         "eventsManageAny": list(_EVENTS_MANAGE_ANY),
     },
-    "staffRoles": [],  # populated dynamically by routes.py from ticket server
+    "staffRoles": [],
     "rankRoles": [
-        {"id": "554506531949772812",  "name": "Emperor",    "color": "#5c11ad"},
-        {"id": "554514823191199747",  "name": "Archduke",   "color": "#b5fff6"},
-        {"id": "1396112289832243282", "name": "Grand Duke", "color": "#74cac0"},
-        {"id": "591765870272053261",  "name": "Duke",       "color": "#35deac"},
-        {"id": "1391424890938195998", "name": "Count",      "color": "#3ac770"},
-        {"id": "591769392828776449",  "name": "Viscount",   "color": "#59e365"},
-        {"id": "688438690137243892",  "name": "Knight",     "color": "#93e688"},
-        {"id": "681030746651230351",  "name": "Squire",     "color": "#c7edc0"},
+        {
+            "id": "554506531949772812",
+            "name": "Emperor",
+            "color": "#5c11ad",
+            "icon": "\u265a",
+            "ingame": "Owner \u2606\u2606\u2606\u2606\u2606",
+            "desc": "Guild owner. Final say on all major decisions and the face of ESI.",
+            "fullDesc": "The Emperor is the guild's owner and the one who makes all of the decisions within the guild. While they delegate tasks to Parliament, they ultimately have the final say on any major choices. They are primarily responsible for representing the guild to the rest of Wynn, acting as the face of the guild as well as deciding upon which guilds are allies or enemies.",
+            "promotion": None
+        },
+        {
+            "id": "554514823191199747",
+            "name": "Archduke",
+            "color": "#b5fff6",
+            "icon": "\u2656",
+            "ingame": "Chief \u2606\u2606\u2606\u2606",
+            "desc": "Senior members integral to the guild. Most authority after the Emperor.",
+            "fullDesc": "Archdukes are the glue that keeps the guild together and have the most authority among all ranks. The reasons for a promotion varies according to Parliament's criteria, but Archdukes are generally senior members who are integral to the guild and have demonstrated commitment and care towards its well-being - persistence in warring, being a bedrock of the community, initiative in hosting events. The title of Archduke is not one given lightly; it is less of a \u201cgoal\u201d and more of a \u201csignifier\u201d of invaluable contributions.",
+            "promotion": {"method": "handpicked", "hint": "Hand-picked by Parliament."}},
+        {
+            "id": "1396112289832243282",
+            "name": "Grand Duke",
+            "color": "#74cac0",
+            "icon": "\u2656", "ingame":
+            "Chief \u2606\u2606\u2606\u2606",
+            "desc": "In-game Chief. Stands out in both war and community involvement.",
+            "fullDesc": "Grand Dukes are members who greatly stand out among their peers. They are promoted to in-game Chiefs, which grants the highest amount of perms save for the Owner. They show great involvement in both war and community and demonstrate exemplary behaviour. This may be a temporary rank to prepare you for Archduke, but depending on the person, it may also be more permanent.",
+            "promotion": {"method": "apply", "hint": "Hand-picked or via Grand Duke application.", "formType": "grand_duke"}},
+        {
+            "id": "591765870272053261",
+            "name": "Duke",
+            "color": "#35deac",
+            "icon": "\u2656",
+            "ingame": "Strategist \u2606\u2606\u2606",
+            "desc": "High Ranked. Economy and tribute perms, HR guild bank access.",
+            "fullDesc": "Dukes are the beginnings of the guild's High Ranked. They are prominent figures within the community as well as the battlefront. They gain access to HR Guild Bank (policy: \u201cnever take, only borrow\u201d), as well as HR-exclusive channels. As permanent in-game strategists, they have economy and tribute perms. At this point you will be seen as a guild representative, so respectful conduct towards other guilds is expected.",
+            "promotion": {"method": "vote", "hint": "Voted by Parliament after completing eco course as Count."}},
+        {
+            "id": "1391424890938195998",
+            "name": "Count",
+            "color": "#3ac770",
+            "icon": "\u2656",
+            "ingame": "Captain \u2606\u2606 \u00b7 Strategist \u2606\u2606\u2606",
+            "desc": "Trial Duke. Learning economy management and HQ-level war builds.",
+            "fullDesc": "A Count is a temporary rank granted to those being considered as future Dukes. During this time you perfect your war knowledge and learn to manage Guild Economy. After a few weeks, the head Eco Professors will decide whether to promote you to Duke or revert you back to Viscount. This is also the rank at which you gain access to HQ builds.",
+            "promotion": {"method": "apply", "hint": "Be an active warrer with at least one war build and interest in eco.", "formType": "count"}},
+        {
+            "id": "591769392828776449",
+            "name": "Viscount",
+            "color": "#59e365",
+            "icon": "\u2656",
+            "ingame": "Captain \u2606\u2606",
+            "desc": "Can initiate wars. Gains access to introductory war builds.",
+            "fullDesc": "A Viscount has the ability to initiate wars and the knowledge to use this power wisely. At this rank you gain access to introductory war builds. Viscounts are expected to keep warring, raiding, or hosting community events, but are encouraged to branch out to other parts of the guild. After this rank, you are unable to rank up based on community contributions alone.",
+            "promotion": {"method": "apply", "hint": "50 wars OR 25 raids OR active event hosting. Application optional.", "formType": "viscount"}},
+        {
+            "id": "688438690137243892",
+            "name": "Knight",
+            "color": "#93e688",
+            "icon": "\u2658",
+            "ingame": "Recruiter \u2606",
+            "desc": "Confirmed guild member. Guild bank access, can join wars and raids.",
+            "fullDesc": "Knights have been confirmed as members of the guild and gain access to the guild bank and armoury channels on Discord. This lets them sign up for Sindrian Vanguard and Sindrian Crusader for war notifications. As the newest members to the war front, they make up the backbone of the Nobility's military power. Joining wars or guild raids is a good way to learn the basics.",
+            "promotion": {"method": "auto", "hint": "Automatic after ~1 week of good activity. Voted by Jurors."}},
+        {
+            "id": "681030746651230351",
+            "name": "Squire",
+            "color": "#c7edc0",
+            "icon": "\u2659",
+            "ingame": "Recruit",
+            "desc": "Trial period for new recruits to get settled into the community.",
+            "fullDesc": "Squire is the very first role in the guild. As a brand-new recruit, this is a starting point to help you get settled into the community. This role functions as a trial period - after a week, Jurors (prominent community members) will vote on whether to approve you as a full member (Knight), welcoming you into the ranks of Nobility.",
+            "promotion": None
+        },
     ],
     "echelonRoles": [
-        {"id": _ROLE_PARLIAMENT, "name": "Parliament", "color": "#afb3d1"},
-        {"id": _ROLE_CONGRESS,   "name": "Congress",   "color": "#7289da"},
-        {"id": _ROLE_JUROR,      "name": "Juror",      "color": "#ffc332"},
+        {
+            "id": _ROLE_VALAENDOR,
+            "name": "Valaendor",
+            "color": "#7744b6",
+            "icon": "\u265b",
+            "desc": "Closely advises the Emperor and can act as de-facto leader in their absence. Bestowed during guild anniversaries.",
+            "fullDesc": "Members of the Sindrian royal family who closely advise the Emperor alongside Parliament, acting as the Emperor's right hand. They have some of the most important responsibilities within the guild and can act as de-facto leader in the Emperor's absence. Role only bestowed during the guild's (half) anniversary."},
+        {
+            "id": _ROLE_PARLIAMENT, "name": "Parliament",
+            "color": "#afb3d1",
+            "icon": "\u265b",
+            "desc": "Governing body that assists the Emperor with decision-making and monitors the guild for misconduct.",
+            "fullDesc": "Parliament consists of members who are exemplary within the guild, trusted enough to discuss matters regarding its wellbeing and ensure everything runs in a safe and stable manner. It is not a role you can expect to get into via solely doing your duties. Parliament functions as the governing body, regularly called upon to assist the Emperor with decision-making as well as monitoring the discord for misconduct. Each member has a dedicated role: War Leader, Discord Manager, Quest Master, Recruitment Manager, Guild Treasurer, Raid Manager."},
+        {
+            "id": _ROLE_CONGRESS,
+            "name": "Congress",
+            "color": "#7289da",
+            "icon": "\U0001F732",
+            "desc": "Creative body of active members who suggest improvements, write bills, debate and vote on them. Viscount+ to apply.",
+            "fullDesc": "The Sindrian Congress consists of some of the most active community members, best connected to the guild at large. Unlike other bodies, you do not need to have been in the guild for a long time. Members are expected to change relatively frequently depending on activity. Congress is the main \u201cidea body\u201d - in charge of suggesting improvements or bringing issues to Parliament's attention. They write bills, debate them, and vote on them.",
+            "applyForm": "congress"},
+        {
+            "id": _ROLE_JUROR,
+            "name": "Juror",
+            "color": "#ffc332",
+            "icon": "\u2696",
+            "desc": "Court of Judges. Hand-picked members who review new applicants and vote on inductions.",
+            "fullDesc": "The Court of Judges is the main judiciary body of the guild, serving as the selection process for new applications. Jurors are hand-picked, considered to be members active enough to interact with applicants and determine whether they would be a good fit, and mature enough to debate the induction of new members."},
+        {
+            "id": _ROLE_PRIDE,
+            "name": "Sindrian Pride",
+            "color": "#e91e63",
+            "icon": "\u2657",
+            "desc": "Event team that organises weekly community events.",
+            "fullDesc": "This group of individuals have dedicated themselves towards helping to organise events and are responsible for a large majority of the guild's events. The head organisers are the Event Managers, who run regular events both in the guild's discord and in the event alliance, Adonis. They keep the community tight-knit and entertained in between war efforts.",
+            "applyForm": "pride"
+        },
     ],
     "citizenRole": {"id": _ROLE_CITIZEN, "name": "Sindrian Citizen", "color": "#4acf5e"},
     "medals":  _medals_for_client(),
     "badges":  _build_badge_catalog(),
+    "applicationForms": {k: {"title": v["title"], "requireRank": v["requireRank"], "requirements": v.get("requirements", []), "questions": v["questions"]} for k, v in _APPLICATION_FORMS.items()},
     "guildId": DISCORD_GUILD_ID,
     "devMode": DEV_MODE,
     "serverTimezone": _SERVER_TIMEZONE,

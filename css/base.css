@@ -1612,50 +1612,469 @@ button { cursor: pointer; border: none; font-family: inherit; }
 
 /* Account modal */
 .account-modal {
-  max-width: 320px;
-  padding: 36px 32px 28px;
+  max-width: 580px;
+  width: 95vw;
+  padding: 0;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  max-height: 88vh;
+}
+.account-modal-header {
+  padding: 24px 28px 16px;
+  flex-shrink: 0;
 }
 .account-modal-avatar {
-  width: 72px;
-  height: 72px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
   border: 3px solid var(--border-mid);
   object-fit: cover;
   display: block;
-  margin: 0 auto 14px;
+  margin: 0 auto 10px;
 }
 .account-modal-name {
   font-family: 'Cinzel', serif;
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--gold-light);
-  margin-bottom: 5px;
+  margin-bottom: 4px;
 }
 .account-modal-sub {
   font-family: 'Consolas', monospace;
   font-size: 0.7rem;
   color: var(--text-faint);
-  margin-bottom: 22px;
 }
-.account-modal-roles {
+
+/* Tabs */
+.account-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  padding: 0 20px;
+  gap: 2px;
+}
+.account-tab {
+  flex: 1;
+  padding: 10px 0;
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.account-tab:hover {
+  color: var(--text-dim);
+}
+.account-tab.active {
+  color: var(--gold-light);
+  border-bottom-color: var(--gold);
+}
+
+/* Tab panels */
+.account-tab-panel { display: none; }
+.account-tab-panel.active { display: block; }
+
+/* Scrollable body */
+.account-modal-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 18px 28px;
+}
+
+/* Info tooltip (rank / echelon hover) */
+.account-info-tooltip {
+  position: fixed;
+  z-index: 10000;
+  max-width: 340px;
+  min-width: 200px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.5);
+  pointer-events: auto;
+}
+.account-info-tooltip-title {
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--gold-light);
+  margin-bottom: 6px;
+}
+.account-info-tooltip-body {
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.account-info-tooltip-extra {
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--gold-dim);
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+/* Rank Progression Tree */
+.account-rank-tree {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 8px;
+}
+.rank-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 0;
+  position: relative;
+}
+.rank-tree-line {
+  width: 2px;
+  height: 10px;
+  background: var(--border);
+  margin-left: 8px;
+  flex-shrink: 0;
+  align-self: stretch;
+  border-radius: 1px;
+}
+.rank-tree-line--filled {
+  background: var(--gold-dim);
+}
+.rank-tree-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border-mid);
+  flex-shrink: 0;
+  transition: all var(--transition);
+  box-sizing: border-box;
+}
+.rank-tree-node--current .rank-tree-dot {
+  box-shadow: 0 0 10px currentColor, 0 0 20px currentColor;
+  transform: scale(1.15);
+}
+.rank-tree-node--locked .rank-tree-dot {
+  background: transparent !important;
+  opacity: 0.4;
+}
+.rank-tree-info {
+  text-align: left;
+  min-width: 0;
+}
+.rank-tree-name {
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+}
+.rank-tree-ingame {
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  letter-spacing: 0.02em;
+}
+.rank-tree-desc {
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  line-height: 1.35;
+  margin-top: 2px;
+}
+.rank-tree-node--locked .rank-tree-name,
+.rank-tree-node--locked .rank-tree-ingame,
+.rank-tree-node--locked .rank-tree-desc {
+  opacity: 0.35;
+}
+.rank-tree-node--current .rank-tree-name {
+  text-shadow: 0 0 12px currentColor;
+}
+.rank-tree-promo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.rank-tree-promo-hint {
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.68rem;
+  font-style: italic;
+  color: var(--gold-dim);
+  line-height: 1.3;
+}
+.rank-tree-apply-btn {
+  font-family: 'Cinzel', serif;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--gold-dim);
+  color: var(--gold-light);
+  background: rgba(212,160,23,0.1);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all var(--transition);
+  flex-shrink: 0;
+}
+.rank-tree-apply-btn:hover {
+  background: rgba(212,160,23,0.22);
+  border-color: var(--gold-light);
+  box-shadow: 0 0 8px var(--gold-glow);
+}
+
+/* Upper Echelon Grid */
+.account-echelon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+.echelon-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 10px 10px;
+  text-align: center;
+  transition: all var(--transition);
+}
+.echelon-card:not(.echelon-card--active) .echelon-card-icon,
+.echelon-card:not(.echelon-card--active) .echelon-card-name,
+.echelon-card:not(.echelon-card--active) .echelon-card-desc {
+  opacity: 0.35;
+}
+.echelon-card--active {
+  opacity: 1;
+  border-color: var(--ec-color);
+  background: color-mix(in srgb, var(--ec-color) 8%, var(--surface-2));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--ec-color) 25%, transparent);
+}
+.echelon-card-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.echelon-card-name {
+  font-family: 'Cinzel', serif;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ec-color);
+  margin-bottom: 2px;
+}
+.echelon-card-desc {
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.66rem;
+  color: var(--text-faint);
+  line-height: 1.4;
+  margin-top: 4px;
+}
+/* Badges */
+.account-badges {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 8px;
+  gap: 16px;
+}
+.badge-row {
+  text-align: left;
+}
+.badge-row-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 5px;
+}
+.badge-row-label {
+  font-family: 'Cinzel', serif;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+.badge-row-tier {
+  font-family: 'Cinzel', serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.badge-bar-wrap {
+  height: 8px;
+  background: var(--surface-3);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.badge-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s ease;
+  min-width: 0;
+}
+.badge-row-info {
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.68rem;
+  font-style: italic;
+  margin-top: 3px;
+  letter-spacing: 0.02em;
+}
+
+/* Echelon apply button */
+.echelon-apply-btn {
+  display: block;
+  margin: 8px auto 0;
+  font-family: 'Cinzel', serif;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--ec-color);
+  color: var(--ec-color);
+  background: transparent;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.echelon-apply-btn:hover {
+  background: color-mix(in srgb, var(--ec-color) 15%, transparent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ec-color) 30%, transparent);
+}
+
+/* Application form */
+.account-apply-form {
+  text-align: left;
+}
+.account-apply-back {
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 14px;
+  transition: color var(--transition);
+}
+.account-apply-back:hover { color: var(--gold-light); }
+.account-apply-title {
+  font-family: 'Cinzel', serif;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--gold-light);
   margin-bottom: 18px;
 }
-.account-role-badge {
-  font-family: 'Cinzel', serif;
-  letter-spacing: 0.07em;
-  border-radius: 20px;
-  border: 1px solid;
-  display: inline-block;
+.apply-requirements {
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--gold-dim);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 18px;
 }
-.account-modal-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 0 -32px 20px;
+.apply-requirements-title {
+  font-family: 'Cinzel', serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold-dim);
+  margin-bottom: 6px;
+}
+.apply-requirements-item {
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+  padding-left: 12px;
+  position: relative;
+}
+.apply-requirements-item::before {
+  content: '\2022';
+  position: absolute;
+  left: 0;
+  color: var(--gold-dim);
+}
+.apply-question {
+  margin-bottom: 14px;
+}
+.apply-question-label {
+  display: block;
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin-bottom: 5px;
+  line-height: 1.4;
+}
+.apply-question-input {
+  width: 100%;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.82rem;
+  padding: 8px 10px;
+  resize: vertical;
+  transition: border-color var(--transition);
+  box-sizing: border-box;
+}
+.apply-question-input:focus {
+  outline: none;
+  border-color: var(--gold-dim);
+}
+.account-apply-submit {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--green-deep);
+  background: linear-gradient(135deg, var(--gold-dim), var(--gold));
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition);
+  box-shadow: 0 2px 10px rgba(212,160,23,0.25);
+}
+.account-apply-submit:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(212,160,23,0.4);
+}
+.account-apply-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+  transform: none;
+}
+.account-apply-submit--confirm {
+  background: linear-gradient(135deg, #c0392b, #e74c3c);
+  animation: confirm-pulse 1s ease infinite;
+}
+@keyframes confirm-pulse {
+  0%, 100% { box-shadow: 0 2px 10px rgba(231,76,60,0.25); }
+  50%      { box-shadow: 0 2px 18px rgba(231,76,60,0.5); }
+}
+
+/* Footer */
+.account-modal-footer {
+  padding: 14px 28px 20px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
 }
 .account-modal-logout {
   display: flex;

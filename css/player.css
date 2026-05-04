@@ -116,7 +116,7 @@
   image-rendering: pixelated;
 }
 
-.profile-info { flex: 1; min-width: 0; padding-right: 150px; }
+.profile-info { flex: 1; min-width: 0; }
 
 /* Medals & badges decoration inside the profile card */
 .profile-medals-row {
@@ -157,39 +157,13 @@
   display: block;
 }
 
-.profile-badges-col {
-  position: absolute;
-  right: 18px;
-  bottom: 14px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 5px;
-  max-width: calc(100% - 36px);
-}
-.profile-badges-col:empty { display: none; }
-.profile-badge-pill {
-  font-family: 'Cinzel', serif;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  padding: 3px 12px;
-  border-radius: 20px;
-  border: 1px solid;
-  white-space: nowrap;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-}
-
 @media (max-width: 720px) {
-  .profile-info { padding-right: 0; }
-  .profile-medals-row,
-  .profile-badges-col {
+  .profile-medals-row {
     position: static;
     margin-top: 8px;
     justify-content: flex-start;
     align-items: flex-start;
   }
-  .profile-badges-col .profile-badge-pill { margin-right: 0 !important; }
 }
 
 .profile-name-row {
