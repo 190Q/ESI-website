@@ -58,15 +58,15 @@ export default function LegalModal() {
             role="tabpanel"
           >
             <h3 className="legal-heading">Privacy Policy</h3>
-            <p className="legal-meta">Last updated: April 2026</p>
+            <p className="legal-meta">Last updated: May 2026</p>
 
             <h4 className="legal-subheading">1. Overview</h4>
             <p>
-              This dashboard (the "Service") is operated by a volunteer member
+              This dashboard (the "ESI Service") is operated by a volunteer member
               of the Empire of Sindria guild. This Privacy Policy explains what
               information we collect, the legal basis on which we rely, how we
               use it, and the rights you have under the EU General Data
-              Protection Regulation (GDPR). By using the Service, you
+              Protection Regulation (GDPR). By using the ESI Service, you
               acknowledge the practices described here.
             </p>
 
@@ -87,25 +87,25 @@ export default function LegalModal() {
             </p>
 
             <h4 className="legal-subheading">3. Information We Collect</h4>
-            <p>When you use the Service, we may collect:</p>
+            <p>When you use the ESI Service, we may collect:</p>
             <ul className="legal-list">
               <li>
                 <strong>Discord account data</strong> - if you choose to log
-                in, we receive your Discord user ID, username, avatar, and
+                in, the ESI Service receive your Discord user ID, username, avatar, and
                 guild role membership through Discord's OAuth2 flow.
               </li>
               <li>
                 <strong>User preferences</strong> - settings you configure
                 (such as default metrics and ranges) are stored in your
                 browser's local storage and, if you are logged in, synced to
-                our server under your Discord ID.
+                the ESI Service under your Discord ID.
               </li>
               <li>
                 <strong>Technical data</strong> - standard server access logs
                 (truncated IP address, user agent, timestamp, request path).
                 Full IP addresses are never written to the access-log
                 database: the last octet of IPv4 addresses (or the last 80
-                bits of IPv6 addresses) is zeroed before storage.
+                bits of IPv6 addresses) is zeroed before storage, anonymizing it.
               </li>
               <li>
                 <strong>Abuse-prevention ban list</strong> - to enforce
@@ -119,9 +119,11 @@ export default function LegalModal() {
                 dashboard (for example in the "Cuck List" card on the Bot
                 panel), IP addresses are truncated using the same scheme
                 as the access logs before being sent to any browser.
+                Access to the ban list is restricted to system
+                administrator only.
               </li>
               <li>
-                <strong>Public game data</strong> - the Service queries and
+                <strong>Public game data</strong> - the ESI Service queries and
                 caches publicly available information from the Wynncraft
                 public API. No private game data is collected.
               </li>
@@ -138,7 +140,7 @@ export default function LegalModal() {
                 <strong>Legitimate interest (Art. 6(1)(f))</strong> - keeping
                 short-lived, anonymised access logs to detect abuse, prevent
                 fraud, and maintain the security and availability of the
-                Service. Our legitimate interest is balanced against your
+                ESI Service. Our legitimate interest is balanced against your
                 rights through IP truncation and a short retention period.
               </li>
               <li>
@@ -152,15 +154,15 @@ export default function LegalModal() {
             <h4 className="legal-subheading">5. How We Use Information</h4>
             <ul className="legal-list">
               <li>Authenticate users and determine role-based permissions.</li>
-              <li>Provide, maintain, and improve the Service.</li>
+              <li>Provide, maintain, and improve the ESI Service.</li>
               <li>Detect and prevent abuse, spam, and security incidents.</li>
               <li>Sync your preferences across devices when you are logged in.</li>
             </ul>
 
             <h4 className="legal-subheading">6. Third-Party Processors and Recipients</h4>
             <p>
-              We do not sell or rent personal data. The Service relies on the
-              following third-party providers; using the Service necessarily
+              We do not sell or rent personal data. The ESI Service relies on the
+              following third-party providers; using the ESI Service necessarily
               causes some data (in particular your IP address, as part of any
               standard HTTP request) to be transmitted to them:
             </p>
@@ -185,14 +187,15 @@ export default function LegalModal() {
                 controllers under their own terms.
               </li>
               <li>
-                <strong>Hosting provider</strong> - our server host processes
-                incoming requests on our behalf and may briefly log IP
-                addresses for operational and anti-abuse purposes.
+                <strong>Hosting provider</strong> - the Service on which
+                ESI Service is hosted processes incoming and outgoing requests
+                on ESI Service's behalf and may briefly log IP addresses
+                as part of their processing operation.
               </li>
             </ul>
             <p>
               We do not use third-party advertising, analytics, or tracking
-              services. Fonts are served from our own server.
+              services. Fonts are served from ESI Service's server.
             </p>
 
             <h4 className="legal-subheading">7. International Transfers</h4>
@@ -200,9 +203,9 @@ export default function LegalModal() {
               Some of the recipients listed above (notably Discord and the
               Minecraft avatar providers) are located outside the European
               Economic Area, primarily in the United States. Transfers take
-              place on the basis of the European Commission's Standard
-              Contractual Clauses and/or the EU-US Data Privacy Framework
-              where applicable, as published by each provider.
+              place on the basis of the respective legal basis and/or the
+              EU-US Data Privacy Framework where applicable, as published
+              by each provider.
             </p>
 
             <h4 className="legal-subheading">8. Retention</h4>
@@ -235,7 +238,7 @@ export default function LegalModal() {
               </li>
               <li>
                 <strong>Account and preference data</strong> - retained while
-                you continue to use the Service. If you do not log in for 12
+                you continue to use the ESI Service. If you do not log in for 12
                 months, or on your request, your stored record is deleted.
               </li>
             </ul>
@@ -243,7 +246,7 @@ export default function LegalModal() {
             <h4 className="legal-subheading">9. Your Rights Under GDPR</h4>
             <p>
               Subject to the conditions set out in the GDPR, you have the
-              right to:
+              right to ask to:
             </p>
             <ul className="legal-list">
               <li>
@@ -312,18 +315,18 @@ export default function LegalModal() {
             hidden
           >
             <h3 className="legal-heading">Terms of Service</h3>
-            <p className="legal-meta">Last updated: April 2026</p>
+            <p className="legal-meta">Last updated: May 2026</p>
 
             <h4 className="legal-subheading">1. Acceptance</h4>
             <p>
               By accessing or using this dashboard, you agree to be bound by
               these Terms of Service. If you do not agree, do not use the
-              Service.
+              ESI Service.
             </p>
 
             <h4 className="legal-subheading">2. The Service</h4>
             <p>
-              The Service is a fan-made tool provided "as is" for the
+              The ESI Service is a fan-made tool provided "as is" for the
               convenience of Empire of Sindria guild members and interested
               community members. It is provided free of charge, without any
               warranty of availability, accuracy, or fitness for a particular
@@ -334,23 +337,23 @@ export default function LegalModal() {
             <p>You agree not to:</p>
             <ul className="legal-list">
               <li>
-                Attempt to gain unauthorized access to any part of the Service
+                Attempt to gain unauthorized access to any part of the ESI Service
                 or its underlying systems.
               </li>
               <li>
-                Probe, scan, or test the vulnerability of the Service without
+                Probe, scan, or test the vulnerability of the ESI Service without
                 permission.
               </li>
               <li>
-                Interfere with the Service through denial-of-service attacks,
+                Interfere with the ESI Service through denial-of-service attacks,
                 excessive scraping, or similar means.
               </li>
-              <li>Use the Service to harass, abuse, or impersonate others.</li>
+              <li>Use the ESI Service to harass, abuse, or impersonate others.</li>
             </ul>
 
             <h4 className="legal-subheading">4. Third-Party Content</h4>
             <p>
-              The Service displays data from Wynncraft's public API. We are not
+              The ESI Service displays data from Wynncraft's public API. We are not
               responsible for the accuracy, completeness, or availability of
               third-party data.
             </p>
@@ -359,7 +362,7 @@ export default function LegalModal() {
             <p>
               To the fullest extent permitted by law, the maintainers shall not
               be liable for any indirect, incidental, special, consequential,
-              or punitive damages arising from your use of the Service.
+              or punitive damages arising from your use of the ESI Service.
             </p>
 
             <h4 className="legal-subheading">6. Termination</h4>
@@ -385,11 +388,11 @@ export default function LegalModal() {
             hidden
           >
             <h3 className="legal-heading">Cookie Policy</h3>
-            <p className="legal-meta">Last updated: April 2026</p>
+            <p className="legal-meta">Last updated: May 2026</p>
 
             <h4 className="legal-subheading">1. What We Use</h4>
             <p>
-              The Service uses a small number of cookies and browser storage
+              The ESI Service uses a small number of cookies and browser storage
               items. All of them are strictly necessary for the dashboard to
               function; we do not set advertising or analytics cookies.
             </p>
@@ -397,16 +400,28 @@ export default function LegalModal() {
             <h4 className="legal-subheading">2. Categories</h4>
             <ul className="legal-list">
               <li>
-                <strong>Session cookie</strong> - set after you log in with
-                Discord; identifies your browser session so you remain logged
-                in between page loads. HttpOnly, Secure, SameSite=Lax.
-                Cleared on logout or when the session expires.
+                <strong>Session cookie</strong> - the primary authentication
+                cookie, set immediately after you log in with Discord. It
+                carries your identity (Discord user ID, username, avatar, and
+                guild roles) encoded directly inside the cookie itself as a
+                server-signed value. Every request you make while logged in is
+                authenticated using this cookie alone and no database lookup is
+                needed. It is HttpOnly, Secure, and SameSite=Lax. It expires
+                after 30 days of inactivity or is deleted immediately on
+                logout.
               </li>
               <li>
                 <strong>"Remember me" cookie (<code>esi_remember</code>)</strong>
-                {' '}- set after login so you do not have to re-authenticate on
-                every visit. HttpOnly, Secure, SameSite=Lax. Lifetime: up to
-                30 days from last use; cleared on logout.
+                {' '}- a secondary, recovery-only cookie set alongside the
+                session cookie at login. Unlike the session cookie, it contains
+                no identity data of its own, only a random, opaque token that
+                maps to your account in a server-side database. It is never
+                used to authenticate normal requests; its sole purpose is to
+                silently rebuild the session cookie if it is ever missing (for
+                example after a browser restart or a server update), so you do
+                not have to go through Discord login again. It is HttpOnly,
+                Secure, and SameSite=Lax. Valid for up to 30 days from last
+                use; cleared on logout or if your guild membership ends.
               </li>
               <li>
                 <strong>CSRF / security tokens</strong> - used to protect
@@ -447,11 +462,11 @@ export default function LegalModal() {
             hidden
           >
             <h3 className="legal-heading">Legal Notice</h3>
-            <p className="legal-meta">Last updated: April 2026</p>
+            <p className="legal-meta">Last updated: May 2026</p>
 
             <h4 className="legal-subheading">Operator / Responsible Person</h4>
             <p>
-              This Service is operated as a non-commercial, community-run
+              This ESI Service is operated as a non-commercial, community-run
               project by:
             </p>
             <ul className="legal-list">
@@ -494,7 +509,7 @@ export default function LegalModal() {
 
             <h4 className="legal-subheading">External Links</h4>
             <p>
-              The Service contains links to external websites (Discord,
+              The ESI Service contains links to external websites (Discord,
               GitHub). We have no control over the content of those sites and
               accept no responsibility for them.
             </p>
