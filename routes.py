@@ -65,6 +65,16 @@ app.config["SESSION_COOKIE_SECURE"] = DISCORD_REDIRECT_URI.startswith("https://"
 
 os.makedirs(_UPLOAD_DIR, exist_ok=True)
 
+# Security headers
+
+@app.after_request
+def _set_security_headers(response):
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
 try:
     from wynnpiece.routes import bp as _wp_bp
     app.register_blueprint(_wp_bp)

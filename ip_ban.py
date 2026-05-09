@@ -55,6 +55,15 @@ BAN_BLACKLIST_AFTER  = 3               # auto-blacklist after this many temp ban
 BAN_CLEANUP_INTERVAL = 300             # purge expired entries every 5 min
 BAN_WHITELIST: set   = {"127.0.0.1", "::1"}
 
+# Load extra whitelist IPs from a local file.
+_WHITELIST_FILE = os.path.join(_BASE_DIR, "ip_whitelist.txt")
+if os.path.isfile(_WHITELIST_FILE):
+    with open(_WHITELIST_FILE, encoding="utf-8") as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#"):
+                BAN_WHITELIST.add(_line)
+
 # in-memory state
 
 # strikes: {(ip, jail): deque([timestamp, …])}

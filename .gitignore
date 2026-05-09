@@ -233,6 +233,9 @@ logs/
 # gdpr exports
 gdpr_exports
 
+# IP whitelist (local override, not tracked)
+ip_whitelist.txt
+
 # git file
 ESI-website.git
 
