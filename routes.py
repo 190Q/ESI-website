@@ -56,7 +56,7 @@ import ipaddress
 
 app = Flask(__name__)
 # trust X-Forwarded-For from the gateway / nginx
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=2, x_proto=1, x_host=1)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.secret_key = _get_secret_key()
 app.permanent_session_lifetime = timedelta(days=30)
 app.config["SESSION_COOKIE_HTTPONLY"] = True

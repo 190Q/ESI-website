@@ -117,9 +117,10 @@ def _real_client_ip():
         cf = request.headers.get("CF-Connecting-IP")
         if cf:
             return cf.strip()
+    # Only trust X-Forwarded-For from nginx (loopback) or Cloudflare
+    trusted_peer = peer in ("127.0.0.1", "::1") or _is_cloudflare_peer(peer)
     xff = request.headers.get("X-Forwarded-For")
-    if xff:
-        # first entry is the original client when the chain is trusted
+    if xff and trusted_peer:
         return xff.split(",")[0].strip()
     return request.remote_addr
 
@@ -538,7 +539,7 @@ def _proxy_to_routes():
     # forward headers (except Host and Accept-Encoding to avoid gzip issues)
     headers = {}
     for key, value in request.headers:
-        if key.lower() in ("host", "accept-encoding"):
+        if key.lower() in ("host", "accept-encoding", "x-forwarded-for"):
             continue
         headers[key] = value
 
