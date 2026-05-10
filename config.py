@@ -102,11 +102,28 @@ if not _GATEWAY_SECRET:
 # Discord user while running the site locally. Auto-detected from a localhost
 # redirect URI (typically set by .env.local) or force-enabled via DEV_MODE=1.
 # NEVER set this on a production deployment.
-DEV_MODE = (
-    str(os.environ.get("DEV_MODE") or "").strip().lower() in {"1", "true", "yes", "on"}
-    or DISCORD_REDIRECT_URI.startswith("http://localhost")
+_DEV_MODE_EXPLICIT = str(os.environ.get("DEV_MODE") or "").strip().lower() in {"1", "true", "yes", "on"}
+_DEV_MODE_AUTO = (
+    DISCORD_REDIRECT_URI.startswith("http://localhost")
     or DISCORD_REDIRECT_URI.startswith("http://127.0.0.1")
 )
+DEV_MODE = _DEV_MODE_EXPLICIT or _DEV_MODE_AUTO
+
+# Safety check: refuse to run if DEV_MODE was force-enabled but the redirect
+# URI points to a real (non-localhost) domain.  This prevents accidentally
+# shipping DEV_MODE=1 in a production .env file.
+if _DEV_MODE_EXPLICIT and not _DEV_MODE_AUTO and DISCORD_REDIRECT_URI:
+    print(
+        "\n  \033[91mFATAL: DEV_MODE=1 is set but DISCORD_REDIRECT_URI points to a "
+        "non-localhost domain.\033[0m\n"
+        f"  DISCORD_REDIRECT_URI = {DISCORD_REDIRECT_URI}\n\n"
+        "  This is almost certainly a misconfiguration. DEV_MODE enables\n"
+        "  /auth/dev-login which allows impersonating any user.\n\n"
+        "  Either remove DEV_MODE from .env or set DISCORD_REDIRECT_URI\n"
+        "  to a localhost URL.\n",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 # discord role IDs
 
