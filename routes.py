@@ -100,8 +100,6 @@ _DANGEROUS_PERMS = [
     (_PERM_MANAGE_GUILD,     "Manage Guild"),
     (_PERM_BAN_MEMBERS,      "Ban Members"),
     (_PERM_KICK_MEMBERS,     "Kick Members"),
-    (_PERM_MANAGE_ROLES,     "Manage Roles"),
-    (_PERM_MANAGE_CHANNELS,  "Manage Channels"),
     (_PERM_MANAGE_WEBHOOKS,  "Manage Webhooks"),
     (_PERM_MENTION_EVERYONE, "Mention Everyone"),
 ]
