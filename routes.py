@@ -82,6 +82,104 @@ except ImportError:
     pass
 
 
+# Bot permission audit - runs once in a background thread at startup.
+# Warns if the Discord bot has dangerous permissions it doesn't need.
+
+# Discord permission bit flags
+_PERM_ADMINISTRATOR      = 1 << 3
+_PERM_MANAGE_GUILD       = 1 << 5
+_PERM_BAN_MEMBERS        = 1 << 2
+_PERM_KICK_MEMBERS       = 1 << 1
+_PERM_MANAGE_ROLES       = 1 << 28
+_PERM_MANAGE_CHANNELS    = 1 << 4
+_PERM_MANAGE_WEBHOOKS    = 1 << 29
+_PERM_MENTION_EVERYONE   = 1 << 17
+
+_DANGEROUS_PERMS = [
+    (_PERM_ADMINISTRATOR,    "Administrator"),
+    (_PERM_MANAGE_GUILD,     "Manage Guild"),
+    (_PERM_BAN_MEMBERS,      "Ban Members"),
+    (_PERM_KICK_MEMBERS,     "Kick Members"),
+    (_PERM_MANAGE_ROLES,     "Manage Roles"),
+    (_PERM_MANAGE_CHANNELS,  "Manage Channels"),
+    (_PERM_MANAGE_WEBHOOKS,  "Manage Webhooks"),
+    (_PERM_MENTION_EVERYONE, "Mention Everyone"),
+]
+
+def _audit_bot_permissions():
+    """Check if the bot has more permissions than it needs.
+
+    Required permissions:
+      - View Channels
+      - Send Messages / Send Messages in Threads
+      - Create Public Threads / Create Private Threads
+      - Read Message History
+    The bot also needs the Server Members Intent in the developer portal.
+    """
+    import sys as _sys
+    if not DISCORD_TOKEN or not DISCORD_GUILD_ID:
+        return
+    try:
+        # Fetch the bot's own member record
+        me_resp = requests.get(
+            f"{DISCORD_API}/users/@me",
+            headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+            timeout=10,
+        )
+        if not me_resp.ok:
+            return
+        bot_id = me_resp.json().get("id")
+        if not bot_id:
+            return
+
+        member_resp = requests.get(
+            f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/members/{bot_id}",
+            headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+            timeout=10,
+        )
+        if not member_resp.ok:
+            return
+        bot_roles = set(member_resp.json().get("roles", []))
+
+        # Fetch all guild roles to compute effective permissions
+        roles_resp = requests.get(
+            f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/roles",
+            headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+            timeout=10,
+        )
+        if not roles_resp.ok:
+            return
+
+        perms = 0
+        for role in roles_resp.json():
+            # @everyone role applies to all members
+            if role["id"] == DISCORD_GUILD_ID or role["id"] in bot_roles:
+                perms |= int(role.get("permissions", "0"))
+
+        # Check for dangerous permissions
+        found = []
+        for bit, name in _DANGEROUS_PERMS:
+            if perms & bit:
+                found.append(name)
+
+        if found:
+            print(
+                f"\n  \033[93m[SECURITY] Bot has unnecessary permissions: "
+                f"{', '.join(found)}\033[0m\n"
+                f"  The bot only needs: View Channels, Send Messages, "
+                f"Create Threads, Read Message History.\n"
+                f"  Remove excess permissions in Discord Server Settings "
+                f"\u2192 Roles \u2192 ESI Bot role.\n",
+                file=_sys.stderr,
+            )
+        else:
+            print("  [SECURITY] Bot permissions look good \u2713", file=_sys.stderr)
+    except Exception as exc:
+        print(f"  [SECURITY] Could not audit bot permissions: {exc}", file=_sys.stderr)
+
+_threading.Thread(target=_audit_bot_permissions, daemon=True).start()
+
+
 # cache service helpers
 
 def _fetch_cache(path, timeout=5):
