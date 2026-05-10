@@ -26,7 +26,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.serving import WSGIRequestHandler
 
 from config import (
-    _BASE_DIR, _UPLOAD_DIR, GATEWAY_PORT, ROUTES_URL,
+    _BASE_DIR, _UPLOAD_DIR, GATEWAY_PORT, ROUTES_URL, _GATEWAY_SECRET,
 )
 
 
@@ -547,6 +547,7 @@ def _proxy_to_routes():
     headers["X-Forwarded-For"] = request.remote_addr or ""
     headers["X-Forwarded-Proto"] = request.scheme
     headers["X-Forwarded-Host"] = request.host
+    headers["X-Gateway-Secret"] = _GATEWAY_SECRET
 
     try:
         resp = requests.request(

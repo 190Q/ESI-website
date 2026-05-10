@@ -34,7 +34,7 @@ from config import (
     DISCORD_CLIENT_SECRET, DISCORD_GUILD_ID, DISCORD_REDIRECT_URI,
     GITHUB_TOKEN, GITHUB_REPO, HEADERS as API_HEADERS,
     CACHE_TTL, PLAYTIME_CACHE_TTL, BULK_PLAYTIME_REFRESH,
-    CACHE_URL, ROUTES_PORT,
+    CACHE_URL, ROUTES_PORT, _GATEWAY_SECRET,
     _ROLE_VALAENDOR, _ROLE_PARLIAMENT, _ROLE_CONGRESS, _ROLE_JUROR, _ROLE_CITIZEN,
     _ROLE_GRAND_DUKE, _ROLE_ARCHDUKE,
     _PARLIAMENT_PLUS, _JUROR_PLUS, _CHIEF_PLUS, _CITIZEN_PLUS,
@@ -350,6 +350,23 @@ def _is_internal_bulk_request() -> bool:
 
 
 # request hooks
+
+@app.before_request
+def _verify_gateway_secret():
+    """Reject requests that did not come through the Gateway.
+
+    Every request proxied by main.py carries an X-Gateway-Secret header.
+    If it is missing or wrong the request was sent directly to :5001,
+    which should never happen in production.
+    """
+    provided = (request.headers.get("X-Gateway-Secret") or "").strip()
+    if not provided or not secrets.compare_digest(provided, _GATEWAY_SECRET):
+        # allow loopback without the header only in dev mode so
+        # curl / test scripts still work locally
+        if DEV_MODE:
+            pass
+        else:
+            abort(403)
 
 @app.before_request
 def _before():

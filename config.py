@@ -92,6 +92,12 @@ CACHE_PORT   = 5002
 ROUTES_URL   = f"http://127.0.0.1:{ROUTES_PORT}"
 CACHE_URL    = f"http://127.0.0.1:{CACHE_PORT}"
 
+# Internal proxy secret, shared between Gateway and Routes
+_GATEWAY_SECRET = os.environ.get("ESI_GATEWAY_SECRET", "").strip()
+if not _GATEWAY_SECRET:
+    _GATEWAY_SECRET = secrets.token_urlsafe(48)
+    os.environ["ESI_GATEWAY_SECRET"] = _GATEWAY_SECRET
+
 # dev-mode: when true, /auth/dev-login is enabled so user can impersonate any
 # Discord user while running the site locally. Auto-detected from a localhost
 # redirect URI (typically set by .env.local) or force-enabled via DEV_MODE=1.
