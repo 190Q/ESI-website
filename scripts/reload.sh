@@ -58,6 +58,11 @@ reload_gateway() {
 
 mkdir -p "$DIR/logs"
 
+# Lock down secret files
+for f in "$DIR/.env" "$DIR/.env.local" "$DIR/.flask_secret" "$DIR/ip_whitelist.txt"; do
+    [ -f "$f" ] && chmod 600 "$f"
+done
+
 if [ $# -eq 0 ]; then
     echo "  Reloading all ESI services…"
     echo "  ─────────────────────────────────────"

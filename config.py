@@ -65,6 +65,30 @@ def _detect_server_tz_name():
 
 _SERVER_TIMEZONE = _detect_server_tz_name()
 
+# Verify secret files have restricted permissions (Linux only).
+# Warns at startup if .env or .flask_secret are readable by other users.
+
+def _check_secret_file_perms():
+    if sys.platform == 'win32':
+        return
+    import stat
+    for name in ('.env', '.env.local', '.flask_secret', 'ip_whitelist.txt'):
+        path = os.path.join(_BASE_DIR, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            mode = os.stat(path).st_mode
+            if mode & (stat.S_IRGRP | stat.S_IROTH):
+                print(
+                    f"  \033[93mWARNING: {name} is readable by group/others "
+                    f"(mode {oct(mode & 0o777)}). Run: chmod 600 {path}\033[0m",
+                    file=sys.stderr,
+                )
+        except OSError:
+            pass
+
+_check_secret_file_perms()
+
 # API URLs and tokens
 
 WYNN_BASE             = "https://api.wynncraft.com/v3"

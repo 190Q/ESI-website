@@ -32,6 +32,11 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# Lock down secret files
+for f in "$DIR/.env" "$DIR/.env.local" "$DIR/.flask_secret" "$DIR/ip_whitelist.txt"; do
+    [ -f "$f" ] && chmod 600 "$f"
+done
+
 echo ""
 echo "  Starting ESI services…"
 echo "  ─────────────────────────────────────"

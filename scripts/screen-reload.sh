@@ -54,6 +54,11 @@ reload_gateway() {
     reload_screen "esi-website-gateway" "python3 $DIR/main.py; echo 'CRASHED — press Enter to close'; read"
 }
 
+# Lock down secret files
+for f in "$DIR/.env" "$DIR/.env.local" "$DIR/.flask_secret" "$DIR/ip_whitelist.txt"; do
+    [ -f "$f" ] && chmod 600 "$f"
+done
+
 if [ $# -eq 0 ]; then
     echo "  Reloading all ESI screen sessions…"
     echo "  ─────────────────────────────────────"
