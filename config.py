@@ -711,12 +711,47 @@ def _parse_bool(value) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+_JSON_MAX_SIZE = 10 * 1024 * 1024
+_JSON_MAX_STRING_LEN = 2000
+_HTML_TAG_RE = __import__('re').compile(r'<[^>]+>')
+
+
+def _sanitize_string(s, max_len=_JSON_MAX_STRING_LEN):
+    """Strip HTML tags, control characters, and clamp length."""
+    if not isinstance(s, str):
+        return s
+    # strip HTML tags
+    s = _HTML_TAG_RE.sub('', s)
+    # strip control characters (keep newlines and tabs)
+    s = ''.join(c for c in s if c in ('\n', '\t') or (ord(c) >= 32))
+    # clamp length
+    if len(s) > max_len:
+        s = s[:max_len]
+    return s
+
+
+def _sanitize_json(obj):
+    """Recursively sanitize all strings in a parsed JSON structure."""
+    if isinstance(obj, str):
+        return _sanitize_string(obj)
+    if isinstance(obj, dict):
+        return {_sanitize_string(k, 200): _sanitize_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_json(item) for item in obj]
+    return obj
+
+
 def _load_json_file(path):
     if not os.path.exists(path):
         return {}
     try:
+        size = os.path.getsize(path)
+        if size > _JSON_MAX_SIZE:
+            print(f"[ERROR] JSON file too large ({size} bytes): {path}", file=sys.stderr)
+            return {}
         with open(path, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        return _sanitize_json(data)
     except json.JSONDecodeError as e:
         print(f"[ERROR] Malformed JSON in {path}: {e}", file=sys.stderr)
         return {}
