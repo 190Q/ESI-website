@@ -516,7 +516,7 @@
   /* value shown inside the ESI Points owed card */
   function formatGuildPointsCardValue(data) {
     if (!data || !data.available) return '<span style="color:var(--gold-light)">Coming soon</span>';
-    const points = (data.both && data.both.total_points) || 0;
+    const points = (data.current_cycle && data.current_cycle.total_points) || 0;
     return `${formatInt(points)}<span style="font-size:1rem;color:var(--text-dim)"></span>`;
   }
 
@@ -759,7 +759,7 @@
     document.body.appendChild(pointsOverlay);
 
     /* which tab is active inside the points popup: 'current' | 'previous' | 'both' */
-    let pointsActiveTab = 'both';
+    let pointsActiveTab = 'current';
 
     function renderPointsPopup() {
       const data = window.esiPointsData || {};
@@ -790,7 +790,7 @@
         <div class="owed-aspects-popup-header">
           <span class="owed-aspects-popup-title">
             <img src="/images/point_icon.png" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points Leaderboard
-            <span class="owed-aspects-popup-count" style="color:var(--gold-light)">${formatLe(totalLe)} LE</span>
+            <span class="owed-aspects-popup-count" style="color:var(--gold-light)">${formatInt(totalPoints)} EP</span>
           </span>
           <button class="owed-aspects-popup-close" id="esiPointsClose">\u2715</button>
         </div>
@@ -805,15 +805,12 @@
             ? players.map(p => {
                 const rank = p.rank ? `<span class="guild-rank-badge guild-rank-${escAttr(p.rank)}">${escHtml(capFirst(p.rank))}</span>` : '';
                 const posClass = p.position === 1 ? ' top1' : p.position === 2 ? ' top2' : p.position === 3 ? ' top3' : '';
-                const cleanEp = p.clean_ep != null ? p.clean_ep : p.points;
-                const dirtyEp = p.dirty_ep != null ? p.dirty_ep : 0;
                 return `
                 <div class="owed-aspects-row">
                   <span class="esi-points-position${posClass}">#${p.position}</span>
                   <span class="owed-aspects-player-name guild-log-name-link" data-username="${escAttr(p.username)}">${escHtml(p.username)}</span>${rank}
                   <div class="owed-aspects-right">
-                    <span class="owed-aspects-player-count">${formatLe(p.le)} LE</span>
-                    <span style="font-size:0.72rem;color:var(--text-faint);margin-left:0.5rem">${formatInt(cleanEp)}c / ${formatInt(dirtyEp)}d</span>
+                    <span class="owed-aspects-player-count">${formatInt(p.points)} EP</span>
                   </div>
                 </div>`;
               }).join('')

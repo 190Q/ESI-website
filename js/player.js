@@ -1083,7 +1083,7 @@
       document.body.appendChild(ptsOverlay);
 
       let playerPointsData = null;
-      let playerPointsTab = 'both';
+      let playerPointsTab = 'current';
 
       function renderPlayerPointsPopup() {
         const name = p.username;
@@ -1134,7 +1134,7 @@
                       : playerPointsTab === 'previous' ? playerPointsData.previous_cycle
                       :                                  playerPointsData.both;
         const history = (section && section.history) || [];
-        const headerLE = playerPointsData.both && playerPointsData.both.le != null ? playerPointsData.both.le : 0;
+        const headerPts = section && section.points != null ? section.points : 0;
         const sectionShort = (section && section.short_label) || '';
         const rankRow = section && section.leaderboard_position
           ? `<div class="esi-points-rank-row">Guild rank <strong>#${section.leaderboard_position}</strong> of ${section.leaderboard_size}${sectionShort ? ` (${escapeHtml(sectionShort)})` : ''}</div>`
@@ -1148,7 +1148,7 @@
           <div class="owed-aspects-popup-header">
             <span class="owed-aspects-popup-title">
               <img src="/images/point_icon.png" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points for ${escapeHtml(playerPointsData.username || name)}
-              <span class="owed-aspects-popup-count" style="color:var(--gold-light)">${formatLe(headerLE)} LE</span>
+              <span class="owed-aspects-popup-count" style="color:var(--gold-light)">${formatInt(headerPts)} EP</span>
             </span>
             <button class="owed-aspects-popup-close" id="playerEsiPointsClose">\u2715</button>
           </div>
@@ -1162,7 +1162,7 @@
             <div class="esi-points-section-totals">
               <span><strong>${formatLe(section.le || 0)}</strong> LE</span>
               <span style="color:var(--text-faint)">\u00b7</span>
-              <span>${formatInt(section.clean_ep != null ? section.clean_ep : section.points || 0)}c / ${formatInt(section.dirty_ep || 0)}d</span>
+              <span>${formatInt(section.clean_ep != null ? section.clean_ep : section.points || 0)} CEP / ${formatInt(section.dirty_ep || 0)} DEP</span>
               <span style="color:var(--text-faint)">\u00b7</span>
               <span>${history.length} entr${history.length === 1 ? 'y' : 'ies'}</span>
             </div>
@@ -1222,7 +1222,7 @@
             } else if (data.found === false) {
               cardVal.innerHTML = '0<span style="font-size:1rem;color:var(--text-dim)"></span>';
             } else {
-              const pts = data.both && data.both.points != null ? data.both.points : 0;
+              const pts = data.current_cycle && data.current_cycle.points != null ? data.current_cycle.points : 0;
               cardVal.innerHTML = formatInt(pts) + '<span style="font-size:1rem;color:var(--text-dim)"></span>';
             }
           }
