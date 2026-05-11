@@ -366,7 +366,6 @@ def _gate_requests():
 
     path = request.path
 
-    # Wynnpiece requests: skip all scanner/injection blacklisting
     _is_wp = path.startswith("/wynnpiece") or path.startswith("/api/wynnpiece")
 
     # reject banned IPs immediately
@@ -378,7 +377,7 @@ def _gate_requests():
         )
         abort(403)
     # HTTP methods only scanners / attackers send (XST, WebDAV, proxy abuse)
-    if not _is_wp and request.method.upper() in _BANNED_METHODS:
+    if request.method.upper() in _BANNED_METHODS:
         print(
             f"[IP-BAN] gate: banned-method trigger  ip={ip}  peer={peer}  "
             f"method={request.method}  cf_skip={cf_skip}  has_ban={_HAS_BAN}",
@@ -388,9 +387,21 @@ def _gate_requests():
         _do_blacklist(f"Banned method: {request.method}")
         abort(403)
     # Request smuggling: both Content-Length and Transfer-Encoding present
-    if not _is_wp and request.headers.get("Transfer-Encoding") and request.headers.get("Content-Length"):
+    if request.headers.get("Transfer-Encoding") and request.headers.get("Content-Length"):
         _do_blacklist("Request smuggling: CL + TE")
         abort(400)
+    # Injection / traversal payload in URL or query string (always checked)
+    try:
+        qs = request.query_string.decode("utf-8", "replace")
+    except Exception:
+        qs = ""
+    raw = path + ("?" + qs if qs else "")
+    if _INJECTION_RE.search(raw):
+        _do_blacklist(f"Injection payload: {path}")
+        abort(403)
+    # block dotfiles (always)
+    if "/." in path or path.startswith("."):
+        abort(403)
     if not _is_wp:
         # HTTP/1.0 direct to the gateway (no upstream proxy header) is a scanner
         # fingerprint, real browsers are 1.1+, and nginx/Cloudflare always set
@@ -407,21 +418,9 @@ def _gate_requests():
         if _SCANNER_PATH_RE.search(path):
             _do_blacklist(f"Scanner probe: {path}")
             abort(403)
-        # Injection / traversal payload in URL or query string
-        try:
-            qs = request.query_string.decode("utf-8", "replace")
-        except Exception:
-            qs = ""
-        raw = path + ("?" + qs if qs else "")
-        if _INJECTION_RE.search(raw):
-            _do_blacklist(f"Injection payload: {path}")
-            abort(403)
         # Debugger / profiler trigger probe (Xdebug / Zend / Symfony / Laravel)
         if _DEBUG_PROBE_RE.search(raw):
             _do_blacklist(f"Debugger probe: {path}?{qs}" if qs else f"Debugger probe: {path}")
-            abort(403)
-        # block dotfiles
-        if "/." in path or path.startswith("."):
             abort(403)
     # API and auth go through the proxy routes below
     if path.startswith(("/api/", "/auth/")):
@@ -436,8 +435,13 @@ def _gate_requests():
         return
     if any(path.startswith(p) for p in _ALLOWED_STATIC_PREFIXES):
         # block sensitive files inside allowed prefixes
-        if path.startswith("/wynnpiece/") and path.rsplit(".", 1)[-1] in ("db", "py", "db-shm", "db-wal", "json"):
+        if path.startswith("/wynnpiece/") and path.rsplit(".", 1)[-1] in ("db", "py", "db-shm", "db-wal"):
             abort(403)
+        # block specific sensitive wynnpiece files by name
+        if path.startswith("/wynnpiece/"):
+            basename = path.rsplit("/", 1)[-1].lower()
+            if basename in ("event_state.json", "wynnpiece.db", "config.py", "wynnpiece.py", "routes.py", "__init__.py"):
+                abort(403)
         # block direct access to wynnpiece attachments (served via gated route)
         if path.startswith("/wynnpiece/attachments/"):
             abort(403)
