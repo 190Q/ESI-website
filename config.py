@@ -32,14 +32,19 @@ _USERNAME_MATCHES_JSON  = os.path.join(_DATA_FOLDER, "username_matches.json")
 _TRACKED_GUILD_JSON     = os.path.join(_DATA_FOLDER, "tracked_guild.json")
 _GUILD_LEVELS_JSON      = os.path.join(_DATA_FOLDER, "guild_levels.json")
 _GUILD_TERRITORIES_JSON = os.path.join(_DATA_FOLDER, "guild_territories.json")
-_APPLICATIONS_JSON      = os.path.join(_DATA_FOLDER, "applications.json")
-_EVENTS_JSON            = os.path.join(_DATA_FOLDER, "events.json")
 _API_TRACKING_DIR       = os.path.join(_ESI_BOT_DIR, "databases", "api_tracking")
 _POINTS_DB              = os.path.join(_ESI_BOT_DIR, "databases", "esi_points.db")
 _SNIPES_DB              = os.path.join(_ESI_BOT_DIR, "databases", "claim_snipes.db")
 
 _USER_DB_PATH           = os.path.join(_BASE_DIR, "user_data.db")
 _UPLOAD_DIR             = os.path.join(_BASE_DIR, "uploads")
+
+_WEBSITE_DATA_DIR       = os.path.join(_BASE_DIR, "data")
+os.makedirs(_WEBSITE_DATA_DIR, exist_ok=True)
+if sys.platform != "win32":
+    os.chmod(_WEBSITE_DATA_DIR, 0o700)
+_APPLICATIONS_JSON      = os.path.join(_WEBSITE_DATA_DIR, "applications.json")
+_EVENTS_JSON            = os.path.join(_WEBSITE_DATA_DIR, "events.json")
 
 
 def _detect_server_tz_name():
