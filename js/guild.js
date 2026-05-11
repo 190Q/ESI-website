@@ -1313,6 +1313,18 @@
     const players = Array.isArray(data.players) ? data.players : [];
     const stats = data.stats || {};
 
+    // Build set of current guild members to detect ex-members
+    const guildMembers = new Set();
+    var guildData = state.guildApiData;
+    if (guildData && guildData.members) {
+      ['owner','chief','strategist','captain','recruiter','recruit'].forEach(function (role) {
+        var group = guildData.members[role];
+        if (group && typeof group === 'object') {
+          Object.keys(group).forEach(function (n) { guildMembers.add(n); });
+        }
+      });
+    }
+
     // Overall stats
     const statsGrid = document.getElementById('guildSnipesStatsGrid');
     if (statsGrid) {
@@ -1341,9 +1353,10 @@
           .sort((a, b) => b[1] - a[1])
           .map(([r, n]) => snipeRoleBadge(r) + '<span class="snipe-role-count">\u00D7' + fmt(n) + '</span>')
           .join('');
+        var leftGuild = guildMembers.size > 0 && !guildMembers.has(p.username);
         return '<div class="snipe-player-row">'
           + '<span class="guild-member-rank-num ' + rankClass + '">#' + (i + 1) + '</span>'
-          + '<span class="guild-member-name guild-log-name-link" data-username="' + escAttr(p.username) + '">' + escHtml(p.username || 'Unknown') + '</span>'
+          + '<span class="guild-member-name guild-log-name-link' + (leftGuild ? ' snipe-left-guild' : '') + '" data-username="' + escAttr(p.username) + '">' + escHtml(p.username || 'Unknown') + '</span>'
           + '<span class="snipe-player-roles">' + rolesHtml + '</span>'
           + '<span class="snipe-player-count" title="Snipes participated in">\u25C9 ' + fmt(p.snipe_count) + '</span>'
           + '</div>';
@@ -1365,9 +1378,10 @@
     if (snipesList) {
       const snipesHtml = snipes.map(function (s) {
         const participants = (s.players || []).map(function (pl) {
+          var plLeftGuild = guildMembers.size > 0 && !guildMembers.has(pl.username);
           return '<div class="snipe-participant">'
             + snipeRoleBadge(pl.role)
-            + '<span class="snipe-participant-name guild-log-name-link" data-username="' + escAttr(pl.username) + '">'
+            + '<span class="snipe-participant-name guild-log-name-link' + (plLeftGuild ? ' snipe-left-guild' : '') + '" data-username="' + escAttr(pl.username) + '">'
             + escHtml(pl.username || 'Unknown') + '</span>'
             + '</div>';
         }).join('');

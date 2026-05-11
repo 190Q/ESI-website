@@ -752,6 +752,12 @@
   font-weight: 700;
 }
 
+/* Ex-guild-member strikethrough in snipes */
+.snipe-left-guild {
+  text-decoration: line-through;
+  text-decoration-color: #C5A946;
+}
+
 /* Guild Statistics view */
 .guild-stats-filters .info-card-header {
   font-family: 'Cinzel', serif;
