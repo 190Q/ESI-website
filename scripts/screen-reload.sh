@@ -40,6 +40,7 @@ reload_screen() {
     screen -S "$name" -X quit 2>/dev/null
     sleep 0.5
     : > "$logfile"
+    echo "  ✓ $name reloading…" >> "$logfile"
     screen -dmS "$name" bash -c "exec > >(tee -a $logfile) 2>&1; cd $DIR && source $DIR/venv/bin/activate && $cmd; echo 'CRASHED — press Enter to close'; read"
     echo "  ✓ $name reloaded"
 }
@@ -83,13 +84,3 @@ else
 fi
 
 echo "  Done."
-echo "  Re-open:  screen -r esi-website-logs"
-echo "  Detach:   Ctrl+A D"
-
-# Kill old logs screen, fix line endings, start new one and attach
-screen -S "esi-website-logs" -X quit >/dev/null 2>&1
-tr -d '\r' < "$DIR/scripts/screen-logs.sh" > "$DIR/scripts/.screen-logs.sh.tmp" \
-    && mv "$DIR/scripts/.screen-logs.sh.tmp" "$DIR/scripts/screen-logs.sh"
-chmod +x "$DIR/scripts/screen-logs.sh"
-sleep 1
-screen -S "esi-website-logs" "$DIR/scripts/screen-logs.sh"
