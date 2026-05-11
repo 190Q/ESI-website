@@ -560,6 +560,7 @@ def _proxy_to_routes():
     headers["X-Forwarded-Proto"] = request.scheme
     headers["X-Forwarded-Host"] = request.host
     headers["X-Gateway-Secret"] = _GATEWAY_SECRET
+    headers["X-Real-Client-IP"] = _real_client_ip() or request.remote_addr or ""
 
     try:
         resp = requests.request(

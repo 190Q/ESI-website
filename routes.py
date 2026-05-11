@@ -225,12 +225,22 @@ def _rate_limit_cleanup(now):
         del _RATE_LIMIT_STORE[k]
 
 
+def _real_ip():
+    """Return the real client IP as resolved by the Gateway.
+
+    The Gateway sets X-Real-Client-IP from CF-Connecting-IP (or falls
+    back to the TCP peer).  This is more accurate than remote_addr
+    which, after ProxyFix, is the Cloudflare edge IP.
+    """
+    return (request.headers.get("X-Real-Client-IP") or "").strip() or request.remote_addr or "unknown"
+
+
 def rate_limit(calls: int, period: float = 60.0):
     """Decorator: allow at most *calls* requests per *period* seconds per IP."""
     def decorator(fn):
         @_functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            ip  = request.remote_addr or "unknown"
+            ip  = _real_ip()
             key = (ip, request.endpoint or request.path)
             now = time()
             with _rate_limit_lock:
@@ -263,7 +273,7 @@ _activity_rate_lock = _threading.Lock()
 
 def _activity_rate_response(data_fn):
     """Only actually call data_fn() if this IP hasn't hit this path in the last 30s."""
-    ip  = request.remote_addr or ""
+    ip  = _real_ip()
     key = (ip, request.path)
     now = time()
     with _activity_rate_lock:
