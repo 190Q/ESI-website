@@ -35,29 +35,33 @@ esac
 reload_screen() {
     local name="$1"
     local cmd="$2"
+    local logfile="$DIR/logs/${name}.log"
 
     screen -S "$name" -X quit 2>/dev/null
     sleep 0.5
-    screen -dmS "$name" bash -c "cd $DIR && source $DIR/venv/bin/activate && $cmd"
+    : > "$logfile"
+    screen -dmS "$name" bash -c "exec > >(tee -a $logfile) 2>&1; cd $DIR && source $DIR/venv/bin/activate && $cmd; echo 'CRASHED — press Enter to close'; read"
     echo "  ✓ $name reloaded"
 }
 
 reload_cache() {
-    reload_screen "esi-website-cache" "python3 $DIR/cache.py; echo 'CRASHED — press Enter to close'; read"
+    reload_screen "esi-website-cache" "python3 $DIR/cache.py"
 }
 
 reload_routes() {
-    reload_screen "esi-website-routes" "python3 $DIR/routes.py; echo 'CRASHED — press Enter to close'; read"
+    reload_screen "esi-website-routes" "python3 $DIR/routes.py"
 }
 
 reload_gateway() {
-    reload_screen "esi-website-gateway" "python3 $DIR/main.py; echo 'CRASHED — press Enter to close'; read"
+    reload_screen "esi-website-gateway" "python3 $DIR/main.py"
 }
 
 # Lock down secret files
 for f in "$DIR/.env" "$DIR/.env.local" "$DIR/.flask_secret" "$DIR/ip_whitelist.txt"; do
     [ -f "$f" ] && chmod 600 "$f"
 done
+
+mkdir -p "$DIR/logs"
 
 if [ $# -eq 0 ]; then
     echo "  Reloading all ESI screen sessions…"
@@ -79,3 +83,13 @@ else
 fi
 
 echo "  Done."
+echo "  Re-open:  screen -r esi-website-logs"
+echo "  Detach:   Ctrl+A D"
+
+# Kill old logs screen, fix line endings, start new one and attach
+screen -S "esi-website-logs" -X quit >/dev/null 2>&1
+tr -d '\r' < "$DIR/scripts/screen-logs.sh" > "$DIR/scripts/.screen-logs.sh.tmp" \
+    && mv "$DIR/scripts/.screen-logs.sh.tmp" "$DIR/scripts/screen-logs.sh"
+chmod +x "$DIR/scripts/screen-logs.sh"
+sleep 1
+screen -S "esi-website-logs" "$DIR/scripts/screen-logs.sh"

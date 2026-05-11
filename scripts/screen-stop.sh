@@ -19,7 +19,7 @@ esac
 
 echo "  Stopping ESI screen sessions…"
 
-for name in esi-website-cache esi-website-routes esi-website-gateway; do
+for name in esi-website-cache esi-website-routes esi-website-gateway esi-website-logs; do
     screen -S "$name" -X quit 2>/dev/null && echo "  ✓ $name stopped" || echo "  – $name not running"
 done
 
