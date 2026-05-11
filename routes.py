@@ -1354,7 +1354,18 @@ def _points_cycle_meta(cycle_id):
     }
 
 
+import re as _re_mod
+_UUID_RE = _re_mod.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re_mod.IGNORECASE)
+
 def _points_player_table(uuid):
+    """Build a safe table name from a player UUID.
+
+    Validates the UUID format to prevent SQL injection via table-name
+    interpolation.  Raises ValueError if the UUID doesn't match the
+    expected hex-and-dashes pattern.
+    """
+    if not uuid or not _UUID_RE.match(uuid):
+        raise ValueError(f"Invalid UUID for table name: {uuid!r}")
     return "player_" + uuid.replace("-", "_")
 
 
