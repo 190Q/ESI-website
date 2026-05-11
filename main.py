@@ -519,12 +519,24 @@ def wynnpiece():
     )
 
 
+_ALLOWED_UPLOAD_EXTENSIONS = frozenset({
+    'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif',
+    'pdf', 'txt', 'csv', 'json',
+    'zip', 'gz', 'tar',
+})
+
 @app.route("/uploads/<string:filename>")
 def serve_upload(filename):
     safe = os.path.basename(filename)
     if safe != filename:
         abort(400)
-    return send_from_directory(_UPLOAD_DIR, filename, as_attachment=True)
+    ext = safe.rsplit('.', 1)[-1].lower() if '.' in safe else ''
+    if ext not in _ALLOWED_UPLOAD_EXTENSIONS:
+        abort(403)
+    resp = send_from_directory(_UPLOAD_DIR, filename, as_attachment=True)
+    resp.headers['Content-Type'] = 'application/octet-stream'
+    resp.headers['Content-Disposition'] = f'attachment; filename="{safe}"'
+    return resp
 
 
 # reverse proxy to routes service
