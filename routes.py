@@ -58,10 +58,13 @@ app = Flask(__name__)
 # trust X-Forwarded-For from the gateway / nginx
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.secret_key = _get_secret_key()
-app.permanent_session_lifetime = timedelta(days=30)
+app.permanent_session_lifetime = timedelta(days=7)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = DISCORD_REDIRECT_URI.startswith("https://")
+# Always Secure in production; only allow insecure cookies in dev mode
+app.config["SESSION_COOKIE_SECURE"] = not DEV_MODE
+
+_SESSION_IDLE_TIMEOUT = 3 * 3600  # 3 hours of inactivity -> re-auth
 
 os.makedirs(_UPLOAD_DIR, exist_ok=True)
 
@@ -467,6 +470,13 @@ def _verify_gateway_secret():
 @app.before_request
 def _before():
     session.permanent = True
+    # idle timeout: if the session hasn't been touched in _SESSION_IDLE_TIMEOUT,
+    # invalidate it so the user has to log in again.
+    last = session.get("_last_active")
+    now = time()
+    if last and now - last > _SESSION_IDLE_TIMEOUT and session.get("user"):
+        session.clear()
+    session["_last_active"] = now
 
 
 # compute inline-script hashes from index.html so CSP survives frontend rebuilds
@@ -656,6 +666,8 @@ def auth_callback():
             {"id": rid, "name": role_lookup.get(rid, "Unknown")}
             for rid in roles
         ]
+    # Rotate session to prevent fixation
+    session.clear()
     session.permanent = True
     user_data = {
         "id":            user["id"],
@@ -667,6 +679,7 @@ def auth_callback():
         "role_objects":  role_objects,
     }
     session["user"] = user_data
+    session["_last_active"] = time()
     token = _remember_create(user_data)
     resp = redirect("/?auth=success")
     _set_remember_cookie(resp, token)
