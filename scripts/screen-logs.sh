@@ -43,10 +43,10 @@ CYN=$'\033[96m'
 MAG=$'\033[95m'
 
 # Noise filters
-# Werkzeug HTTP access log:  "IP - - [DD/Mon/YYYY …"
+# Werkzeug HTTP access log:  "IP - - [DD/Mon/YYYY \u2026"
 ACCESS_LOG='- - \[[0-9]{2}/[A-Za-z]{3}/[0-9]{4} '
-# Werkzeug boilerplate printed every startup
-BOILERPLATE='WARNING: This is a development server|Use a production WSGI server|^ \* Debug mode:|^ \* Serving Flask app'
+# Werkzeug + service startup boilerplate
+BOILERPLATE='WARNING: This is a development server|Use a production WSGI server|^ \* Debug mode:|^ \* Serving Flask app|^ \* Running|ESI Dashboard Gateway|ESI Routes Service|─────|Listening on|Press Ctrl|Press CTRL|→  http://|Gateway.*:500[0-9]|Routes.*:500[0-9]|Cache.*:500[0-9]|permissions look good'
 
 # Header
 clear
@@ -79,7 +79,7 @@ format_line() {
             sev="$YLW" ;;
         *AUTH*|*APP*|*WARNING*|*Warning*|*warning*)
             sev="$MAG" ;;
-        *✓*|*"permissions look good"*|*"Running on"*|*http://*|*"Press Ctrl"*)
+        *✓*|*reloading*)
             sev="$GRN" ;;
     esac
 

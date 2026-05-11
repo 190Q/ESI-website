@@ -84,3 +84,11 @@ else
 fi
 
 echo "  Done."
+
+# Restart logs screen (picks up any filter changes) and attach
+screen -S "esi-website-logs" -X quit >/dev/null 2>&1
+tr -d '\r' < "$DIR/scripts/screen-logs.sh" > "$DIR/scripts/.screen-logs.sh.tmp" \
+    && mv "$DIR/scripts/.screen-logs.sh.tmp" "$DIR/scripts/screen-logs.sh"
+chmod +x "$DIR/scripts/screen-logs.sh"
+sleep 1
+screen -S "esi-website-logs" "$DIR/scripts/screen-logs.sh"
