@@ -1402,6 +1402,12 @@ def _points_guild_ranks_and_members():
         return {}, set()
 
 
+def _points_is_dirty_reason(reason):
+    """Mirror utils.esi_points.is_dirty_reason: True if the EP reason is dirty for HR."""
+    r = (reason or "").strip().lower()
+    return r in {"guild raid", "war"} or r.startswith("quest")
+
+
 def _points_fetch_player_history(uuid):
     """Return full history records for a single player UUID (newest first)."""
     table = _points_player_table(uuid)
@@ -1410,7 +1416,8 @@ def _points_fetch_player_history(uuid):
         c = conn.cursor()
         try:
             c.execute(
-                f'SELECT record_id, username, points_gained, cycle_id, reason, timestamp '
+                f'SELECT record_id, username, points_gained, cycle_id, reason, timestamp, '
+                f'COALESCE(is_dirty, 0) '
                 f'FROM "{table}" ORDER BY timestamp DESC'
             )
             rows = c.fetchall()
@@ -1427,6 +1434,7 @@ def _points_fetch_player_history(uuid):
             "cycle_id": r[3],
             "reason": r[4],
             "timestamp": r[5],
+            "is_dirty": r[6],
         }
         for r in rows
     ]
@@ -1446,7 +1454,7 @@ def _points_calc_le(username, total_points, history, guild_ranks):
 
 
 def _points_rows_for_cycles(cycle_ids, guild_members):
-    """Return list of {uuid, username, points} summed across the given cycles, restricted to guild members."""
+    """Return list of {uuid, username, points, clean_ep, dirty_ep} summed across the given cycles, restricted to guild members."""
     if not cycle_ids:
         return []
     try:
@@ -1454,8 +1462,8 @@ def _points_rows_for_cycles(cycle_ids, guild_members):
         c = conn.cursor()
         placeholders = ",".join("?" * len(cycle_ids))
         c.execute(
-            f"SELECT uuid, username, SUM(points) FROM esi_points "
-            f"WHERE cycle_id IN ({placeholders}) GROUP BY uuid",
+            f"SELECT uuid, username, SUM(points), SUM(clean_ep), SUM(dirty_ep) "
+            f"FROM esi_points WHERE cycle_id IN ({placeholders}) GROUP BY uuid",
             cycle_ids,
         )
         rows = c.fetchall()
@@ -1463,10 +1471,11 @@ def _points_rows_for_cycles(cycle_ids, guild_members):
     except _sqlite3.OperationalError:
         return []
     out = []
-    for uuid, username, pts in rows:
+    for uuid, username, pts, clean, dirty in rows:
         if guild_members and (username or "").lower() not in guild_members:
             continue
-        out.append({"uuid": uuid, "username": username, "points": int(pts or 0)})
+        out.append({"uuid": uuid, "username": username, "points": int(pts or 0),
+                     "clean_ep": int(clean or 0), "dirty_ep": int(dirty or 0)})
     return out
 
 
@@ -1481,10 +1490,22 @@ def _points_build_leaderboard(cycle_ids, guild_ranks, guild_members, history_cac
         history = history_cache[uuid]
         cycle_history = [h for h in history if h["cycle_id"] in cycle_ids]
         le = _points_calc_le(r["username"], r["points"], cycle_history, guild_ranks)
+        clean = r.get("clean_ep", 0)
+        dirty = r.get("dirty_ep", 0)
+        # Fallback: if persisted values are both 0 but points > 0, compute from history
+        if clean == 0 and dirty == 0 and r["points"] > 0:
+            rank = guild_ranks.get((r["username"] or "").lower(), "")
+            if rank in _POINTS_HR_RANKS:
+                dirty = sum(h["points_gained"] for h in cycle_history if _points_is_dirty_reason(h.get("reason")))
+                clean = r["points"] - dirty
+            else:
+                clean = r["points"]
         enriched.append({
             "uuid": uuid,
             "username": r["username"],
             "points": r["points"],
+            "clean_ep": clean,
+            "dirty_ep": dirty,
             "le": le,
             "rank": (guild_ranks.get((r["username"] or "").lower(), "") or None),
         })
@@ -1566,10 +1587,10 @@ def player_points(username: str):
         conn = _sqlite3.connect(_POINTS_DB)
         c = conn.cursor()
         c.execute(
-            "SELECT cycle_id, points FROM esi_points WHERE uuid = ? AND cycle_id IN (?, ?)",
+            "SELECT cycle_id, points, clean_ep, dirty_ep FROM esi_points WHERE uuid = ? AND cycle_id IN (?, ?)",
             (uuid, current_cycle, previous_cycle),
         )
-        cycle_rows = {r[0]: int(r[1] or 0) for r in c.fetchall()}
+        cycle_rows = {r[0]: {"points": int(r[1] or 0), "clean_ep": int(r[2] or 0), "dirty_ep": int(r[3] or 0)} for r in c.fetchall()}
         conn.close()
     except _sqlite3.OperationalError:
         cycle_rows = {}
@@ -1585,14 +1606,26 @@ def player_points(username: str):
     }
 
     def _section(cycle_ids, meta, board_key):
-        pts = sum(cycle_rows.get(cid, 0) for cid in cycle_ids)
+        pts = sum(cycle_rows.get(cid, {}).get("points", 0) for cid in cycle_ids)
+        clean = sum(cycle_rows.get(cid, {}).get("clean_ep", 0) for cid in cycle_ids)
+        dirty = sum(cycle_rows.get(cid, {}).get("dirty_ep", 0) for cid in cycle_ids)
+        # Fallback: if persisted values are both 0 but points > 0, compute from history
         cycle_history = [h for h in history if h["cycle_id"] in cycle_ids]
+        if clean == 0 and dirty == 0 and pts > 0:
+            rank = guild_ranks.get((resolved_name or "").lower(), "")
+            if rank in _POINTS_HR_RANKS:
+                dirty = sum(h["points_gained"] for h in cycle_history if _points_is_dirty_reason(h.get("reason")))
+                clean = pts - dirty
+            else:
+                clean = pts
         le = _points_calc_le(resolved_name, pts, cycle_history, guild_ranks)
         board = boards[board_key]
         entry = next((p for p in board["players"] if p["uuid"] == uuid), None)
         return {
             **meta,
             "points": pts,
+            "clean_ep": clean,
+            "dirty_ep": dirty,
             "le": le,
             "history": cycle_history,
             "leaderboard_position": entry["position"] if entry else None,

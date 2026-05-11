@@ -1162,7 +1162,7 @@
             <div class="esi-points-section-totals">
               <span><strong>${formatLe(section.le || 0)}</strong> LE</span>
               <span style="color:var(--text-faint)">\u00b7</span>
-              <span>${formatInt(section.points || 0)} pts</span>
+              <span>${formatInt(section.clean_ep != null ? section.clean_ep : section.points || 0)}c / ${formatInt(section.dirty_ep || 0)}d</span>
               <span style="color:var(--text-faint)">\u00b7</span>
               <span>${history.length} entr${history.length === 1 ? 'y' : 'ies'}</span>
             </div>
@@ -1175,10 +1175,11 @@
                   const pts = r.points_gained || 0;
                   const sign = pts > 0 ? '+' : '';
                   const color = pts >= 0 ? 'var(--online)' : 'var(--danger)';
+                  const dirtyTag = r.is_dirty ? '<span style="font-size:0.65rem;color:#e67e22;margin-left:0.35rem;font-weight:600" title="Dirty EP (excluded from LE for HR)">DIRTY</span>' : '';
                   return `
                   <div class="owed-aspects-row">
                     <span style="font-family:'Cinzel',serif;font-size:0.75rem;color:var(--text-faint);min-width:85px">${escapeHtml(ts)}</span>
-                    <span class="esi-points-reason">${escapeHtml(r.reason || 'Unknown')}</span>
+                    <span class="esi-points-reason">${escapeHtml(r.reason || 'Unknown')}${dirtyTag}</span>
                     <div class="owed-aspects-right">
                       <span class="owed-aspects-player-count" style="color:${color}">${sign}${formatInt(pts)} pts</span>
                       <span style="font-size:0.72rem;color:var(--text-faint);margin-left:0.5rem">Cycle ${r.cycle_id}</span>
