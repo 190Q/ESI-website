@@ -1171,19 +1171,39 @@
       });
     }
 
-    // Dirty EP -> lock spend order to clean_only
-    var dirtyEPEl   = modal.querySelector('#ieDirtyEP');
-    var spendOrdEl  = modal.querySelector('#ieSpendOrder');
+    // Two-way sync
+    var dirtyEPEl  = modal.querySelector('#ieDirtyEP');
+    var spendOrdEl = modal.querySelector('#ieSpendOrder');
     if (dirtyEPEl && spendOrdEl) {
+      // Lock/unlock the No option based on current spend order
+      function _syncDirtyEpLock() {
+        var noOpt = dirtyEPEl.querySelector('option[value="false"]');
+        if (noOpt) noOpt.disabled = (spendOrdEl.value === 'dirty_only');
+      }
+
       dirtyEPEl.addEventListener('change', function () {
         if (dirtyEPEl.value === 'false') {
+          if (spendOrdEl.value === 'dirty_only') {
+            // Dirty Only requires dirty EP
+            showToast('\u26a0 Accepts Dirty EP cannot be No when Spend Order is Dirty Only.', 'warn');
+            dirtyEPEl.value = 'true'; // revert
+            return;
+          }
           spendOrdEl.value = 'clean_only';
-          spendOrdEl.disabled = true;
         } else {
-          spendOrdEl.disabled = false;
           if (spendOrdEl.value === 'clean_only') spendOrdEl.value = 'clean_first';
         }
       });
+      spendOrdEl.addEventListener('change', function () {
+        if (spendOrdEl.value === 'clean_only') {
+          dirtyEPEl.value = 'false';
+        } else {
+          dirtyEPEl.value = 'true';
+        }
+        _syncDirtyEpLock();
+      });
+      // Apply lock for initial state when editor opens
+      _syncDirtyEpLock();
     }
 
     // Cooldown type -> show/hide number
@@ -1371,6 +1391,15 @@
       var fields = _ieCollect(modal);
       if (!fields.name) { showToast('\u26a0 Name is required.', 'warn'); return; }
       if (isNew && !fields.id) { showToast('\u26a0 ID is required.', 'warn'); return; }
+      // Validate Accepts Dirty EP / Spend Order consistency
+      var _acceptsDirty = fields.accepts_dirty_ep !== 'false' && fields.accepts_dirty_ep !== false;
+      var _so = fields.spend_order;
+      if (!_acceptsDirty && _so !== 'clean_only') {
+        showToast('\u26a0 \'Accepts Dirty EP\' is No but spend order is not \'Clean Only\'. Please fix this.', 'warn'); return;
+      }
+      if (_so === 'clean_only' && _acceptsDirty) {
+        showToast('\u26a0 Spend order is \'Clean Only\' but \'Accepts Dirty EP\' is Yes. Please fix this.', 'warn'); return;
+      }
 
       btn.disabled = true; btn.textContent = isNew ? 'Creating\u2026' : 'Saving\u2026';
       var req = isNew

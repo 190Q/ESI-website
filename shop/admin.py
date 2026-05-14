@@ -55,6 +55,24 @@ def _log_admin_action(
     except Exception:  # pragma: no cover
         pass
 
+def _clear_item_cooldowns(item_id: str) -> None:
+    """Delete all cooldown records for item_id.
+
+    Called when the item's cooldown config changes so no user is retroactively
+    locked out (added cooldown) or carries a stale lock (removed cooldown).
+    """
+    if not os.path.isfile(_SHOP_DB):
+        return
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("DELETE FROM cooldowns WHERE item_id = ?", (item_id,))
+        conn.commit()
+        conn.close()
+    except sqlite3.Error:
+        pass
+
+
 def _evict_item_from_carts(item_id: str) -> None:
     """Remove item_id from every saved cart so users can't check out stale data."""
     if not os.path.isfile(_SHOP_DB):
@@ -831,6 +849,16 @@ def _build_item(fields: dict) -> dict:
     if not vtr:
         vtr = None
 
+    # Normalise accepts_dirty_ep / spend_order so they're always consistent
+    _raw_accepts_dirty = _coerce_bool(fields.get("accepts_dirty_ep"), True)
+    _raw_spend_order   = (fields.get("spend_order") or "clean_first").strip()
+    if not _raw_accepts_dirty and _raw_spend_order in ("dirty_only", "dirty_first"):
+        _raw_spend_order = "clean_only"   # force-correct
+    if _raw_spend_order == "dirty_only" and not _raw_accepts_dirty:
+        _raw_accepts_dirty = True          # dirty_only implies accepts dirty
+    if _raw_spend_order == "clean_only":
+        _raw_accepts_dirty = False         # clean_only implies no dirty EP
+
     item = {
         "id":                    (fields.get("id") or "").strip(),
         "type":                  item_type,
@@ -838,8 +866,8 @@ def _build_item(fields: dict) -> dict:
         "description":           _sanitize_str(fields.get("description"), 500),
         "images":                _parse_images(fields.get("images")),
         "category":              _parse_categories(fields.get("category")),
-        "accepts_dirty_ep":      _coerce_bool(fields.get("accepts_dirty_ep"), True),
-        "spend_order":           fields.get("spend_order") or "clean_first",
+        "accepts_dirty_ep":      _raw_accepts_dirty,
+        "spend_order":           _raw_spend_order,
         "price":                 _cap_int(fields.get("price"), 999_999),
         "stock":                 _cap_int(fields.get("stock"), 999_999),
         "cooldown":              (fields.get("cooldown") or "").strip() or None,
@@ -900,6 +928,29 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
     if not (fields.get("name") or "").strip():
         return {"error": "Name is required"}
 
+    # Reject fractional prices — price must be a whole number
+    _item_type_for_check = (fields.get("type") or "bin").strip().lower()
+    if _item_type_for_check == "bin":
+        _price_raw = fields.get("price")
+        if _price_raw not in (None, "", "null"):
+            try:
+                _pf = float(str(_price_raw).strip())
+                if _pf != int(_pf):
+                    return {"error": "Price must be a whole number (no decimal places)"}
+            except (TypeError, ValueError):
+                pass  # _coerce_int will handle other invalid values
+
+    # Reject inconsistent accepts_dirty_ep / spend_order combinations
+    _so_raw     = (fields.get("spend_order") or "").strip()
+    _dirty_raw  = fields.get("accepts_dirty_ep")
+    _accepts    = _coerce_bool(_dirty_raw, True)
+    if not _accepts and _so_raw in ("dirty_only", "dirty_first"):
+        return {"error": f"Spend order '{_so_raw}' requires Accepts Dirty EP to be Yes"}
+    if _so_raw == "dirty_only" and not _accepts:
+        return {"error": "Spend order 'dirty_only' requires Accepts Dirty EP to be Yes"}
+    if _so_raw == "clean_only" and _accepts and _dirty_raw not in (None, ""):
+        return {"error": "Spend order 'clean_only' requires Accepts Dirty EP to be No"}
+
     with _json_write_lock:
         from shop.items import _load_json
         items = _load_json()
@@ -919,7 +970,8 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
             idx = next((i for i, it in enumerate(items) if it.get("id") == item_id), None)
             if idx is None:
                 return {"error": f"Item '{item_id}' not found in catalogue"}
-            old_type = items[idx].get("type")
+            old_type     = items[idx].get("type")      # capture before overwrite
+            old_cooldown = items[idx].get("cooldown")  # capture before overwrite
             fields["id"] = item_id
             item = _build_item(fields)
             items[idx] = item
@@ -933,6 +985,8 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
     _reload_items()
     if not is_new:
         _evict_item_from_carts(item["id"])
+        if old_cooldown != item.get("cooldown"):
+            _clear_item_cooldowns(item["id"])
         # If type changed away from 'auction', cancel any live auctions for it
         if old_type == "auction" and item.get("type") != "auction":
             if os.path.isfile(_SHOP_DB):

@@ -215,6 +215,8 @@ def execute_cart_checkout(
         price = item.get("price")
         if not isinstance(price, (int, float)) or price <= 0:
             raise PurchaseError(f"Item {item_id!r} has no valid price", 400)
+        if isinstance(price, float) and price != int(price):
+            raise PurchaseError(f"Item {item_id!r} has a non-integer price; contact an admin", 400)
         price = int(price)
 
         # multi-quantity check
@@ -252,17 +254,32 @@ def execute_cart_checkout(
             "ack_dirty": ack_dirty,
         })
 
-    # compute global EP total and resolve spend
-    _order_priority = ["clean_only", "dirty_only", "clean_first", "dirty_first"]
-    global_order = sorted(
-        {ln["spend_order"] for ln in lines},
-        key=lambda o: _order_priority.index(o) if o in _order_priority else 99,
-    )[0]
+    # Per-item EP split
+    _bal = fetch_ep_balance(mc_uuid)
+    _avail_clean: int = max(0, _bal.get("spendable_clean", 0))
+    _avail_dirty:  int = max(0, _bal.get("spendable_dirty",  0))
+
+    for ln in lines:
+        lp = ln["line_total"]
+        so = ln["spend_order"]
+        if so == "clean_only":
+            lc = min(_avail_clean, lp); ld = 0
+        elif so == "dirty_only":
+            lc = 0; ld = min(_avail_dirty, lp)
+        elif so == "dirty_first":
+            ld = min(_avail_dirty, lp); lc = min(_avail_clean, lp - ld)
+        else:  # clean_first (default)
+            lc = min(_avail_clean, lp); ld = min(_avail_dirty, lp - lc)
+        if lc + ld < lp:
+            raise InsufficientFunds(lp, lc + ld)
+        ln["line_clean"] = lc
+        ln["line_dirty"] = ld
+        _avail_clean -= lc
+        _avail_dirty  -= ld
 
     cart_total = sum(ln["line_total"] for ln in lines)
-    split = resolve_spend(mc_uuid, cart_total, global_order)
-    server_clean = split["clean_to_spend"]
-    server_dirty = split["dirty_to_spend"]
+    server_clean = sum(ln["line_clean"] for ln in lines)
+    server_dirty  = sum(ln["line_dirty"]  for ln in lines)
 
     # anti-tamper: verify summed acknowledged spend
     total_ack_clean = sum(ln["ack_clean"] for ln in lines)
@@ -308,25 +325,7 @@ def execute_cart_checkout(
             else:
                 live_stocks[item_id] = None
 
-        # allocate EP across lines proportionally for per-row accounting
-        remaining_clean = server_clean
-        remaining_dirty = server_dirty
 
-        for i, ln in enumerate(lines):
-            is_last = (i == len(lines) - 1)
-            if is_last:
-                line_clean = remaining_clean
-                line_dirty = remaining_dirty
-            else:
-                frac = ln["line_total"] / cart_total if cart_total else 0
-                line_clean = round(server_clean * frac)
-                line_dirty = round(server_dirty * frac)
-                remaining_clean -= line_clean
-                remaining_dirty -= line_dirty
-            ln["line_clean"] = line_clean
-            ln["line_dirty"] = line_dirty
-
-        # insert purchase rows + decrement stock + record cooldowns
         for ln in lines:
             item = ln["item"]
             item_id = ln["item_id"]
@@ -435,6 +434,8 @@ def execute_bin_purchase(
     price = item.get("price")
     if not isinstance(price, (int, float)) or price <= 0:
         raise PurchaseError("Item has no valid price", 400)
+    if isinstance(price, float) and price != int(price):
+        raise PurchaseError("Item has a non-integer price; contact an admin", 400)
     price = int(price)
 
     # cooldown check

@@ -768,15 +768,34 @@
   }
 
   function computeCartSplit(entries, balance) {
-    var prio = ['clean_only', 'dirty_only', 'clean_first', 'dirty_first'];
-    var orders = {}, total = 0;
+    var remClean = balance.spendable_clean || 0;
+    var remDirty = balance.spendable_dirty || 0;
+    var totClean = 0, totDirty = 0, grandTotal = 0;
+    var hasDirtyFirst = false;
     entries.forEach(function (e) {
+      var price = e.item.price * e.quantity;
+      grandTotal += price;
       var so = (!e.item.accepts_dirty_ep) ? 'clean_only' : (e.item.spend_order || 'clean_first');
-      orders[so] = true; total += e.item.price * e.quantity;
+      if (so === 'dirty_first' || so === 'dirty_only') hasDirtyFirst = true;
+      var lc = 0, ld = 0;
+      if (so === 'clean_only') {
+        lc = Math.min(remClean, price);
+      } else if (so === 'dirty_only') {
+        ld = Math.min(remDirty, price);
+      } else if (so === 'dirty_first') {
+        ld = Math.min(remDirty, price); lc = Math.min(remClean, price - ld);
+      } else { // clean_first
+        lc = Math.min(remClean, price); ld = Math.min(remDirty, price - lc);
+      }
+      totClean += lc; totDirty += ld;
+      remClean -= lc; remDirty -= ld;
     });
-    var globalOrder = 'clean_first', best = 99;
-    Object.keys(orders).forEach(function (o) { var i = prio.indexOf(o); if (i !== -1 && i < best) { best = i; globalOrder = o; } });
-    return computeSpendSplit(total, globalOrder, balance);
+    return {
+      clean: totClean,
+      dirty: totDirty,
+      affordable: (totClean + totDirty) >= grandTotal,
+      spendOrder: hasDirtyFirst ? 'dirty_first' : 'clean_first',
+    };
   }
 
   /* Image carousel helpers */
@@ -1155,10 +1174,12 @@
   /* Cart EP badge helper */
   function _cartEpBadge(item) {
     if (!item.accepts_dirty_ep || item.spend_order === 'clean_only')
-      return '<span class="cart-ep-badge cart-ep-badge--clean">Clean EP</span>';
+      return '<span class="cart-ep-badge cart-ep-badge--clean">Clean Only</span>';
     if (item.spend_order === 'dirty_only')
-      return '<span class="cart-ep-badge cart-ep-badge--dirty">Dirty EP</span>';
-    return '<span class="cart-ep-badge cart-ep-badge--any">Any EP</span>';
+      return '<span class="cart-ep-badge cart-ep-badge--dirty">Dirty Only</span>';
+    if (item.spend_order === 'dirty_first')
+      return '<span class="cart-ep-badge cart-ep-badge--dirty">Dirty First</span>';
+    return '<span class="cart-ep-badge cart-ep-badge--any">Clean First</span>';
   }
 
   /* Cart modal */
@@ -1232,20 +1253,30 @@
 
     /* Footer summary */
     html += '<div class="cart-footer">';
-    if (!split || !split.affordable) {
-      html += '<div class="cart-summary-row cart-summary-row--danger">' +
-        '<span>Insufficient EP</span><span>' + num(total) + ' EP needed</span></div>';
-    } else {
-      html += '<div class="cart-summary-row">' +
-        '<span>EP total</span><span>' + num(total) + ' EP</span></div>';
-      if (split.clean > 0) html += '<div class="cart-summary-row cart-summary-row--clean">' +
-        '<span>Clean EP</span><span>' + num(split.clean) + ' EP</span></div>';
-      if (split.dirty > 0) html += '<div class="cart-summary-row cart-summary-row--dirty">' +
-        '<span>Dirty EP</span><span>' + num(split.dirty) + ' EP</span></div>';
-      html += '<div class="cart-summary-divider"></div>';
-      html += '<div class="cart-summary-row cart-summary-row--total">' +
-        '<span>Total</span><span>' + num(total) + ' EP</span></div>';
+    html += '<div class="cart-summary-row' + (split && !split.affordable ? ' cart-summary-row--danger' : '') + '">' +
+      '<span>EP total</span><span>' + num(total) + ' EP</span></div>';
+    if (split) {
+      var dirtyFirst = split.spendOrder === 'dirty_first' || split.spendOrder === 'dirty_only';
+      if (dirtyFirst) {
+        if (split.dirty > 0) html += '<div class="cart-summary-row cart-summary-row--dirty">' +
+          '<span>Dirty EP</span><span>' + num(split.dirty) + ' EP</span></div>';
+        if (split.clean > 0) html += '<div class="cart-summary-row cart-summary-row--clean">' +
+          '<span>Clean EP</span><span>' + num(split.clean) + ' EP</span></div>';
+      } else {
+        if (split.clean > 0) html += '<div class="cart-summary-row cart-summary-row--clean">' +
+          '<span>Clean EP</span><span>' + num(split.clean) + ' EP</span></div>';
+        if (split.dirty > 0) html += '<div class="cart-summary-row cart-summary-row--dirty">' +
+          '<span>Dirty EP</span><span>' + num(split.dirty) + ' EP</span></div>';
+      }
+      if (!split.affordable) {
+        var _missing = total - split.clean - split.dirty;
+        html += '<div class="cart-summary-row cart-summary-row--danger">' +
+          '<span>Missing</span><span>\u2212' + num(_missing) + ' EP</span></div>';
+      }
     }
+    html += '<div class="cart-summary-divider"></div>';
+    html += '<div class="cart-summary-row cart-summary-row--total' + (split && !split.affordable ? ' cart-summary-row--danger' : '') + '">' +
+      '<span>Total</span><span>' + num(total) + ' EP</span></div>';
     if (split && split.affordable) {
       html += '<button class="cart-checkout-btn" id="shopModalConfirm">CHECKOUT: ' + num(total) + ' EP</button>';
     }
@@ -1343,9 +1374,15 @@
 
     var bd = document.getElementById('shopModalBreakdown');
     if (split.affordable) {
-      var parts = ['This will spend <strong>' + num(item.price) + ' EP</strong>:'];
-      if (split.clean > 0) parts.push(num(split.clean) + ' clean');
-      if (split.dirty > 0) parts.push(num(split.dirty) + ' dirty');
+    var parts = ['This will spend <strong>' + num(item.price) + ' EP</strong>:'];
+      var _buyDirtyFirst = spendOrder === 'dirty_first' || spendOrder === 'dirty_only';
+      if (_buyDirtyFirst) {
+        if (split.dirty > 0) parts.push(num(split.dirty) + ' dirty');
+        if (split.clean > 0) parts.push(num(split.clean) + ' clean');
+      } else {
+        if (split.clean > 0) parts.push(num(split.clean) + ' clean');
+        if (split.dirty > 0) parts.push(num(split.dirty) + ' dirty');
+      }
       bd.innerHTML = parts[0] + ' ' + parts.slice(1).join(' + ');
       bd.style.display = '';
     } else { bd.style.display = 'none'; }
