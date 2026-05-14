@@ -919,6 +919,7 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
             idx = next((i for i, it in enumerate(items) if it.get("id") == item_id), None)
             if idx is None:
                 return {"error": f"Item '{item_id}' not found in catalogue"}
+            old_type = items[idx].get("type")
             fields["id"] = item_id
             item = _build_item(fields)
             items[idx] = item
@@ -932,6 +933,29 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
     _reload_items()
     if not is_new:
         _evict_item_from_carts(item["id"])
+        # If type changed away from 'auction', cancel any live auctions for it
+        if old_type == "auction" and item.get("type") != "auction":
+            if os.path.isfile(_SHOP_DB):
+                try:
+                    conn = sqlite3.connect(_SHOP_DB, timeout=5)
+                    conn.row_factory = sqlite3.Row
+                    active = conn.execute(
+                        "SELECT auction_id FROM auctions "
+                        "WHERE item_id = ? AND status = 'active'",
+                        (item["id"],),
+                    ).fetchall()
+                    conn.close()
+                    for row in active:
+                        admin_cancel_auction(
+                            row["auction_id"],
+                            f"system:type-change:{actor}",
+                        )
+                except sqlite3.Error as exc:
+                    print(
+                        f"[ADMIN] Failed to cancel auctions after type change "
+                        f"for {item['id']}: {exc}",
+                        file=sys.stderr,
+                    )
     _log_admin_action(
         actor,
         "item_created" if is_new else "item_edited",

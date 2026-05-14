@@ -209,7 +209,7 @@
         html += '<span style="color:var(--text-faint)">N/A</span>';
       } else if (_isParliament) {
         var stockVal = item.stock != null ? item.stock : '';
-        html += '<span><input type="number" class="sa-stock-input" data-stock-id="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="\u221E" /></span>';
+        html += '<span><input type="number" min="0" class="sa-stock-input" data-stock-id="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="\u221E" /></span>';
       } else {
         html += '<span>' + (item.stock != null ? num(item.stock) : '\u221E') + '</span>';
       }
@@ -480,6 +480,11 @@
         if (val === lastVal) return;
         var stock = val === '' ? null : parseInt(val, 10);
         if (val !== '' && isNaN(stock)) { input.value = lastVal; return; }
+        if (stock !== null && stock < 0) {
+          showToast('\u26a0 Stock cannot be negative.', 'warn');
+          input.value = lastVal;
+          return;
+        }
         input.disabled = true;
         apiPost('/api/admin/shop/items/' + encodeURIComponent(id) + '/override', { stock: stock })
           .then(function (res) {
@@ -496,6 +501,10 @@
           })
           .catch(function () { showToast('\u26a0 Network error', 'warn'); input.value = lastVal; })
           .finally(function () { input.disabled = false; });
+      });
+      input.addEventListener('input', function () {
+        var v = parseInt(this.value, 10);
+        if (!isNaN(v) && v < 0) this.value = '0';
       });
       input.addEventListener('keydown', function (e) { if (e.key === 'Enter') input.blur(); });
     });
