@@ -250,4 +250,5 @@ data/
 
 # Shop
 images/shop/
+images/dm_cards
 test_dm_cards.py
