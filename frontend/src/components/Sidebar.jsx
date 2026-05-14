@@ -1,4 +1,4 @@
-import { UserIcon, GroupIcon, BotIcon, ClockIcon, TrendIcon, EventIcon, CalendarIcon, SidebarToggleIcon, SettingsIcon } from './Icons'
+import { UserIcon, GroupIcon, BotIcon, ClockIcon, TrendIcon, EventIcon, CalendarIcon, ShopIcon, SidebarToggleIcon, SettingsIcon } from './Icons'
 
 export default function Sidebar() {
   return (
@@ -37,8 +37,15 @@ export default function Sidebar() {
                 <span className="nav-label">Events</span>
               </a>
             </li>
+            <li id="shopNavItem" style={{ display: 'none' }}>
+              <a href="#" className="nav-item" data-panel="shop">
+                <span className="nav-icon"><ShopIcon /></span>
+                <span className="nav-label">Shop</span>
+              </a>
+            </li>
           </ul>
         </div>
+
 
         {/* Management section, hidden until logged in */}
         <div className="nav-section" id="manageSection" style={{ display: 'none' }}>
@@ -60,6 +67,12 @@ export default function Sidebar() {
               <a href="#" className="nav-item" data-panel="events-manage">
                 <span className="nav-icon"><EventIcon /></span>
                 <span className="nav-label">Manage Events</span>
+              </a>
+            </li>
+            <li id="shopAdminNavItem" style={{ display: 'none' }}>
+              <a href="#" className="nav-item" data-panel="shop-admin">
+                <span className="nav-icon"><ShopIcon /></span>
+                <span className="nav-label">Manage Shop</span>
               </a>
             </li>
           </ul>

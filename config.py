@@ -45,6 +45,8 @@ if sys.platform != "win32":
     os.chmod(_WEBSITE_DATA_DIR, 0o700)
 _APPLICATIONS_JSON      = os.path.join(_WEBSITE_DATA_DIR, "applications.json")
 _EVENTS_JSON            = os.path.join(_WEBSITE_DATA_DIR, "events.json")
+_SHOP_ITEMS_JSON        = os.path.join(_WEBSITE_DATA_DIR, "shop_items.json")
+_SHOP_DB                = os.path.join(_WEBSITE_DATA_DIR, "databases", "shop.db")
 
 
 def _detect_server_tz_name():
@@ -177,10 +179,19 @@ _STAFF_ROLE_DEFS = [
 _ROLE_PRIDE             = "683448131148447929"
 _ROLE_EVENT_MANAGER     = "1390342794056569033"
 
+# Non-guild roles
+_ROLE_VETERAN = "914422269802070057"
+_ROLE_EX_CIT  = "706338091312349195"
+_ROLE_ENVOY   = "554896955638153216"
+
 _PARLIAMENT_PLUS = {_ROLE_PARLIAMENT, _ROLE_VALAENDOR}
 _JUROR_PLUS      = {_ROLE_JUROR, _ROLE_CONGRESS, _ROLE_PARLIAMENT, _ROLE_VALAENDOR}
 _CHIEF_PLUS      = {_ROLE_GRAND_DUKE, _ROLE_ARCHDUKE}
 _CITIZEN_PLUS    = {_ROLE_CITIZEN}
+
+# Shop donation settings
+_DONATION_LE_TO_EP_RATE     = 15     # 1 LE = 15 dirty EP
+_DONATION_MAX_EP_PER_CYCLE  = None   # set to an int to cap dirty EP from donations per cycle (None = no cap)
 
 # Any of these roles grants access to the Manage Events page
 _EVENTS_ACCESS     = {_ROLE_PRIDE, _ROLE_EVENT_MANAGER, _ROLE_PARLIAMENT}
@@ -533,6 +544,7 @@ _CLIENT_CONFIG = {
     "permissions": {
         "parliamentPlus":  list(_PARLIAMENT_PLUS),
         "jurorPlus":       list(_JUROR_PLUS),
+        "chiefPlus":       list(_CHIEF_PLUS),
         "eventsAccess":    list(_EVENTS_ACCESS),
         "eventsManageAny": list(_EVENTS_MANAGE_ANY),
     },

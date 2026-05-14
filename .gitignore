@@ -245,4 +245,8 @@ scripts/ui_artifacts
 # Wynnpiece event
 wynnpiece/
 
+# Data
 data/
+
+# Shop images
+images/shop/

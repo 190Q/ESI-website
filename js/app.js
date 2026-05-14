@@ -205,17 +205,18 @@
 
 
 // role config - loaded from /api/config (single source of truth on the server)
-var ESI_STAFF_ROLES   = [];
-var ESI_RANK_ROLES    = [];
-var ESI_ECHELON_ROLES = [];
-var ESI_CITIZEN_ROLE  = { id: '', name: '', color: '' };
-var ESI_MEDALS        = [];
-var ESI_BADGES        = [];
-var _PARLIAMENT_PLUS  = [];
-var _JUROR_PLUS       = [];
-var _EVENTS_ACCESS    = [];
+var ESI_STAFF_ROLES    = [];
+var ESI_RANK_ROLES     = [];
+var ESI_ECHELON_ROLES  = [];
+var ESI_CITIZEN_ROLE   = { id: '', name: '', color: '' };
+var ESI_MEDALS         = [];
+var ESI_BADGES         = [];
+var _PARLIAMENT_PLUS   = [];
+var _JUROR_PLUS        = [];
+var _EVENTS_ACCESS     = [];
 var _EVENTS_MANAGE_ANY = [];
-var _configLoaded     = false;
+var _CHIEF_PLUS        = [];
+var _configLoaded      = false;
 
 var _configPromise = fetch('/api/config')
   .then(function (r) { return r.json(); })
@@ -227,10 +228,11 @@ var _configPromise = fetch('/api/config')
     ESI_MEDALS        = cfg.medals       || [];
     ESI_BADGES        = cfg.badges       || [];
     _ESI_APP_FORMS    = cfg.applicationForms || {};
-    _PARLIAMENT_PLUS  = cfg.permissions  ? cfg.permissions.parliamentPlus || [] : [];
-    _JUROR_PLUS       = cfg.permissions  ? cfg.permissions.jurorPlus || [] : [];
-    _EVENTS_ACCESS    = cfg.permissions  ? cfg.permissions.eventsAccess || [] : [];
+    _PARLIAMENT_PLUS  = cfg.permissions  ? cfg.permissions.parliamentPlus  || [] : [];
+    _JUROR_PLUS       = cfg.permissions  ? cfg.permissions.jurorPlus       || [] : [];
+    _EVENTS_ACCESS    = cfg.permissions  ? cfg.permissions.eventsAccess    || [] : [];
     _EVENTS_MANAGE_ANY = cfg.permissions ? cfg.permissions.eventsManageAny || [] : [];
+    _CHIEF_PLUS        = cfg.permissions ? cfg.permissions.chiefPlus       || [] : [];
     window.ESI_DEV_MODE     = !!cfg.devMode;
     window.ESI_DISCORD_GUILD_ID = cfg.guildId || '';
     window.ESI_SERVER_TZ    = cfg.serverTimezone || 'UTC';
@@ -760,6 +762,16 @@ function applyLogin(user) {
       applyPermissions();
       renderProfile(user);
       _renderAccountModal(user.roles || []);
+      // re-route to the correct panel based on URL (handles multi-segment paths like /shop/admin)
+      var _parts = window.location.pathname.replace(/^\//, '').split('/');
+      var _first = _parts[0] || '';
+      var wantedPanel = _first;
+      if (_first === 'events' && _parts[1] === 'manage') wantedPanel = 'events-manage';
+      if (_first === 'shop'   && _parts[1] === 'admin')  wantedPanel = 'shop-admin';
+      var activePanel = document.querySelector('.panel.active');
+      if (wantedPanel && activePanel && activePanel.id !== 'panel-' + wantedPanel) {
+        switchToPanel(wantedPanel);
+      }
     });
 
     // sync settings from server (first login on this device restores them)
@@ -942,13 +954,43 @@ fetch('/auth/session', { credentials: 'same-origin' })
     return _EVENTS_MANAGE_ANY.some(function (id) { return roles.includes(id); });
   }
 
+  // true if the user is a Chief
+  function isChiefPlus() {
+    if (!state.loggedIn || !state.user) return false;
+    var roles = state.user.roles || [];
+    return _CHIEF_PLUS.some(function (id) { return roles.includes(id); });
+  }
+
+  // true if the user can access the shop admin panel (Chief or Parliament)
+  function hasShopAdmin() {
+    return isChiefPlus() || hasParliamentPlus();
+  }
+
+  // true if the user holds any guild rank
+  function isGuildMember() {
+    if (!state.loggedIn || !state.user) return false;
+    var roles = state.user.roles || [];
+    return ESI_RANK_ROLES.some(function (r) { return roles.includes(r.id); });
+  }
+
   /* permissions */
   function applyPermissions() {
     const activePanel = document.querySelector('.panel.active');
     const canInactivity = hasParliamentPlus();
     const canPromotions = hasJurorPlus();
     const canEvents     = hasEventsAccess();
-    manageSection.style.display = (canInactivity || canPromotions || canEvents) ? 'block' : 'none';
+
+    const canShop = isGuildMember();
+    const shopNavItem = document.getElementById('shopNavItem');
+    if (shopNavItem) shopNavItem.style.display = canShop ? '' : 'none';
+
+    const canShopAdmin = hasShopAdmin();
+    const shopAdminNav = document.getElementById('shopAdminNavItem');
+    if (shopAdminNav) shopAdminNav.style.display = canShopAdmin ? '' : 'none';
+    // show management section if any sub-item is visible
+    if (manageSection) {
+      manageSection.style.display = (canInactivity || canPromotions || canEvents || canShopAdmin) ? 'block' : 'none';
+    }
 
     const inactivityNav   = document.querySelector('[data-panel="inactivity"]');
     const promotionsNav   = document.querySelector('[data-panel="promotions"]');
@@ -960,6 +1002,8 @@ fetch('/auth/session', { credentials: 'same-origin' })
     // if they're on a panel they can't access anymore, bounce them to player
     if (activePanel) {
     const blocked =
+        (activePanel.id === 'panel-shop'          && !canShop) ||
+        (activePanel.id === 'panel-shop-admin'    && !canShopAdmin) ||
         (activePanel.id === 'panel-inactivity'    && !canInactivity) ||
         (activePanel.id === 'panel-promotions'    && !canPromotions) ||
         (activePanel.id === 'panel-events-manage' && !canEvents);
@@ -1527,9 +1571,11 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   /* panel switching */
   function switchToPanel(panel) {
-    const validPanels = ['player', 'guild', 'bot', 'events', 'profile', 'inactivity', 'promotions', 'events-manage'];
+    const validPanels = ['player', 'guild', 'bot', 'events', 'shop', 'shop-admin', 'profile', 'inactivity', 'promotions', 'events-manage'];
     let target = validPanels.includes(panel) ? panel : 'player';
     // quietly fall back if they can't access the panel
+    if (target === 'shop'          && !isGuildMember())     target = 'player';
+    if (target === 'shop-admin'    && !hasShopAdmin())      target = 'player';
     if (target === 'inactivity'    && !hasParliamentPlus()) target = 'player';
     if (target === 'promotions'    && !hasJurorPlus())      target = 'player';
     if (target === 'events-manage' && !hasEventsAccess())   target = 'player';
@@ -1557,6 +1603,8 @@ fetch('/auth/session', { credentials: 'same-origin' })
   window.hasParliamentPlus    = hasParliamentPlus;
   window.hasEventsAccess      = hasEventsAccess;
   window.hasEventsManageAny   = hasEventsManageAny;
+  window.isChiefPlus          = isChiefPlus;
+  window.hasShopAdmin         = hasShopAdmin;
   window.renderMarkdown       = renderMarkdown;
   applyPermissions();
 
@@ -1577,6 +1625,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
     guildDefaultRange:  30,
     showEventsNavBadge: true,
     showPinnedBanner:   true,
+    shopAuctionDmOptOut: false,
   };
 
   function _readAllSettings() {
@@ -1682,6 +1731,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
   var _sPinnedBanner   = document.getElementById('settingPinnedBanner');
   var _sToastsEnabled  = document.getElementById('settingToastsEnabled');
   var _sToastRow       = document.getElementById('settingToastRow');
+  var _sAuctionDmOpt   = document.getElementById('settingShopAuctionDmOptOut');
 
   function _applyToastRowVisibility() {
     if (_sToastRow) {
@@ -1707,6 +1757,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
     _sEventsNavBadge.checked = s.showEventsNavBadge !== false;
     _sPinnedBanner.checked   = s.showPinnedBanner   !== false;
     _sToastsEnabled.checked  = s.toastsEnabled      !== false;
+    if (_sAuctionDmOpt) _sAuctionDmOpt.checked = !!s.shopAuctionDmOptOut;
     _applyToastRowVisibility();
   }
 
@@ -1726,6 +1777,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
       showEventsNavBadge: !!_sEventsNavBadge.checked,
       showPinnedBanner:   !!_sPinnedBanner.checked,
       toastsEnabled:      !!_sToastsEnabled.checked,
+      shopAuctionDmOptOut: !!(_sAuctionDmOpt && _sAuctionDmOpt.checked),
     };
   }
 
@@ -1790,7 +1842,8 @@ fetch('/auth/session', { credentials: 'same-origin' })
   /* track changes - don't save yet, just show the save button */
   _sRange.addEventListener('input', function () { _sRangeVal.textContent = _sRange.value; _updateSaveBtn(); });
   _sGuildRange.addEventListener('input', function () { _sGuildRangeVal.textContent = _sGuildRange.value; _updateSaveBtn(); });
-  [_sMetric, _sGuildMetric, _sPlayer, _sChkType, _sChkHours, _sChkTab, _sPromTab, _sToastDur, _sToastMax, _sEventsNavBadge, _sPinnedBanner, _sToastsEnabled].forEach(function (el) {
+  [_sMetric, _sGuildMetric, _sPlayer, _sChkType, _sChkHours, _sChkTab, _sPromTab, _sToastDur, _sToastMax, _sEventsNavBadge, _sPinnedBanner, _sToastsEnabled, _sAuctionDmOpt].forEach(function (el) {
+    if (!el) return;
     el.addEventListener('change', _updateSaveBtn);
     el.addEventListener('input', _updateSaveBtn);
   });

@@ -38,6 +38,8 @@ export default function useScriptLoader() {
       await loadScript('/js/promotions.js')
       await loadScript('/js/events.js')
       await loadScript('/js/events-public.js')
+      await loadScript('/js/shop.js')
+      await loadScript('/js/shop-admin.js')
       await loadScript('/js/pinned-banner.js')
       await loadScript('/js/legal.js')
     })()

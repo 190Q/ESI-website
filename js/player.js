@@ -2277,6 +2277,7 @@
   // Map a data-panel identifier to its URL path.
   function panelToPath(panel) {
     if (panel === 'events-manage') return '/events/manage';
+    if (panel === 'shop-admin')    return '/shop/admin';
     return '/' + panel;
   }
 
@@ -2284,6 +2285,7 @@
   function pathToPanel(parts) {
     var panel = parts[0] || 'player';
     if (panel === 'events' && parts[1] === 'manage') return 'events-manage';
+    if (panel === 'shop'   && parts[1] === 'admin')  return 'shop-admin';
     return panel;
   }
 

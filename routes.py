@@ -28,7 +28,7 @@ from config import (
     _ASPECTS_JSON, _INACTIVITY_JSON, _USERNAME_MATCHES_JSON,
     _TRACKED_GUILD_JSON, _GUILD_LEVELS_JSON, _GUILD_TERRITORIES_JSON,
     _EVENTS_JSON,
-    _POINTS_DB, _SNIPES_DB,
+    _POINTS_DB, _SNIPES_DB, _SHOP_DB,
     _USER_DB_PATH, _UPLOAD_DIR,
     WYNN_BASE, DISCORD_API, DISCORD_TOKEN, DISCORD_CLIENT_ID,
     DISCORD_CLIENT_SECRET, DISCORD_GUILD_ID, DISCORD_REDIRECT_URI,
@@ -1034,6 +1034,642 @@ def me_badge_progress():
 
 
 import uuid as _uuid_mod
+from shop.ep_balance import resolve_uuid_for_user, fetch_ep_balance, resolve_spend, InsufficientFunds
+from shop.bin import list_bin_items, execute_bin_purchase, execute_cart_checkout, PurchaseError, is_guild_member
+from shop.cart import get_cart, save_cart
+from shop.auction import list_auctions, place_bid, start_auction_close_worker
+from shop.donate import submit_donation, get_donation_history
+from shop.orders import get_order_history
+from shop.admin import (
+    admin_list_all_items_unfiltered, admin_set_override,
+    admin_cancel_purchase, admin_cancel_auction, admin_extend_auction,
+    admin_get_logs, admin_get_reservations, admin_release_reservation,
+    admin_get_queue, admin_fulfill, admin_reject, admin_get_raw_config,
+    admin_write_item, admin_delete_item, admin_reorder_items,
+    admin_start_auction, admin_auction_detail, admin_remove_bid,
+)
+
+
+# Guild-member gate for all shop endpoints
+def _require_guild_member():
+    user, err = _require_login()
+    if err:
+        return None, err
+    if not is_guild_member(user.get("roles") or []):
+        return None, (jsonify({"error": "Shop is only available to guild members"}), 403)
+    return user, None
+
+
+# EP balance endpoint (shop system)
+
+@app.route("/api/me/ep-balance")
+@rate_limit(60)
+def me_ep_balance():
+    """Return the logged-in user's EP balance breakdown."""
+    user, err = _require_guild_member()
+    if err:
+        return err
+    discord_id = user.get("id", "")
+    mc_uuid, mc_username = resolve_uuid_for_user(discord_id)
+    if not mc_uuid:
+        return jsonify({
+            "linked": False,
+            "error": "No linked Minecraft account found",
+        }), 200
+
+    balance = fetch_ep_balance(mc_uuid)
+
+    current_cycle = _points_get_cycle_id()
+    _, cycle_end = _points_get_cycle_bounds(current_cycle)
+
+    return jsonify({
+        "linked":          True,
+        "uuid":            mc_uuid,
+        "username":        mc_username,
+        **balance,
+        "current_cycle_id": current_cycle,
+        "cycle_ends_at":   cycle_end.isoformat(),
+    })
+
+
+# Shop bin endpoints
+
+@app.route("/api/shop/bin")
+@rate_limit(60)
+def shop_bin_list():
+    """Return all visible bin items for the logged-in user, with cooldowns and balance."""
+    user, err = _require_guild_member()
+    if err:
+        return err
+    result = list_bin_items(
+        user_roles=user.get("roles") or [],
+        discord_id=user.get("id", ""),
+    )
+    return jsonify(result)
+
+
+@app.route("/api/shop/bin/cart/checkout", methods=["POST"])
+@rate_limit(3, 60)
+def shop_bin_cart_checkout():
+    """Atomic multi-item cart checkout."""
+    user, err = _require_guild_member()
+    if err:
+        return err
+    body = request.get_json(silent=True)
+    if not body or not isinstance(body, dict):
+        return jsonify({"error": "Invalid request body"}), 400
+    items_raw = body.get("items")
+    if not isinstance(items_raw, list) or not items_raw:
+        return jsonify({"error": "items must be a non-empty array"}), 400
+    if len(items_raw) > 20:
+        return jsonify({"error": "Cart cannot contain more than 20 distinct items"}), 400
+    cart = []
+    for entry in items_raw:
+        if not isinstance(entry, dict):
+            return jsonify({"error": "Each cart entry must be an object"}), 400
+        item_id = (entry.get("item_id") or "").strip()
+        if not item_id:
+            return jsonify({"error": "Each cart entry must have item_id"}), 400
+        try:
+            qty = int(entry.get("quantity", 1))
+        except (TypeError, ValueError):
+            return jsonify({"error": f"quantity must be an integer for item {item_id!r}"}), 400
+        if qty < 1:
+            return jsonify({"error": f"quantity must be >= 1 for item {item_id!r}"}), 400
+        ack = entry.get("acknowledged_spend") or {}
+        cart.append({
+            "item_id": item_id,
+            "quantity": qty,
+            "acknowledged_spend": ack,
+        })
+    try:
+        results = execute_cart_checkout(
+            discord_id=user.get("id", ""),
+            user_roles=user.get("roles") or [],
+            cart_items=cart,
+        )
+        return jsonify({"ok": True, "items": results})
+    except PurchaseError as exc:
+        return jsonify({"error": exc.message}), exc.status
+    except InsufficientFunds as exc:
+        return jsonify({
+            "error": str(exc),
+            "needed": exc.needed,
+            "available": exc.available,
+        }), 402
+
+
+@app.route("/api/shop/bin/purchase", methods=["POST"])
+@rate_limit(5, 60)
+def shop_bin_purchase():
+    """Execute a bin purchase."""
+    user, err = _require_guild_member()
+    if err:
+        return err
+    body = request.get_json(silent=True)
+    if not body or not isinstance(body, dict):
+        return jsonify({"error": "Invalid request body"}), 400
+    item_id = (body.get("item_id") or "").strip()
+    if not item_id:
+        return jsonify({"error": "item_id is required"}), 400
+    ack = body.get("acknowledged_spend") or {}
+    ack_clean = int(ack.get("clean_ep", 0)) if isinstance(ack, dict) else 0
+    ack_dirty = int(ack.get("dirty_ep", 0)) if isinstance(ack, dict) else 0
+    try:
+        result = execute_bin_purchase(
+            discord_id=user.get("id", ""),
+            user_roles=user.get("roles") or [],
+            item_id=item_id,
+            acknowledged_clean=ack_clean,
+            acknowledged_dirty=ack_dirty,
+        )
+        return jsonify({"ok": True, **result})
+    except PurchaseError as exc:
+        return jsonify({"error": exc.message}), exc.status
+    except InsufficientFunds as exc:
+        return jsonify({
+            "error": str(exc),
+            "needed": exc.needed,
+            "available": exc.available,
+        }), 402
+
+
+# Shop cart persistence endpoints
+@app.route("/api/shop/cart")
+@rate_limit(60)
+def shop_cart_get():
+    """Return the logged-in user's persisted cart as [{item_id, quantity}]."""
+    user, err = _require_guild_member()
+    if err:
+        return err
+    items = get_cart(user.get("id", ""))
+    return jsonify({"ok": True, "items": items})
+
+
+@app.route("/api/shop/cart", methods=["PUT"])
+@rate_limit(30, 60)
+def shop_cart_save():
+    """Atomically replace the logged-in user's persisted cart."""
+    user, err = _require_guild_member()
+    if err:
+        return err
+    body = request.get_json(silent=True)
+    if not body or not isinstance(body, dict):
+        return jsonify({"error": "Invalid request body"}), 400
+    items_raw = body.get("items")
+    if not isinstance(items_raw, list):
+        return jsonify({"error": "items must be an array"}), 400
+    items = []
+    for entry in items_raw:
+        if not isinstance(entry, dict):
+            continue
+        item_id = (entry.get("item_id") or "").strip()
+        try:
+            qty = int(entry.get("quantity", 1))
+        except (TypeError, ValueError):
+            continue
+        if item_id and qty >= 1:
+            items.append({"item_id": item_id, "quantity": qty})
+    ok = save_cart(user.get("id", ""), items)
+    return jsonify({"ok": ok})
+
+
+# Shop auction endpoints
+
+@app.route("/api/shop/auctions")
+@rate_limit(60)
+def shop_auction_list():
+    """Return active + recently-closed auctions with user bid status."""
+    user, err = _require_guild_member()
+    if err:
+        return err
+    return jsonify(list_auctions(discord_id=user.get("id", "")))
+
+
+@app.route("/api/shop/auctions/bid", methods=["POST"])
+@rate_limit(10, 60)
+def shop_auction_bid():
+    """Place a bid on an active auction."""
+    user, err = _require_guild_member()
+    if err:
+        return err
+    body = request.get_json(silent=True)
+    if not body or not isinstance(body, dict):
+        return jsonify({"error": "Invalid request body"}), 400
+    auction_id = (body.get("auction_id") or "").strip()
+    if not auction_id:
+        return jsonify({"error": "auction_id is required"}), 400
+    try:
+        amount = int(body.get("amount", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "amount must be an integer"}), 400
+    if amount <= 0:
+        return jsonify({"error": "amount must be positive"}), 400
+    if amount > 999999:
+        return jsonify({"error": "amount cannot exceed 999,999"}), 400
+    autobid_ceiling = body.get("autobid_ceiling")
+    if autobid_ceiling is not None:
+        try:
+            autobid_ceiling = int(autobid_ceiling)
+            if autobid_ceiling > 999999:
+                return jsonify({"error": "autobid_ceiling cannot exceed 999,999"}), 400
+            if autobid_ceiling < amount:
+                return jsonify({"error": "autobid_ceiling must be >= amount"}), 400
+        except (TypeError, ValueError):
+            return jsonify({"error": "autobid_ceiling must be an integer"}), 400
+    try:
+        result = place_bid(
+            discord_id=user.get("id", ""),
+            user_roles=user.get("roles") or [],
+            auction_id=auction_id,
+            amount=amount,
+            autobid_ceiling=autobid_ceiling,
+        )
+        return jsonify({"ok": True, **result})
+    except PurchaseError as exc:
+        return jsonify({"error": exc.message}), exc.status
+    except InsufficientFunds as exc:
+        return jsonify({
+            "error": str(exc),
+            "needed": exc.needed,
+            "available": exc.available,
+        }), 402
+
+
+# Shop donation endpoints
+
+@app.route("/api/shop/donate", methods=["POST"])
+@rate_limit(10, 60)
+def shop_donate():
+    """Submit an LE donation ticket."""
+    user, err = _require_guild_member()
+    if err:
+        return err
+    body = request.get_json(silent=True)
+    if not body or not isinstance(body, dict):
+        return jsonify({"error": "Invalid request body"}), 400
+    try:
+        le_amount = int(body.get("le_amount", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "le_amount must be an integer"}), 400
+    if le_amount <= 0:
+        return jsonify({"error": "le_amount must be positive"}), 400
+    try:
+        result = submit_donation(
+            discord_id=user.get("id", ""),
+            le_amount=le_amount,
+        )
+        return jsonify({"ok": True, **result})
+    except PurchaseError as exc:
+        return jsonify({"error": exc.message}), exc.status
+
+
+@app.route("/api/shop/donations")
+@rate_limit(30)
+def shop_donation_history():
+    """Return the logged-in user's donation history."""
+    user, err = _require_guild_member()
+    if err:
+        return err
+    return jsonify(get_donation_history(discord_id=user.get("id", "")))
+
+
+@app.route("/api/shop/orders")
+@rate_limit(30)
+def shop_orders():
+    """Return the logged-in user's full order history."""
+    user, err = _require_guild_member()
+    if err:
+        return err
+    return jsonify(get_order_history(discord_id=user.get("id", "")))
+
+
+# Shop admin endpoints
+_SHOP_ADMIN = _CHIEF_PLUS | _PARLIAMENT_PLUS  # read access
+
+def _require_shop_admin():
+    """Parliament+ = full access (read + write). Returns (user, is_admin, err)."""
+    user, err = _require_role(_SHOP_ADMIN)
+    if err:
+        return None, False, err
+    # Any Parliament+ or Chief+ user has write access.
+    user_roles = set(user.get("roles") or [])
+    is_chief = bool(user_roles & _SHOP_ADMIN)
+    return user, is_chief, None
+
+
+@app.route("/api/admin/shop/items")
+@rate_limit(30)
+def admin_shop_items():
+    user, _, err = _require_shop_admin()
+    if err:
+        return err
+    return jsonify(admin_list_all_items_unfiltered())
+
+
+@app.route("/api/admin/shop/items/upload-image", methods=["POST"])
+@rate_limit(10)
+def admin_shop_upload_image():
+    """Upload an image for a shop item. Returns the served URL."""
+    user, is_admin, err = _require_shop_admin()
+    if err:
+        return err
+    if not is_admin:
+        return jsonify({"error": "Admin access required"}), 403
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files["file"]
+    if not f or not f.filename:
+        return jsonify({"error": "No file selected"}), 400
+    _ALLOWED = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in _ALLOWED:
+        return jsonify({"error": "Unsupported type. Use PNG, JPG, GIF or WebP."}), 400
+    f.seek(0, 2); size = f.tell(); f.seek(0)
+    if size > 2 * 1024 * 1024:
+        return jsonify({"error": "Image must be smaller than 2 MB"}), 400
+    import uuid as _uid_local
+    filename = _uid_local.uuid4().hex + ext
+    save_dir = os.path.join(_BASE_DIR, "images", "shop")
+    os.makedirs(save_dir, exist_ok=True)
+    f.save(os.path.join(save_dir, filename))
+    return jsonify({"ok": True, "url": "/images/shop/" + filename})
+
+
+@app.route("/api/admin/shop/items", methods=["POST"])
+@rate_limit(20)
+def admin_shop_create_item():
+    """Create a new item in the JSON catalogue."""
+    user, is_admin, err = _require_shop_admin()
+    if err:
+        return err
+    if not is_admin:
+        return jsonify({"error": "Admin access required"}), 403
+    fields = request.get_json(silent=True)
+    if not isinstance(fields, dict):
+        return jsonify({"error": "Invalid request body"}), 400
+    result = admin_write_item(None, fields, is_new=True)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/items/<item_id>", methods=["PUT"])
+@rate_limit(20)
+def admin_shop_update_item(item_id):
+    """Fully update an existing item in the JSON catalogue."""
+    user, is_admin, err = _require_shop_admin()
+    if err:
+        return err
+    if not is_admin:
+        return jsonify({"error": "Admin access required"}), 403
+    fields = request.get_json(silent=True)
+    if not isinstance(fields, dict):
+        return jsonify({"error": "Invalid request body"}), 400
+    result = admin_write_item(item_id, fields, is_new=False)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/items/reorder", methods=["POST"])
+@rate_limit(10)
+def admin_shop_reorder_items():
+    """Reorder items in the JSON catalogue."""
+    user, is_admin, err = _require_shop_admin()
+    if err:
+        return err
+    if not is_admin:
+        return jsonify({"error": "Admin access required"}), 403
+    body = request.get_json(silent=True)
+    if not body or not isinstance(body, dict):
+        return jsonify({"error": "Invalid request body"}), 400
+    ordered_ids = body.get("ordered_ids")
+    if not isinstance(ordered_ids, list) or not ordered_ids:
+        return jsonify({"error": "ordered_ids must be a non-empty array"}), 400
+    result = admin_reorder_items(ordered_ids)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/items/<item_id>", methods=["DELETE"])
+@rate_limit(10)
+def admin_shop_delete_item_route(item_id):
+    """Remove an item from the JSON catalogue."""
+    user, is_admin, err = _require_shop_admin()
+    if err:
+        return err
+    if not is_admin:
+        return jsonify({"error": "Admin access required"}), 403
+    result = admin_delete_item(item_id)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/items/<item_id>/override", methods=["POST"])
+@rate_limit(20)
+def admin_shop_item_override(item_id):
+    user, is_chief, err = _require_shop_admin()
+    if err:
+        return err
+    if not is_chief:
+        return jsonify({"error": "Chief rank required for write operations"}), 403
+    body = request.get_json(silent=True) or {}
+    active = body.get("active")
+    stock = body.get("stock")
+    if active is not None:
+        active = bool(active)
+    if stock is not None:
+        try:
+            stock = int(stock)
+        except (TypeError, ValueError):
+            return jsonify({"error": "stock must be an integer"}), 400
+    chief_name = user.get("nick") or user.get("username", "")
+    return jsonify(admin_set_override(item_id, active, stock, chief_name))
+
+
+@app.route("/api/admin/shop/purchases/<purchase_id>/cancel", methods=["POST"])
+@rate_limit(10)
+def admin_shop_cancel_purchase(purchase_id):
+    user, is_chief, err = _require_shop_admin()
+    if err:
+        return err
+    if not is_chief:
+        return jsonify({"error": "Chief rank required"}), 403
+    body = request.get_json(silent=True) or {}
+    reason = (body.get("reason") or "").strip()
+    if not reason:
+        return jsonify({"error": "Reason is required"}), 400
+    chief_name = user.get("nick") or user.get("username", "")
+    result = admin_cancel_purchase(purchase_id, reason, chief_name)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/auctions/start", methods=["POST"])
+@rate_limit(10)
+def admin_shop_start_auction_route():
+    """Start a new auction instance for an auction-type item."""
+    user, is_admin, err = _require_shop_admin()
+    if err:
+        return err
+    if not is_admin:
+        return jsonify({"error": "Admin access required"}), 403
+    body = request.get_json(silent=True) or {}
+    item_id = (body.get("item_id") or "").strip()
+    if not item_id:
+        return jsonify({"error": "item_id is required"}), 400
+    starter_name = user.get("nick") or user.get("username", "")
+    result = admin_start_auction(item_id, starter_name)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/auctions/<auction_id>/detail")
+@rate_limit(30)
+def admin_shop_auction_detail(auction_id):
+    user, _, err = _require_shop_admin()
+    if err:
+        return err
+    result = admin_auction_detail(auction_id)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/bids/<bid_id>/remove", methods=["POST"])
+@rate_limit(10)
+def admin_shop_remove_bid(bid_id):
+    user, is_chief, err = _require_shop_admin()
+    if err:
+        return err
+    if not is_chief:
+        return jsonify({"error": "Chief rank required"}), 403
+    chief_name = user.get("nick") or user.get("username", "")
+    body = request.get_json(silent=True) or {}
+    reason = (body.get("reason") or "").strip() or None
+    result = admin_remove_bid(bid_id, chief_name, reason)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/auctions/<auction_id>/close", methods=["POST"])
+@rate_limit(10)
+def admin_shop_close_auction(auction_id):
+    user, is_chief, err = _require_shop_admin()
+    if err:
+        return err
+    if not is_chief:
+        return jsonify({"error": "Chief rank required"}), 403
+    chief_name = user.get("nick") or user.get("username", "")
+    result = admin_cancel_auction(auction_id, chief_name)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/auctions/<auction_id>/extend", methods=["POST"])
+@rate_limit(10)
+def admin_shop_extend_auction(auction_id):
+    user, is_chief, err = _require_shop_admin()
+    if err:
+        return err
+    if not is_chief:
+        return jsonify({"error": "Chief rank required"}), 403
+    body = request.get_json(silent=True) or {}
+    try:
+        hours = int(body.get("hours", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "hours must be an integer"}), 400
+    if hours == 0:
+        return jsonify({"error": "hours must be non-zero"}), 400
+    result = admin_extend_auction(auction_id, hours)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/logs")
+@rate_limit(30)
+def admin_shop_logs():
+    user, _, err = _require_shop_admin()
+    if err:
+        return err
+    page = max(1, int(request.args.get("page", 1)))
+    per_page = min(200, max(1, int(request.args.get("per_page", 50))))
+    return jsonify(admin_get_logs(
+        page=page, per_page=per_page,
+        username=request.args.get("username"),
+        item_id=request.args.get("item_id"),
+        status=request.args.get("status"),
+        date_from=request.args.get("date_from"),
+        date_to=request.args.get("date_to"),
+    ))
+
+
+@app.route("/api/admin/shop/reservations")
+@rate_limit(30)
+def admin_shop_reservations():
+    user, _, err = _require_shop_admin()
+    if err:
+        return err
+    return jsonify(admin_get_reservations())
+
+
+@app.route("/api/admin/shop/reservations/<reservation_id>/release", methods=["POST"])
+@rate_limit(10)
+def admin_shop_release_reservation(reservation_id):
+    user, is_chief, err = _require_shop_admin()
+    if err:
+        return err
+    if not is_chief:
+        return jsonify({"error": "Chief rank required"}), 403
+    chief_name = user.get("nick") or user.get("username", "")
+    result = admin_release_reservation(reservation_id, chief_name)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/queue")
+@rate_limit(30)
+def admin_shop_queue():
+    user, _, err = _require_shop_admin()
+    if err:
+        return err
+    return jsonify(admin_get_queue())
+
+
+@app.route("/api/admin/shop/queue/fulfill", methods=["POST"])
+@rate_limit(20)
+def admin_shop_fulfill():
+    user, is_chief, err = _require_shop_admin()
+    if err:
+        return err
+    if not is_chief:
+        return jsonify({"error": "Chief rank required"}), 403
+    body = request.get_json(silent=True) or {}
+    ticket_type = (body.get("type") or "").strip()
+    ticket_id = (body.get("ticket_id") or "").strip()
+    if not ticket_type or not ticket_id:
+        return jsonify({"error": "type and ticket_id are required"}), 400
+    chief_name = user.get("nick") or user.get("username", "")
+    result = admin_fulfill(ticket_type, ticket_id, body.get("note"), chief_name)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/queue/reject", methods=["POST"])
+@rate_limit(20)
+def admin_shop_reject():
+    user, is_chief, err = _require_shop_admin()
+    if err:
+        return err
+    if not is_chief:
+        return jsonify({"error": "Chief rank required"}), 403
+    body = request.get_json(silent=True) or {}
+    ticket_type = (body.get("type") or "").strip()
+    ticket_id = (body.get("ticket_id") or "").strip()
+    reason = (body.get("reason") or "").strip()
+    if not ticket_type or not ticket_id:
+        return jsonify({"error": "type and ticket_id are required"}), 400
+    if not reason:
+        return jsonify({"error": "Reason is required"}), 400
+    chief_name = user.get("nick") or user.get("username", "")
+    result = admin_reject(ticket_type, ticket_id, reason, chief_name)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/config")
+@rate_limit(10)
+def admin_shop_config():
+    user, _, err = _require_shop_admin()
+    if err:
+        return err
+    return jsonify(admin_get_raw_config())
+
 
 _APPLICATIONS_LOCK = _threading.Lock()
 
@@ -4528,6 +5164,7 @@ _SETTINGS_INT_RANGES = {
 
 _SETTINGS_BOOLS = {
     "toastsEnabled", "showEventsNavBadge", "showPinnedBanner",
+    "shopAuctionDmOptOut",
 }
 
 _SETTINGS_STRING_MAXLEN = {
@@ -4839,10 +5476,12 @@ def bad_gateway(e):
 # startup
 
 if __name__ == "__main__":
+    start_auction_close_worker()
     print()
     print("  ESI Routes Service")
     print("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
     print(f"  Listening on 127.0.0.1:{ROUTES_PORT}")
+    print("  Auction close worker running (60s interval)")
     print("  Press Ctrl+C to stop")
     print()
     app.run(host="127.0.0.1", port=ROUTES_PORT, debug=False, threaded=True)

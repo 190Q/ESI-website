@@ -222,6 +222,24 @@ export default function SettingsModal() {
                 </label>
               </div>
             </div>
+
+            {/* Auction DM opt-out toggle */}
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <div className="settings-row-title">Reduce auction DMs</div>
+                <div className="settings-row-desc">
+                  Disable low-urgency auction DMs (bid confirmations, ending soon reminders, extension alerts). Critical notifications like outbid, won, and cancelled are always sent.
+                </div>
+              </div>
+              <div className="settings-row-control">
+                <label className="settings-toggle">
+                  <input type="checkbox" id="settingShopAuctionDmOptOut" aria-label="Reduce auction DMs" />
+                  <span className="settings-toggle-track" aria-hidden="true">
+                    <span className="settings-toggle-thumb"></span>
+                  </span>
+                </label>
+              </div>
+            </div>
           </div>
 
           {/* Member Management */}
