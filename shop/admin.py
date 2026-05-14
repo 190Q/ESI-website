@@ -239,16 +239,17 @@ def admin_cancel_auction(auction_id: str, chief_name: str) -> dict:
 
     # release EP reservations
     source = f"auction:{auction_id}"
-    if os.path.isfile(_POINTS_DB):
+    if os.path.isfile(_SHOP_DB):
         try:
-            pts = sqlite3.connect(_POINTS_DB, timeout=10)
-            pts.execute(
+            shop = sqlite3.connect(_SHOP_DB, timeout=10)
+            shop.execute("PRAGMA journal_mode=WAL")
+            shop.execute(
                 "UPDATE ep_reservations SET released_at = ? "
                 "WHERE source = ? AND released_at IS NULL",
                 (now_iso, source),
             )
-            pts.commit()
-            pts.close()
+            shop.commit()
+            shop.close()
         except sqlite3.Error as exc:
             print(f"[ADMIN] Failed to release reservations: {exc}", file=sys.stderr)
 
@@ -375,16 +376,17 @@ def admin_remove_bid(bid_id: str, chief_name: str, reason: str | None = None) ->
 
     # Release EP reservation for this bidder on this auction
     source = f"auction:{auction_id}"
-    if os.path.isfile(_POINTS_DB):
+    if os.path.isfile(_SHOP_DB):
         try:
-            pts = sqlite3.connect(_POINTS_DB, timeout=10)
-            pts.execute(
+            shop = sqlite3.connect(_SHOP_DB, timeout=10)
+            shop.execute("PRAGMA journal_mode=WAL")
+            shop.execute(
                 "UPDATE ep_reservations SET released_at = ? "
                 "WHERE uuid = ? AND source = ? AND released_at IS NULL",
                 (now_iso, bidder_uuid, source),
             )
-            pts.commit()
-            pts.close()
+            shop.commit()
+            shop.close()
         except sqlite3.Error as exc:
             print(f"[ADMIN] Failed to release bid reservation: {exc}", file=sys.stderr)
 
@@ -588,10 +590,10 @@ def admin_get_logs(page: int = 1, per_page: int = 50,
 
 def admin_get_reservations() -> list:
     """Return all active (unreleased) EP reservations."""
-    if not os.path.isfile(_POINTS_DB):
+    if not os.path.isfile(_SHOP_DB):
         return []
     try:
-        conn = sqlite3.connect(_POINTS_DB, timeout=5)
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM ep_reservations WHERE released_at IS NULL "
@@ -605,10 +607,11 @@ def admin_get_reservations() -> list:
 def admin_release_reservation(reservation_id: str, chief_name: str) -> dict:
     """Manually release a stuck EP reservation."""
     now_iso = _now_iso()
-    if not os.path.isfile(_POINTS_DB):
-        return {"error": "Points database unavailable"}
+    if not os.path.isfile(_SHOP_DB):
+        return {"error": "Shop database unavailable"}
     try:
-        conn = sqlite3.connect(_POINTS_DB, timeout=10)
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
         row = conn.execute(
             "SELECT * FROM ep_reservations WHERE reservation_id = ?",
             (reservation_id,),

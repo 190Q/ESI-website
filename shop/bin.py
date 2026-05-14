@@ -254,45 +254,6 @@ def execute_cart_checkout(
             "ack_dirty": ack_dirty,
         })
 
-    # Per-item EP split
-    _bal = fetch_ep_balance(mc_uuid)
-    _avail_clean: int = max(0, _bal.get("spendable_clean", 0))
-    _avail_dirty:  int = max(0, _bal.get("spendable_dirty",  0))
-
-    for ln in lines:
-        lp = ln["line_total"]
-        so = ln["spend_order"]
-        if so == "clean_only":
-            lc = min(_avail_clean, lp); ld = 0
-        elif so == "dirty_only":
-            lc = 0; ld = min(_avail_dirty, lp)
-        elif so == "dirty_first":
-            ld = min(_avail_dirty, lp); lc = min(_avail_clean, lp - ld)
-        else:  # clean_first (default)
-            lc = min(_avail_clean, lp); ld = min(_avail_dirty, lp - lc)
-        if lc + ld < lp:
-            raise InsufficientFunds(lp, lc + ld)
-        ln["line_clean"] = lc
-        ln["line_dirty"] = ld
-        _avail_clean -= lc
-        _avail_dirty  -= ld
-
-    cart_total = sum(ln["line_total"] for ln in lines)
-    server_clean = sum(ln["line_clean"] for ln in lines)
-    server_dirty  = sum(ln["line_dirty"]  for ln in lines)
-
-    # anti-tamper: verify summed acknowledged spend
-    total_ack_clean = sum(ln["ack_clean"] for ln in lines)
-    total_ack_dirty = sum(ln["ack_dirty"] for ln in lines)
-    if (total_ack_clean or total_ack_dirty) and (
-        total_ack_clean != server_clean or total_ack_dirty != server_dirty
-    ):
-        raise PurchaseError(
-            f"Spend mismatch: server computed {server_clean} clean + {server_dirty} dirty, "
-            f"but client sent {total_ack_clean} clean + {total_ack_dirty} dirty",
-            409,
-        )
-
     if not os.path.isfile(_SHOP_DB):
         raise PurchaseError("Shop database unavailable", 503)
 
@@ -303,6 +264,47 @@ def execute_cart_checkout(
         conn.execute("PRAGMA foreign_keys=ON")
         _ensure_quantity_column(conn)
         conn.execute("BEGIN IMMEDIATE")
+
+        # EP balance check (inside write lock to prevent TOCTOU double-spend)
+        _bal = fetch_ep_balance(mc_uuid)
+        _avail_clean: int = max(0, _bal.get("spendable_clean", 0))
+        _avail_dirty:  int = max(0, _bal.get("spendable_dirty",  0))
+
+        for ln in lines:
+            lp = ln["line_total"]
+            so = ln["spend_order"]
+            if so == "clean_only":
+                lc = min(_avail_clean, lp); ld = 0
+            elif so == "dirty_only":
+                lc = 0; ld = min(_avail_dirty, lp)
+            elif so == "dirty_first":
+                ld = min(_avail_dirty, lp); lc = min(_avail_clean, lp - ld)
+            else:  # clean_first (default)
+                lc = min(_avail_clean, lp); ld = min(_avail_dirty, lp - lc)
+            if lc + ld < lp:
+                conn.rollback()
+                raise InsufficientFunds(lp, lc + ld)
+            ln["line_clean"] = lc
+            ln["line_dirty"] = ld
+            _avail_clean -= lc
+            _avail_dirty  -= ld
+
+        cart_total = sum(ln["line_total"] for ln in lines)
+        server_clean = sum(ln["line_clean"] for ln in lines)
+        server_dirty  = sum(ln["line_dirty"]  for ln in lines)
+
+        # anti-tamper: verify summed acknowledged spend
+        total_ack_clean = sum(ln["ack_clean"] for ln in lines)
+        total_ack_dirty = sum(ln["ack_dirty"] for ln in lines)
+        if (total_ack_clean or total_ack_dirty) and (
+            total_ack_clean != server_clean or total_ack_dirty != server_dirty
+        ):
+            conn.rollback()
+            raise PurchaseError(
+                f"Spend mismatch: server computed {server_clean} clean + {server_dirty} dirty, "
+                f"but client sent {total_ack_clean} clean + {total_ack_dirty} dirty",
+                409,
+            )
 
         # stock check for all items (atomic, inside the write lock)
         live_stocks: dict = {}  # item_id -> live_stock (None if unlimited)
@@ -451,21 +453,6 @@ def execute_bin_purchase(
     if not item.get("accepts_dirty_ep", False) and spend_order not in ("clean_only", "clean_first"):
         spend_order = "clean_only"
 
-    # compute spend split (server is the sole authority)
-    split = resolve_spend(mc_uuid, price, spend_order)
-    server_clean = split["clean_to_spend"]
-    server_dirty = split["dirty_to_spend"]
-
-    # anti-tamper: if client sent an acknowledged split, verify it matches
-    if (acknowledged_clean or acknowledged_dirty) and (
-        acknowledged_clean != server_clean or acknowledged_dirty != server_dirty
-    ):
-        raise PurchaseError(
-            f"Spend mismatch: server computed {server_clean} clean + {server_dirty} dirty, "
-            f"but client sent {acknowledged_clean} clean + {acknowledged_dirty} dirty",
-            409,
-        )
-
     # stock check + decrement (atomic in a single transaction)
     purchase_id = str(_uuid_mod.uuid4())
     status = "pending"
@@ -479,6 +466,22 @@ def execute_bin_purchase(
         conn.execute("PRAGMA foreign_keys=ON")
         # BEGIN IMMEDIATE gives us a write-lock immediately
         conn.execute("BEGIN IMMEDIATE")
+
+        # EP spend split (inside write lock to prevent TOCTOU double-spend)
+        split = resolve_spend(mc_uuid, price, spend_order)
+        server_clean = split["clean_to_spend"]
+        server_dirty = split["dirty_to_spend"]
+
+        # anti-tamper: if client sent an acknowledged split, verify it matches
+        if (acknowledged_clean or acknowledged_dirty) and (
+            acknowledged_clean != server_clean or acknowledged_dirty != server_dirty
+        ):
+            conn.rollback()
+            raise PurchaseError(
+                f"Spend mismatch: server computed {server_clean} clean + {server_dirty} dirty, "
+                f"but client sent {acknowledged_clean} clean + {acknowledged_dirty} dirty",
+                409,
+            )
 
         # Check limited stock
         json_stock = item.get("stock")  # from merged item (JSON + override)

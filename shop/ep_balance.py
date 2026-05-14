@@ -5,6 +5,30 @@ import sys
 from config import _POINTS_DB, _SHOP_DB, _USERNAME_MATCHES_JSON, _load_json_file
 
 
+def _ensure_ep_reservations_table(conn: sqlite3.Connection) -> None:
+    """Create the ep_reservations table in shop.db if it doesn't exist (idempotent)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ep_reservations (
+            reservation_id  TEXT PRIMARY KEY,
+            uuid            TEXT NOT NULL,
+            username        TEXT NOT NULL,
+            reserved_amount INTEGER NOT NULL,
+            ep_type         TEXT NOT NULL,
+            source          TEXT NOT NULL,
+            created_at      TEXT NOT NULL,
+            released_at     TEXT
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ep_res_uuid "
+        "ON ep_reservations (uuid)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ep_res_source "
+        "ON ep_reservations (source)"
+    )
+
+
 def _mc_uuid(discord_id: str) -> str | None:
     """Look up the Minecraft UUID tied to a Discord ID via username_matches.json."""
     matches = _load_json_file(_USERNAME_MATCHES_JSON)
@@ -91,12 +115,18 @@ def fetch_ep_balance(uuid: str) -> dict:
         except sqlite3.Error as exc:
             print(f"[EP] Failed to read esi_points: {exc}", file=sys.stderr)
 
-    # 2. Active reservations from esi_points.db
+    # 2. Active reservations + shop spending from shop.db
     reserved_clean = 0
     reserved_dirty = 0
-    if os.path.isfile(_POINTS_DB):
+    spent_clean = 0
+    spent_dirty = 0
+    donated_dirty = 0
+    if os.path.isfile(_SHOP_DB):
         try:
-            conn = sqlite3.connect(_POINTS_DB, timeout=5)
+            conn = sqlite3.connect(_SHOP_DB, timeout=5)
+            _ensure_ep_reservations_table(conn)
+
+            # Reservations (auction bid holds)
             rows = conn.execute(
                 "SELECT ep_type, COALESCE(SUM(reserved_amount), 0) "
                 "FROM ep_reservations "
@@ -109,17 +139,8 @@ def fetch_ep_balance(uuid: str) -> dict:
                     reserved_clean = int(amount)
                 elif ep_type == "dirty":
                     reserved_dirty = int(amount)
-            conn.close()
-        except sqlite3.Error as exc:
-            print(f"[EP] Failed to read ep_reservations: {exc}", file=sys.stderr)
 
-    # 3. Shop spending from shop.db (pending + fulfilled bin purchases)
-    spent_clean = 0
-    spent_dirty = 0
-    donated_dirty = 0
-    if os.path.isfile(_SHOP_DB):
-        try:
-            conn = sqlite3.connect(_SHOP_DB, timeout=5)
+            # Spending (pending + fulfilled bin purchases)
             row = conn.execute(
                 "SELECT COALESCE(SUM(clean_ep_spent), 0), "
                 "       COALESCE(SUM(dirty_ep_spent), 0) "

@@ -8,12 +8,13 @@ from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 import requests as _requests
 
 from config import (
-    _SHOP_DB, _POINTS_DB,
+    _SHOP_DB,
     _USERNAME_MATCHES_JSON, _load_json_file,
     DISCORD_API, DISCORD_TOKEN,
 )
 from shop.ep_balance import (
     resolve_uuid_for_user, fetch_ep_balance, resolve_spend, InsufficientFunds,
+    _ensure_ep_reservations_table,
 )
 from shop.items import get_item, get_item_unfiltered
 from shop.bin import build_user_tags, PurchaseError, _get_cycle_id, _get_cycle_bounds
@@ -372,62 +373,41 @@ def place_bid(
         clean_used = split["clean_to_spend"]
         dirty_used = split["dirty_to_spend"]
 
-        # manage EP reservations in esi_points.db
-        if not os.path.isfile(_POINTS_DB):
-            shop_conn.rollback()
-            raise PurchaseError("Points database unavailable", 503)
+        # manage EP reservations in shop.db
+        _ensure_ep_reservations_table(shop_conn)
 
-        pts_conn = sqlite3.connect(_POINTS_DB, timeout=10)
-        try:
-            pts_conn.execute("PRAGMA journal_mode=WAL")
-            pts_conn.execute("BEGIN IMMEDIATE")
+        # Release any prior reservation from this user on this auction
+        shop_conn.execute(
+            "UPDATE ep_reservations SET released_at = ? "
+            "WHERE uuid = ? AND source = ? AND released_at IS NULL",
+            (now_iso, mc_uuid, f"auction:{auction_id}"),
+        )
 
-            # Release any prior reservation from this user on this auction
-            pts_conn.execute(
-                "UPDATE ep_reservations SET released_at = ? "
-                "WHERE uuid = ? AND source = ? AND released_at IS NULL",
-                (now_iso, mc_uuid, f"auction:{auction_id}"),
+        # Create new reservations (one per EP type if non-zero)
+        if clean_used > 0:
+            shop_conn.execute(
+                "INSERT INTO ep_reservations "
+                "(reservation_id, uuid, username, reserved_amount, ep_type, source, created_at) "
+                "VALUES (?, ?, ?, ?, 'clean', ?, ?)",
+                (str(_uuid_mod.uuid4()), mc_uuid, mc_username or "", clean_used,
+                 f"auction:{auction_id}", now_iso),
             )
-
-            # Create new reservations (one per EP type if non-zero)
-            if clean_used > 0:
-                pts_conn.execute(
-                    "INSERT INTO ep_reservations "
-                    "(reservation_id, uuid, username, reserved_amount, ep_type, source, created_at) "
-                    "VALUES (?, ?, ?, ?, 'clean', ?, ?)",
-                    (str(_uuid_mod.uuid4()), mc_uuid, mc_username or "", clean_used,
-                     f"auction:{auction_id}", now_iso),
-                )
-            if dirty_used > 0:
-                pts_conn.execute(
-                    "INSERT INTO ep_reservations "
-                    "(reservation_id, uuid, username, reserved_amount, ep_type, source, created_at) "
-                    "VALUES (?, ?, ?, ?, 'dirty', ?, ?)",
-                    (str(_uuid_mod.uuid4()), mc_uuid, mc_username or "", dirty_used,
-                     f"auction:{auction_id}", now_iso),
-                )
-
-            pts_conn.commit()
-        except Exception:
-            pts_conn.rollback()
-            shop_conn.rollback()
-            raise
-        finally:
-            pts_conn.close()
+        if dirty_used > 0:
+            shop_conn.execute(
+                "INSERT INTO ep_reservations "
+                "(reservation_id, uuid, username, reserved_amount, ep_type, source, created_at) "
+                "VALUES (?, ?, ?, ?, 'dirty', ?, ?)",
+                (str(_uuid_mod.uuid4()), mc_uuid, mc_username or "", dirty_used,
+                 f"auction:{auction_id}", now_iso),
+            )
 
         # release the displaced bidder's reservation
         if current_bidder and current_bidder != mc_uuid:
-            try:
-                pts_release = sqlite3.connect(_POINTS_DB, timeout=5)
-                pts_release.execute(
-                    "UPDATE ep_reservations SET released_at = ? "
-                    "WHERE uuid = ? AND source = ? AND released_at IS NULL",
-                    (now_iso, current_bidder, f"auction:{auction_id}"),
-                )
-                pts_release.commit()
-                pts_release.close()
-            except sqlite3.Error as exc:
-                print(f"[AUCTION] Failed to release prior reservation: {exc}", file=sys.stderr)
+            shop_conn.execute(
+                "UPDATE ep_reservations SET released_at = ? "
+                "WHERE uuid = ? AND source = ? AND released_at IS NULL",
+                (now_iso, current_bidder, f"auction:{auction_id}"),
+            )
 
         # insert bid row
         bid_id = str(_uuid_mod.uuid4())
@@ -640,15 +620,14 @@ def _resolve_autobid_chain(
                 break
 
             # Release old reservation for challenger
-            pts = sqlite3.connect(_POINTS_DB, timeout=10)
-            pts.execute(
+            conn.execute(
                 "UPDATE ep_reservations SET released_at = ? "
                 "WHERE uuid = ? AND source = ? AND released_at IS NULL",
                 (now_iso, challenger_uuid, f"auction:{auction_id}"),
             )
             # Create new reservation
             if split["clean_to_spend"] > 0:
-                pts.execute(
+                conn.execute(
                     "INSERT INTO ep_reservations "
                     "(reservation_id, uuid, username, reserved_amount, ep_type, source, created_at) "
                     "VALUES (?, ?, ?, ?, 'clean', ?, ?)",
@@ -656,7 +635,7 @@ def _resolve_autobid_chain(
                      split["clean_to_spend"], f"auction:{auction_id}", now_iso),
                 )
             if split["dirty_to_spend"] > 0:
-                pts.execute(
+                conn.execute(
                     "INSERT INTO ep_reservations "
                     "(reservation_id, uuid, username, reserved_amount, ep_type, source, created_at) "
                     "VALUES (?, ?, ?, ?, 'dirty', ?, ?)",
@@ -664,13 +643,11 @@ def _resolve_autobid_chain(
                      split["dirty_to_spend"], f"auction:{auction_id}", now_iso),
                 )
             # Release old winner's reservation
-            pts.execute(
+            conn.execute(
                 "UPDATE ep_reservations SET released_at = ? "
                 "WHERE uuid = ? AND source = ? AND released_at IS NULL",
                 (now_iso, current_winner, f"auction:{auction_id}"),
             )
-            pts.commit()
-            pts.close()
 
             # Insert bid row
             new_bid_id = str(_uuid_mod.uuid4())
@@ -856,16 +833,17 @@ def _cancel_orphaned_auction(auction_id: str, item_id: str, now_iso: str) -> Non
 
     # Release EP reservations
     source = f"auction:{auction_id}"
-    if os.path.isfile(_POINTS_DB):
+    if os.path.isfile(_SHOP_DB):
         try:
-            pts = sqlite3.connect(_POINTS_DB, timeout=10)
-            pts.execute(
+            release_conn = sqlite3.connect(_SHOP_DB, timeout=10)
+            release_conn.execute("PRAGMA journal_mode=WAL")
+            release_conn.execute(
                 "UPDATE ep_reservations SET released_at = ? "
                 "WHERE source = ? AND released_at IS NULL",
                 (now_iso, source),
             )
-            pts.commit()
-            pts.close()
+            release_conn.commit()
+            release_conn.close()
         except sqlite3.Error as exc:
             print(f"[AUCTION] Failed to release EP for orphan {auction_id}: {exc}",
                   file=sys.stderr)
@@ -1022,20 +1000,21 @@ def _settle_auction(auction: sqlite3.Row, now_iso: str):
     finally:
         shop_conn.close()
 
-    # Release EP reservations in esi_points.db
+    # Release EP reservations in shop.db
     source = f"auction:{aid}"
-    if os.path.isfile(_POINTS_DB):
+    if os.path.isfile(_SHOP_DB):
         try:
-            pts = sqlite3.connect(_POINTS_DB, timeout=10)
+            release_conn = sqlite3.connect(_SHOP_DB, timeout=10)
+            release_conn.execute("PRAGMA journal_mode=WAL")
             # Release ALL reservations for this auction (winners + losers).
             # Winners' EP is now accounted for via the bin_purchases row.
-            pts.execute(
+            release_conn.execute(
                 "UPDATE ep_reservations SET released_at = ? "
                 "WHERE source = ? AND released_at IS NULL",
                 (now_iso, source),
             )
-            pts.commit()
-            pts.close()
+            release_conn.commit()
+            release_conn.close()
         except sqlite3.Error as exc:
             print(f"[AUCTION] Failed to release reservations for {aid}: {exc}", file=sys.stderr)
 
@@ -1096,37 +1075,26 @@ def _cleanup_orphaned_reservations() -> None:
       3. Auction settled/cancelled but the bulk reservation release failed
          (rare, already handled by settle/cancel, but this acts as a safety net).
     """
-    if not os.path.isfile(_POINTS_DB) or not os.path.isfile(_SHOP_DB):
+    if not os.path.isfile(_SHOP_DB):
         return
     now_iso = _dt.now(_tz.utc).isoformat()
 
-    # Load all unreleased auction reservations from _POINTS_DB
+    to_release: list = []
     try:
-        pts = sqlite3.connect(_POINTS_DB, timeout=5)
-        pts.row_factory = sqlite3.Row
-        stuck = pts.execute(
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.row_factory = sqlite3.Row
+        _ensure_ep_reservations_table(conn)
+        stuck = conn.execute(
             "SELECT reservation_id, uuid, source FROM ep_reservations "
             "WHERE released_at IS NULL AND source LIKE 'auction:%'"
         ).fetchall()
-        pts.close()
-    except sqlite3.Error as exc:
-        print(f"[AUCTION] Orphan-reservation scan failed: {exc}", file=sys.stderr)
-        return
 
-    if not stuck:
-        return
-
-    # Cross-reference against shop.db
-    to_release: list = []
-    try:
-        shop = sqlite3.connect(_SHOP_DB, timeout=5)
-        shop.row_factory = sqlite3.Row
         for r in stuck:
             source = r["source"]
             if not source.startswith("auction:"):
                 continue
             auction_id = source[len("auction:"):]
-            has_valid_bid = shop.execute(
+            has_valid_bid = conn.execute(
                 "SELECT 1 FROM bids b "
                 "JOIN auctions a ON a.auction_id = b.auction_id "
                 "WHERE b.auction_id = ? AND b.uuid = ? "
@@ -1135,23 +1103,24 @@ def _cleanup_orphaned_reservations() -> None:
             ).fetchone()
             if has_valid_bid is None:
                 to_release.append(r["reservation_id"])
-        shop.close()
+        conn.close()
     except sqlite3.Error as exc:
-        print(f"[AUCTION] Orphan-reservation cross-check failed: {exc}", file=sys.stderr)
+        print(f"[AUCTION] Orphan-reservation scan failed: {exc}", file=sys.stderr)
         return
 
     if not to_release:
         return
 
     try:
-        pts = sqlite3.connect(_POINTS_DB, timeout=10)
-        pts.execute(
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute(
             "UPDATE ep_reservations SET released_at = ? WHERE reservation_id IN ("
             + ",".join("?" * len(to_release)) + ")",
             [now_iso] + to_release,
         )
-        pts.commit()
-        pts.close()
+        conn.commit()
+        conn.close()
         print(
             f"[AUCTION] Released {len(to_release)} orphaned EP reservation(s).",
             file=sys.stderr,
