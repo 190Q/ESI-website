@@ -1488,6 +1488,8 @@ def admin_shop_item_override(item_id):
             return jsonify({"error": "stock must be an integer"}), 400
         if stock < 0:
             return jsonify({"error": "stock cannot be negative"}), 400
+        if stock > 99999:
+            return jsonify({"error": "stock cannot exceed 99,999"}), 400
     chief_name = user.get("nick") or user.get("username", "")
     return jsonify(admin_set_override(item_id, active, stock, chief_name))
 

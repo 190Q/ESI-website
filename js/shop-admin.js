@@ -209,7 +209,7 @@
         html += '<span style="color:var(--text-faint)">N/A</span>';
       } else if (_isParliament) {
         var stockVal = item.stock != null ? item.stock : '';
-        html += '<span><input type="number" min="0" class="sa-stock-input" data-stock-id="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="\u221E" /></span>';
+        html += '<span><input type="number" min="0" max="99999" class="sa-stock-input" data-stock-id="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="\u221E" /></span>';
       } else {
         html += '<span>' + (item.stock != null ? num(item.stock) : '\u221E') + '</span>';
       }
@@ -482,8 +482,11 @@
         if (val !== '' && isNaN(stock)) { input.value = lastVal; return; }
         if (stock !== null && stock < 0) {
           showToast('\u26a0 Stock cannot be negative.', 'warn');
-          input.value = lastVal;
-          return;
+          input.value = lastVal; return;
+        }
+        if (stock !== null && stock > 99999) {
+          showToast('\u26a0 Stock cannot exceed 99,999.', 'warn');
+          input.value = lastVal; return;
         }
         input.disabled = true;
         apiPost('/api/admin/shop/items/' + encodeURIComponent(id) + '/override', { stock: stock })
@@ -503,10 +506,20 @@
           .finally(function () { input.disabled = false; });
       });
       input.addEventListener('input', function () {
-        var v = parseInt(this.value, 10);
-        if (!isNaN(v) && v < 0) this.value = '0';
+        // Strip anything that isn't a digit, then cap at 5 characters
+        var clean = this.value.replace(/\D/g, '').slice(0, 5);
+        if (this.value !== clean) this.value = clean;
       });
-      input.addEventListener('keydown', function (e) { if (e.key === 'Enter') input.blur(); });
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { input.blur(); return; }
+        // Allow navigation / editing control keys
+        var ctrl = ['Backspace','Delete','Tab','Escape','Home','End',
+                    'ArrowLeft','ArrowRight','ArrowUp','ArrowDown'];
+        if (ctrl.indexOf(e.key) !== -1) return;
+        if (e.ctrlKey || e.metaKey) return;  // allow Ctrl+A/C/V/X etc.
+        // Block everything except single digits
+        if (!/^\d$/.test(e.key)) e.preventDefault();
+      });
     });
   }
 
