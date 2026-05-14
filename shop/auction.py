@@ -24,7 +24,7 @@ def _discord_headers():
 
 
 def _resolve_discord_id_for_uuid(mc_uuid: str) -> str | None:
-    """Reverse-lookup: MC UUID → Discord ID via username_matches.json."""
+    """Reverse-lookup: MC UUID -> Discord ID via username_matches.json."""
     matches = _load_json_file(_USERNAME_MATCHES_JSON)
     for did, entry in matches.items():
         if isinstance(entry, dict) and entry.get("uuid") == mc_uuid:
@@ -1090,9 +1090,9 @@ def _cleanup_orphaned_reservations() -> None:
 
     Covers three crash-window scenarios:
       1. Process died after INSERT into ep_reservations but before the bid row
-         was committed in shop.db  → reservation exists, no bid row at all.
+         was committed in shop.db  -> reservation exists, no bid row at all.
       2. Process died after the new winner's bid committed but before the
-         previous winner's reservation was released  → old reservation survives.
+         previous winner's reservation was released  -> old reservation survives.
       3. Auction settled/cancelled but the bulk reservation release failed
          (rare, already handled by settle/cancel, but this acts as a safety net).
     """

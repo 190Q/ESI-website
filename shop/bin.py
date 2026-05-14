@@ -22,7 +22,7 @@ def _get_cycle_bounds(cycle_id):
     start = _CYCLE_ANCHOR + _CYCLE_DURATION * (cycle_id - 1)
     return start, start + _CYCLE_DURATION
 
-# Build a role-ID → rank-name lookup from the client config at import time.
+# Build a role-ID -> rank-name lookup from the client config at import time.
 _RANK_ROLE_MAP: dict[str, str] = {
     r["id"]: r["name"].lower()
     for r in _CLIENT_CONFIG["rankRoles"]
@@ -305,7 +305,7 @@ def execute_cart_checkout(
         conn.execute("BEGIN IMMEDIATE")
 
         # stock check for all items (atomic, inside the write lock)
-        live_stocks: dict = {}  # item_id → live_stock (None if unlimited)
+        live_stocks: dict = {}  # item_id -> live_stock (None if unlimited)
         for ln in lines:
             item_id = ln["item_id"]
             json_stock = ln["item"].get("stock")

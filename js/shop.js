@@ -50,6 +50,33 @@
   }
   function num(n) { return Number(n || 0).toLocaleString(); }
 
+  /* Cross-tab cart sync via BroadcastChannel */
+  var _cartChannel = null;
+  try {
+    _cartChannel = new BroadcastChannel('esi_shop_cart');
+    _cartChannel.onmessage = function () {
+      // Another tab just saved the cart
+      if (!_cartLoaded || !_binData || _cartSyncTimer) return;
+      fetch('/api/shop/cart', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data || !data.ok) return;
+          var itemMap = {};
+          (_binData.items || []).forEach(function (it) { itemMap[it.id] = it; });
+          _cart = {};
+          (data.items || []).forEach(function (entry) {
+            var item = itemMap[entry.item_id];
+            if (!item) return;
+            var maxQ = item.allow_multi_quantity
+              ? Math.min(item.max_quantity || 999, item.stock != null ? item.stock : 999) : 1;
+            _cart[entry.item_id] = { item: item, quantity: Math.max(1, Math.min(entry.quantity, maxQ)) };
+          });
+          updateCartBadge();
+        })
+        .catch(function () {});
+    };
+  } catch (e) { /* BroadcastChannel not available */ }
+
   /* Cart persistence */
   function syncCart() {
     if (!_cartLoaded) return;
@@ -63,6 +90,9 @@
         method: 'PUT', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: items }),
+      }).then(function () {
+        // Notify sibling tabs that the cart was updated
+        if (_cartChannel) try { _cartChannel.postMessage(1); } catch (e) {}
       }).catch(function () {});
     }, 600);
   }
@@ -1762,6 +1792,29 @@
   });
   observer.observe(panel, { attributes: true, attributeFilter: ['class'] });
   if (panel.classList.contains('active')) initShop();
+
+  // Re-fetch cart when this tab regains visibility
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible' || !_initDone || !_cartLoaded || !_binData) return;
+    if (_cartSyncTimer) return; // pending write
+    fetch('/api/shop/cart', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !data.ok) return;
+        var itemMap = {};
+        (_binData.items || []).forEach(function (it) { itemMap[it.id] = it; });
+        _cart = {};
+        (data.items || []).forEach(function (entry) {
+          var item = itemMap[entry.item_id];
+          if (!item) return;
+          var maxQ = item.allow_multi_quantity
+            ? Math.min(item.max_quantity || 999, item.stock != null ? item.stock : 999) : 1;
+          _cart[entry.item_id] = { item: item, quantity: Math.max(1, Math.min(entry.quantity, maxQ)) };
+        });
+        updateCartBadge();
+      })
+      .catch(function () {});
+  });
 
   // Refresh shop bin data whenever the admin panel writes an item change
   window.addEventListener('shop:items-updated', function () {

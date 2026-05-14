@@ -4,14 +4,19 @@ import re
 import sqlite3
 import sys
 import threading
+import time as _time
 
 from config import _SHOP_ITEMS_JSON, _SHOP_DB
 
 
 _items_lock = threading.Lock()
-_items_by_id: dict = {}          # item_id → merged item dict
+_items_by_id: dict = {}          # item_id -> merged item dict
 _items_list: list = []           # ordered list (same order as JSON)
-_loaded = False
+_loaded    = False
+_loaded_at: float = 0.0          # epoch seconds of last successful reload
+
+# Maximum age of the in-memory cache before a background reload is forced
+_CACHE_TTL: float = 60.0         # seconds
 
 # Valid guild ranks for visible_to_ranks (lowercased)
 _GUILD_RANKS = {
@@ -26,7 +31,7 @@ def parse_duration(value) -> dict | None:
     """Parse a cooldown / subscription_duration value.
 
     Returns one of:
-      - ``None``                                → no duration
+      - ``None``                                -> no duration
       - ``{"type": "days",         "value": N}``
       - ``{"type": "end_of_cycle"}``
       - ``{"type": "cycles",       "value": N}``
@@ -123,10 +128,10 @@ def _merge(items: list, overrides: dict) -> list:
 def reload() -> None:
     """(Re)load the full item catalogue from JSON + DB.
 
-    Called automatically on first access and can be called manually
-    after a Chief updates an override or the JSON file changes.
+    Called automatically on first access, after any admin write, and
+    whenever the cache is older than _CACHE_TTL seconds.
     """
-    global _items_by_id, _items_list, _loaded
+    global _items_by_id, _items_list, _loaded, _loaded_at
 
     items = _load_json()
     overrides = _load_overrides()
@@ -137,11 +142,12 @@ def reload() -> None:
     with _items_lock:
         _items_by_id = by_id
         _items_list = merged
-        _loaded = True
+        _loaded    = True
+        _loaded_at = _time.monotonic()
 
 
 def _ensure_loaded() -> None:
-    if not _loaded:
+    if not _loaded or (_time.monotonic() - _loaded_at) > _CACHE_TTL:
         reload()
 
 def _is_visible(item: dict, tags: set | None) -> bool:
@@ -151,9 +157,9 @@ def _is_visible(item: dict, tags: set | None) -> bool:
     ``{"knight"}``.  ``None`` means anonymous / not a guild member.
 
     ``visible_to_ranks`` rules:
-      - ``None`` → visible to everyone.
-      - A list of strings → split into includes and ``!``-prefixed excludes.
-        * If the user matches ANY exclude → **hidden**.
+      - ``None`` -> visible to everyone.
+      - A list of strings -> split into includes and ``!``-prefixed excludes.
+        * If the user matches ANY exclude -> **hidden**.
         * If there are includes, the user must match at least one.
         * If there are ONLY excludes (no includes), everyone not excluded
           can see the item.
@@ -175,13 +181,13 @@ def _is_visible(item: dict, tags: set | None) -> bool:
         else:
             includes.add(e)
 
-    # Any exclude match → blocked
+    # Any exclude match -> blocked
     if excludes & tags:
         return False
     # If there are explicit includes, user must match at least one
     if includes:
         return bool(includes & tags)
-    # Only excludes were listed and the user didn't match any → visible
+    # Only excludes were listed and the user didn't match any -> visible
     return True
 
 def _resolve_multi_quantity(item: dict) -> dict:

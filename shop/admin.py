@@ -90,7 +90,7 @@ def _evict_item_from_carts(item_id: str) -> None:
 def admin_list_items() -> list:
     """Return ALL items (including inactive), merged with overrides."""
     _reload_items()
-    return get_items(tags=None) or []   # tags=None → no visibility filter
+    return get_items(tags=None) or []   # tags=None -> no visibility filter
 
 def admin_list_all_items_unfiltered() -> list:
     """Return every item regardless of visibility, with overrides applied."""
