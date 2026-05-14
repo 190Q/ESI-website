@@ -523,7 +523,7 @@ def place_bid(
         "placed_at":    now_iso,
     }
 
-_CLOSE_WORKER_INTERVAL
+_CLOSE_WORKER_INTERVAL = 60  # seconds
 _REMINDER_HOURS = 6  # hours before close to send reminder
 _reminded_auctions: set = set()  # in-memory tracker for ending-soon reminders
 
