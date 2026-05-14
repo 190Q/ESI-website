@@ -1268,23 +1268,12 @@ def shop_auction_bid():
         return jsonify({"error": "amount must be positive"}), 400
     if amount > 999999:
         return jsonify({"error": "amount cannot exceed 999,999"}), 400
-    autobid_ceiling = body.get("autobid_ceiling")
-    if autobid_ceiling is not None:
-        try:
-            autobid_ceiling = int(autobid_ceiling)
-            if autobid_ceiling > 999999:
-                return jsonify({"error": "autobid_ceiling cannot exceed 999,999"}), 400
-            if autobid_ceiling < amount:
-                return jsonify({"error": "autobid_ceiling must be >= amount"}), 400
-        except (TypeError, ValueError):
-            return jsonify({"error": "autobid_ceiling must be an integer"}), 400
     try:
         result = place_bid(
             discord_id=user.get("id", ""),
             user_roles=user.get("roles") or [],
             auction_id=auction_id,
             amount=amount,
-            autobid_ceiling=autobid_ceiling,
         )
         return jsonify({"ok": True, **result})
     except PurchaseError as exc:

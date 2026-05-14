@@ -894,7 +894,6 @@ def _build_item(fields: dict) -> dict:
         "duration_hours":        _cap_int(fields.get("duration_hours"), 9_999),
         "duration_type":         (fields.get("duration_type") or "fixed"),
         "anti_snipe_seconds":    _cap_int(fields.get("anti_snipe_seconds"), 9_999),
-        "max_autobid":           _coerce_bool(fields.get("max_autobid"), False),
         "winner_count":          _cap_int(fields.get("winner_count"), 99),
         "max_quantity":          _cap_int(fields.get("max_quantity"), 99),
         "active":                _coerce_bool(fields.get("active"), True),
@@ -912,7 +911,6 @@ def _build_item(fields: dict) -> dict:
         item["min_increment"]      = None
         item["duration_hours"]     = None
         item["anti_snipe_seconds"] = None
-        item["max_autobid"]        = None
         item["winner_count"]       = None
     elif item_type == "bin":
         item["price"]         = item["price"] if item["price"] is not None else 0
@@ -921,7 +919,6 @@ def _build_item(fields: dict) -> dict:
         item["min_increment"]    = None
         item["duration_hours"]   = None
         item["anti_snipe_seconds"] = None
-        item["max_autobid"]      = None
         item["winner_count"]     = None
     else:
         item["price"]            = None

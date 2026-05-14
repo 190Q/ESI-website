@@ -141,7 +141,7 @@ def list_auctions(discord_id: str) -> dict:
                 user_bid = None
                 if mc_uuid:
                     ub = conn.execute(
-                        "SELECT bid_id, amount, is_winning, autobid_ceiling "
+                        "SELECT bid_id, amount, is_winning "
                         "FROM bids WHERE auction_id = ? AND uuid = ? "
                         "ORDER BY amount DESC LIMIT 1",
                         (aid, mc_uuid),
@@ -151,7 +151,6 @@ def list_auctions(discord_id: str) -> dict:
                             "bid_id": ub["bid_id"],
                             "amount": ub["amount"],
                             "is_winning": bool(ub["is_winning"]),
-                            "autobid_ceiling": ub["autobid_ceiling"],
                         }
 
                 # item metadata
@@ -184,7 +183,6 @@ def list_auctions(discord_id: str) -> dict:
                     "anti_snipe_seconds": item.get("anti_snipe_seconds", 0),
                     "spend_order":      item.get("spend_order", "clean_first"),
                     "accepts_dirty_ep": bool(item.get("accepts_dirty_ep", False)),
-                    "max_autobid":      bool(item.get("max_autobid", False)),
                     "item_category":    item.get("category") or [],
                     "item_images":      item.get("images") or [],
                     "active":           item.get("active", True),
@@ -213,12 +211,10 @@ def place_bid(
     user_roles: list,
     auction_id: str,
     amount: int,
-    autobid_ceiling: int | None = None,
 ) -> dict:
     """Validate and place a bid. Returns the new bid record.
 
-    Manages EP reservations in esi_points.db atomically with
-    the bid insertion in shop.db.
+    Manages EP reservations atomically with the bid insertion in shop.db.
     """
     now = _dt.now(_tz.utc)
     now_iso = now.isoformat()
@@ -282,62 +278,6 @@ def place_bid(
             )
 
         if current_bidder == mc_uuid:
-            # Allow updating autobid ceiling on existing bid
-            if autobid_ceiling is not None:
-                # Ceiling must be at least current_high + increment
-                _ab_min = current_high + min_increment
-                if autobid_ceiling < _ab_min:
-                    shop_conn.rollback()
-                    raise PurchaseError(
-                        f"Autobid ceiling must be at least {_ab_min} EP (current bid + increment)",
-                        400,
-                    )
-                # Validate ceiling against available EP
-                user_bal = fetch_ep_balance(mc_uuid)
-                _so = item.get("spend_order", "clean_first")
-                if not item.get("accepts_dirty_ep", False):
-                    _so = "clean_only"
-                if _so == "clean_only":
-                    _max_ep = user_bal.get("spendable_clean", 0)
-                elif _so == "dirty_only":
-                    _max_ep = user_bal.get("spendable_dirty", 0)
-                else:
-                    _max_ep = user_bal.get("spendable_clean", 0) + user_bal.get("spendable_dirty", 0)
-                if autobid_ceiling > _max_ep:
-                    shop_conn.rollback()
-                    raise PurchaseError(
-                        f"Autobid ceiling ({autobid_ceiling} EP) exceeds your available EP ({_max_ep} EP)",
-                        400,
-                    )
-                shop_conn.execute(
-                    "UPDATE bids SET autobid_ceiling = ? "
-                    "WHERE auction_id = ? AND uuid = ? AND is_winning = 1",
-                    (autobid_ceiling, auction_id, mc_uuid),
-                )
-                shop_conn.commit()
-                shop_conn.close()
-                item_name = item.get("name", arow["item_id"])
-                bidder_did = _resolve_discord_id_for_uuid(mc_uuid)
-                if bidder_did:
-                    _dm_in_background(
-                        bidder_did,
-                        f"\u2705 Your autobid limit on **{item_name}** has been updated to **{autobid_ceiling} EP**.",
-                        low_urgency=True,
-                    )
-                return {
-                    "ok": True,
-                    "bid_id": None,
-                    "auction_id": auction_id,
-                    "amount": current_high,
-                    "clean_ep_used": 0,
-                    "dirty_ep_used": 0,
-                    "is_autobid": True,
-                    "extended": False,
-                    "placed_at": now_iso,
-                    "autobid_resolved": False,
-                    "final_amount": current_high,
-                    "ceiling_updated": True,
-                }
             shop_conn.rollback()
             raise PurchaseError("You are already the highest bidder", 409)
 
@@ -346,29 +286,7 @@ def place_bid(
         if not item.get("accepts_dirty_ep", False):
             spend_order = "clean_only"
 
-        # Validate autobid ceiling
-        if autobid_ceiling is not None:
-            if autobid_ceiling < min_required:
-                shop_conn.rollback()
-                raise PurchaseError(
-                    f"Autobid ceiling must be at least {min_required} EP (current bid + increment)",
-                    400,
-                )
-            user_bal = fetch_ep_balance(mc_uuid)
-            if spend_order == "clean_only":
-                max_ep = user_bal.get("spendable_clean", 0)
-            elif spend_order == "dirty_only":
-                max_ep = user_bal.get("spendable_dirty", 0)
-            else:
-                max_ep = user_bal.get("spendable_clean", 0) + user_bal.get("spendable_dirty", 0)
-            if autobid_ceiling > max_ep:
-                shop_conn.rollback()
-                raise PurchaseError(
-                    f"Autobid ceiling ({autobid_ceiling} EP) exceeds your available EP ({max_ep} EP)",
-                    400,
-                )
-
-        # resolve EP split (this checks sufficiency accounting for reservations)
+        # resolve EP split
         split = resolve_spend(mc_uuid, amount, spend_order)
         clean_used = split["clean_to_spend"]
         dirty_used = split["dirty_to_spend"]
@@ -411,15 +329,14 @@ def place_bid(
 
         # insert bid row
         bid_id = str(_uuid_mod.uuid4())
-        is_autobid = 1 if autobid_ceiling is not None else 0
 
         shop_conn.execute(
             "INSERT INTO bids "
             "(bid_id, auction_id, uuid, username, amount, clean_ep_used, dirty_ep_used, "
-            " is_autobid, autobid_ceiling, placed_at, is_winning) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
+            " placed_at, is_winning) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)",
             (bid_id, auction_id, mc_uuid, mc_username or "", amount,
-             clean_used, dirty_used, is_autobid, autobid_ceiling, now_iso),
+             clean_used, dirty_used, now_iso),
         )
 
         # Un-mark the previous highest bidder's winning flag
@@ -472,27 +389,18 @@ def place_bid(
 
     item_name = item.get("name", arow["item_id"])
 
-    # Autobid chain resolution (fire-and-forget, after main commit)
-    autobid_result = _resolve_autobid_chain(
-        auction_id, mc_uuid, amount, autobid_ceiling,
-        current_bidder, min_increment, spend_order, item_name,
-    )
-    final_amount = autobid_result.get("final_amount", amount) if autobid_result else amount
-    final_winner = autobid_result.get("final_winner", mc_uuid) if autobid_result else mc_uuid
-
     # DM: Bid confirmed (receipt)
     bidder_did = _resolve_discord_id_for_uuid(mc_uuid)
     if bidder_did:
         _dm_in_background(
             bidder_did,
             f"✅ Your bid of **{amount} EP** on **{item_name}** has been placed! "
-            + (f"You are currently the highest bidder." if final_winner == mc_uuid
-               else f"An autobidder has outbid you. The current high is **{final_amount} EP**."),
+            f"You are currently the highest bidder.",
             low_urgency=True,
         )
 
-    # DM: Outbid notification to displaced bidder (only if no autobid took over)
-    if current_bidder and current_bidder != mc_uuid and not autobid_result:
+    # DM: Outbid notification to displaced bidder
+    if current_bidder and current_bidder != mc_uuid:
         displaced_did = _resolve_discord_id_for_uuid(current_bidder)
         if displaced_did:
             _dm_in_background(
@@ -519,7 +427,7 @@ def place_bid(
                     _dm_in_background(
                         did,
                         f"⏰ The auction for **{item_name}** has been extended due to a last-minute bid. "
-                        f"The new highest bid is **{final_amount} EP**. Check the shop for the updated end time.",
+                        f"The new highest bid is **{amount} EP**. Check the shop for the updated end time.",
                         low_urgency=True,
                     )
         except sqlite3.Error:
@@ -531,198 +439,11 @@ def place_bid(
         "amount":       amount,
         "clean_ep_used": clean_used,
         "dirty_ep_used": dirty_used,
-        "is_autobid":   bool(is_autobid),
         "extended":     extended,
         "placed_at":    now_iso,
-        "autobid_resolved": autobid_result is not None,
-        "final_amount":     final_amount,
     }
 
-def _resolve_autobid_chain(
-    auction_id: str,
-    initial_bidder_uuid: str,
-    initial_amount: int,
-    initial_ceiling: int | None,
-    displaced_uuid: str | None,
-    min_increment: int,
-    spend_order: str,
-    item_name: str,
-) -> dict | None:
-    """After a bid, check if the displaced bidder has an autobid ceiling and
-    resolve the chain. Returns None if no autobid happened, or a dict with
-    final_amount and final_winner."""
-    if not displaced_uuid:
-        return None
-
-    try:
-        conn = sqlite3.connect(_SHOP_DB, timeout=10)
-        conn.row_factory = sqlite3.Row
-    except sqlite3.Error:
-        return None
-
-    try:
-        # Get the displaced bidder's most recent bid with autobid_ceiling
-        displaced_bid = conn.execute(
-            "SELECT autobid_ceiling, uuid, username FROM bids "
-            "WHERE auction_id = ? AND uuid = ? ORDER BY amount DESC LIMIT 1",
-            (auction_id, displaced_uuid),
-        ).fetchone()
-
-        if not displaced_bid or not displaced_bid["autobid_ceiling"]:
-            conn.close()
-            return None
-
-        displaced_ceiling = displaced_bid["autobid_ceiling"]
-        initial_ceiling = initial_ceiling or 0
-
-        current_high = initial_amount
-        current_winner = initial_bidder_uuid
-        current_winner_ceiling = initial_ceiling
-
-        challenger_uuid = displaced_uuid
-        challenger_username = displaced_bid["username"]
-        challenger_ceiling = displaced_ceiling
-
-        dm_queue = []  # [(discord_id, message, low_urgency)]
-        now_iso = _dt.now(_tz.utc).isoformat()
-
-        conn.execute("BEGIN IMMEDIATE")
-
-        # Resolution loop — max 100 iterations as safety
-        for _ in range(100):
-            counter_amount = current_high + min_increment
-
-            # Can the challenger auto-bid?
-            if challenger_ceiling < counter_amount:
-                # Challenger's ceiling exhausted — notify them
-                did = _resolve_discord_id_for_uuid(challenger_uuid)
-                if did:
-                    dm_queue.append((did,
-                        f"\u26a0\ufe0f Your autobid limit of **{challenger_ceiling} EP** on "
-                        f"**{item_name}** has been reached. The current highest bid is "
-                        f"**{current_high} EP**. Visit the shop to bid manually.",
-                        False,  # high urgency
-                    ))
-                break
-
-            # Place the counter-bid
-            try:
-                split = resolve_spend(challenger_uuid, counter_amount, spend_order)
-            except (InsufficientFunds, Exception):
-                # Can't afford — treat as ceiling exhausted
-                did = _resolve_discord_id_for_uuid(challenger_uuid)
-                if did:
-                    dm_queue.append((did,
-                        f"\u26a0\ufe0f Your autobid on **{item_name}** could not be placed "
-                        f"(insufficient EP). Your limit was **{challenger_ceiling} EP**.",
-                        False,
-                    ))
-                break
-
-            # Release old reservation for challenger
-            conn.execute(
-                "UPDATE ep_reservations SET released_at = ? "
-                "WHERE uuid = ? AND source = ? AND released_at IS NULL",
-                (now_iso, challenger_uuid, f"auction:{auction_id}"),
-            )
-            # Create new reservation
-            if split["clean_to_spend"] > 0:
-                conn.execute(
-                    "INSERT INTO ep_reservations "
-                    "(reservation_id, uuid, username, reserved_amount, ep_type, source, created_at) "
-                    "VALUES (?, ?, ?, ?, 'clean', ?, ?)",
-                    (str(_uuid_mod.uuid4()), challenger_uuid, challenger_username,
-                     split["clean_to_spend"], f"auction:{auction_id}", now_iso),
-                )
-            if split["dirty_to_spend"] > 0:
-                conn.execute(
-                    "INSERT INTO ep_reservations "
-                    "(reservation_id, uuid, username, reserved_amount, ep_type, source, created_at) "
-                    "VALUES (?, ?, ?, ?, 'dirty', ?, ?)",
-                    (str(_uuid_mod.uuid4()), challenger_uuid, challenger_username,
-                     split["dirty_to_spend"], f"auction:{auction_id}", now_iso),
-                )
-            # Release old winner's reservation
-            conn.execute(
-                "UPDATE ep_reservations SET released_at = ? "
-                "WHERE uuid = ? AND source = ? AND released_at IS NULL",
-                (now_iso, current_winner, f"auction:{auction_id}"),
-            )
-
-            # Insert bid row
-            new_bid_id = str(_uuid_mod.uuid4())
-            conn.execute(
-                "INSERT INTO bids "
-                "(bid_id, auction_id, uuid, username, amount, clean_ep_used, dirty_ep_used, "
-                " is_autobid, autobid_ceiling, placed_at, is_winning) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 1)",
-                (new_bid_id, auction_id, challenger_uuid, challenger_username,
-                 counter_amount, split["clean_to_spend"], split["dirty_to_spend"],
-                 challenger_ceiling, now_iso),
-            )
-            # Un-mark previous winner
-            conn.execute(
-                "UPDATE bids SET is_winning = 0 "
-                "WHERE auction_id = ? AND uuid = ? AND is_winning = 1 AND bid_id != ?",
-                (auction_id, current_winner, new_bid_id),
-            )
-            # Update auction
-            conn.execute(
-                "UPDATE auctions SET current_highest_bid = ?, current_highest_bidder_uuid = ? "
-                "WHERE auction_id = ?",
-                (counter_amount, challenger_uuid, auction_id),
-            )
-
-            # DM: autobid placed
-            did = _resolve_discord_id_for_uuid(challenger_uuid)
-            if did:
-                dm_queue.append((did,
-                    f"\u2705 Your autobid placed a bid of **{counter_amount} EP** on "
-                    f"**{item_name}** (limit: {challenger_ceiling} EP).",
-                    True,  # low urgency
-                ))
-
-            # Swap roles for next iteration
-            prev_winner = current_winner
-            current_high = counter_amount
-            current_winner = challenger_uuid
-            current_winner_ceiling = challenger_ceiling
-            challenger_uuid = prev_winner
-            # Get the prev_winner's ceiling
-            pw_bid = conn.execute(
-                "SELECT autobid_ceiling, username FROM bids "
-                "WHERE auction_id = ? AND uuid = ? ORDER BY amount DESC LIMIT 1",
-                (auction_id, challenger_uuid),
-            ).fetchone()
-            challenger_username = pw_bid["username"] if pw_bid else ""
-            challenger_ceiling = (pw_bid["autobid_ceiling"] or 0) if pw_bid else 0
-
-            if challenger_ceiling <= 0:
-                # Other side has no autobid — done
-                break
-
-        conn.commit()
-        conn.close()
-
-        # Fire all queued DMs
-        for did, msg, low in dm_queue:
-            _dm_in_background(did, msg, low_urgency=low)
-
-        if current_high > initial_amount:
-            return {"final_amount": current_high, "final_winner": current_winner}
-        return None
-
-    except Exception as exc:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
-        conn.close()
-        print(f"[AUCTION] Autobid chain error: {exc}", file=sys.stderr)
-        return None
-
-
-_CLOSE_WORKER_INTERVAL = 60  # seconds
+_CLOSE_WORKER_INTERVAL
 _REMINDER_HOURS = 6  # hours before close to send reminder
 _reminded_auctions: set = set()  # in-memory tracker for ending-soon reminders
 

@@ -1021,9 +1021,6 @@
          '</div></div>';
     h += '<div class="ie-field"><label class="ie-label">Anti-snipe (secs)</label><input id="ieAntiSnipe" type="text" inputmode="numeric" class="ie-input ie-num" value="' + _v(it.anti_snipe_seconds, 300) + '" maxlength="4" /></div>';
     h += '<div class="ie-field"><label class="ie-label">Winners</label><input id="ieWinners" type="text" inputmode="numeric" class="ie-input ie-num" value="' + _v(it.winner_count, 1) + '" maxlength="2" /></div>';
-    h += '<div class="ie-field"><label class="ie-label">Allow Autobid</label><select id="ieAutobid" class="ie-input">' +
-         '<option value="true"' + _sel(it.max_autobid) + '>Yes</option>' +
-         '<option value="false"' + _sel(!it.max_autobid) + '>No</option></select></div>';
     h += '</div>';
     h += '</div>'; // pricing section
 
@@ -1133,7 +1130,6 @@
       duration_hours:        durHrsVal,
       anti_snipe_seconds:    gv('ieAntiSnipe'),
       winner_count:          gv('ieWinners'),
-      max_autobid:           gv('ieAutobid'),
       accepts_dirty_ep:      gv('ieDirtyEP'),
       spend_order:           gv('ieSpendOrder'),
       cooldown:              cooldownVal,
