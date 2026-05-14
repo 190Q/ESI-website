@@ -781,17 +781,17 @@ def _settle_auction(auction: sqlite3.Row, now_iso: str):
                 "UPDATE bids SET is_winning = 0 WHERE auction_id = ?", (aid,)
             )
 
-        # Insert bin_purchases-equivalent records for winners (EP deduction)
+        # Insert bin_purchases records for winners (pending for chief review)
         for w in winners:
             shop_conn.execute(
                 "INSERT INTO bin_purchases "
                 "(purchase_id, item_id, uuid, username, ep_spent, clean_ep_spent, "
                 " dirty_ep_spent, status, fulfillment_note, purchased_at, resolved_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, 'fulfilled', ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)",
                 (
                     str(_uuid_mod.uuid4()), item_id, w["uuid"], w["username"],
                     w["amount"], w["clean_ep_used"], w["dirty_ep_used"],
-                    item.get("fulfillment_note"), now_iso, now_iso,
+                    item.get("fulfillment_note"), now_iso, None,
                 ),
             )
 
