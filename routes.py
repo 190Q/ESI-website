@@ -1389,13 +1389,25 @@ def admin_shop_upload_image():
     f = request.files["file"]
     if not f or not f.filename:
         return jsonify({"error": "No file selected"}), 400
-    _ALLOWED = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+    _ALLOWED_EXT  = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+    _ALLOWED_FMT  = {"PNG", "JPEG", "GIF", "WEBP"}
     ext = os.path.splitext(f.filename)[1].lower()
-    if ext not in _ALLOWED:
+    if ext not in _ALLOWED_EXT:
         return jsonify({"error": "Unsupported type. Use PNG, JPG, GIF or WebP."}), 400
     f.seek(0, 2); size = f.tell(); f.seek(0)
     if size > 2 * 1024 * 1024:
         return jsonify({"error": "Image must be smaller than 2 MB"}), 400
+    # Validate actual file content via Pillow magic-byte check
+    try:
+        from PIL import Image as _PIL_Image
+        img = _PIL_Image.open(f)
+        img.verify()          # raises if the header is corrupt or not a real image
+        if img.format not in _ALLOWED_FMT:
+            return jsonify({"error": f"File content is {img.format}, not a supported image type."}), 400
+    except Exception:
+        return jsonify({"error": "File does not appear to be a valid image."}), 400
+    finally:
+        f.seek(0)             # reset after Pillow reads the stream
     import uuid as _uid_local
     filename = _uid_local.uuid4().hex + ext
     save_dir = os.path.join(_BASE_DIR, "images", "shop")
