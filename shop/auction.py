@@ -457,17 +457,17 @@ def place_bid(
             (amount, mc_uuid, auction_id),
         )
 
-        # anti-snipe extension (capped at cycle_end - 2 days)
+        # anti-snipe extension (hard cap: cycle_end - 2 hours)
         anti_snipe = item.get("anti_snipe_seconds", 0) or 0
         extended = False
         if anti_snipe > 0:
             snipe_threshold = ends_at - _td(seconds=anti_snipe)
             if now >= snipe_threshold:
                 new_ends = now + _td(seconds=anti_snipe)
-                # Hard cap: never exceed cycle_end - 2 days
+                # Hard cap: never let anti-snipe push the end past cycle_end - 2h
                 cid = _get_cycle_id(now)
                 _, cycle_end = _get_cycle_bounds(cid)
-                max_ends = cycle_end - _td(days=2)
+                max_ends = cycle_end - _td(hours=2)
                 if new_ends > max_ends:
                     new_ends = max_ends
                 if new_ends > ends_at:
@@ -879,6 +879,17 @@ def _cancel_orphaned_auction(auction_id: str, item_id: str, now_iso: str) -> Non
                 f"The auction for **{item_id}** has been cancelled because the item "
                 f"was removed from the shop. Your reserved EP has been released."
             )
+
+    # Write to the admin changes log so admins can see it in the UI
+    try:
+        from shop.admin import _log_admin_action
+        _log_admin_action(
+            "system:orphan-cleanup", "auction_cancelled", auction_id,
+            {"auction_id": auction_id, "item_id": item_id,
+             "reason": "item removed from catalogue"},
+        )
+    except Exception:
+        pass
 
 
 def _cleanup_orphaned_auctions() -> None:
