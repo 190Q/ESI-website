@@ -937,16 +937,34 @@ def _settle_auction(auction: sqlite3.Row, now_iso: str):
             (aid,),
         ).fetchall()
 
-        # Determine winners (top winner_count distinct UUIDs)
-        winners = []
-        seen_uuids = set()
+        # Determine candidates (top winner_count distinct UUIDs)
+        candidates = []
+        seen_uuids: set = set()
         for bid in all_bids:
-            if bid["uuid"] not in seen_uuids and len(winners) < winner_count:
-                winners.append(bid)
+            if bid["uuid"] not in seen_uuids and len(candidates) < winner_count:
+                candidates.append(bid)
                 seen_uuids.add(bid["uuid"])
 
+        # Re-validate each candidate's EP balance at settlement time
+        winners: list = []
+        disqualified_uuids: set = set()
+        for w in candidates:
+            bal     = fetch_ep_balance(w["uuid"])
+            have    = (bal.get("clean_ep", 0) or 0) + (bal.get("dirty_ep", 0) or 0)
+            need    = w["amount"]
+            if have >= need:
+                winners.append(w)
+            else:
+                disqualified_uuids.add(w["uuid"])
+                print(
+                    f"[AUCTION] {aid}: winner {w['username']} has insufficient EP "
+                    f"(need {need}, have {have}) — disqualified at settlement.",
+                    file=sys.stderr,
+                )
+
         winner_uuids = {w["uuid"] for w in winners}
-        loser_uuids = {b["uuid"] for b in all_bids if b["uuid"] not in winner_uuids}
+        loser_uuids  = {b["uuid"] for b in all_bids
+                        if b["uuid"] not in winner_uuids}
 
         # Mark winning bids
         for w in winners:
@@ -954,13 +972,18 @@ def _settle_auction(auction: sqlite3.Row, now_iso: str):
                 "UPDATE bids SET is_winning = 1 WHERE bid_id = ?", (w["bid_id"],),
             )
 
-        # Mark all non-winning bids
-        shop_conn.execute(
-            "UPDATE bids SET is_winning = 0 WHERE auction_id = ? AND bid_id NOT IN ("
-            + ",".join("?" * len(winners))
-            + ")",
-            (aid, *(w["bid_id"] for w in winners)),
-        ) if winners else None
+        # Mark all non-winning bids (covers disqualified candidates too)
+        if winners:
+            shop_conn.execute(
+                "UPDATE bids SET is_winning = 0 WHERE auction_id = ? AND bid_id NOT IN ("
+                + ",".join("?" * len(winners))
+                + ")",
+                (aid, *(w["bid_id"] for w in winners)),
+            )
+        else:
+            shop_conn.execute(
+                "UPDATE bids SET is_winning = 0 WHERE auction_id = ?", (aid,)
+            )
 
         # Insert bin_purchases-equivalent records for winners (EP deduction)
         for w in winners:
@@ -1026,6 +1049,17 @@ def _settle_auction(auction: sqlite3.Row, now_iso: str):
                 _dm_in_background(
                     did,
                     f"The auction for **{item_name}** has closed and your bid was not the winning bid. "
+                    f"Your reserved EP has been released.",
+                )
+
+        # DM: Disqualified due to insufficient EP at settlement
+        for uuid in disqualified_uuids:
+            did = _resolve_discord_id_for_uuid(uuid)
+            if did:
+                _dm_in_background(
+                    did,
+                    f"Your winning bid on **{item_name}** could not be settled because your "
+                    f"available EP was insufficient at the time of settlement. "
                     f"Your reserved EP has been released.",
                 )
     else:
