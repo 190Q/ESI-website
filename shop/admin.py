@@ -996,6 +996,7 @@ def _build_item(fields: dict) -> dict:
         item["duration_hours"]     = None
         item["anti_snipe_seconds"] = None
         item["winner_count"]       = None
+        item["auto_start"]         = None
     elif item_type == "bin":
         item["price"]         = item["price"] if item["price"] is not None else 0
         item["duration_type"] = None
@@ -1004,6 +1005,7 @@ def _build_item(fields: dict) -> dict:
         item["duration_hours"]   = None
         item["anti_snipe_seconds"] = None
         item["winner_count"]     = None
+        item["auto_start"]       = None
     else:
         item["price"]            = None
         item["stock"]            = None
@@ -1014,6 +1016,7 @@ def _build_item(fields: dict) -> dict:
         item["min_increment"]    = item["min_increment"] or 1
         item["duration_hours"]   = None if dur_type == "eoc_minus_2" else (item["duration_hours"] or 48)
         item["winner_count"]     = item["winner_count"] or 1
+        item["auto_start"]       = _coerce_bool(fields.get("auto_start"), False)
 
     return item
 

@@ -239,6 +239,7 @@ def list_auctions(discord_id: str) -> dict:
                     "item_category":    item.get("category") or [],
                     "item_images":      item.get("images") or [],
                     "active":           item.get("active", True),
+                    "auto_start":       bool(item.get("auto_start", False)),
                     "user_bid":         user_bid,
                 })
             conn.close()
@@ -526,6 +527,7 @@ def place_bid(
 _CLOSE_WORKER_INTERVAL = 60  # seconds
 _REMINDER_HOURS = 6  # hours before close to send reminder
 _reminded_auctions: set = set()  # in-memory tracker for ending-soon reminders
+_last_known_cycle_id: int | None = None  # tracks the cycle for auto-start detection
 
 def _send_ending_soon_reminders():
     """DM all bidders on auctions ending within _REMINDER_HOURS."""
@@ -955,10 +957,52 @@ def _cleanup_orphaned_reservations() -> None:
         print(f"[AUCTION] Failed to release orphaned reservations: {exc}", file=sys.stderr)
 
 
+def _auto_start_auctions():
+    """Start auctions for items with auto_start=True when a new cycle begins."""
+    global _last_known_cycle_id
+    current_cycle = _get_cycle_id()
+
+    if _last_known_cycle_id is None:
+        # First run
+        _last_known_cycle_id = current_cycle
+        return
+
+    if current_cycle == _last_known_cycle_id:
+        return  # still in the same cycle
+
+    # Cycle changed
+    _last_known_cycle_id = current_cycle
+    print(f"[AUCTION] New cycle {current_cycle} detected, checking auto-start items.",
+          file=sys.stderr)
+
+    try:
+        from shop.admin import admin_list_all_items_unfiltered, admin_start_auction
+        all_items = admin_list_all_items_unfiltered()
+        for item in all_items:
+            if (item.get("type") != "auction"
+                    or not item.get("auto_start")
+                    or not item.get("active", False)):
+                continue
+            result = admin_start_auction(item["id"], "system:auto-start")
+            if result.get("ok"):
+                print(f"[AUCTION] Auto-started auction for '{item['id']}' "
+                      f"(auction {result['auction_id']}).", file=sys.stderr)
+            else:
+                # Already active or too close to cycle end — not an error
+                print(f"[AUCTION] Auto-start skipped for '{item['id']}': "
+                      f"{result.get('error', 'unknown')}", file=sys.stderr)
+    except Exception as exc:
+        print(f"[AUCTION] Auto-start error: {exc}", file=sys.stderr)
+
+
 def auction_close_loop():
     """Background loop that settles expired auctions and sends reminders."""
     while True:
         threading.Event().wait(_CLOSE_WORKER_INTERVAL)
+        try:
+            _auto_start_auctions()
+        except Exception as exc:
+            print(f"[AUCTION] Auto-start worker error: {exc}", file=sys.stderr)
         try:
             _cleanup_orphaned_auctions()
         except Exception as exc:
