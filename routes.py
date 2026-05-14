@@ -1315,6 +1315,8 @@ def shop_donate():
         return jsonify({"error": "le_amount must be an integer"}), 400
     if le_amount <= 0:
         return jsonify({"error": "le_amount must be positive"}), 400
+    if le_amount > 6400:
+        return jsonify({"error": "le_amount cannot exceed 6,400 LE"}), 400
     try:
         result = submit_donation(
             discord_id=user.get("id", ""),

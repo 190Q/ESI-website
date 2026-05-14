@@ -1431,7 +1431,7 @@
     html += '<label class="shop-modal-input-label">LE Amount</label>';
     html += '<div class="detail-bid-stepper">';
     html += '<button class="bid-step-btn" id="donDec" aria-label="Decrease amount">' + _svg.minus + '</button>';
-    html += '<input type="text" inputmode="numeric" class="detail-bid-num" id="donAmountInput" value="1" maxlength="6" />';
+    html += '<input type="text" inputmode="numeric" class="detail-bid-num" id="donAmountInput" value="1" maxlength="4" />';
     html += '<button class="bid-step-btn" id="donInc">+</button>';
     html += '</div>';
     html += '<div class="donate-ep-preview" id="donEpPreview">= ' + num(_DONATE_LE_TO_EP) + ' Dirty EP</div>';
@@ -1475,23 +1475,27 @@
       submitBtn.textContent = v > 0 ? 'Submit Donation: ' + num(v) + ' LE' : 'Enter an amount';
     }
 
+    var _DON_MAX = 6400;
     input.addEventListener('input', function () {
       var pos = this.selectionStart;
-      var cleaned = this.value.replace(/\D/g, '').slice(0, 6);
+      var cleaned = this.value.replace(/\D/g, '').slice(0, 4);
       if (cleaned !== this.value) {
         this.value = cleaned;
         this.setSelectionRange(Math.min(pos, cleaned.length), Math.min(pos, cleaned.length));
       }
+      var n = parseInt(cleaned, 10);
+      if (!isNaN(n) && n > _DON_MAX) { this.value = String(_DON_MAX); }
       updatePreview();
     });
     input.addEventListener('blur', function () {
       var v = parseInt(this.value, 10) || 0;
       if (v < 1) this.value = '1';
+      if (v > _DON_MAX) this.value = String(_DON_MAX);
       updatePreview();
     });
 
     document.getElementById('donInc').addEventListener('click', function () {
-      input.value = (parseInt(input.value, 10) || 0) + 1;
+      input.value = Math.min(_DON_MAX, (parseInt(input.value, 10) || 0) + 1);
       updatePreview();
     });
     document.getElementById('donDec').addEventListener('click', function () {
@@ -1502,6 +1506,10 @@
     submitBtn.addEventListener('click', function () {
       var amount = parseInt(input.value, 10) || 0;
       if (amount <= 0) return;
+      if (amount > _DON_MAX) {
+        showToast(_svg.warn + ' Donation cannot exceed ' + num(_DON_MAX) + ' LE.', 'warn');
+        input.value = String(_DON_MAX); updatePreview(); return;
+      }
       submitBtn.disabled = true;
       submitBtn.textContent = 'Submitting\u2026';
       fetch('/api/shop/donate', {
