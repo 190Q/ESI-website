@@ -1476,7 +1476,7 @@ def admin_shop_delete_item_route(item_id):
 @app.route("/api/admin/shop/items/<item_id>/override", methods=["POST"])
 @rate_limit(20)
 def admin_shop_item_override(item_id):
-    user, is_chief, err = _require_shop_admin()
+    user, _, err = _require_shop_admin()
     if err:
         return err
     body = request.get_json(silent=True) or {}
@@ -1500,11 +1500,11 @@ def admin_shop_item_override(item_id):
 @app.route("/api/admin/shop/purchases/<purchase_id>/cancel", methods=["POST"])
 @rate_limit(10)
 def admin_shop_cancel_purchase(purchase_id):
-    user, is_chief, err = _require_shop_admin()
+    user, is_parliament, err = _require_shop_admin()
     if err:
         return err
-    if not is_chief:
-        return jsonify({"error": "Chief rank required"}), 403
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
     body = request.get_json(silent=True) or {}
     reason = (body.get("reason") or "").strip()
     if not reason:
@@ -1518,9 +1518,11 @@ def admin_shop_cancel_purchase(purchase_id):
 @rate_limit(10)
 def admin_shop_start_auction_route():
     """Start a new auction instance for an auction-type item."""
-    user, is_admin, err = _require_shop_admin()
+    user, is_parliament, err = _require_shop_admin()
     if err:
         return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
     body = request.get_json(silent=True) or {}
     item_id = (body.get("item_id") or "").strip()
     if not item_id:
@@ -1543,10 +1545,10 @@ def admin_shop_auction_detail(auction_id):
 @app.route("/api/admin/shop/bids/<bid_id>/remove", methods=["POST"])
 @rate_limit(10)
 def admin_shop_remove_bid(bid_id):
-    user, is_chief, err = _require_shop_admin()
+    user, is_parliament, err = _require_shop_admin()
     if err:
         return err
-    if not is_chief:
+    if not is_parliament:
         return jsonify({"error": "Parliament rank required"}), 403
     chief_name = user.get("nick") or user.get("username", "")
     body = request.get_json(silent=True) or {}
@@ -1558,10 +1560,10 @@ def admin_shop_remove_bid(bid_id):
 @app.route("/api/admin/shop/auctions/<auction_id>/close", methods=["POST"])
 @rate_limit(10)
 def admin_shop_close_auction(auction_id):
-    user, is_chief, err = _require_shop_admin()
+    user, is_parliament, err = _require_shop_admin()
     if err:
         return err
-    if not is_chief:
+    if not is_parliament:
         return jsonify({"error": "Parliament rank required"}), 403
     chief_name = user.get("nick") or user.get("username", "")
     result = admin_cancel_auction(auction_id, chief_name)
@@ -1571,10 +1573,10 @@ def admin_shop_close_auction(auction_id):
 @app.route("/api/admin/shop/auctions/<auction_id>/extend", methods=["POST"])
 @rate_limit(10)
 def admin_shop_extend_auction(auction_id):
-    user, is_chief, err = _require_shop_admin()
+    user, is_parliament, err = _require_shop_admin()
     if err:
         return err
-    if not is_chief:
+    if not is_parliament:
         return jsonify({"error": "Parliament rank required"}), 403
     body = request.get_json(silent=True) or {}
     try:
@@ -1619,10 +1621,10 @@ def admin_shop_reservations():
 @app.route("/api/admin/shop/reservations/<reservation_id>/release", methods=["POST"])
 @rate_limit(10)
 def admin_shop_release_reservation(reservation_id):
-    user, is_chief, err = _require_shop_admin()
+    user, is_parliament, err = _require_shop_admin()
     if err:
         return err
-    if not is_chief:
+    if not is_parliament:
         return jsonify({"error": "Parliament rank required"}), 403
     chief_name = user.get("nick") or user.get("username", "")
     result = admin_release_reservation(reservation_id, chief_name)
@@ -1641,7 +1643,7 @@ def admin_shop_queue():
 @app.route("/api/admin/shop/queue/fulfill", methods=["POST"])
 @rate_limit(20)
 def admin_shop_fulfill():
-    user, is_chief, err = _require_shop_admin()
+    user, _, err = _require_shop_admin()
     if err:
         return err
     body = request.get_json(silent=True) or {}
@@ -1657,7 +1659,7 @@ def admin_shop_fulfill():
 @app.route("/api/admin/shop/queue/reject", methods=["POST"])
 @rate_limit(20)
 def admin_shop_reject():
-    user, is_chief, err = _require_shop_admin()
+    user, _, err = _require_shop_admin()
     if err:
         return err
     body = request.get_json(silent=True) or {}
