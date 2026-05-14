@@ -203,10 +203,12 @@ body{background:transparent;font-family:'Segoe UI',system-ui,-apple-system,sans-
 .act{padding:13px 24px;text-align:center;font-size:12px;font-weight:700;
   letter-spacing:1.5px;text-transform:uppercase;color:#e0dcc8}
 
-/* comment (spans full stats grid width) */
-.st-cmt{grid-column:1/-1;margin-top:2px}
-.st-cmt .st-lbl{margin-bottom:2px}
-.st-cmt .st-val{font-size:12px;font-weight:400;color:#9a9a7a;line-height:1.3;word-wrap:break-word}
+/* comment (spans full stats grid width, description style) */
+.st-cmt{grid-column:1/-1;margin-top:4px}
+.st-cmt .st-lbl{margin-bottom:3px}
+.st-cmt .st-val{font-family:Georgia,'Times New Roman',serif;font-style:italic;
+  font-size:12px;font-weight:400;color:#9a9478;line-height:1.45;
+  word-wrap:break-word;padding-left:10px;border-left:2px solid rgba(201,162,39,0.25)}
 
 /* footer */
 .foot{padding:8px 24px 0;text-align:center;font-size:8px;letter-spacing:2.5px;
