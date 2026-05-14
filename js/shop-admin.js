@@ -1780,6 +1780,7 @@
 
   /* Logs & History */
   var _logsData = null;
+  var _logsFeed = null;
   var _logsPage = 1;
   var _logsFilters = { log_type: 'activity', username: '', item_id: '', type: '', status: '', date_from: '', date_to: '' };
 
@@ -1809,7 +1810,7 @@
   var _ACTION_TYPES = Object.keys(_ACTION_LABELS);
 
   function fetchChanges(cb) {
-    var qs = 'page=' + _changesPage + '&per_page=50';
+    var qs = 'page=' + _changesPage + '&per_page=25';
     if (_changesFilters.actor)     qs += '&actor='     + encodeURIComponent(_changesFilters.actor);
     if (_changesFilters.action)    qs += '&action='    + encodeURIComponent(_changesFilters.action);
     if (_changesFilters.target_id) qs += '&target_id=' + encodeURIComponent(_changesFilters.target_id);
@@ -1946,7 +1947,7 @@
   }
 
   function fetchLogs(cb) {
-    var qs = 'page=' + _logsPage + '&per_page=50';
+    var qs = 'page=1&per_page=200';
     if (_logsFilters.username)  qs += '&username=' + encodeURIComponent(_logsFilters.username);
     if (_logsFilters.item_id)   qs += '&item_id='  + encodeURIComponent(_logsFilters.item_id);
     if (_logsFilters.type)      qs += '&type='     + encodeURIComponent(_logsFilters.type);
@@ -1955,8 +1956,31 @@
     if (_logsFilters.date_to)   qs += '&date_to='   + encodeURIComponent(_logsFilters.date_to);
     fetch('/api/admin/shop/logs?' + qs, { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { if (d) _logsData = d; if (cb) cb(d); })
+      .then(function (d) { if (d) { _logsData = d; _logsFeed = _buildLogsFeed(d); } if (cb) cb(d); })
       .catch(function () { if (cb) cb(null); });
+  }
+
+  function _buildLogsFeed(data) {
+    var feed = [];
+    (data.purchases || []).forEach(function (p) {
+      feed.push({ type: 'purchase', date: p.purchased_at, user: p.username, item: p.item_id,
+        ep: p.ep_spent, clean: p.clean_ep_spent, dirty: p.dirty_ep_spent, status: p.status,
+        id: p.purchase_id, chief_note: p.chief_note });
+    });
+    (data.bids || []).forEach(function (b) {
+      feed.push({ type: 'bid', date: b.placed_at, user: b.username, item: b.item_id,
+        ep: b.amount, clean: b.clean_ep_used, dirty: b.dirty_ep_used,
+        status: b.auction_status === 'closed' ? (b.is_winning ? 'won' : 'outbid') : 'active',
+        id: b.bid_id });
+    });
+    (data.donations || []).forEach(function (d) {
+      feed.push({ type: 'donation', date: d.submitted_at, user: d.username,
+        item: num(d.le_amount) + ' LE',
+        ep: d.dirty_ep_to_grant, clean: 0, dirty: d.dirty_ep_to_grant,
+        status: d.status, id: d.ticket_id });
+    });
+    feed.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+    return feed;
   }
 
   function renderLogs(c) {
@@ -2015,26 +2039,12 @@
     html += '<button class="shop-modal-btn shop-modal-btn--confirm" id="saLogSearch" style="padding:5px 14px;font-size:0.72rem;">Search</button>';
     html += '</div>';
 
-    // unified feed: merge purchases + bids + donations, sort by date desc
-    var feed = [];
-    (_logsData.purchases || []).forEach(function (p) {
-      feed.push({ type: 'purchase', date: p.purchased_at, user: p.username, item: p.item_id,
-        ep: p.ep_spent, clean: p.clean_ep_spent, dirty: p.dirty_ep_spent, status: p.status,
-        id: p.purchase_id, chief_note: p.chief_note });
-    });
-    (_logsData.bids || []).forEach(function (b) {
-      feed.push({ type: 'bid', date: b.placed_at, user: b.username, item: b.item_id,
-        ep: b.amount, clean: b.clean_ep_used, dirty: b.dirty_ep_used,
-        status: b.auction_status === 'closed' ? (b.is_winning ? 'won' : 'outbid') : 'active',
-        id: b.bid_id });
-    });
-    (_logsData.donations || []).forEach(function (d) {
-      feed.push({ type: 'donation', date: d.submitted_at, user: d.username,
-        item: num(d.le_amount) + ' LE',
-        ep: d.dirty_ep_to_grant, clean: 0, dirty: d.dirty_ep_to_grant,
-        status: d.status, id: d.ticket_id });
-    });
-    feed.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+    // client-side pagination over the full merged+sorted feed
+    var _LOGS_PER_PAGE = 25;
+    var totalFeed  = _logsFeed || [];
+    var totalPages = Math.max(1, Math.ceil(totalFeed.length / _LOGS_PER_PAGE));
+    if (_logsPage > totalPages) _logsPage = 1;
+    var feed = totalFeed.slice((_logsPage - 1) * _LOGS_PER_PAGE, _logsPage * _LOGS_PER_PAGE);
 
     html += '<div class="sa-table">';
     html += '<div class="sa-row sa-header sa-log-row">' +
@@ -2069,10 +2079,10 @@
     html += '</div>';
 
     // pagination
-    var hasMore = !!_logsData.has_more;
+    var hasMore = _logsPage < totalPages;
     html += '<div class="sa-pagination">';
     html += '<button class="shop-modal-btn shop-modal-btn--cancel sa-page-btn" data-page="prev"' + (_logsPage <= 1 ? ' disabled' : '') + '><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg> Prev</button>';
-    html += '<span class="sa-page-info">Page ' + _logsPage + '</span>';
+    html += '<span class="sa-page-info">Page ' + _logsPage + ' / ' + totalPages + '</span>';
     html += '<button class="shop-modal-btn shop-modal-btn--cancel sa-page-btn" data-page="next"' + (!hasMore ? ' disabled' : '') + '>Next <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
     html += '</div>';
 
@@ -2081,7 +2091,7 @@
     // log type switcher — immediate, no Search needed
     document.getElementById('saLogTypeView').addEventListener('change', function () {
       _logsFilters.log_type = this.value;
-      _logsPage = 1; _logsData = null;
+      _logsPage = 1; _logsData = null; _logsFeed = null;
       _changesPage = 1; _changesData = null;
       _renderLogsBody();
     });
@@ -2095,6 +2105,7 @@
       _logsFilters.date_to   = document.getElementById('saLogTo').value;
       _logsPage = 1;
       _logsData = null;
+      _logsFeed = null;
       _renderLogsBody();
     });
 
@@ -2102,9 +2113,9 @@
     c.querySelectorAll('[data-page]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         if (btn.dataset.page === 'prev' && _logsPage > 1) _logsPage--;
-        else if (btn.dataset.page === 'next') _logsPage++;
-        _logsData = null;
-        _renderLogsBody();
+        else if (btn.dataset.page === 'next' && _logsPage < totalPages) _logsPage++;
+        else return;
+        renderLogsContent(document.getElementById('saLogBody'));
       });
     });
 
@@ -2155,7 +2166,7 @@
 
   function renderUsers(c, forceRefresh) {
     c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading users\u2026</div>';
-    fetchUsers(function () { _updateUsersBadge(); _renderUsersContent(c); }, forceRefresh);
+    fetchUsers(function () { _renderUsersContent(c); }, forceRefresh);
   }
 
   function _renderUsersContent(c) {

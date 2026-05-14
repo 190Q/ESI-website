@@ -23,8 +23,9 @@ def get_order_history(discord_id: str) -> dict:
 
             # Bin purchases
             rows = conn.execute(
-                "SELECT purchase_id, item_id, ep_spent, clean_ep_spent, "
-                "       dirty_ep_spent, status, fulfillment_note, chief_note, "
+                "SELECT purchase_id, item_id, quantity, ep_spent, "
+                "       clean_ep_spent, dirty_ep_spent, status, "
+                "       fulfillment_note, chief_note, "
                 "       purchased_at, resolved_at "
                 "FROM bin_purchases WHERE uuid = ? "
                 "ORDER BY purchased_at DESC",

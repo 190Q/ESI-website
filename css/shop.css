@@ -1097,9 +1097,24 @@ input.cart-qty:focus {
 
 /* Loading spinner */
 .shop-loading {
-  text-align: center;
-  padding: 48px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 60px 20px;
   color: var(--text-faint);
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+}
+.shop-loading .loading-spinner {
+  width: 28px;
+  height: 28px;
+  border-width: 2.5px;
+  border-color: var(--border);
+  border-top-color: var(--gold-dim);
+  opacity: 0.8;
 }
 
 /* Order history */
@@ -1227,6 +1242,21 @@ input.cart-qty:focus {
   color: var(--text-faint);
   font-style: italic;
   margin-top: 2px;
+}
+.order-qty {
+  font-size: 0.72rem;
+  color: var(--gold-dim);
+  font-weight: 400;
+}
+.order-amount-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.order-ep-split {
+  font-size: 0.66rem;
+  color: var(--text-faint);
+  letter-spacing: 0.02em;
 }
 
 /* Auction-specific */

@@ -1663,7 +1663,10 @@
     purchases.forEach(function (p) {
       feed.push({
         kind: 'purchase', name: p.item_id, date: p.purchased_at,
-        amount: p.ep_spent, outcome: p.status, note: p.chief_note || '',
+        amount: p.ep_spent, outcome: p.status,
+        qty: p.quantity || 1,
+        cleanEp: p.clean_ep_spent || 0,
+        dirtyEp: p.dirty_ep_spent || 0,
       });
     });
     bids.forEach(function (b) {
@@ -1675,13 +1678,13 @@
       else { outcome = 'Outbid'; oc = 'var(--warn)'; }
       feed.push({
         kind: 'bid', name: b.item_id, date: b.placed_at,
-        amount: b.amount, outcome: outcome, outcomeColor: oc, note: '',
+        amount: b.amount, outcome: outcome, outcomeColor: oc,
       });
     });
     donations.forEach(function (d) {
       feed.push({
         kind: 'donation', name: 'Community fund', date: d.submitted_at,
-        amount: d.dirty_ep_to_grant, outcome: d.status, note: d.chief_note || '',
+        amount: d.dirty_ep_to_grant, outcome: d.status,
       });
     });
 
@@ -1731,15 +1734,18 @@
       html += '<div class="order-row order-header"><span>Item</span><span>Type</span><span>Amount</span><span>Outcome</span></div>';
       filtered.forEach(function (e) {
         html += '<div class="order-row">';
-        html += '<span class="order-item-cell"><span class="order-item-name">' + esc(e.name) + '</span>';
+        html += '<span class="order-item-cell"><span class="order-item-name">' + esc(e.name);
+        if (e.kind === 'purchase' && e.qty > 1) html += ' <span class="order-qty">&times;' + e.qty + '</span>';
+        html += '</span>';
         html += '<span class="order-item-date">' + fmtDate(e.date) + '</span></span>';
         html += '<span>' + _typePillHtml(e.kind) + '</span>';
+        html += '<span class="order-amount-cell">';
         html += '<span>' + num(e.amount) + ' EP</span>';
-        html += '<span>' + _outcomeHtml(e);
-        if (e.note && (e.outcome === 'rejected' || e.outcome === 'fulfilled')) {
-          html += '<div class="order-note">' + (e.outcome === 'rejected' ? _svg.rejected + ' ' : '') + esc(e.note) + '</div>';
+        if (e.kind === 'purchase' && (e.cleanEp || e.dirtyEp)) {
+          html += '<span class="order-ep-split">' + num(e.cleanEp) + ' clean \u00b7 ' + num(e.dirtyEp) + ' dirty</span>';
         }
         html += '</span>';
+        html += '<span>' + _outcomeHtml(e) + '</span>';
         html += '</div>';
       });
       html += '</div>';
