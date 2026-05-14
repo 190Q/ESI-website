@@ -284,9 +284,8 @@ def _screenshot_html(html: str) -> bytes | None:
                 _pw_browser = _pw_instance.chromium.launch(headless=True)
             page = _pw_browser.new_page(viewport={"width": CARD_WIDTH, "height": 1})
             page.set_content(html, wait_until="load")
-            height = page.evaluate("() => document.body.scrollHeight")
-            page.set_viewport_size({"width": CARD_WIDTH, "height": height})
-            png = page.screenshot(type="png")
+            card = page.query_selector(".card")
+            png = card.screenshot(type="png", omit_background=True) if card else None
             page.close()
             return png
     except Exception as exc:

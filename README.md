@@ -10,6 +10,7 @@ The dashboard is split into a few main sections, accessible from a collapsible s
 
 - **Player Stats**: look up any player's rank history, playtime, and in-game metrics (wars, dungeons, raids, mobs killed, etc.) with interactive graphs. Supports comparing two players side-by-side.
 - **Guild Stats**: guild-wide graphs for active player count, wars, guild raids, and member growth. Also shows territory and level data.
+- **Shop**: guild members spend EP (Experience Points) earned from gameplay cycles to buy items or bid in auctions. Features a cart system, server-side EP balance with clean/dirty split, LE-to-EP donations, per-item cooldowns, and an admin panel for catalogue management and order fulfillment. All Discord DM notifications use branded image cards.
 - **Bot Panel**: shows the status and health of the four background trackers (API, Playtime, Guild, Claim), along with their last-run times and database info.
 - **Inactivity** *(Parliament and above)*: track which members have declared inactivity, with start/end dates and reasons. Add, edit, or remove entries.
 - **Promotions** *(Juror and above)*: promotion tracking tools.
@@ -29,10 +30,11 @@ Authentication is done through Discord OAuth2. The management sections are gated
 
 **Backend**
 - Python + Flask
-- SQLite databases for historical data
+- SQLite databases for historical data (+ `shop.db` for shop transactions)
 - In-memory caching with TTLs and threading locks to avoid hammering the Wynncraft API
 - Discord OAuth2 for login/session management
 - Rate limiting on activity endpoints (per-IP, 30s window)
+- Playwright for rendering branded DM notification card images
 
 ---
 
@@ -48,7 +50,8 @@ Authentication is done through Discord OAuth2. The management sections are gated
 1. **Install Python dependencies**
 
 ```bash
-pip install flask requests
+pip install flask requests playwright
+playwright install chromium
 ```
 
 2. **Install and build the frontend**
@@ -138,6 +141,17 @@ ESI-website/
 │           ├── SettingsModal.jsx
 │           ├── Sidebar.jsx
 │           └── SupportModal.jsx
+├── shop/                    # guild shop backend package
+│   ├── README.md            # shop architecture docs
+│   ├── items.py             # item catalogue loader
+│   ├── ep_balance.py        # EP balance computation
+│   ├── bin.py               # fixed-price purchases + cart checkout
+│   ├── auction.py           # auction bidding, settlement, DMs
+│   ├── cart.py              # server-side cart persistence
+│   ├── donate.py            # LE-to-EP donation tickets
+│   ├── orders.py            # order history
+│   ├── admin.py             # admin operations
+│   └── dm_cards.py          # branded DM card renderer (HTML → PNG)
 ├── js/                      # shared vanilla JS modules
 │   ├── app.js
 │   ├── bot.js
@@ -147,8 +161,13 @@ ESI-website/
 │   ├── inactivity.js
 │   ├── player.js
 │   ├── promotions.js
+│   ├── shop.js              # shop frontend (bin + auctions + cart)
+│   ├── shop-admin.js        # shop admin panel
 │   ├── toast.js
 │   └── activity_prefetch.js
+├── css/
+│   ├── shop.css
+│   ├── shop-admin.css
 └── css/
     ├── base.css
     ├── bot.css
@@ -224,6 +243,39 @@ Routes marked 🔒 require a valid Discord login session. Routes marked 👑 add
 | GET | `/api/bot/info` | Bot Discord profile 🔒 |
 | GET | `/api/bot/discord` | Discord guild member/channel counts 🔒 |
 | GET | `/api/bot/databases` | Database folder sizes and date ranges 🔒 |
+
+### Shop
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/shop/bin` | Item listing with balance and cooldowns 🔒 |
+| POST | `/api/shop/bin/purchase` | Single item purchase 🔒 |
+| POST | `/api/shop/bin/cart/checkout` | Multi-item cart checkout 🔒 |
+| GET/PUT | `/api/shop/cart` | Cart persistence 🔒 |
+| GET | `/api/shop/auctions` | Active + recent auctions 🔒 |
+| POST | `/api/shop/auctions/bid` | Place a bid 🔒 |
+| POST | `/api/shop/donate` | Submit LE donation 🔒 |
+| GET | `/api/shop/donations` | Donation history 🔒 |
+| GET | `/api/shop/orders` | Full order history 🔒 |
+| GET | `/api/me/ep-balance` | EP balance breakdown 🔒 |
+
+### Shop Admin
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/admin/shop/items` | Full catalogue 👑 Chief+ |
+| POST | `/api/admin/shop/items` | Create item 👑 Parliament+ |
+| PUT | `/api/admin/shop/items/<id>` | Edit item 👑 Parliament+ |
+| DELETE | `/api/admin/shop/items/<id>` | Delete item 👑 Parliament+ |
+| POST | `/api/admin/shop/items/<id>/override` | Toggle active / set stock 👑 Chief+ |
+| POST | `/api/admin/shop/items/upload-image` | Upload item image 👑 Parliament+ |
+| POST | `/api/admin/shop/auctions/start` | Start an auction 👑 Chief+ |
+| POST | `/api/admin/shop/auctions/<id>/extend` | Adjust end time 👑 Parliament+ |
+| POST | `/api/admin/shop/auctions/<id>/close` | Cancel auction 👑 Parliament+ |
+| POST | `/api/admin/shop/bids/<id>/remove` | Remove a bid 👑 Parliament+ |
+| GET | `/api/admin/shop/queue` | Pending purchases + donations 👑 Chief+ |
+| POST | `/api/admin/shop/queue/fulfill` | Fulfill a ticket 👑 Chief+ |
+| POST | `/api/admin/shop/queue/reject` | Reject a ticket 👑 Chief+ |
 
 ### Settings
 
