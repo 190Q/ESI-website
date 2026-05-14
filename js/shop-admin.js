@@ -195,7 +195,7 @@
         } else {
           html += '<span><span class="sa-pill" style="color:var(--text-faint);border-color:var(--border)">Not live</span></span>';
         }
-      } else if (_isParliament) {
+      } else if (_isChief) {
         html += '<span><label class="settings-toggle" data-toggle-id="' + esc(item.id) + '">' +
           '<input type="checkbox"' + (isActive ? ' checked' : '') + ' />' +
           '<span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>' +
@@ -207,7 +207,7 @@
       // stock (not applicable for auctions)
       if (item.type === 'auction') {
         html += '<span style="color:var(--text-faint)">N/A</span>';
-      } else if (_isParliament) {
+      } else if (_isChief) {
         var stockVal = item.stock != null ? item.stock : '';
         html += '<span><input type="number" min="0" max="99999" class="sa-stock-input" data-stock-id="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="\u221E" /></span>';
       } else {
@@ -251,7 +251,7 @@
         html += '<span>' + (liveCats.length
           ? liveCats.map(function (c) { return '<span class="sa-pill sa-pill--cat">' + esc(c) + '</span>'; }).join(' ')
           : '<span style="color:var(--text-faint)">N/A</span>') + '</span>';
-        if (_isParliament) {
+        if (_isChief) {
           html += '<span><label class="settings-toggle" data-toggle-id="' + esc(item.id) + '">' +
             '<input type="checkbox"' + (isActive ? ' checked' : '') + ' />' +
             '<span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>' +
