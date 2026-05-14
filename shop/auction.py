@@ -1074,6 +1074,81 @@ def _settle_auction(auction: sqlite3.Row, now_iso: str):
                     f"Your reserved EP has been released.",
                 )
 
+def _cleanup_orphaned_reservations() -> None:
+    """Release auction EP reservations that have no matching active winning bid.
+
+    Covers three crash-window scenarios:
+      1. Process died after INSERT into ep_reservations but before the bid row
+         was committed in shop.db  → reservation exists, no bid row at all.
+      2. Process died after the new winner's bid committed but before the
+         previous winner's reservation was released  → old reservation survives.
+      3. Auction settled/cancelled but the bulk reservation release failed
+         (rare, already handled by settle/cancel, but this acts as a safety net).
+    """
+    if not os.path.isfile(_POINTS_DB) or not os.path.isfile(_SHOP_DB):
+        return
+    now_iso = _dt.now(_tz.utc).isoformat()
+
+    # Load all unreleased auction reservations from _POINTS_DB
+    try:
+        pts = sqlite3.connect(_POINTS_DB, timeout=5)
+        pts.row_factory = sqlite3.Row
+        stuck = pts.execute(
+            "SELECT reservation_id, uuid, source FROM ep_reservations "
+            "WHERE released_at IS NULL AND source LIKE 'auction:%'"
+        ).fetchall()
+        pts.close()
+    except sqlite3.Error as exc:
+        print(f"[AUCTION] Orphan-reservation scan failed: {exc}", file=sys.stderr)
+        return
+
+    if not stuck:
+        return
+
+    # Cross-reference against shop.db
+    to_release: list = []
+    try:
+        shop = sqlite3.connect(_SHOP_DB, timeout=5)
+        shop.row_factory = sqlite3.Row
+        for r in stuck:
+            source = r["source"]
+            if not source.startswith("auction:"):
+                continue
+            auction_id = source[len("auction:"):]
+            has_valid_bid = shop.execute(
+                "SELECT 1 FROM bids b "
+                "JOIN auctions a ON a.auction_id = b.auction_id "
+                "WHERE b.auction_id = ? AND b.uuid = ? "
+                "  AND b.is_winning = 1 AND a.status = 'active' LIMIT 1",
+                (auction_id, r["uuid"]),
+            ).fetchone()
+            if has_valid_bid is None:
+                to_release.append(r["reservation_id"])
+        shop.close()
+    except sqlite3.Error as exc:
+        print(f"[AUCTION] Orphan-reservation cross-check failed: {exc}", file=sys.stderr)
+        return
+
+    if not to_release:
+        return
+
+    try:
+        pts = sqlite3.connect(_POINTS_DB, timeout=10)
+        pts.execute(
+            "UPDATE ep_reservations SET released_at = ? WHERE reservation_id IN ("
+            + ",".join("?" * len(to_release)) + ")",
+            [now_iso] + to_release,
+        )
+        pts.commit()
+        pts.close()
+        print(
+            f"[AUCTION] Released {len(to_release)} orphaned EP reservation(s).",
+            file=sys.stderr,
+        )
+    except sqlite3.Error as exc:
+        print(f"[AUCTION] Failed to release orphaned reservations: {exc}", file=sys.stderr)
+
+
 def auction_close_loop():
     """Background loop that settles expired auctions and sends reminders."""
     while True:
@@ -1082,6 +1157,10 @@ def auction_close_loop():
             _cleanup_orphaned_auctions()
         except Exception as exc:
             print(f"[AUCTION] Orphan cleanup error: {exc}", file=sys.stderr)
+        try:
+            _cleanup_orphaned_reservations()
+        except Exception as exc:
+            print(f"[AUCTION] Orphan reservation cleanup error: {exc}", file=sys.stderr)
         try:
             _send_ending_soon_reminders()
         except Exception as exc:

@@ -552,10 +552,8 @@
     var endsMs = new Date(data.ends_at).getTime();
     var nowMs = Date.now();
     var remainingHours = Math.floor((endsMs - nowMs) / 3600000);
-    var _minAdjust = -(Math.max(0, remainingHours - 2)); // leave at least 2h
-    // _minAdjust is negative or 0; e.g. if 50h remaining, min is -48
-    if (_minAdjust > -1 && _minAdjust < 0) _minAdjust = -1; // at least allow -1 if there's room
-    if (_minAdjust >= 0) _minAdjust = 0; // can't reduce at all if <= 2h left
+
+    var _minAdjust = (data.extended_hours || 0) - Math.max(0, remainingHours - 2);
 
     function render() {
       var h = '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>';
@@ -672,11 +670,14 @@
       if (inp) {
         inp.addEventListener('input', function () {
           this.value = this.value.replace(/[^\-\d]/g, '').replace(/(?!^)-/g, '').slice(0, 5);
+          var v = parseInt(this.value, 10);
+          if (!isNaN(v) && v < _minAdjust) this.value = String(_minAdjust);
           _showApply();
         });
         inp.addEventListener('blur', function () {
           var v = parseInt(this.value, 10);
-          if (isNaN(v)) this.value = curExt;
+          if (isNaN(v)) { this.value = curExt; }
+          else if (v < _minAdjust) { this.value = String(_minAdjust); }
           _showApply();
         });
       }
@@ -689,7 +690,7 @@
       });
       if (decBtn) decBtn.addEventListener('click', function () {
         var v = parseInt(inp.value, 10) || 0;
-        inp.value = v - 1;
+        inp.value = Math.max(_minAdjust, v - 1);
         _showApply();
       });
       if (applyBtn) applyBtn.addEventListener('click', function () {
@@ -707,9 +708,7 @@
               // Recompute clamp
               var newEndsMs = new Date(data.ends_at).getTime();
               var newRemaining = Math.floor((newEndsMs - Date.now()) / 3600000);
-              _minAdjust = -(Math.max(0, newRemaining - 2));
-              if (_minAdjust > -1 && _minAdjust < 0) _minAdjust = -1;
-              if (_minAdjust >= 0) _minAdjust = 0;
+              _minAdjust = data.extended_hours - Math.max(0, newRemaining - 2);
               render();
               _auctions = []; renderItems(document.getElementById('saContent')); _notifyShopUpdated();
             } else {
