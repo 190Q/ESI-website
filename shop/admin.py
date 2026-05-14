@@ -784,6 +784,29 @@ def admin_reject(ticket_type: str, ticket_id: str, reason: str,
 _json_write_lock = threading.Lock()
 
 
+def _atomic_write_json(path: str, data) -> None:
+    """Write JSON to *path* atomically via write-to-temp-then-rename.
+
+    On Windows ``os.replace`` is atomic within the same volume, so a
+    crash mid-write leaves either the old file or the new file intact,
+    never a truncated one.
+    """
+    import tempfile
+    dir_name = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(suffix=".tmp", dir=dir_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=4, ensure_ascii=False)
+        os.replace(tmp_path, path)
+    except BaseException:
+        # Clean up the temp file if the rename didn't happen
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def _coerce_int(v):
     """Return int if v is non-empty, else None."""
     if v in (None, "", "null"):
@@ -992,8 +1015,7 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
             items[idx] = item
 
         try:
-            with open(_SHOP_ITEMS_JSON, "w", encoding="utf-8") as fh:
-                json.dump(items, fh, indent=4, ensure_ascii=False)
+            _atomic_write_json(_SHOP_ITEMS_JSON, items)
         except OSError as exc:
             return {"error": f"Failed to write catalogue: {exc}"}
 
@@ -1042,8 +1064,7 @@ def admin_delete_item(item_id: str, actor: str = "unknown") -> dict:
         if len(new_items) == len(items):
             return {"error": f"Item '{item_id}' not found in catalogue"}
         try:
-            with open(_SHOP_ITEMS_JSON, "w", encoding="utf-8") as fh:
-                json.dump(new_items, fh, indent=4, ensure_ascii=False)
+            _atomic_write_json(_SHOP_ITEMS_JSON, new_items)
         except OSError as exc:
             return {"error": f"Failed to write catalogue: {exc}"}
     _reload_items()
@@ -1095,8 +1116,7 @@ def admin_reorder_items(ordered_ids: list, actor: str = "unknown") -> dict:
                 reordered.append(it)
 
         try:
-            with open(_SHOP_ITEMS_JSON, "w", encoding="utf-8") as fh:
-                json.dump(reordered, fh, indent=4, ensure_ascii=False)
+            _atomic_write_json(_SHOP_ITEMS_JSON, reordered)
         except OSError as exc:
             return {"error": f"Failed to write catalogue: {exc}"}
 

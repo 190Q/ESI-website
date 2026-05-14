@@ -32,10 +32,26 @@ def _resolve_discord_id_for_uuid(mc_uuid: str) -> str | None:
             return did
     return None
 
+import re as _re
+
+_DISCORD_MENTION_RE = _re.compile(
+    r'@(everyone|here)'
+    r'|<@[!&]?\d+>'
+    r'|<#\d+>'
+    r'|discord\.gg/\S+'
+    r'|discord(?:app)?\.com/invite/\S+',
+    _re.IGNORECASE,
+)
+
+def _sanitize_dm(content: str) -> str:
+    """Strip Discord mentions, role/user pings, and invite links from DM content."""
+    return _DISCORD_MENTION_RE.sub('[removed]', content)
+
 def _send_discord_dm(discord_id: str, content: str) -> bool:
     """Open a DM channel and send a message. Returns True on success."""
     if not DISCORD_TOKEN or not discord_id:
         return False
+    content = _sanitize_dm(content)
     try:
         ch = _requests.post(
             f"{DISCORD_API}/users/@me/channels",
