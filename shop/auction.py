@@ -106,6 +106,7 @@ def _dm_card_in_background(
     fields: list | None = None,
     fallback_text: str = "",
     low_urgency: bool = False,
+    comment: str = "",
 ):
     """Render a branded card PNG and send it as a DM image.
 
@@ -114,11 +115,17 @@ def _dm_card_in_background(
     if low_urgency and _is_dm_opted_out(discord_id):
         return
     from shop.dm_cards import render_card
-    png = render_card(card_type, item_name, amount, amount_label, fields)
-    full = (fallback_text or "") + _DM_FOOTER
-    threading.Thread(
-        target=_send_discord_dm, args=(discord_id, full, png), daemon=True,
-    ).start()
+    png = render_card(card_type, item_name, amount, amount_label, fields, comment)
+    if png:
+        threading.Thread(
+            target=_send_discord_dm, args=(discord_id, "", png), daemon=True,
+        ).start()
+    else:
+        # Fallback to plain text when card rendering fails
+        full = (fallback_text or "") + _DM_FOOTER
+        threading.Thread(
+            target=_send_discord_dm, args=(discord_id, full, None), daemon=True,
+        ).start()
 
 def _is_dm_opted_out(discord_id: str) -> bool:
     """Check if a user has opted out of low-urgency auction DMs."""

@@ -203,9 +203,16 @@ body{background:transparent;font-family:'Segoe UI',system-ui,-apple-system,sans-
 .act{padding:13px 24px;text-align:center;font-size:12px;font-weight:700;
   letter-spacing:1.5px;text-transform:uppercase;color:#e0dcc8}
 
+/* comment (spans full stats grid width) */
+.st-cmt{grid-column:1/-1;margin-top:2px}
+.st-cmt .st-lbl{margin-bottom:2px}
+.st-cmt .st-val{font-size:12px;font-weight:400;color:#9a9a7a;line-height:1.3;word-wrap:break-word}
+
 /* footer */
-.foot{padding:8px 24px 14px;text-align:center;font-size:8px;letter-spacing:2.5px;
-  text-transform:uppercase;color:#3a3a28}
+.foot{padding:8px 24px 0;text-align:center;font-size:8px;letter-spacing:2.5px;
+  text-transform:uppercase;color:#4a4a35}
+.pref{padding:6px 24px 14px;text-align:center;font-size:9px;color:#3a3a28;
+  font-style:italic;line-height:1.3}
 </style>
 </head>
 <body>
@@ -229,6 +236,7 @@ $STATS_HTML
   </div>
   <div class="act" style="background:$ACTION_BG">$ACTION_TEXT</div>
   <div class="foot">EMPIRE OF SINDRIA &mdash; OFFICIAL NOTIFICATION</div>
+  <div class="pref">You can manage notification preferences in your website settings.</div>
 </div>
 </body></html>'''
 
@@ -238,6 +246,7 @@ def _build_html(
     amount: int,
     amount_label: str,
     fields: list[tuple[str, str]],
+    comment: str = "",
 ) -> str:
     esc = _html.escape
     icon_color = cfg["icon_color"]
@@ -256,6 +265,11 @@ def _build_html(
         stats_html += (
             f'      <div><div class="st-lbl">{esc(label)}</div>'
             f'<div class="st-val">{esc(value)}</div></div>\n'
+        )
+    if comment:
+        stats_html += (
+            f'      <div class="st-cmt"><div class="st-lbl">COMMENT</div>'
+            f'<div class="st-val">{esc(comment)}</div></div>\n'
         )
 
     html = _TEMPLATE
@@ -298,6 +312,7 @@ def render_card(
     amount: int = 0,
     amount_label: str = "amount",
     fields: list[tuple[str, str]] | None = None,
+    comment: str = "",
 ) -> bytes | None:
     """Render a notification card to PNG bytes.
 
@@ -313,6 +328,8 @@ def render_card(
         Tiny label below the amount (default "amount").
     fields : list of (label, value) tuples
         Two-column stats section below the divider.
+    comment : str
+        Optional comment/reason shown as a full-width row in the stats section.
 
     Returns
     -------
@@ -323,5 +340,5 @@ def render_card(
     if not cfg:
         print(f"[DM_CARDS] Unknown card type: {card_type!r}", file=sys.stderr)
         return None
-    html = _build_html(cfg, item_name, amount, amount_label, fields or [])
+    html = _build_html(cfg, item_name, amount, amount_label, fields or [], comment)
     return _screenshot_html(html)

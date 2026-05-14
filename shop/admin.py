@@ -740,6 +740,7 @@ def admin_fulfill(ticket_type: str, ticket_id: str, chief_note: str | None,
                         ("STATUS", "Confirmed"),
                     ],
                     fallback_text=f"Your donation of {row_data['le_amount']} LE confirmed. {row_data['dirty_ep_to_grant']} dirty EP credited.",
+                    comment=chief_note or "",
                 )
 
     if ticket_type == "purchase":
