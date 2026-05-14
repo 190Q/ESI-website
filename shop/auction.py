@@ -47,8 +47,10 @@ def _sanitize_dm(content: str) -> str:
     """Strip Discord mentions, role/user pings, and invite links from DM content."""
     return _DISCORD_MENTION_RE.sub('[removed]', content)
 
-def _send_discord_dm(discord_id: str, content: str) -> bool:
-    """Open a DM channel and send a message. Returns True on success."""
+def _send_discord_dm(discord_id: str, content: str,
+                     image: bytes | None = None) -> bool:
+    """Open a DM channel and send a message, optionally with an image attachment."""
+    import json as _json
     if not DISCORD_TOKEN or not discord_id:
         return False
     content = _sanitize_dm(content)
@@ -63,24 +65,59 @@ def _send_discord_dm(discord_id: str, content: str) -> bool:
         channel_id = ch.json().get("id")
         if not channel_id:
             return False
-        msg = _requests.post(
-            f"{DISCORD_API}/channels/{channel_id}/messages",
-            json={"content": content[:2000]},
-            headers=_discord_headers(), timeout=10,
-        )
+        url = f"{DISCORD_API}/channels/{channel_id}/messages"
+        auth = {"Authorization": f"Bot {DISCORD_TOKEN}"}
+        if image:
+            # Multipart: image file + JSON payload
+            msg = _requests.post(
+                url,
+                files={"files[0]": ("notification.png", image, "image/png")},
+                data={"payload_json": _json.dumps({"content": content[:2000]})},
+                headers=auth, timeout=15,
+            )
+        else:
+            msg = _requests.post(
+                url,
+                json={"content": content[:2000]},
+                headers=_discord_headers(), timeout=10,
+            )
         return msg.ok
     except _requests.RequestException:
         return False
 
 _DM_FOOTER = "\n-# _You can manage notification preferences in your website settings._"
 
-def _dm_in_background(discord_id: str, content: str, low_urgency: bool = False):
+def _dm_in_background(discord_id: str, content: str, low_urgency: bool = False,
+                      image: bytes | None = None):
     """Fire-and-forget DM. If low_urgency=True, checks opt-out preference first."""
     if low_urgency and _is_dm_opted_out(discord_id):
         return
     full = content + _DM_FOOTER
     threading.Thread(
-        target=_send_discord_dm, args=(discord_id, full), daemon=True,
+        target=_send_discord_dm, args=(discord_id, full, image), daemon=True,
+    ).start()
+
+def _dm_card_in_background(
+    discord_id: str,
+    card_type: str,
+    item_name: str = "",
+    amount: int = 0,
+    amount_label: str = "amount",
+    fields: list | None = None,
+    fallback_text: str = "",
+    low_urgency: bool = False,
+):
+    """Render a branded card PNG and send it as a DM image.
+
+    Falls back to plain text if card rendering fails.
+    """
+    if low_urgency and _is_dm_opted_out(discord_id):
+        return
+    from shop.dm_cards import render_card
+    png = render_card(card_type, item_name, amount, amount_label, fields)
+    full = (fallback_text or "") + _DM_FOOTER
+    threading.Thread(
+        target=_send_discord_dm, args=(discord_id, full, png), daemon=True,
     ).start()
 
 def _is_dm_opted_out(discord_id: str) -> bool:
@@ -405,13 +442,30 @@ def place_bid(
 
     item_name = item.get("name", arow["item_id"])
 
+    # Gather context for card fields
+    _remaining = max(0, (ends_at - _dt.now(_tz.utc)).total_seconds())
+    _ends_str = f"{int(_remaining // 3600)}h {int((_remaining % 3600) // 60)}m"
+    try:
+        _ctx_conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        _bidder_count = _ctx_conn.execute(
+            "SELECT COUNT(DISTINCT uuid) FROM bids WHERE auction_id = ?", (auction_id,),
+        ).fetchone()[0]
+        _ctx_conn.close()
+    except sqlite3.Error:
+        _bidder_count = 0
+
     # DM: Bid confirmed (receipt)
     bidder_did = _resolve_discord_id_for_uuid(mc_uuid)
     if bidder_did:
-        _dm_in_background(
-            bidder_did,
-            f"✅ Your bid of **{amount} EP** on **{item_name}** has been placed! "
-            f"You are currently the highest bidder.",
+        _dm_card_in_background(
+            bidder_did, "bid_placed", item_name, amount,
+            fields=[
+                ("BIDDERS", f"{_bidder_count} active"),
+                ("ENDS IN", _ends_str),
+                ("YOUR RANK", "#1"),
+                ("STATUS", "Highest Bidder"),
+            ],
+            fallback_text=f"Bid of {amount:,} EP on {item_name} placed. You are the highest bidder.",
             low_urgency=True,
         )
 
@@ -419,11 +473,18 @@ def place_bid(
     if current_bidder and current_bidder != mc_uuid:
         displaced_did = _resolve_discord_id_for_uuid(current_bidder)
         if displaced_did:
-            _dm_in_background(
-                displaced_did,
-                f"⚠️ You have been outbid on **{item_name}**! "
-                f"The new highest bid is **{amount} EP**. "
-                f"Visit the shop to place a higher bid.",
+            # Find the displaced bidder's last bid amount
+            _displaced_amount = current_high  # their bid was the previous high
+            _deficit = amount - _displaced_amount
+            _dm_card_in_background(
+                displaced_did, "outbid", item_name, amount,
+                fields=[
+                    ("YOUR BID", f"{_displaced_amount:,} EP"),
+                    ("NEW HIGH", f"{amount:,} EP"),
+                    ("DEFICIT", f"{_deficit:,} EP"),
+                    ("ENDS IN", _ends_str),
+                ],
+                fallback_text=f"You were outbid on {item_name}. New high: {amount:,} EP.",
             )
 
     # DM: Anti-snipe extension notification to all active bidders
@@ -440,10 +501,13 @@ def place_bid(
                     continue
                 did = _resolve_discord_id_for_uuid(row[0])
                 if did:
-                    _dm_in_background(
-                        did,
-                        f"⏰ The auction for **{item_name}** has been extended due to a last-minute bid. "
-                        f"The new highest bid is **{amount} EP**. Check the shop for the updated end time.",
+                    _dm_card_in_background(
+                        did, "snipe_extension", item_name, amount,
+                        fields=[
+                            ("NEW HIGH", f"{amount:,} EP"),
+                            ("REASON", "Last-minute bid"),
+                        ],
+                        fallback_text=f"Auction for {item_name} extended. New high: {amount:,} EP.",
                         low_urgency=True,
                     )
         except sqlite3.Error:
@@ -496,11 +560,13 @@ def _send_ending_soon_reminders():
             for b in bidders:
                 did = _resolve_discord_id_for_uuid(b["uuid"])
                 if did:
-                    _dm_in_background(
-                        did,
-                        f"⏳ The auction for **{item_name}** is ending in ~**{remaining_h}h**! "
-                        f"Current highest bid: **{arow['current_highest_bid']} EP**. "
-                        f"Visit the shop if you want to place a final bid.",
+                    _dm_card_in_background(
+                        did, "ending_soon", item_name, arow["current_highest_bid"],
+                        fields=[
+                            ("TIME LEFT", f"~{remaining_h}h"),
+                            ("HIGHEST BID", f"{arow['current_highest_bid']:,} EP"),
+                        ],
+                        fallback_text=f"Auction for {item_name} ends in ~{remaining_h}h. High: {arow['current_highest_bid']:,} EP.",
                         low_urgency=True,
                     )
         conn.close()
@@ -589,10 +655,14 @@ def _cancel_orphaned_auction(auction_id: str, item_id: str, now_iso: str) -> Non
     for b in bidders:
         did = _resolve_discord_id_for_uuid(b["uuid"])
         if did:
-            _dm_in_background(
-                did,
-                f"The auction for **{item_id}** has been cancelled because the item "
-                f"was removed from the shop. Your reserved EP has been released."
+            _dm_card_in_background(
+                did, "auction_cancelled", item_id, 0,
+                fields=[
+                    ("REASON", "Item removed"),
+                    ("REFUNDED", "Yes"),
+                    ("STATUS", "Void"),
+                ],
+                fallback_text=f"Auction for {item_id} cancelled (item removed). Your EP has been released.",
             )
 
     # Write to the admin changes log so admins can see it in the UI
@@ -763,31 +833,47 @@ def _settle_auction(auction: sqlite3.Row, now_iso: str):
         for w in winners:
             did = _resolve_discord_id_for_uuid(w["uuid"])
             if did:
-                msg = (f"🎉 Congratulations! You won the auction for **{item_name}** "
-                       f"with a bid of **{w['amount']} EP**!")
+                won_fields = [
+                    ("FINAL PRICE", f"{w['amount']:,} EP"),
+                    ("STATUS", "Pending"),
+                ]
                 if item.get("fulfillment_note"):
-                    msg += f"\n\n**What happens next:** _{item['fulfillment_note']}_"
-                _dm_in_background(did, msg)
+                    won_fields.append(("NEXT STEP", item["fulfillment_note"][:40]))
+                _dm_card_in_background(
+                    did, "auction_won", item_name, w["amount"],
+                    fields=won_fields,
+                    fallback_text=f"You won the auction for {item_name} with {w['amount']:,} EP.",
+                )
 
         # DM: Auction lost
         for uuid in loser_uuids:
             did = _resolve_discord_id_for_uuid(uuid)
             if did:
-                _dm_in_background(
-                    did,
-                    f"The auction for **{item_name}** has closed and your bid was not the winning bid. "
-                    f"Your reserved EP has been released.",
+                # Find loser's highest bid
+                _loser_bid = max(
+                    (b["amount"] for b in all_bids if b["uuid"] == uuid), default=0
+                )
+                _dm_card_in_background(
+                    did, "auction_lost", item_name, 0,
+                    fields=[
+                        ("YOUR BID", f"{_loser_bid:,} EP"),
+                        ("REFUNDED", "Yes"),
+                        ("WINNER", "Other"),
+                    ],
+                    fallback_text=f"Auction for {item_name} ended. Your EP has been released.",
                 )
 
         # DM: Disqualified due to insufficient EP at settlement
         for uuid in disqualified_uuids:
             did = _resolve_discord_id_for_uuid(uuid)
             if did:
-                _dm_in_background(
-                    did,
-                    f"Your winning bid on **{item_name}** could not be settled because your "
-                    f"available EP was insufficient at the time of settlement. "
-                    f"Your reserved EP has been released.",
+                _dm_card_in_background(
+                    did, "disqualified", item_name, 0,
+                    fields=[
+                        ("REASON", "Insufficient EP"),
+                        ("REFUNDED", "Yes"),
+                    ],
+                    fallback_text=f"Your winning bid on {item_name} was disqualified (insufficient EP). EP released.",
                 )
     else:
         # DM: Auction closed with no winner — notify all bidders (if any)
@@ -795,10 +881,13 @@ def _settle_auction(auction: sqlite3.Row, now_iso: str):
         for uuid in all_bidder_uuids:
             did = _resolve_discord_id_for_uuid(uuid)
             if did:
-                _dm_in_background(
-                    did,
-                    f"The auction for **{item_name}** has closed with no winner. "
-                    f"Your reserved EP has been released.",
+                _dm_card_in_background(
+                    did, "no_winner", item_name, 0,
+                    fields=[
+                        ("REFUNDED", "Yes"),
+                        ("STATUS", "Closed"),
+                    ],
+                    fallback_text=f"Auction for {item_name} closed with no winner. EP released.",
                 )
 
 def _cleanup_orphaned_reservations() -> None:

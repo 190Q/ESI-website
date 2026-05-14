@@ -248,5 +248,6 @@ wynnpiece/
 # Data
 data/
 
-# Shop images
+# Shop
 images/shop/
+test_dm_cards.py

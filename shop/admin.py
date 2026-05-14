@@ -9,7 +9,7 @@ from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
 from config import _SHOP_DB, _POINTS_DB, _SHOP_ITEMS_JSON, _USERNAME_MATCHES_JSON, _load_json_file as _cfg_load_json
 from shop.items import get_items, reload as _reload_items
-from shop.auction import _resolve_discord_id_for_uuid, _dm_in_background
+from shop.auction import _resolve_discord_id_for_uuid, _dm_in_background, _dm_card_in_background
 
 
 _now = lambda: _dt.now(_tz.utc)
@@ -194,10 +194,15 @@ def admin_cancel_purchase(purchase_id: str, reason: str, chief_name: str) -> dic
     # notify user via Discord DM
     did = _resolve_discord_id_for_uuid(row["uuid"])
     if did:
-        _dm_in_background(did,
-            f"Your purchase of **{row['item_id']}** has been cancelled by {chief_name}.\n"
-            f"Reason: _{reason}_\n"
-            f"Your {row['ep_spent']} EP has been refunded.")
+        _dm_card_in_background(
+            did, "purchase_rejected", row["item_id"], row["ep_spent"],
+            fields=[
+                ("REASON", reason[:50]),
+                ("REFUNDED", f"{row['ep_spent']} EP"),
+                ("BY", chief_name),
+            ],
+            fallback_text=f"Purchase of {row['item_id']} rejected by {chief_name}. {row['ep_spent']} EP refunded.",
+        )
 
     _log_admin_action(
         chief_name, "purchase_rejected", purchase_id,
@@ -263,9 +268,15 @@ def admin_cancel_auction(auction_id: str, chief_name: str) -> dict:
     for b in bidders:
         did = _resolve_discord_id_for_uuid(b["uuid"])
         if did:
-            _dm_in_background(did,
-                f"The auction for **{item_name}** has been cancelled by {chief_name}. "
-                f"Your reserved EP has been released.")
+            _dm_card_in_background(
+                did, "auction_cancelled", item_name, 0,
+                fields=[
+                    ("REASON", "Admin"),
+                    ("REFUNDED", "Yes"),
+                    ("STATUS", "Void"),
+                ],
+                fallback_text=f"Auction for {item_name} cancelled by {chief_name}. EP released.",
+            )
 
     return {"ok": True, "auction_id": auction_id, "status": "cancelled"}
 
@@ -393,11 +404,15 @@ def admin_remove_bid(bid_id: str, chief_name: str, reason: str | None = None) ->
     # Notify the user
     did = _resolve_discord_id_for_uuid(bidder_uuid)
     if did:
-        msg = (f"Your bid of **{bid_amount} EP** has been removed by {chief_name}. "
-               f"Your reserved EP has been released.")
-        if reason:
-            msg += f"\nReason: _{reason}_"
-        _dm_in_background(did, msg)
+        _dm_card_in_background(
+            did, "bid_removed", auction_id, bid_amount,
+            fields=[
+                ("REMOVED BY", chief_name),
+                ("REFUNDED", f"{bid_amount:,} EP"),
+                *( [("REASON", reason[:50])] if reason else [] ),
+            ],
+            fallback_text=f"Bid of {bid_amount:,} EP removed by {chief_name}. EP released.",
+        )
 
     _log_admin_action(
         chief_name, "bid_removed", bid_id,
@@ -661,33 +676,72 @@ def admin_get_queue() -> dict:
 
 def admin_fulfill(ticket_type: str, ticket_id: str, chief_note: str | None,
                   chief_name: str) -> dict:
-    """Mark a purchase or donation as fulfilled."""
+    """Mark a purchase or donation as fulfilled and notify the user."""
     now_iso = _now_iso()
     conn = sqlite3.connect(_SHOP_DB, timeout=10)
+    conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
 
+    row_data = None
     if ticket_type == "purchase":
+        row_data = conn.execute(
+            "SELECT * FROM bin_purchases WHERE purchase_id = ? AND status = 'pending'",
+            (ticket_id,),
+        ).fetchone()
+        if not row_data:
+            conn.close()
+            return {"error": "Ticket not found or not pending"}
         conn.execute(
             "UPDATE bin_purchases SET status = 'fulfilled', chief_note = ?, resolved_at = ? "
-            "WHERE purchase_id = ? AND status = 'pending'",
+            "WHERE purchase_id = ?",
             (chief_note, now_iso, ticket_id),
         )
     elif ticket_type == "donation":
+        row_data = conn.execute(
+            "SELECT * FROM donation_tickets WHERE ticket_id = ? AND status = 'pending'",
+            (ticket_id,),
+        ).fetchone()
+        if not row_data:
+            conn.close()
+            return {"error": "Ticket not found or not pending"}
         conn.execute(
             "UPDATE donation_tickets SET status = 'confirmed', chief_note = ?, resolved_at = ? "
-            "WHERE ticket_id = ? AND status = 'pending'",
+            "WHERE ticket_id = ?",
             (chief_note, now_iso, ticket_id),
         )
     else:
         conn.close()
         return {"error": "Invalid ticket_type"}
 
-    if conn.total_changes == 0:
-        conn.close()
-        return {"error": "Ticket not found or not pending"}
-
     conn.commit()
     conn.close()
+
+    # DM the user
+    if row_data:
+        did = _resolve_discord_id_for_uuid(row_data["uuid"])
+        if did:
+            if ticket_type == "purchase":
+                _dm_card_in_background(
+                    did, "purchase_fulfilled", row_data["item_id"], row_data["ep_spent"],
+                    fields=[
+                        ("EP SPENT", f"{row_data['ep_spent']:,} EP"),
+                        ("STATUS", "Fulfilled"),
+                        *( [("NOTE", chief_note[:50])] if chief_note else [] ),
+                    ],
+                    fallback_text=f"Your purchase of {row_data['item_id']} ({row_data['ep_spent']} EP) has been fulfilled.",
+                )
+            else:
+                _dm_card_in_background(
+                    did, "donation_confirmed", "LE Donation", row_data["dirty_ep_to_grant"],
+                    amount_label="dirty EP credited",
+                    fields=[
+                        ("LE DONATED", f"{row_data['le_amount']:,} LE"),
+                        ("DIRTY EP", f"+{row_data['dirty_ep_to_grant']:,} EP"),
+                        ("STATUS", "Confirmed"),
+                    ],
+                    fallback_text=f"Your donation of {row_data['le_amount']} LE confirmed. {row_data['dirty_ep_to_grant']} dirty EP credited.",
+                )
+
     if ticket_type == "purchase":
         _log_admin_action(
             chief_name, "purchase_fulfilled", ticket_id,
@@ -762,10 +816,17 @@ def admin_reject(ticket_type: str, ticket_id: str, reason: str,
     if uuid:
         did = _resolve_discord_id_for_uuid(uuid)
         if did:
-            label = "purchase" if ticket_type == "purchase" else "donation"
-            _dm_in_background(did,
-                f"Your {label} ({ep_info}) has been rejected by {chief_name}.\n"
-                f"Reason: _{reason}_")
+            _card = "purchase_rejected" if ticket_type == "purchase" else "donation_rejected"
+            _dm_card_in_background(
+                did, _card, row["item_id"] if ticket_type == "purchase" else "LE Donation",
+                int(row["ep_spent"]) if ticket_type == "purchase" else 0,
+                fields=[
+                    ("REASON", reason[:50]),
+                    ("REFUNDED", ep_info),
+                    ("BY", chief_name),
+                ],
+                fallback_text=f"Your {ticket_type} ({ep_info}) was rejected by {chief_name}. Reason: {reason}",
+            )
 
     if ticket_type == "purchase":
         _log_admin_action(
