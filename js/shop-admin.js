@@ -505,6 +505,9 @@
           .catch(function () { showToast('\u26a0 Network error', 'warn'); input.value = lastVal; })
           .finally(function () { input.disabled = false; });
       });
+      input.addEventListener('focus', function () {
+        var v = this.value; this.value = ''; this.value = v;
+      });
       input.addEventListener('input', function () {
         // Strip anything that isn't a digit, then cap at 5 characters
         var clean = this.value.replace(/\D/g, '').slice(0, 5);
