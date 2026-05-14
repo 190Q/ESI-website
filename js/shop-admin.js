@@ -732,7 +732,7 @@
             '<div class="shop-modal-body">Remove <strong>' + esc(bidUser) + '</strong>\u2019s bid of <strong>' + esc(bidAmt) + '</strong>?<br>' +
               'Their reserved EP will be released and they will be notified.</div>' +
             '<label class="shop-modal-input-label">Reason (optional)</label>' +
-            '<input type="text" class="shop-modal-input" id="amRemoveReason" placeholder="Reason for removal\u2026" />' +
+            '<textarea class="shop-modal-input" id="amRemoveReason" placeholder="Reason for removal\u2026" maxlength="50" rows="2"></textarea>' +
             '<div class="shop-modal-actions">' +
               '<button class="shop-modal-btn shop-modal-btn--cancel" id="amRemoveConfirm" style="color:var(--danger);border-color:var(--danger);">Remove Bid</button>' +
             '</div>';
@@ -1702,7 +1702,7 @@
       '<div class="shop-modal-title">' + label + '</div>' +
       '<div class="shop-modal-body">' +
         '<label class="shop-modal-input-label">Note (optional)</label>' +
-        '<input type="text" class="shop-modal-input" id="saFulfillNote" placeholder="Optional note\u2026" />' +
+        '<textarea class="shop-modal-input" id="saFulfillNote" placeholder="Optional note\u2026" maxlength="50" rows="2"></textarea>' +
       '</div>' +
       '<div class="shop-modal-actions">' +
         '<button class="shop-modal-btn shop-modal-btn--confirm" id="saFulfillConfirm">' + label + '</button>' +
@@ -1743,7 +1743,7 @@
       '<div class="shop-modal-title">Reject ' + (type === 'purchase' ? 'Purchase' : 'Donation') + '</div>' +
       '<div class="shop-modal-body">' +
         '<label class="shop-modal-input-label">Reason (required)</label>' +
-        '<input type="text" class="shop-modal-input" id="saRejectReason" placeholder="Reason for rejection\u2026" />' +
+        '<textarea class="shop-modal-input" id="saRejectReason" placeholder="Reason for rejection\u2026" maxlength="50" rows="2"></textarea>' +
       '</div>' +
       '<div class="shop-modal-actions">' +
         '<button class="shop-modal-btn shop-modal-btn--cancel" id="saRejectConfirm" style="color:var(--danger);border-color:var(--danger);">Reject</button>' +

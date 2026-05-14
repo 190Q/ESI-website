@@ -1552,7 +1552,7 @@ def admin_shop_remove_bid(bid_id):
         return jsonify({"error": "Parliament rank required"}), 403
     chief_name = user.get("nick") or user.get("username", "")
     body = request.get_json(silent=True) or {}
-    reason = (body.get("reason") or "").strip() or None
+    reason = (body.get("reason") or "").strip()[:50] or None
     result = admin_remove_bid(bid_id, chief_name, reason)
     return jsonify(result), 200 if result.get("ok") else 400
 
@@ -1652,7 +1652,8 @@ def admin_shop_fulfill():
     if not ticket_type or not ticket_id:
         return jsonify({"error": "type and ticket_id are required"}), 400
     chief_name = user.get("nick") or user.get("username", "")
-    result = admin_fulfill(ticket_type, ticket_id, body.get("note"), chief_name)
+    note = (body.get("note") or "").strip()[:50] or None
+    result = admin_fulfill(ticket_type, ticket_id, note, chief_name)
     return jsonify(result), 200 if result.get("ok") else 400
 
 
@@ -1665,7 +1666,7 @@ def admin_shop_reject():
     body = request.get_json(silent=True) or {}
     ticket_type = (body.get("type") or "").strip()
     ticket_id = (body.get("ticket_id") or "").strip()
-    reason = (body.get("reason") or "").strip()
+    reason = (body.get("reason") or "").strip()[:50]
     if not ticket_type or not ticket_id:
         return jsonify({"error": "type and ticket_id are required"}), 400
     if not reason:

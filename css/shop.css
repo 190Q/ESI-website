@@ -1495,6 +1495,12 @@ input.cart-qty:focus {
   outline: none;
 }
 .shop-modal-input:focus { border-color: var(--gold-dim); }
+textarea.shop-modal-input {
+  resize: vertical;
+  min-height: 52px;
+  line-height: 1.4;
+  font-family: inherit;
+}
 .shop-modal-input[type="number"] { -moz-appearance: textfield; }
 .shop-modal-input[type="number"]::-webkit-inner-spin-button,
 .shop-modal-input[type="number"]::-webkit-outer-spin-button {
