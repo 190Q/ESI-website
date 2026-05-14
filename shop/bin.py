@@ -331,8 +331,7 @@ def execute_cart_checkout(
             item = ln["item"]
             item_id = ln["item_id"]
             qty = ln["qty"]
-            is_auto = item.get("fulfillment_type") == "automatic"
-            status = "fulfilled" if is_auto else "pending"
+            status = "pending"
             purchase_id = str(_uuid_mod.uuid4())
 
             # stock decrement
@@ -357,7 +356,7 @@ def execute_cart_checkout(
                     purchase_id, item_id, mc_uuid, mc_username or "",
                     ln["line_total"], ln["line_clean"], ln["line_dirty"],
                     status, item.get("fulfillment_note"),
-                    now_iso, now_iso if is_auto else None,
+                    now_iso, None,
                     qty,
                 ),
             )
@@ -381,7 +380,6 @@ def execute_cart_checkout(
                 "dirty_ep_spent":   ln["line_dirty"],
                 "status":           status,
                 "fulfillment_note": item.get("fulfillment_note"),
-                "role_grant":       item.get("role_grant") if is_auto else None,
                 "purchased_at":     now_iso,
             })
 
@@ -469,8 +467,7 @@ def execute_bin_purchase(
 
     # stock check + decrement (atomic in a single transaction)
     purchase_id = str(_uuid_mod.uuid4())
-    is_auto = item.get("fulfillment_type") == "automatic"
-    status = "fulfilled" if is_auto else "pending"
+    status = "pending"
 
     if not os.path.isfile(_SHOP_DB):
         raise PurchaseError("Shop database unavailable", 503)
@@ -525,7 +522,7 @@ def execute_bin_purchase(
                 status,
                 item.get("fulfillment_note"),
                 now_iso,
-                now_iso if is_auto else None,
+                None,
             ),
         )
 
@@ -551,9 +548,6 @@ def execute_bin_purchase(
     # Reload item cache so stock changes are reflected immediately
     _reload_items()
 
-    # role grant (automatic fulfillment only)
-    role_grant = item.get("role_grant") if is_auto else None
-
     return {
         "purchase_id":      purchase_id,
         "item_id":          item_id,
@@ -563,6 +557,5 @@ def execute_bin_purchase(
         "dirty_ep_spent":   server_dirty,
         "status":           status,
         "fulfillment_note": item.get("fulfillment_note"),
-        "role_grant":       role_grant,
         "purchased_at":     now_iso,
     }
