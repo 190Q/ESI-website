@@ -2117,8 +2117,9 @@
   var _usersOpenUuid = null;
   var _usersCartOpen = {};
 
-  function fetchUsers(cb) {
-    fetch('/api/admin/shop/users', { credentials: 'same-origin' })
+  function fetchUsers(cb, forceRefresh) {
+    var url = '/api/admin/shop/users' + (forceRefresh ? '?refresh=true' : '');
+    fetch(url, { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) { if (d) _users = d; if (cb) cb(d); })
       .catch(function () { if (cb) cb(null); });
@@ -2151,13 +2152,9 @@
     return u.last_activity >= new Date(Date.now() - 30 * 24 * 3600000).toISOString();
   }
 
-  function renderUsers(c) {
-    if (!_users) {
-      c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading users\u2026</div>';
-      fetchUsers(function () { _renderUsersContent(c); });
-    } else {
-      _renderUsersContent(c);
-    }
+  function renderUsers(c, forceRefresh) {
+    c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading users\u2026</div>';
+    fetchUsers(function () { _updateUsersBadge(); _renderUsersContent(c); }, forceRefresh);
   }
 
   function _renderUsersContent(c) {
@@ -2295,6 +2292,11 @@
       _usersFilters.sort = this.value;
       _usersPage = 1; _usersOpenUuid = null;
       _renderUsersContent(c);
+    });
+    var refreshBtn = document.getElementById('suRefresh');
+    if (refreshBtn) refreshBtn.addEventListener('click', function () {
+      _users = null; _usersPage = 1; _usersOpenUuid = null;
+      renderUsers(c, true); // true = bypass server-side cache
     });
   }
 

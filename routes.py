@@ -1706,10 +1706,13 @@ def admin_shop_changes():
 @app.route("/api/admin/shop/users")
 @rate_limit(10)
 def admin_shop_users():
-    """Aggregated per-user shop activity."""
+    """Aggregated per-user shop activity (60-second cache; pass ?refresh=true to bypass)."""
     user, _, err = _require_shop_admin()
     if err:
         return err
+    if request.args.get("refresh") == "true":
+        from shop.admin import _invalidate_users_cache
+        _invalidate_users_cache()
     return jsonify(admin_get_users())
 
 

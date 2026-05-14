@@ -3,6 +3,7 @@ import os
 import sqlite3
 import sys
 import threading
+import time as _time
 import uuid as _uuid_mod
 from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
@@ -54,6 +55,17 @@ def _log_admin_action(
         conn.close()
     except Exception:  # pragma: no cover
         pass
+
+_USERS_CACHE_TTL: float    = 60.0   # seconds
+_users_cache_lock          = threading.Lock()
+_users_cache: dict         = {"data": None, "ts": 0.0}
+
+
+def _invalidate_users_cache() -> None:
+    """Force the next admin_get_users() call to recompute."""
+    with _users_cache_lock:
+        _users_cache["ts"] = 0.0
+
 
 def _clear_item_cooldowns(item_id: str) -> None:
     """Delete all cooldown records for item_id.
@@ -191,6 +203,7 @@ def admin_cancel_purchase(purchase_id: str, reason: str, chief_name: str) -> dic
         chief_name, "purchase_rejected", purchase_id,
         {"purchase_id": purchase_id, "item_id": row["item_id"], "reason": reason},
     )
+    _invalidate_users_cache()
     return {"ok": True, "purchase_id": purchase_id, "status": "rejected"}
 
 def admin_cancel_auction(auction_id: str, chief_name: str) -> dict:
@@ -682,6 +695,7 @@ def admin_fulfill(ticket_type: str, ticket_id: str, chief_note: str | None,
             chief_name, "donation_confirmed", ticket_id,
             {"ticket_id": ticket_id, "note": chief_note},
         )
+    _invalidate_users_cache()
     return {"ok": True, "ticket_id": ticket_id, "status": "fulfilled", "resolved_at": now_iso}
 
 def admin_reject(ticket_type: str, ticket_id: str, reason: str,
@@ -760,6 +774,7 @@ def admin_reject(ticket_type: str, ticket_id: str, reason: str,
             chief_name, "donation_rejected", ticket_id,
             {"ticket_id": ticket_id, "reason": reason},
         )
+    _invalidate_users_cache()
     return {"ok": True, "ticket_id": ticket_id, "status": "rejected", "resolved_at": now_iso}
 
 # Item catalogue write operations
@@ -1259,7 +1274,20 @@ def admin_get_changes_log(
                 "error": str(exc)}
 
 def admin_get_users() -> list:
-    """Return aggregated per-user shop activity (purchases + bids + donations)."""
+    """Return aggregated per-user shop activity, served from a 60-second cache."""
+    now = _time.monotonic()
+    with _users_cache_lock:
+        if _users_cache["data"] is not None and (now - _users_cache["ts"]) < _USERS_CACHE_TTL:
+            return _users_cache["data"]
+    result = _admin_get_users_uncached()
+    with _users_cache_lock:
+        _users_cache["data"] = result
+        _users_cache["ts"]   = _time.monotonic()
+    return result
+
+
+def _admin_get_users_uncached() -> list:
+    """Heavy computation: aggregate per-user shop activity from raw DB rows."""
     if not os.path.isfile(_SHOP_DB):
         return []
     try:
