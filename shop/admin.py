@@ -9,7 +9,7 @@ from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
 from config import _SHOP_DB, _POINTS_DB, _SHOP_ITEMS_JSON, _USERNAME_MATCHES_JSON, _load_json_file as _cfg_load_json
 from shop.items import get_items, reload as _reload_items
-from shop.auction import _resolve_discord_id_for_uuid, _dm_in_background, _dm_card_in_background
+from shop.auction import _resolve_discord_id_for_uuid, _dm_card_in_background
 
 
 _now = lambda: _dt.now(_tz.utc)
@@ -445,31 +445,78 @@ def admin_extend_auction(auction_id: str, extra_hours: int,
     # Enforce min 2h remaining from now
     now = _now()
     min_ends = now + _td(hours=2)
+    clamped_to_min = False
     if new_ends < min_ends:
-        conn.close()
-        return {"error": "Cannot adjust: auction must have at least 2 hours remaining"}
+        new_ends = min_ends
+        clamped_to_min = True
 
     # Determine extended flag from whether the new end differs from original
     from shop.items import get_item_unfiltered
     item = get_item_unfiltered(arow["item_id"]) or {}
+    from shop.auction import _compute_extended_hours
+    old_ext_hours = _compute_extended_hours(arow, item)
     # Temporarily build a fake row with new ends_at to compute extended_hours
     fake_row = {"created_at": arow["created_at"], "ends_at": new_ends.isoformat()}
-    from shop.auction import _compute_extended_hours
     new_ext_hours = _compute_extended_hours(fake_row, item)
     extended = 1 if new_ext_hours != 0 else 0
+    applied_delta_seconds = (new_ends - old_ends).total_seconds()
+    applied_delta_hours = round(applied_delta_seconds / 3600, 2)
+    applied_extra_hours = new_ext_hours - old_ext_hours
 
     conn.execute(
         "UPDATE auctions SET ends_at = ?, extended = ? WHERE auction_id = ?",
         (new_ends.isoformat(), extended, auction_id),
     )
+    bidders = conn.execute(
+        "SELECT DISTINCT uuid FROM bids WHERE auction_id = ?",
+        (auction_id,),
+    ).fetchall()
     conn.commit()
     conn.close()
+
+    item_name = item.get("name", arow["item_id"])
+    change_word = "extended" if applied_delta_seconds > 0 else "reduced"
+    abs_hours = abs(applied_delta_hours)
+    abs_hours_txt = f"{abs_hours:.2f}".rstrip("0").rstrip(".")
+    if not abs_hours_txt:
+        abs_hours_txt = "0"
+    hours_label = "hour" if abs_hours_txt == "1" else "hours"
+    old_end_utc = old_ends.astimezone(_tz.utc).strftime("%Y-%m-%d %H:%M UTC")
+    new_end_utc = new_ends.astimezone(_tz.utc).strftime("%Y-%m-%d %H:%M UTC")
+    if applied_delta_seconds != 0:
+        for b in bidders:
+            did = _resolve_discord_id_for_uuid(b["uuid"])
+            if did:
+                _dm_card_in_background(
+                    did, "admin_time_adjusted", item_name,
+                    int(arow["current_highest_bid"] or 0),
+                    amount_label="current high bid",
+                    fields=[
+                        ("CHANGE", f"{change_word.title()} by {abs_hours_txt} {hours_label}"),
+                        ("OLD END", old_end_utc),
+                        ("NEW END", new_end_utc),
+                        ("BY", (actor or "Admin")[:30]),
+                    ],
+                    fallback_text=(
+                        f"Auction for {item_name} was {change_word} by {abs_hours_txt} {hours_label} by an admin. "
+                        f"Old end: {old_end_utc}. New end: {new_end_utc}. By: {actor}"
+                    ),
+                )
     _log_admin_action(
         actor, "auction_extended", auction_id,
-        {"auction_id": auction_id, "extra_hours": extra_hours,
+        {"auction_id": auction_id,
+         "requested_hours": extra_hours,
+         "extra_hours": applied_delta_hours,
+         "applied_extra_hours": applied_extra_hours,
+         "clamped_to_min": clamped_to_min,
          "new_ends_at": new_ends.isoformat()},
     )
-    return {"ok": True, "auction_id": auction_id, "new_ends_at": new_ends.isoformat()}
+    return {"ok": True,
+            "auction_id": auction_id,
+            "new_ends_at": new_ends.isoformat(),
+            "new_extended_hours": new_ext_hours,
+            "applied_hours": applied_delta_hours,
+            "clamped_to_min": clamped_to_min}
 
 def _ensure_log_indexes(conn: sqlite3.Connection) -> None:
     """Idempotently create performance indexes for the log queries."""

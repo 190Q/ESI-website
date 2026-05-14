@@ -701,10 +701,15 @@
         apiPost('/api/admin/shop/auctions/' + encodeURIComponent(aid) + '/extend', { hours: delta })
           .then(function (res) {
             if (res.ok && res.data.ok) {
-              showToast('\u2713 End time adjusted to ' + (target > 0 ? '+' : '') + target + 'h.', 'success');
+              var appliedTarget = (typeof res.data.new_extended_hours === 'number') ? res.data.new_extended_hours : target;
+              var toastMsg = '\u2713 End time adjusted to ' + (appliedTarget > 0 ? '+' : '') + appliedTarget + 'h.';
+              if (res.data.clamped_to_min) {
+                toastMsg += ' (clamped to minimum remaining time)';
+              }
+              showToast(toastMsg, 'success');
               data.ends_at = res.data.new_ends_at;
-              data.extended = target !== 0;
-              data.extended_hours = target;
+              data.extended = appliedTarget !== 0;
+              data.extended_hours = appliedTarget;
               // Recompute clamp
               var newEndsMs = new Date(data.ends_at).getTime();
               var newRemaining = Math.floor((newEndsMs - Date.now()) / 3600000);

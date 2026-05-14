@@ -107,6 +107,13 @@ _TYPES = {
         "action": "EXTENDED", "action_bg": "#3a3010",
         "amount_color": "#c9a227",
     },
+    "admin_time_adjusted": {
+        "badge": "UPDATED", "badge_color": "#c9a227",
+        "icon": "clock", "icon_color": "#c9a227",
+        "title": "Auction Time Updated",
+        "action": "TIME UPDATED", "action_bg": "#3a3010",
+        "amount_color": "#c9a227",
+    },
     "disqualified": {
         "badge": "VOID", "badge_color": "#a04040",
         "icon": "x", "icon_color": "#a04040",
