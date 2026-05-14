@@ -188,9 +188,13 @@
       // active toggle
       if (skipAuctionControls && item.type === 'auction') {
         var _hasLive = (_auctions || []).some(function (a) { return a.item_id === item.id && a.status === 'active'; });
-        html += '<span>' + (_hasLive
-          ? '<span class="sa-pill sa-pill--live">Live</span>'
-          : '<span class="sa-pill" style="color:var(--text-faint);border-color:var(--border)">Not live</span>') + '</span>';
+        if (_hasLive) {
+          html += '<span><span class="sa-pill sa-pill--live">Live</span></span>';
+        } else if (_isParliament) {
+          html += '<span><button class="sa-action-btn" data-start-auction="' + esc(item.id) + '">Start</button></span>';
+        } else {
+          html += '<span><span class="sa-pill" style="color:var(--text-faint);border-color:var(--border)">Not live</span></span>';
+        }
       } else if (_isParliament) {
         html += '<span><label class="settings-toggle" data-toggle-id="' + esc(item.id) + '">' +
           '<input type="checkbox"' + (isActive ? ' checked' : '') + ' />' +

@@ -55,6 +55,20 @@ def _log_admin_action(
     except Exception:  # pragma: no cover
         pass
 
+def _evict_item_from_carts(item_id: str) -> None:
+    """Remove item_id from every saved cart so users can't check out stale data."""
+    if not os.path.isfile(_SHOP_DB):
+        return
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("DELETE FROM cart_items WHERE item_id = ?", (item_id,))
+        conn.commit()
+        conn.close()
+    except sqlite3.Error:
+        pass
+
+
 def admin_list_items() -> list:
     """Return ALL items (including inactive), merged with overrides."""
     _reload_items()
@@ -86,6 +100,7 @@ def admin_set_override(item_id: str, active: bool | None, stock: int | None,
     )
     conn.commit()
     conn.close()
+    _evict_item_from_carts(item_id)
     _reload_items()
     if active is not None:
         _log_admin_action(
@@ -915,6 +930,8 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
             return {"error": f"Failed to write catalogue: {exc}"}
 
     _reload_items()
+    if not is_new:
+        _evict_item_from_carts(item["id"])
     _log_admin_action(
         actor,
         "item_created" if is_new else "item_edited",
@@ -954,6 +971,7 @@ def admin_delete_item(item_id: str, actor: str = "unknown") -> dict:
             print(f"[ADMIN] Failed to cancel auctions for deleted item {item_id}: {exc}",
                   file=sys.stderr)
 
+    _evict_item_from_carts(item_id)
     _log_admin_action(actor, "item_deleted", item_id, {"item_id": item_id})
     return {"ok": True}
 

@@ -1726,6 +1726,7 @@
       if (++done < 2) return;
       renderBalanceBar();
       updateFilterBarData();
+      loadCart((_binData && _binData.items) || []);
       renderContent();
     }
     fetchBinData(function (data) { if (data) check(); else check(); });
