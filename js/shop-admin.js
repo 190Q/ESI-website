@@ -6,9 +6,10 @@
 
   var _items = null;
   var _auctions = null;
-  var _activeTab = 'items';
-  var _isChief = false;
-  var _shellBuilt = false;
+  var _activeTab    = 'items';
+  var _isChief      = false; // any shop admin (chief+ or parliament+)
+  var _isParliament = false; // parliament+ only
+  var _shellBuilt   = false;
 
   var _svg = {
     check:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
@@ -23,6 +24,7 @@
     gift:    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>',
     pin:     '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>',
     dash:    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+    chevron: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>',
   };
 
   function esc(s) {
@@ -62,13 +64,15 @@
   function buildShell() {
     if (_shellBuilt) return;
     _shellBuilt = true;
-    _isChief = window.hasShopAdmin ? window.hasShopAdmin() : false;
+    _isChief      = window.hasShopAdmin      ? window.hasShopAdmin()      : false;
+    _isParliament = window.hasParliamentPlus ? window.hasParliamentPlus() : false;
 
     panel.innerHTML =
       '<div class="shop-tabs" id="saTabs">' +
         '<button class="shop-tab active" data-tab="items">Items</button>' +
         '<button class="shop-tab" data-tab="queue">Queue</button>' +
         '<button class="shop-tab" data-tab="logs">Logs</button>' +
+        '<button class="shop-tab" data-tab="users">Users</button>' +
       '</div>' +
       '<div id="saContent"></div>' +
       '<div class="shop-modal-backdrop" id="saModalBackdrop">' +
@@ -107,6 +111,7 @@
     if (_activeTab === 'items') renderItems(c);
     else if (_activeTab === 'queue') renderQueue(c);
     else if (_activeTab === 'logs') renderLogs(c);
+    else if (_activeTab === 'users') renderUsers(c);
   }
 
   function fmtDate(iso) {
@@ -146,7 +151,7 @@
 
   function renderItemsTable(c) {
     var html = '';
-    if (_isChief) {
+    if (_isParliament) {
       html += '<div style="display:flex;justify-content:flex-end;margin-bottom:12px;">' +
         '<button class="shop-modal-btn shop-modal-btn--confirm" id="saNewItem">+ New Item</button>' +
         '</div>';
@@ -154,16 +159,18 @@
     var _binItems = (_items || []).filter(function (it) { return it.type !== 'auction'; });
     var _aucItems = (_items || []).filter(function (it) { return it.type === 'auction'; });
 
-    html += '<div class="sa-table ie-item-table" id="saItemTable">';
+    html += '<div class="sa-table ie-item-table' + (_isParliament ? '' : ' ie-item-table--ro') + '" id="saItemTable">';
     html += '<div class="sa-row sa-header ie-row-cols">' +
       '<span></span><span>Name</span><span>ID</span><span>Type</span><span>Category</span>' +
-      '<span>Active</span><span>Stock</span><span>Controls</span></div>';
+      '<span>Active</span><span>Stock</span>' +
+      (_isParliament ? '<span>Controls</span>' : '') +
+      '</div>';
 
     function _renderItemRow(item, skipAuctionControls) {
       var isActive = item.active !== false;
       var rowClass = 'sa-row' + (!isActive ? ' sa-row--inactive' : '');
 
-      html += '<div class="' + rowClass + '" data-item-id="' + esc(item.id) + '" draggable="true">';
+      html += '<div class="' + rowClass + '" data-item-id="' + esc(item.id) + '"' + (_isParliament ? ' draggable="true"' : '') + '>';
       html += '<span class="sa-grip" title="Drag to reorder">' + _svg.grip + '</span>';
       html += '<span class="sa-item-name">' + esc(item.name) + '</span>';
       html += '<span class="sa-item-id">' + esc(item.id) + '</span>';
@@ -176,7 +183,7 @@
       var cats = Array.isArray(item.category) ? item.category : (item.category ? [item.category] : []);
       html += '<span>' + (cats.length
         ? cats.map(function (c) { return '<span class="sa-pill sa-pill--cat">' + esc(c) + '</span>'; }).join(' ')
-        : '<span style="color:var(--text-faint)">\u2014</span>') + '</span>';
+        : '<span style="color:var(--text-faint)">N/A</span>') + '</span>';
 
       // active toggle
       if (skipAuctionControls && item.type === 'auction') {
@@ -184,7 +191,7 @@
         html += '<span>' + (_hasLive
           ? '<span class="sa-pill sa-pill--live">Live</span>'
           : '<span class="sa-pill" style="color:var(--text-faint);border-color:var(--border)">Not live</span>') + '</span>';
-      } else if (_isChief) {
+      } else if (_isParliament) {
         html += '<span><label class="settings-toggle" data-toggle-id="' + esc(item.id) + '">' +
           '<input type="checkbox"' + (isActive ? ' checked' : '') + ' />' +
           '<span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>' +
@@ -196,7 +203,7 @@
       // stock (not applicable for auctions)
       if (item.type === 'auction') {
         html += '<span style="color:var(--text-faint)">N/A</span>';
-      } else if (_isChief) {
+      } else if (_isParliament) {
         var stockVal = item.stock != null ? item.stock : '';
         html += '<span><input type="number" class="sa-stock-input" data-stock-id="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="\u221E" /></span>';
       } else {
@@ -204,8 +211,9 @@
       }
 
       // controls: auction actions + edit + delete
+      if (_isParliament) {
       html += '<span class="sa-actions-cell">';
-      if (_isChief && item.type === 'auction' && !skipAuctionControls) {
+      if (item.type === 'auction' && !skipAuctionControls) {
         var activeAuction = (_auctions || []).find(function (a) { return a.item_id === item.id && a.status === 'active'; });
         if (activeAuction) {
           html += '<button class="sa-action-btn sa-pill sa-pill--auction" data-manage-auction="' + esc(activeAuction.auction_id) + '">Manage</button>';
@@ -213,11 +221,10 @@
           html += '<button class="sa-action-btn" data-start-auction="' + esc(item.id) + '">Start</button>';
         }
       }
-      if (_isChief) {
         html += '<button class="sa-action-btn ie-edit-btn" data-edit-item="' + esc(item.id) + '">Edit</button>';
         html += '<button class="sa-action-btn sa-action-btn--danger" data-del-item="' + esc(item.id) + '">Delete</button>';
-      }
       html += '</span>';
+      }
       html += '</div>';
     }
 
@@ -231,16 +238,16 @@
       } else if (_liveAucMap[item.id]) {
         var auc = _liveAucMap[item.id];
         var isActive = item.active !== false;
-        html += '<div class="sa-row sa-row--live' + (!isActive ? ' sa-row--inactive' : '') + '" data-item-id="' + esc(item.id) + '" draggable="true">';
-        html += '<span class="sa-grip" title="Drag to reorder">' + _svg.grip + '</span>';
+        html += '<div class="sa-row sa-row--live' + (!isActive ? ' sa-row--inactive' : '') + '" data-item-id="' + esc(item.id) + '"' + (_isParliament ? ' draggable="true"' : '') + '>';
+        html += '<span class="sa-grip"' + (_isParliament ? ' title="Drag to reorder"' : ' style="opacity:0.2;cursor:default"') + '>' + _svg.grip + '</span>';
         html += '<span class="sa-item-name">' + esc(item.name) + '</span>';
         html += '<span class="sa-item-id">' + esc(item.id) + '</span>';
         html += '<span><span class="sa-pill sa-pill--auction">Auction</span></span>';
         var liveCats = Array.isArray(item.category) ? item.category : (item.category ? [item.category] : []);
         html += '<span>' + (liveCats.length
           ? liveCats.map(function (c) { return '<span class="sa-pill sa-pill--cat">' + esc(c) + '</span>'; }).join(' ')
-          : '<span style="color:var(--text-faint)">\u2014</span>') + '</span>';
-        if (_isChief) {
+          : '<span style="color:var(--text-faint)">N/A</span>') + '</span>';
+        if (_isParliament) {
           html += '<span><label class="settings-toggle" data-toggle-id="' + esc(item.id) + '">' +
             '<input type="checkbox"' + (isActive ? ' checked' : '') + ' />' +
             '<span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>' +
@@ -249,9 +256,11 @@
           html += '<span class="' + (isActive ? 'sa-status-on' : 'sa-status-off') + '">' + (isActive ? 'Active' : 'Inactive') + '</span>';
         }
         html += '<span style="color:var(--text-faint)">N/A</span>';
-        html += '<span class="sa-actions-cell">';
-        html += '<button class="sa-action-btn sa-pill sa-pill--auction" data-manage-auction="' + esc(auc.auction_id) + '">Manage</button>';
-        html += '</span>';
+        if (_isParliament) {
+          html += '<span class="sa-actions-cell">';
+          html += '<button class="sa-action-btn sa-pill sa-pill--auction" data-manage-auction="' + esc(auc.auction_id) + '">Manage</button>';
+          html += '</span>';
+        } // end _isParliament controls
         html += '</div>';
       }
     });
@@ -552,7 +561,7 @@
           h += '<span class="am-bid-time">' + fmtDate(b.placed_at) + '</span>';
           h += '<span class="am-bid-actions">';
           if (b.is_winning) h += '<span class="am-bid-status am-bid-status--win">Winning</span> ';
-          h += '<button class="am-bid-remove" data-remove-bid="' + esc(b.bid_id) + '" aria-label="Remove bid">' + _svg.close + '</button>';
+          if (_isParliament) h += '<button class="am-bid-remove" data-remove-bid="' + esc(b.bid_id) + '" aria-label="Remove bid">' + _svg.close + '</button>';
           h += '</span>';
           h += '</div>';
         });
@@ -589,18 +598,20 @@
       h += '<span>' + fmtDate(data.ends_at) + '</span>';
       h += '</div></div>';
 
-      // Adjust end time
-      var curExt = data.extended_hours || 0;
-      h += '<div class="am-adjust">';
-      h += '<span class="am-tl-label" style="min-width:auto">Adjust end time</span>';
-      h += '<div class="am-stepper">';
-      h += '<button class="am-step-btn" id="amDec" aria-label="Decrease">' + _svg.minus + '</button>';
-      h += '<input type="text" inputmode="numeric" class="am-step-input" id="amHoursInput" value="' + curExt + '" />';
-      h += '<button class="am-step-btn" id="amInc">+</button>';
-      h += '</div>';
-      h += '<span class="am-step-unit">hours</span>';
-      h += '<button class="sa-action-btn" id="amApply" style="margin-left:4px;display:none">Apply</button>';
-      h += '</div>';
+      // Adjust end time (Parliament only)
+      if (_isParliament) {
+        var curExt = data.extended_hours || 0;
+        h += '<div class="am-adjust">';
+        h += '<span class="am-tl-label" style="min-width:auto">Adjust end time</span>';
+        h += '<div class="am-stepper">';
+        h += '<button class="am-step-btn" id="amDec" aria-label="Decrease">' + _svg.minus + '</button>';
+        h += '<input type="text" inputmode="numeric" class="am-step-input" id="amHoursInput" value="' + curExt + '" />';
+        h += '<button class="am-step-btn" id="amInc">+</button>';
+        h += '</div>';
+        h += '<span class="am-step-unit">hours</span>';
+        h += '<button class="sa-action-btn" id="amApply" style="margin-left:4px;display:none">Apply</button>';
+        h += '</div>';
+      }
 
       // Anti-snipe
       if (antiSnipeMin > 0) {
@@ -608,19 +619,21 @@
       }
       h += '</div>';
 
-      // Cancel auction
-      h += '<div class="am-cancel-row">';
-      h += '<button class="am-cancel-btn" id="amCancel">' + _svg.close + ' Cancel auction</button>';
-      h += '</div>';
+      // Cancel auction (Parliament only)
+      if (_isParliament) {
+        h += '<div class="am-cancel-row">';
+        h += '<button class="am-cancel-btn" id="amCancel">' + _svg.close + ' Cancel auction</button>';
+        h += '</div>';
+      }
 
       modal.innerHTML = h;
       _bindModalEvents();
     }
 
     function _bindModalEvents() {
-      var inp = document.getElementById('amHoursInput');
+      var inp      = document.getElementById('amHoursInput');
       var applyBtn = document.getElementById('amApply');
-      var curExt = data.extended_hours || 0;
+      var curExt   = data.extended_hours || 0; // used even when inputs aren't rendered
 
       function _showApply() {
         var v = parseInt(inp.value, 10) || 0;
@@ -1390,18 +1403,41 @@
 
   function updateQueueBadge() {
     var btn = document.querySelector('#saTabs [data-tab="queue"]');
-    if (!btn || !_queueData) return;
+    if (!_queueData) return;
     var count = (_queueData.purchases || []).length + (_queueData.donations || []).length;
-    var badge = btn.querySelector('.sa-badge');
-    if (count > 0) {
-      if (!badge) {
-        badge = document.createElement('span');
-        badge.className = 'sa-badge';
-        btn.appendChild(badge);
+
+    // badge on the Queue tab inside the panel
+    if (btn) {
+      var badge = btn.querySelector('.sa-badge');
+      if (count > 0) {
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.className = 'sa-badge';
+          btn.appendChild(badge);
+        }
+        badge.textContent = count;
+      } else if (badge) {
+        badge.remove();
       }
-      badge.textContent = count;
-    } else if (badge) {
-      badge.remove();
+    }
+
+    // badge on the Manage Shop sidebar nav item (same style as the events badge)
+    var navItem = document.querySelector('[data-panel="shop-admin"]');
+    if (navItem) {
+      var navBadge = navItem.querySelector('.nav-upcoming-badge');
+      if (count > 0) {
+        if (!navBadge) {
+          navBadge = document.createElement('span');
+          navBadge.className = 'nav-upcoming-badge';
+          navBadge.setAttribute('aria-hidden', 'true');
+          navItem.appendChild(navBadge);
+        }
+        navBadge.textContent = count > 9 ? '9+' : String(count);
+        navItem.setAttribute('title', count + ' pending item' + (count === 1 ? '' : 's') + ' in queue');
+      } else {
+        if (navBadge) navBadge.remove();
+        navItem.removeAttribute('title');
+      }
     }
   }
 
@@ -1687,15 +1723,178 @@
   /* Logs & History */
   var _logsData = null;
   var _logsPage = 1;
-  var _logsFilters = { username: '', item_id: '', status: '', date_from: '', date_to: '' };
+  var _logsFilters = { log_type: 'activity', username: '', item_id: '', type: '', status: '', date_from: '', date_to: '' };
+
+  /* Changes log */
+  var _changesData = null;
+  var _changesPage = 1;
+  var _changesFilters = { actor: '', action: '', target_id: '', date_from: '', date_to: '' };
+
+  var _ACTION_LABELS = {
+    item_created:       'Item Created',
+    item_edited:        'Item Edited',
+    item_deleted:       'Item Deleted',
+    item_activated:     'Item Activated',
+    item_deactivated:   'Item Deactivated',
+    stock_updated:      'Stock Updated',
+    items_reordered:    'Items Reordered',
+    auction_started:    'Auction Started',
+    auction_extended:   'Auction Extended',
+    auction_cancelled:  'Auction Cancelled',
+    bid_removed:        'Bid Removed',
+    purchase_fulfilled: 'Purchase Fulfilled',
+    purchase_rejected:  'Purchase Rejected',
+    donation_confirmed: 'Donation Confirmed',
+    donation_rejected:  'Donation Rejected',
+  };
+
+  var _ACTION_TYPES = Object.keys(_ACTION_LABELS);
+
+  function fetchChanges(cb) {
+    var qs = 'page=' + _changesPage + '&per_page=50';
+    if (_changesFilters.actor)     qs += '&actor='     + encodeURIComponent(_changesFilters.actor);
+    if (_changesFilters.action)    qs += '&action='    + encodeURIComponent(_changesFilters.action);
+    if (_changesFilters.target_id) qs += '&target_id=' + encodeURIComponent(_changesFilters.target_id);
+    if (_changesFilters.date_from) qs += '&date_from=' + encodeURIComponent(_changesFilters.date_from);
+    if (_changesFilters.date_to)   qs += '&date_to='   + encodeURIComponent(_changesFilters.date_to);
+    fetch('/api/admin/shop/changes?' + qs, { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d) _changesData = d; if (cb) cb(d); })
+      .catch(function () { if (cb) cb(null); });
+  }
+
+  function _fmtChangesDetails(row) {
+    var d = row.details || {};
+    var action = row.action;
+    if (action === 'item_created' || action === 'item_edited') {
+      return esc(d.item_id || row.target_id || '') +
+        (d.type ? ' <span style="color:var(--text-faint)">(' + esc(d.type) + ')</span>' : '');
+    }
+    if (action === 'item_deleted')      return esc(d.item_id || row.target_id || '');
+    if (action === 'item_activated' || action === 'item_deactivated') {
+      return esc(d.item_id || row.target_id || '');
+    }
+    if (action === 'stock_updated') {
+      var ns = d.new_stock != null ? d.new_stock : '\u221E';
+      return esc(d.item_id || row.target_id || '') +
+        ' \u2192 ' + esc(String(ns));
+    }
+    if (action === 'items_reordered') return (d.count || '?') + ' items';
+    if (action === 'auction_started') {
+      return esc(d.item_id || '') +
+        (d.ends_at ? ' \u2022 ends ' + fmtDate(d.ends_at) : '');
+    }
+    if (action === 'auction_extended') {
+      var h = d.extra_hours > 0 ? '+' + d.extra_hours + 'h' : d.extra_hours + 'h';
+      return esc(row.target_id || '') + ' ' + h;
+    }
+    if (action === 'auction_cancelled') {
+      return esc(d.item_id || row.target_id || '');
+    }
+    if (action === 'bid_removed') {
+      return esc(row.target_id || '') +
+        (d.reason ? ' \u2022 ' + esc(d.reason) : '');
+    }
+    if (action === 'purchase_fulfilled' || action === 'purchase_rejected') {
+      return esc(d.item_id || row.target_id || '') +
+        (d.reason ? ' \u2022 ' + esc(d.reason) : '') +
+        (d.note   ? ' \u2022 ' + esc(d.note)   : '');
+    }
+    if (action === 'donation_confirmed' || action === 'donation_rejected') {
+      return esc(row.target_id || '') +
+        (d.reason ? ' \u2022 ' + esc(d.reason) : '');
+    }
+    return esc(row.target_id || '');
+  }
+
+  function renderChangesContent(c) {
+    if (!_changesData) { c.innerHTML = '<div class="shop-empty">Could not load changes.</div>'; return; }
+    var html = '';
+
+    // filter bar
+    html += '<div class="sa-filter-bar">';
+    html += '<select class="sa-filter-input" id="saLogTypeView">' +
+      '<option value="activity">Activity</option>' +
+      '<option value="changes" selected>Changes</option>' +
+      '</select>';
+    html += '<input class="sa-filter-input" id="saChgActor" placeholder="Actor" maxlength="64" value="' + esc(_changesFilters.actor) + '" />';
+    html += '<input class="sa-filter-input" id="saChgTarget" placeholder="Target ID" maxlength="64" value="' + esc(_changesFilters.target_id) + '" />';
+    html += '<select class="sa-filter-input" id="saChgAction"><option value="">All actions</option>' +
+      _ACTION_TYPES.map(function (a) {
+        return '<option value="' + esc(a) + '"' + (_changesFilters.action === a ? ' selected' : '') + '>' +
+          esc(_ACTION_LABELS[a] || a) + '</option>';
+      }).join('') + '</select>';
+    html += '<span class="sa-filter-label">From:</span><input type="date" class="sa-filter-input" id="saChgFrom" value="' + esc(_changesFilters.date_from) + '" />';
+    html += '<span class="sa-filter-label">To:</span><input type="date" class="sa-filter-input" id="saChgTo" value="' + esc(_changesFilters.date_to) + '" />';
+    html += '<button class="shop-modal-btn shop-modal-btn--confirm" id="saChgSearch" style="padding:5px 14px;font-size:0.72rem;">Search</button>';
+    html += '</div>';
+
+    html += '<div class="sa-table">';
+    html += '<div class="sa-row sa-header sa-log-row sa-chg-row"><span>Time</span><span>Actor</span><span>Action</span><span>Details</span></div>';
+    if (!_changesData.rows || !_changesData.rows.length) {
+      html += '<div class="sa-row sa-log-row sa-chg-row" style="justify-content:center;color:var(--text-faint);">No records found.</div>';
+    }
+    (_changesData.rows || []).forEach(function (row) {
+      html += '<div class="sa-row sa-log-row sa-chg-row">';
+      html += '<span>' + fmtDate(row.timestamp) + '</span>';
+      html += '<span>' + esc(row.actor) + '</span>';
+      html += '<span><span class="sa-log-type sa-log-type--change">' +
+        esc(_ACTION_LABELS[row.action] || row.action) + '</span></span>';
+      html += '<span style="font-size:0.8rem;color:var(--text-secondary)">' + _fmtChangesDetails(row) + '</span>';
+      html += '</div>';
+    });
+    html += '</div>';
+
+    // pagination
+    var chgHasMore = !!_changesData.has_more;
+    html += '<div class="sa-pagination">';
+    html += '<button class="shop-modal-btn shop-modal-btn--cancel sa-page-btn" data-chg-page="prev"' + (_changesPage <= 1 ? ' disabled' : '') + '><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg> Prev</button>';
+    html += '<span class="sa-page-info">Page ' + _changesPage + '</span>';
+    html += '<button class="shop-modal-btn shop-modal-btn--cancel sa-page-btn" data-chg-page="next"' + (!chgHasMore ? ' disabled' : '') + '>Next <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
+    html += '</div>';
+
+    c.innerHTML = html;
+
+    // log type switcher — immediate, no Search needed
+    document.getElementById('saLogTypeView').addEventListener('change', function () {
+      _logsFilters.log_type = this.value;
+      _logsPage = 1; _logsData = null;
+      _changesPage = 1; _changesData = null;
+      _renderLogsBody();
+    });
+    document.getElementById('saChgSearch').addEventListener('click', function () {
+      _changesFilters.actor     = document.getElementById('saChgActor').value.trim();
+      _changesFilters.action    = document.getElementById('saChgAction').value;
+      _changesFilters.target_id = document.getElementById('saChgTarget').value.trim();
+      _changesFilters.date_from = document.getElementById('saChgFrom').value;
+      _changesFilters.date_to   = document.getElementById('saChgTo').value;
+      _changesPage = 1;
+      _changesData = null;
+      renderChanges(c);
+    });
+    c.querySelectorAll('[data-chg-page]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (btn.dataset.chgPage === 'prev' && _changesPage > 1) _changesPage--;
+        else if (btn.dataset.chgPage === 'next') _changesPage++;
+        _changesData = null;
+        renderChanges(c);
+      });
+    });
+  }
+
+  function renderChanges(c) {
+    c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading changes\u2026</div>';
+    fetchChanges(function () { renderChangesContent(c); });
+  }
 
   function fetchLogs(cb) {
     var qs = 'page=' + _logsPage + '&per_page=50';
-    if (_logsFilters.username) qs += '&username=' + encodeURIComponent(_logsFilters.username);
-    if (_logsFilters.item_id) qs += '&item_id=' + encodeURIComponent(_logsFilters.item_id);
-    if (_logsFilters.status) qs += '&status=' + encodeURIComponent(_logsFilters.status);
+    if (_logsFilters.username)  qs += '&username=' + encodeURIComponent(_logsFilters.username);
+    if (_logsFilters.item_id)   qs += '&item_id='  + encodeURIComponent(_logsFilters.item_id);
+    if (_logsFilters.type)      qs += '&type='     + encodeURIComponent(_logsFilters.type);
+    if (_logsFilters.status)    qs += '&status='   + encodeURIComponent(_logsFilters.status);
     if (_logsFilters.date_from) qs += '&date_from=' + encodeURIComponent(_logsFilters.date_from);
-    if (_logsFilters.date_to) qs += '&date_to=' + encodeURIComponent(_logsFilters.date_to);
+    if (_logsFilters.date_to)   qs += '&date_to='   + encodeURIComponent(_logsFilters.date_to);
     fetch('/api/admin/shop/logs?' + qs, { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) { if (d) _logsData = d; if (cb) cb(d); })
@@ -1703,9 +1902,30 @@
   }
 
   function renderLogs(c) {
-    c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading logs\u2026</div>';
-    fetchLogs(function () { renderLogsContent(c); });
+    c.innerHTML = '<div id="saLogBody"></div>';
+    _renderLogsBody();
   }
+
+  function _renderLogsBody() {
+    var body = document.getElementById('saLogBody');
+    if (!body) return;
+    if (_logsFilters.log_type === 'changes') {
+      if (!_changesData) {
+        body.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading changes\u2026</div>';
+        fetchChanges(function () { renderChangesContent(body); });
+      } else {
+        renderChangesContent(body);
+      }
+    } else {
+      if (!_logsData) {
+        body.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading logs\u2026</div>';
+        fetchLogs(function () { renderLogsContent(body); });
+      } else {
+        renderLogsContent(body);
+      }
+    }
+  }
+
 
   function renderLogsContent(c) {
     if (!_logsData) { c.innerHTML = '<div class="shop-empty">Could not load logs.</div>'; return; }
@@ -1713,20 +1933,31 @@
 
     // filter bar
     html += '<div class="sa-filter-bar">';
-    html += '<input class="sa-filter-input" id="saLogUser" placeholder="Username" value="' + esc(_logsFilters.username) + '" />';
-    html += '<input class="sa-filter-input" id="saLogItem" placeholder="Item ID" value="' + esc(_logsFilters.item_id) + '" />';
+    html += '<select class="sa-filter-input" id="saLogTypeView">' +
+      '<option value="activity" selected>Activity</option>' +
+      '<option value="changes">Changes</option>' +
+      '</select>';
+    html += '<input class="sa-filter-input" id="saLogUser" placeholder="Username" maxlength="32" value="' + esc(_logsFilters.username) + '" />';
+    html += '<input class="sa-filter-input" id="saLogItem" placeholder="Item ID" maxlength="64" value="' + esc(_logsFilters.item_id) + '" />';
+    html += '<select class="sa-filter-input" id="saLogType">' +
+      '<option value="">All types</option>' +
+      '<option value="purchase"' + (_logsFilters.type === 'purchase' ? ' selected' : '') + '>Purchase</option>' +
+      '<option value="bid"'      + (_logsFilters.type === 'bid'      ? ' selected' : '') + '>Bid</option>' +
+      '<option value="donation"' + (_logsFilters.type === 'donation' ? ' selected' : '') + '>Donation</option>' +
+      '</select>';
     html += '<select class="sa-filter-input" id="saLogStatus"><option value="">All statuses</option>' +
-      '<option value="pending"' + (_logsFilters.status === 'pending' ? ' selected' : '') + '>Pending</option>' +
+      '<option value="pending"'   + (_logsFilters.status === 'pending'   ? ' selected' : '') + '>Pending</option>' +
       '<option value="fulfilled"' + (_logsFilters.status === 'fulfilled' ? ' selected' : '') + '>Fulfilled</option>' +
-      '<option value="rejected"' + (_logsFilters.status === 'rejected' ? ' selected' : '') + '>Rejected</option>' +
-      '<option value="active"' + (_logsFilters.status === 'active' ? ' selected' : '') + '>Active</option>' +
+      '<option value="confirmed"' + (_logsFilters.status === 'confirmed' ? ' selected' : '') + '>Confirmed</option>' +
+      '<option value="rejected"'  + (_logsFilters.status === 'rejected'  ? ' selected' : '') + '>Rejected</option>' +
+      '<option value="active"'    + (_logsFilters.status === 'active'    ? ' selected' : '') + '>Active</option>' +
       '</select>';
     html += '<span class="sa-filter-label">From:</span><input type="date" class="sa-filter-input" id="saLogFrom" value="' + esc(_logsFilters.date_from) + '" />';
     html += '<span class="sa-filter-label">To:</span><input type="date" class="sa-filter-input" id="saLogTo" value="' + esc(_logsFilters.date_to) + '" />';
     html += '<button class="shop-modal-btn shop-modal-btn--confirm" id="saLogSearch" style="padding:5px 14px;font-size:0.72rem;">Search</button>';
     html += '</div>';
 
-    // unified feed: merge purchases + bids, sort by date desc
+    // unified feed: merge purchases + bids + donations, sort by date desc
     var feed = [];
     (_logsData.purchases || []).forEach(function (p) {
       feed.push({ type: 'purchase', date: p.purchased_at, user: p.username, item: p.item_id,
@@ -1739,6 +1970,12 @@
         status: b.auction_status === 'closed' ? (b.is_winning ? 'won' : 'outbid') : 'active',
         id: b.bid_id });
     });
+    (_logsData.donations || []).forEach(function (d) {
+      feed.push({ type: 'donation', date: d.submitted_at, user: d.username,
+        item: num(d.le_amount) + ' LE',
+        ep: d.dirty_ep_to_grant, clean: 0, dirty: d.dirty_ep_to_grant,
+        status: d.status, id: d.ticket_id });
+    });
     feed.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
 
     html += '<div class="sa-table">';
@@ -1749,12 +1986,13 @@
     }
     var _typeIcons = { purchase: _svg.cart, bid: _svg.gavel, donation: _svg.gift };
     var _statusCfg  = {
-      pending:  { icon: _svg.clock, cls: 'pending' },
-      fulfilled:{ icon: _svg.check, cls: 'fulfilled' },
-      rejected: { icon: _svg.close, cls: 'rejected' },
-      active:   { icon: _svg.play,  cls: 'active' },
-      won:      { icon: _svg.check, cls: 'won' },
-      outbid:   { icon: _svg.dash,  cls: 'outbid' },
+      pending:   { icon: _svg.clock, cls: 'pending' },
+      fulfilled: { icon: _svg.check, cls: 'fulfilled' },
+      confirmed: { icon: _svg.check, cls: 'fulfilled' },
+      rejected:  { icon: _svg.close, cls: 'rejected' },
+      active:    { icon: _svg.play,  cls: 'active' },
+      won:       { icon: _svg.check, cls: 'won' },
+      outbid:    { icon: _svg.dash,  cls: 'outbid' },
     };
     feed.forEach(function (f) {
       html += '<div class="sa-row sa-log-row">';
@@ -1773,37 +2011,396 @@
     html += '</div>';
 
     // pagination
-    var totalPages = Math.max(1, Math.ceil(Math.max(_logsData.total_purchases, _logsData.total_bids) / 50));
+    var hasMore = !!_logsData.has_more;
     html += '<div class="sa-pagination">';
     html += '<button class="shop-modal-btn shop-modal-btn--cancel sa-page-btn" data-page="prev"' + (_logsPage <= 1 ? ' disabled' : '') + '><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg> Prev</button>';
     html += '<span class="sa-page-info">Page ' + _logsPage + '</span>';
-    html += '<button class="shop-modal-btn shop-modal-btn--cancel sa-page-btn" data-page="next"' + (_logsPage >= totalPages ? ' disabled' : '') + '>Next <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
+    html += '<button class="shop-modal-btn shop-modal-btn--cancel sa-page-btn" data-page="next"' + (!hasMore ? ' disabled' : '') + '>Next <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
     html += '</div>';
 
     c.innerHTML = html;
 
+    // log type switcher — immediate, no Search needed
+    document.getElementById('saLogTypeView').addEventListener('change', function () {
+      _logsFilters.log_type = this.value;
+      _logsPage = 1; _logsData = null;
+      _changesPage = 1; _changesData = null;
+      _renderLogsBody();
+    });
     // bind filter search
     document.getElementById('saLogSearch').addEventListener('click', function () {
-      _logsFilters.username = document.getElementById('saLogUser').value.trim();
-      _logsFilters.item_id = document.getElementById('saLogItem').value.trim();
-      _logsFilters.status = document.getElementById('saLogStatus').value;
+      _logsFilters.username  = document.getElementById('saLogUser').value.trim();
+      _logsFilters.item_id   = document.getElementById('saLogItem').value.trim();
+      _logsFilters.type      = document.getElementById('saLogType').value;
+      _logsFilters.status    = document.getElementById('saLogStatus').value;
       _logsFilters.date_from = document.getElementById('saLogFrom').value;
-      _logsFilters.date_to = document.getElementById('saLogTo').value;
+      _logsFilters.date_to   = document.getElementById('saLogTo').value;
       _logsPage = 1;
       _logsData = null;
-      renderLogs(c);
+      _renderLogsBody();
     });
 
     // bind pagination
-    c.querySelectorAll('.sa-page-btn').forEach(function (btn) {
+    c.querySelectorAll('[data-page]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         if (btn.dataset.page === 'prev' && _logsPage > 1) _logsPage--;
         else if (btn.dataset.page === 'next') _logsPage++;
         _logsData = null;
-        renderLogs(c);
+        _renderLogsBody();
       });
     });
 
+  }
+
+  /* Users Tab */
+  var _users         = null;
+  var _usersPage     = 1;
+  var _usersPerPage  = 10;
+  var _usersFilters  = { search: '', activity: '', sort: 'az' };
+  var _usersOpenUuid = null;
+  var _usersCartOpen = {};
+
+  function fetchUsers(cb) {
+    fetch('/api/admin/shop/users', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d) _users = d; if (cb) cb(d); })
+      .catch(function () { if (cb) cb(null); });
+  }
+
+  function _filterSortUsers() {
+    if (!_users) return [];
+    var list = _users.slice();
+    var s = (_usersFilters.search || '').toLowerCase();
+    if (s) list = list.filter(function (u) { return (u.username || '').toLowerCase().indexOf(s) !== -1; });
+    var act = _usersFilters.activity;
+    if (act === 'purchases') list = list.filter(function (u) { return (u.orders  || 0) > 0; });
+    else if (act === 'bids')      list = list.filter(function (u) { return (u.bids     || 0) > 0; });
+    else if (act === 'donations') list = list.filter(function (u) { return (u.donations|| 0) > 0; });
+    var sort = _usersFilters.sort;
+    list.sort(function (a, b) {
+      if (sort === 'ep_desc') return (b.ep_total  || 0) - (a.ep_total  || 0);
+      if (sort === 'ep_asc')  return (a.ep_total  || 0) - (b.ep_total  || 0);
+      if (sort === 'orders')  return (b.orders    || 0) - (a.orders    || 0);
+      if (sort === 'donated') return (b.donations || 0) - (a.donations || 0);
+      if (sort === 'recent')  return (b.last_activity || '').localeCompare(a.last_activity || '');
+      if (sort === 'az')      return (a.username  || '').localeCompare(b.username  || '');
+      return 0;
+    });
+    return list;
+  }
+
+  function _isUserActive(u) {
+    if (!u.last_activity) return false;
+    return u.last_activity >= new Date(Date.now() - 30 * 24 * 3600000).toISOString();
+  }
+
+  function renderUsers(c) {
+    if (!_users) {
+      c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading users\u2026</div>';
+      fetchUsers(function () { _renderUsersContent(c); });
+    } else {
+      _renderUsersContent(c);
+    }
+  }
+
+  function _renderUsersContent(c) {
+    if (!_users) { c.innerHTML = '<div class="shop-empty">Could not load users.</div>'; return; }
+
+    // Preserve focus + cursor across re-renders
+    var _prevFocusId  = document.activeElement && document.activeElement.id;
+    var _prevSelStart = null, _prevSelEnd = null;
+    if (_prevFocusId && document.activeElement.selectionStart != null) {
+      _prevSelStart = document.activeElement.selectionStart;
+      _prevSelEnd   = document.activeElement.selectionEnd;
+    }
+    function _restoreFocus() {
+      if (!_prevFocusId) return;
+      var el = document.getElementById(_prevFocusId);
+      if (!el) return;
+      el.focus();
+      if (_prevSelStart != null && el.setSelectionRange) {
+        try { el.setSelectionRange(_prevSelStart, _prevSelEnd); } catch (e) {}
+      }
+    }
+    var filtered    = _filterSortUsers();
+    var total       = filtered.length;
+    var totalPages  = Math.max(1, Math.ceil(total / _usersPerPage));
+    if (_usersPage > totalPages) _usersPage = 1;
+    var start = (_usersPage - 1) * _usersPerPage;
+    var page  = filtered.slice(start, start + _usersPerPage);
+    var html  = '';
+
+    /* Filter bar */
+    html += '<div class="sa-filter-bar">';
+    html += '<input class="sa-filter-input" id="suSearch" placeholder="Search username\u2026" maxlength="32" value="' + esc(_usersFilters.search) + '" />';
+    html += '<select class="sa-filter-input" id="suActivity">' +
+      '<option value=""'          + (_usersFilters.activity === ''          ? ' selected' : '') + '>All users</option>' +
+      '<option value="purchases"' + (_usersFilters.activity === 'purchases' ? ' selected' : '') + '>Has purchases</option>' +
+      '<option value="bids"'      + (_usersFilters.activity === 'bids'      ? ' selected' : '') + '>Has bids</option>' +
+      '<option value="donations"' + (_usersFilters.activity === 'donations' ? ' selected' : '') + '>Has donations</option>' +
+      '</select>';
+    html += '<select class="sa-filter-input" id="suSort">' +
+      [['az','A\u2192Z'],['ep_desc','Most EP spent'],['ep_asc','Least EP spent'],['orders','Most orders'],['donated','Most donated'],['recent','Most recent']]
+      .map(function (s) { return '<option value="' + s[0] + '"' + (_usersFilters.sort === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('') +
+      '</select>';
+    html += '</div>';
+    html += '<div class="su-count">' + total + ' user' + (total !== 1 ? 's' : '') + '</div>';
+
+    if (!page.length) {
+      html += '<div class="shop-empty">No users found.</div>';
+      c.innerHTML = html;
+      _bindUsersFilters(c);
+      _restoreFocus();
+      return;
+    }
+
+    /* Table */
+    html += '<div class="sa-table">';
+    html += '<div class="sa-row sa-header su-row">';
+    html += '<span></span><span>User</span><span>EP Spent</span><span>Orders</span><span>Bids</span><span>Donations</span><span>Last Activity</span><span>Status</span>';
+    html += '</div>';
+
+    page.forEach(function (u) {
+      var active = _isUserActive(u);
+      var isOpen = _usersOpenUuid === u.uuid;
+      html += '<div class="sa-row su-row su-user-row' + (isOpen ? ' su-row--open' : '') + '" data-uuid="' + esc(u.uuid) + '">';
+      html += '<span class="su-expand">' + _svg.chevron + '</span>';
+      html += '<span class="su-user-cell">' +
+        '<span class="su-username">' + esc(u.username) + '</span>' +
+        '<span class="su-tag">' + (u.discord_id ? esc(u.discord_id) : esc((u.uuid || '').substring(0, 8) + '\u2026')) + '</span>' +
+        '</span>';
+      html += '<span class="su-ep-cell">' +
+        '<span class="su-ep-total">' + num(u.ep_total) + ' EP</span>' +
+        '<span class="su-ep-split">' + num(u.ep_clean) + 'c + ' + num(u.ep_dirty) + 'd</span>' +
+        '</span>';
+      html += '<span>' + (u.orders    || 0) + '</span>';
+      html += '<span>' + (u.bids      || 0) + '</span>';
+      html += '<span>' + (u.donations || 0) + '</span>';
+      html += '<span class="su-date">' + fmtDate(u.last_activity) + '</span>';
+      html += '<span><span class="su-status su-status--' + (active ? 'active' : 'inactive') + '">' + (active ? 'Active' : 'Inactive') + '</span></span>';
+      html += '</div>';
+      if (isOpen) {
+        html += '<div class="su-drawer">' + _buildUserDrawer(u) + '</div>';
+      }
+    });
+    html += '</div>';
+
+    /* Pagination */
+    html += '<div class="sa-pagination">';
+    html += '<button class="shop-modal-btn shop-modal-btn--cancel sa-page-btn" data-su-page="prev"' + (_usersPage <= 1 ? ' disabled' : '') + '><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg> Prev</button>';
+    html += '<span class="sa-page-info">Page ' + _usersPage + ' of ' + totalPages + '</span>';
+    html += '<button class="shop-modal-btn shop-modal-btn--cancel sa-page-btn" data-su-page="next"' + (_usersPage >= totalPages ? ' disabled' : '') + '>Next <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
+    html += '</div>';
+
+    c.innerHTML = html;
+    _bindUsersFilters(c);
+    _restoreFocus();
+    /* Bind: row expand/collapse */
+    c.querySelectorAll('.su-user-row').forEach(function (row) {
+      row.addEventListener('click', function () {
+        var uuid = row.dataset.uuid;
+        _usersOpenUuid = (_usersOpenUuid === uuid) ? null : uuid;
+        _renderUsersContent(c);
+      });
+    });
+    /* Bind: cart section toggles */
+    c.querySelectorAll('[data-cart-toggle]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var uuid = btn.dataset.cartToggle;
+        _usersCartOpen[uuid] = (_usersCartOpen[uuid] === false) ? true : false;
+        _renderUsersContent(c);
+      });
+    });
+    /* Bind: pagination */
+    c.querySelectorAll('[data-su-page]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (btn.dataset.suPage === 'prev' && _usersPage > 1) _usersPage--;
+        else if (btn.dataset.suPage === 'next') _usersPage++;
+        _usersOpenUuid = null;
+        _renderUsersContent(c);
+      });
+    });
+  }
+
+  function _bindUsersFilters(c) {
+    document.getElementById('suSearch').addEventListener('input', function () {
+      _usersFilters.search = this.value;
+      _usersPage = 1; _usersOpenUuid = null;
+      _renderUsersContent(c);
+    });
+    document.getElementById('suActivity').addEventListener('change', function () {
+      _usersFilters.activity = this.value;
+      _usersPage = 1; _usersOpenUuid = null;
+      _renderUsersContent(c);
+    });
+    document.getElementById('suSort').addEventListener('change', function () {
+      _usersFilters.sort = this.value;
+      _usersPage = 1; _usersOpenUuid = null;
+      _renderUsersContent(c);
+    });
+  }
+
+  function _buildUserDrawer(u) {
+    var html = '';
+    var bal          = u.balance || {};
+    var totalReserved = (bal.clean_reserved || 0) + (bal.dirty_reserved || 0);
+
+    /* Six-metric strip */
+    html += '<div class="su-metrics">';
+    [
+      [num(u.ep_total)    + ' EP', 'Total spent'],
+      [num(u.ep_clean)    + ' EP', 'Clean spent'],
+      [num(u.ep_dirty)    + ' EP', 'Dirty spent'],
+      [String(u.orders       || 0), 'Orders'],
+      [String(u.bids         || 0), 'Bids placed'],
+      [String(u.winning_bids || 0), 'Auctions won'],
+    ].forEach(function (m) {
+      html += '<div class="su-metric"><div class="su-metric-val">' + esc(m[0]) + '</div>' +
+              '<div class="su-metric-lbl">' + esc(m[1]) + '</div></div>';
+    });
+    html += '</div>';
+
+    /* EP Balance card */
+    function _balCol(tot, res, fre, label) {
+      var pct = (tot > 0) ? Math.min(100, (res / tot) * 100) : 0;
+      return '<div class="su-bal-col">' +
+        '<div class="su-bal-col-title">' + label + '</div>' +
+        '<div class="su-bal-row"><span>Total</span><span>'    + num(tot) + ' EP</span></div>' +
+        '<div class="su-bal-row su-bal-row--reserved"><span>Reserved</span><span>' + num(res) + ' EP</span></div>' +
+        '<div class="su-bal-row su-bal-row--free"><span>Free</span><span>'    + num(fre) + ' EP</span></div>' +
+        '<div class="su-bal-bar"><div class="su-bal-bar-res" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+        '</div>';
+    }
+    html += '<div class="su-bal-card">' +
+      '<div class="su-bal-header">' +
+        '<span class="su-bal-title">EP Balance</span>' +
+        '<div class="su-bal-totals">' +
+          '<span class="su-bal-total">'      + num(bal.total || 0) + ' EP</span>' +
+          '<span class="su-bal-free-total">' + num(bal.free  || 0) + ' free</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="su-bal-grid">' +
+        _balCol(bal.clean_total, bal.clean_reserved, bal.clean_free, 'Clean EP') +
+        _balCol(bal.dirty_total, bal.dirty_reserved, bal.dirty_free, 'Dirty EP') +
+      '</div>' +
+      '<div class="su-bal-legend">' +
+        '<span class="su-bal-dot su-bal-dot--res"></span><span>Reserved</span>' +
+        '<span class="su-bal-dot su-bal-dot--free"></span><span>Free</span>' +
+      '</div>' +
+    '</div>';
+
+    /* Three detail cards */
+    html += '<div class="su-cards">';
+
+    /* Account card */
+    html += '<div class="su-card"><div class="su-card-title">Account</div>';
+    [
+      ['Username',      esc(u.username)],
+      ['Discord ID',    u.discord_id ? esc(u.discord_id) : '<span style="color:var(--text-faint)">N/A</span>'],
+      ['First seen',    esc(fmtDate(u.first_seen))],
+      ['Last activity', esc(fmtDate(u.last_activity))],
+    ].forEach(function (r) {
+      html += '<div class="su-card-row"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>';
+    });
+    html += '</div>';
+
+    /* Order history card */
+    html += '<div class="su-card"><div class="su-card-title">Order History</div>';
+    [
+      ['Total orders', String(u.orders    || 0)],
+      ['Fulfilled',    '<span style="color:var(--online)">'  + (u.fulfilled || 0) + '</span>'],
+      ['Rejected',     '<span style="color:var(--danger)">'  + (u.rejected  || 0) + '</span>'],
+      ['Donations',    String(u.donations || 0)],
+    ].forEach(function (r) {
+      html += '<div class="su-card-row"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>';
+    });
+    html += '</div>';
+
+    /* Auction activity card */
+    html += '<div class="su-card"><div class="su-card-title">Auction Activity</div>';
+    [
+      ['Total bids',   String(u.bids         || 0)],
+      ['Active bids',  String(u.active_bids  || 0)],
+      ['Auctions won', String(u.winning_bids || 0)],
+    ].forEach(function (r) {
+      html += '<div class="su-card-row"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>';
+    });
+    html += '</div>';
+
+    html += '</div>'; /* su-cards */
+
+    /* Collapsible cart section */
+    var cart       = u.cart || [];
+    var cartOpen   = _usersCartOpen[u.uuid] !== false; // default open
+    var cartQty    = cart.reduce(function (s, ci) { return s + (ci.quantity || 1); }, 0);
+    var cartEpSum  = cart.reduce(function (s, ci) { return s + (ci.price_each || 0) * (ci.quantity || 1); }, 0);
+    html += '<div class="su-cart-section">';
+    html += '<div class="su-cart-header" data-cart-toggle="' + esc(u.uuid) + '">';
+    html += '<span class="su-cart-title">' +
+      '<span class="su-cart-chev' + (cartOpen ? ' su-cart-chev--open' : '') + '">' + _svg.chevron + '</span>' +
+      'Current cart</span>';
+    html += '<span class="su-cart-summary">' +
+      (cart.length ? cartQty + ' item' + (cartQty !== 1 ? 's' : '') + ' \u00b7 ' + num(cartEpSum) + ' EP' : '<span style="color:var(--text-faint)">Empty</span>') +
+      '</span>';
+    html += '</div>'; /* su-cart-header */
+    if (cartOpen) {
+      html += '<div class="su-cart-body">';
+      if (!cart.length) {
+        html += '<div style="color:var(--text-faint);font-size:0.8rem;font-style:italic;padding:6px 0">Cart is empty.</div>';
+      } else {
+        html += '<div class="su-cart-table">';
+        html += '<div class="su-cart-row su-cart-hdr"><span>Item</span><span>Type</span><span>Qty</span><span>Unit price</span><span>Total</span><span>EP type</span></div>';
+        cart.forEach(function (ci) {
+          var lineTotal = (ci.price_each || 0) * (ci.quantity || 1);
+          var typePill  = ci.type === 'donate'
+            ? '<span class="sa-pill sa-pill--donate">Donate</span>'
+            : '<span class="sa-pill sa-pill--bin">Bin</span>';
+          var epLabel   = ci.ep_type === 'dirty' ? 'Dirty' : ci.ep_type === 'mixed' ? 'Mixed' : 'Clean';
+          var epPill    = '<span class="su-ep-pill su-ep-pill--' + (ci.ep_type || 'clean') + '">' + epLabel + '</span>';
+          html += '<div class="su-cart-row">';
+          html += '<span class="su-item" title="' + esc(ci.item_id) + '">' + esc(ci.item_name || ci.item_id) + '</span>';
+          html += '<span>' + typePill + '</span>';
+          html += '<span>' + (ci.quantity || 1) + '</span>';
+          html += '<span>' + num(ci.price_each) + ' EP</span>';
+          html += '<span>' + num(lineTotal) + ' EP</span>';
+          html += '<span>' + epPill + '</span>';
+          html += '</div>';
+        });
+        html += '</div>'; /* su-cart-table */
+        html += '<div class="su-cart-total">Cart total: <strong>' + num(cartEpSum) + ' EP</strong></div>';
+        if (totalReserved) {
+          html += '<div class="su-cart-note">Reserved EP (' + num(totalReserved) + ' EP) is from active auction bids and is separate from this cart.</div>';
+        }
+      }
+      html += '</div>'; /* su-cart-body */
+    }
+    html += '</div>'; /* su-cart-section */
+
+    /* Recent activity */
+    html += '<div class="su-recent"><div class="su-recent-title">Recent Activity</div>';
+    if (!u.recent || !u.recent.length) {
+      html += '<div style="color:var(--text-faint);font-size:0.8rem;font-style:italic;padding:6px 0">No activity recorded.</div>';
+    } else {
+      var _ti = { purchase: _svg.cart, bid: _svg.gavel, donation: _svg.gift };
+      var _sc = { pending:'pending', fulfilled:'fulfilled', rejected:'rejected', active:'active', won:'won', outbid:'outbid', confirmed:'fulfilled' };
+      html += '<div class="su-recent-table">';
+      html += '<div class="su-recent-row su-recent-hdr"><span>Date</span><span>Type</span><span>Item</span><span>EP</span><span>Status</span></div>';
+      (u.recent || []).forEach(function (r) {
+        var sc = _sc[r.status] || 'active';
+        html += '<div class="su-recent-row">';
+        html += '<span class="su-recent-date">' + fmtDate(r.date) + '</span>';
+        html += '<span><span class="sa-log-type sa-log-type--' + esc(r.type) + '">' + (_ti[r.type] || '') + ' ' + esc(r.type) + '</span></span>';
+        html += '<span class="su-item">' + esc(r.item || 'N/A') + '</span>';
+        html += '<span>' + num(r.ep) + ' EP</span>';
+        html += '<span><span class="sa-log-status sa-log-status--' + sc + '">' + esc(r.status) + '</span></span>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>'; /* su-recent */
+
+    return html;
   }
 
   /* Init */

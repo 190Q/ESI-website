@@ -106,7 +106,8 @@ select.ie-input { cursor: pointer; }
   margin-top: 2px;
   border-top: 1px solid var(--border);
 }
-.ie-item-table .sa-row { grid-template-columns: 24px 1.8fr 1.4fr 0.6fr 0.8fr 0.6fr 0.7fr 1.5fr; }
+.ie-item-table .sa-row                    { grid-template-columns: 24px 1.8fr 1.4fr 0.6fr 0.8fr 0.6fr 0.7fr 1.5fr; }
+.ie-item-table.ie-item-table--ro .sa-row  { grid-template-columns: 24px 2.3fr 1.8fr 0.8fr 1.1fr 0.8fr 1.0fr; }
 .sa-grip {
   color: var(--text-faint);
   cursor: grab;
@@ -1146,3 +1147,457 @@ select.sa-filter-input { cursor: pointer; }
 }
 .ie-img-add-btn:hover:not(:disabled) { border-color: var(--gold-dim); color: var(--gold-light); }
 .ie-img-add-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Logs Activity / Changes sub-tabs */
+.sa-log-subtabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+.sa-log-subtab {
+  padding: 5px 16px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius) var(--radius) 0 0;
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: color var(--transition), border-color var(--transition), background var(--transition);
+}
+.sa-log-subtab:hover { color: var(--text-dim); }
+.sa-log-subtab.active {
+  color: var(--gold-light);
+  border-color: var(--border) var(--border) transparent;
+  background: var(--surface-2);
+  margin-bottom: -1px;
+}
+
+/* Changes log row: 4-column grid */
+.sa-log-row.sa-chg-row { grid-template-columns: 1.3fr 0.9fr 1.1fr 1.8fr; }
+
+/* Users tab */
+.su-count {
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  color: var(--gold-dim);
+  letter-spacing: 0.06em;
+  margin-bottom: 10px;
+}
+
+/* Users table row: [expand] [user] [EP] [orders] [bids] [donations] [last activity] [status] */
+.su-row { grid-template-columns: 1.8rem 1.8fr 1.2fr 0.7fr 0.7fr 0.9fr 1.4fr 0.9fr; }
+
+.su-user-row { cursor: pointer; }
+.su-user-row:hover { background: var(--surface-2); }
+.su-row--open { background: var(--surface-2); border-bottom: none !important; }
+
+/* Expand chevron */
+.su-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+.su-expand svg {
+  transition: transform 0.18s ease;
+  display: block;
+}
+.su-user-row:hover .su-expand {
+  border-color: var(--gold-dim);
+  color: var(--text-main);
+}
+.su-row--open .su-expand {
+  background: rgba(212,160,23,0.08);
+  border-color: var(--gold-dim);
+  color: var(--gold-light);
+}
+.su-row--open .su-expand svg {
+  transform: rotate(90deg);
+}
+
+/* User cell */
+.su-user-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.su-username {
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--gold-light);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.su-tag {
+  font-family: monospace;
+  font-size: 0.67rem;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* EP cell */
+.su-ep-cell { display: flex; flex-direction: column; gap: 1px; }
+.su-ep-total { font-weight: 600; font-size: 0.82rem; color: var(--warn); }
+.su-ep-split { font-size: 0.68rem; color: var(--text-faint); }
+
+.su-date { font-size: 0.78rem; color: var(--text-dim); }
+
+/* Status badge */
+.su-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.su-status--active   { background: rgba(59,165,92,0.12); color: var(--online); border: 1px solid rgba(59,165,92,0.3); }
+.su-status--inactive { background: transparent; color: var(--text-faint); border: 1px solid var(--border); }
+
+/* Expandable drawer */
+.su-drawer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  padding: 16px;
+  margin-bottom: 1px;
+}
+
+/* Six-metric strip */
+.su-metrics {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.su-metric {
+  flex: 1;
+  min-width: 90px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.su-metric-val {
+  font-family: 'Cinzel', serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--gold-light);
+  line-height: 1.1;
+}
+.su-metric-lbl {
+  font-size: 0.6rem;
+  color: var(--text-faint);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-align: center;
+}
+/* Three detail cards */
+.su-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.su-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.su-card-title {
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold-dim);
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.su-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.su-card-row:last-child { border-bottom: none; }
+.su-card-row > span:first-child { color: var(--text-faint); white-space: nowrap; flex-shrink: 0; }
+.su-card-row > span:last-child  { color: var(--text-main); text-align: right; }
+/* EP Balance card */
+.su-bal-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.su-bal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.su-bal-title {
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gold-dim);
+}
+.su-bal-totals {
+  display: flex;
+  gap: 14px;
+  align-items: baseline;
+}
+.su-bal-total {
+  font-family: 'Cinzel', serif;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.su-bal-free-total {
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--online);
+}
+.su-bal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+.su-bal-col { }
+.su-bal-col-title {
+  font-family: 'Cinzel', serif;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+.su-bal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.su-bal-row > span:first-child { color: var(--text-faint); }
+.su-bal-row--reserved > span { color: #9b6db5; }
+.su-bal-row--free {
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  border-bottom: none;
+}
+.su-bal-row--free > span { color: var(--online); font-weight: 600; }
+.su-bal-bar {
+  height: 5px;
+  background: rgba(59,165,92,0.25);
+  border-radius: 3px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+.su-bal-bar-res {
+  height: 100%;
+  background: #9b6db5;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.su-bal-legend {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+.su-bal-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.su-bal-dot--res  { background: #9b6db5; }
+.su-bal-dot--free { background: rgba(59,165,92,0.6); }
+
+/* Recent activity */
+.su-recent-title {
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gold-dim);
+  margin-bottom: 8px;
+}
+.su-recent-table { }
+.su-recent-row {
+  display: grid;
+  grid-template-columns: 1.5fr 0.9fr 1.6fr 0.65fr 0.9fr;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  align-items: center;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.su-recent-row:last-child { border-bottom: none; }
+.su-recent-hdr {
+  font-family: 'Cinzel', serif;
+  font-size: 0.6rem;
+  color: var(--text-faint);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0 0 6px;
+}
+.su-recent-date { font-size: 0.76rem; color: var(--text-dim); }
+.su-item {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Cart section */
+.su-cart-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+.su-cart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--surface);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition);
+}
+.su-cart-header:hover { background: var(--surface-2); }
+.su-cart-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--gold-light);
+}
+.su-cart-chev svg {
+  display: block;
+  transition: transform 0.18s ease;
+  color: var(--text-faint);
+}
+.su-cart-chev--open svg { transform: rotate(90deg); }
+.su-cart-summary {
+  font-family: 'Cinzel', serif;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  letter-spacing: 0.03em;
+}
+.su-cart-body { padding: 10px 12px; background: var(--surface); border-top: 1px solid var(--border); }
+.su-cart-table { margin-bottom: 8px; }
+.su-cart-row {
+  display: grid;
+  grid-template-columns: 1.8fr 0.7fr 0.4fr 0.9fr 0.9fr 0.7fr;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  align-items: center;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.su-cart-row:last-child { border-bottom: none; }
+.su-cart-hdr {
+  font-family: 'Cinzel', serif;
+  font-size: 0.6rem;
+  color: var(--text-faint);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0 0 6px;
+}
+.su-cart-total {
+  text-align: right;
+  font-family: 'Cinzel', serif;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.su-cart-total strong { color: var(--gold-light); }
+.su-cart-note {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+  font-style: italic;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(106,74,122,0.2);
+  color: #9b6db5;
+}
+
+/* EP type pills in cart */
+.su-ep-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.su-ep-pill--clean { background: rgba(59,165,92,0.12);  color: var(--online); border: 1px solid rgba(59,165,92,0.3);  }
+.su-ep-pill--dirty { background: rgba(250,166,26,0.12); color: var(--warn);   border: 1px solid rgba(250,166,26,0.3); }
+.su-ep-pill--mixed { background: rgba(106,74,122,0.12); color: #c084e0;       border: 1px solid rgba(106,74,122,0.3); }
+
+@media (max-width: 700px) {
+  .su-cards { grid-template-columns: 1fr; }
+  .su-row   { grid-template-columns: 1.8rem 1fr 1fr 1fr; }
+  .su-metrics { gap: 6px; }
+  .su-metric  { min-width: calc(33% - 6px); }
+}
+
+/* Change action type pill */
+.sa-log-type--change {
+  background: rgba(212,160,23,0.1);
+  color: var(--gold-dim);
+  border: 1px solid rgba(212,160,23,0.25);
+  text-transform: none;
+}

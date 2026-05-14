@@ -6,13 +6,54 @@ import threading
 import uuid as _uuid_mod
 from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
-from config import _SHOP_DB, _POINTS_DB, _SHOP_ITEMS_JSON
+from config import _SHOP_DB, _POINTS_DB, _SHOP_ITEMS_JSON, _USERNAME_MATCHES_JSON, _load_json_file as _cfg_load_json
 from shop.items import get_items, reload as _reload_items
 from shop.auction import _resolve_discord_id_for_uuid, _dm_in_background
 
 
 _now = lambda: _dt.now(_tz.utc)
 _now_iso = lambda: _now().isoformat()
+
+
+def _ensure_admin_log_table(conn: sqlite3.Connection) -> None:
+    """Create shop_admin_log if it doesn't exist yet (idempotent)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS shop_admin_log (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT    NOT NULL,
+            actor     TEXT    NOT NULL,
+            action    TEXT    NOT NULL,
+            target_id TEXT,
+            details   TEXT
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sal_timestamp ON shop_admin_log (timestamp)"
+    )
+
+def _log_admin_action(
+    actor: str,
+    action: str,
+    target_id: str | None = None,
+    details: dict | None = None,
+) -> None:
+    """Insert a row into shop_admin_log. Silently ignores errors."""
+    if not os.path.isfile(_SHOP_DB):
+        return
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_admin_log_table(conn)
+        conn.execute(
+            "INSERT INTO shop_admin_log (timestamp, actor, action, target_id, details)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (_now_iso(), actor, action, target_id,
+             json.dumps(details, ensure_ascii=False) if details else None),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:  # pragma: no cover
+        pass
 
 def admin_list_items() -> list:
     """Return ALL items (including inactive), merged with overrides."""
@@ -46,6 +87,18 @@ def admin_set_override(item_id: str, active: bool | None, stock: int | None,
     conn.commit()
     conn.close()
     _reload_items()
+    if active is not None:
+        _log_admin_action(
+            updated_by,
+            "item_activated" if active else "item_deactivated",
+            item_id,
+            {"item_id": item_id},
+        )
+    if stock is not None:
+        _log_admin_action(
+            updated_by, "stock_updated", item_id,
+            {"item_id": item_id, "new_stock": stock},
+        )
     return {"item_id": item_id, "active": active, "stock": stock,
             "updated_by": updated_by, "updated_at": now_iso}
 
@@ -61,7 +114,6 @@ def _restore_stock(conn, item_id: str, quantity: int, now_iso: str) -> None:
             "WHERE item_id = ?",
             (quantity, now_iso, item_id),
         )
-
 
 def admin_cancel_purchase(purchase_id: str, reason: str, chief_name: str) -> dict:
     """Reject a bin purchase. EP refund is automatic (status='rejected' excluded from balance)."""
@@ -102,6 +154,10 @@ def admin_cancel_purchase(purchase_id: str, reason: str, chief_name: str) -> dic
             f"Reason: _{reason}_\n"
             f"Your {row['ep_spent']} EP has been refunded.")
 
+    _log_admin_action(
+        chief_name, "purchase_rejected", purchase_id,
+        {"purchase_id": purchase_id, "item_id": row["item_id"], "reason": reason},
+    )
     return {"ok": True, "purchase_id": purchase_id, "status": "rejected"}
 
 def admin_cancel_auction(auction_id: str, chief_name: str) -> dict:
@@ -149,6 +205,11 @@ def admin_cancel_auction(auction_id: str, chief_name: str) -> dict:
             pts.close()
         except sqlite3.Error as exc:
             print(f"[ADMIN] Failed to release reservations: {exc}", file=sys.stderr)
+
+    _log_admin_action(
+        chief_name, "auction_cancelled", auction_id,
+        {"auction_id": auction_id, "item_id": arow["item_id"]},
+    )
 
     # notify bidders
     item_name = arow["item_id"]
@@ -214,7 +275,6 @@ def admin_auction_detail(auction_id: str) -> dict:
         }
     except sqlite3.Error as exc:
         return {"error": f"Database error: {exc}"}
-
 
 def admin_remove_bid(bid_id: str, chief_name: str, reason: str | None = None) -> dict:
     """Remove a bid from an active auction, release its EP reservation, notify the user."""
@@ -291,10 +351,16 @@ def admin_remove_bid(bid_id: str, chief_name: str, reason: str | None = None) ->
             msg += f"\nReason: _{reason}_"
         _dm_in_background(did, msg)
 
+    _log_admin_action(
+        chief_name, "bid_removed", bid_id,
+        {"bid_id": bid_id, "auction_id": auction_id,
+         "amount": bid_amount, "reason": reason or None},
+    )
     return {"ok": True, "bid_id": bid_id, "auction_id": auction_id}
 
 
-def admin_extend_auction(auction_id: str, extra_hours: int) -> dict:
+def admin_extend_auction(auction_id: str, extra_hours: int,
+                         actor: str = "unknown") -> dict:
     """Extend (or reduce if negative) an active auction's end time."""
     conn = sqlite3.connect(_SHOP_DB, timeout=10)
     conn.row_factory = sqlite3.Row
@@ -335,31 +401,69 @@ def admin_extend_auction(auction_id: str, extra_hours: int) -> dict:
     )
     conn.commit()
     conn.close()
+    _log_admin_action(
+        actor, "auction_extended", auction_id,
+        {"auction_id": auction_id, "extra_hours": extra_hours,
+         "new_ends_at": new_ends.isoformat()},
+    )
     return {"ok": True, "auction_id": auction_id, "new_ends_at": new_ends.isoformat()}
+
+def _ensure_log_indexes(conn: sqlite3.Connection) -> None:
+    """Idempotently create performance indexes for the log queries."""
+    stmts = [
+        "CREATE INDEX IF NOT EXISTS idx_bin_purchases_purchased_at "
+        "ON bin_purchases (purchased_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_bin_purchases_username "
+        "ON bin_purchases (username)",
+        "CREATE INDEX IF NOT EXISTS idx_bin_purchases_item_id "
+        "ON bin_purchases (item_id)",
+        "CREATE INDEX IF NOT EXISTS idx_bids_placed_at "
+        "ON bids (placed_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_bids_username "
+        "ON bids (username)",
+    ]
+    for s in stmts:
+        try:
+            conn.execute(s)
+        except sqlite3.OperationalError:
+            pass
 
 def admin_get_logs(page: int = 1, per_page: int = 50,
                    username: str | None = None, item_id: str | None = None,
-                   status: str | None = None,
+                   status: str | None = None, entry_type: str | None = None,
                    date_from: str | None = None, date_to: str | None = None) -> dict:
-    """Paginated view of bin_purchases + bids."""
+    """Paginated view of bin_purchases + bids + donation_tickets.  Uses LIMIT
+    N+1 to avoid COUNT(*) scans; returns ``has_more`` instead of totals."""
     offset = (page - 1) * per_page
-    purchases = []
-    bids = []
+    fetch  = per_page + 1
+    purchases: list  = []
+    bids:      list  = []
+    donations: list  = []
+    has_more_p = False
+    has_more_b = False
+    has_more_d = False
 
-    is_active_filter = (status == "active")
-    is_purchase_status = status in ("pending", "fulfilled", "rejected")
+    is_active_filter   = (status == "active")
+    # statuses that only exist on purchases (not bids or donations)
+    is_purchase_only_status = status == "fulfilled"
+    # statuses that never appear on bids
+    is_not_bid_status = status in ("pending", "fulfilled", "rejected", "confirmed")
+    want_purchases = not entry_type or entry_type == "purchase"
+    want_bids      = not entry_type or entry_type == "bid"
+    want_donations = not entry_type or entry_type == "donation"
 
     if os.path.isfile(_SHOP_DB):
         conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.row_factory = sqlite3.Row
+        _ensure_log_indexes(conn)
 
-        # purchases (skip entirely when filtering for 'active' — not a purchase status)
-        total_p = 0
-        if not is_active_filter:
+        # purchases (skip when type!=purchase or status=active)
+        if want_purchases and not is_active_filter:
             pw = ["1=1"]
-            pp = []
+            pp: list = []
             if username:
-                pw.append("LOWER(username) LIKE ?"); pp.append(f"%{username.lower()}%")
+                pw.append("username LIKE ?"); pp.append(f"%{username}%")
             if item_id:
                 pw.append("item_id = ?"); pp.append(item_id)
             if status:
@@ -370,22 +474,20 @@ def admin_get_logs(page: int = 1, per_page: int = 50,
                 pw.append("purchased_at <= ?"); pp.append(date_to)
 
             where = " AND ".join(pw)
-            total_p = conn.execute(
-                f"SELECT COUNT(*) FROM bin_purchases WHERE {where}", pp,
-            ).fetchone()[0]
-            rows = conn.execute(
-                f"SELECT * FROM bin_purchases WHERE {where} ORDER BY purchased_at DESC LIMIT ? OFFSET ?",
-                pp + [per_page, offset],
+            raw = conn.execute(
+                f"SELECT * FROM bin_purchases WHERE {where}"
+                f" ORDER BY purchased_at DESC LIMIT ? OFFSET ?",
+                pp + [fetch, offset],
             ).fetchall()
-            purchases = [dict(r) for r in rows]
+            has_more_p = len(raw) > per_page
+            purchases  = [dict(r) for r in raw[:per_page]]
 
-        # bids (skip when filtering by purchase-only statuses)
-        total_b = 0
-        if not is_purchase_status:
+        # bids (skip when type!=bid, status=active applies as filter, skip on non-bid statuses)
+        if want_bids and not is_not_bid_status:
             bw = ["1=1"]
-            bp = []
+            bp: list = []
             if username:
-                bw.append("LOWER(b.username) LIKE ?"); bp.append(f"%{username.lower()}%")
+                bw.append("b.username LIKE ?"); bp.append(f"%{username}%")
             if item_id:
                 bw.append("a.item_id = ?"); bp.append(item_id)
             if is_active_filter:
@@ -396,25 +498,46 @@ def admin_get_logs(page: int = 1, per_page: int = 50,
                 bw.append("b.placed_at <= ?"); bp.append(date_to)
 
             bwhere = " AND ".join(bw)
-            total_b = conn.execute(
-                f"SELECT COUNT(*) FROM bids b LEFT JOIN auctions a ON a.auction_id = b.auction_id WHERE {bwhere}", bp,
-            ).fetchone()[0]
-            rows = conn.execute(
+            raw = conn.execute(
                 f"SELECT b.*, a.item_id, a.status AS auction_status "
                 f"FROM bids b LEFT JOIN auctions a ON a.auction_id = b.auction_id "
                 f"WHERE {bwhere} ORDER BY b.placed_at DESC LIMIT ? OFFSET ?",
-                bp + [per_page, offset],
+                bp + [fetch, offset],
             ).fetchall()
-            bids = [dict(r) for r in rows]
+            has_more_b = len(raw) > per_page
+            bids       = [dict(r) for r in raw[:per_page]]
+
+        # donations (skip when type!=donation, skip on bid-only or purchase-only statuses)
+        if want_donations and not is_active_filter and not is_purchase_only_status:
+            dw = ["1=1"]
+            dp: list = []
+            if username:
+                dw.append("username LIKE ?"); dp.append(f"%{username}%")
+            if status:
+                dw.append("status = ?"); dp.append(status)
+            if date_from:
+                dw.append("submitted_at >= ?"); dp.append(date_from)
+            if date_to:
+                dw.append("submitted_at <= ?"); dp.append(date_to)
+
+            dwhere = " AND ".join(dw)
+            raw = conn.execute(
+                f"SELECT * FROM donation_tickets WHERE {dwhere}"
+                f" ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
+                dp + [fetch, offset],
+            ).fetchall()
+            has_more_d = len(raw) > per_page
+            donations  = [dict(r) for r in raw[:per_page]]
+
         conn.close()
-    else:
-        total_p = 0
-        total_b = 0
 
     return {
-        "purchases": purchases, "total_purchases": total_p,
-        "bids": bids, "total_bids": total_b,
-        "page": page, "per_page": per_page,
+        "purchases": purchases,
+        "bids":      bids,
+        "donations": donations,
+        "has_more":  has_more_p or has_more_b or has_more_d,
+        "page":      page,
+        "per_page":  per_page,
     }
 
 def admin_get_reservations() -> list:
@@ -516,6 +639,16 @@ def admin_fulfill(ticket_type: str, ticket_id: str, chief_note: str | None,
 
     conn.commit()
     conn.close()
+    if ticket_type == "purchase":
+        _log_admin_action(
+            chief_name, "purchase_fulfilled", ticket_id,
+            {"purchase_id": ticket_id, "note": chief_note},
+        )
+    else:
+        _log_admin_action(
+            chief_name, "donation_confirmed", ticket_id,
+            {"ticket_id": ticket_id, "note": chief_note},
+        )
     return {"ok": True, "ticket_id": ticket_id, "status": "fulfilled", "resolved_at": now_iso}
 
 def admin_reject(ticket_type: str, ticket_id: str, reason: str,
@@ -584,6 +717,16 @@ def admin_reject(ticket_type: str, ticket_id: str, reason: str,
                 f"Your {label} ({ep_info}) has been rejected by {chief_name}.\n"
                 f"Reason: _{reason}_")
 
+    if ticket_type == "purchase":
+        _log_admin_action(
+            chief_name, "purchase_rejected", ticket_id,
+            {"purchase_id": ticket_id, "item_id": row["item_id"], "reason": reason},
+        )
+    else:
+        _log_admin_action(
+            chief_name, "donation_rejected", ticket_id,
+            {"ticket_id": ticket_id, "reason": reason},
+        )
     return {"ok": True, "ticket_id": ticket_id, "status": "rejected", "resolved_at": now_iso}
 
 # Item catalogue write operations
@@ -623,7 +766,6 @@ def _coerce_bool(v, default=True) -> bool:
         return default
     return bool(v)
 
-
 def _parse_categories(raw) -> list | None:
     """Parse a category field into a list of trimmed, non-empty strings.
 
@@ -646,7 +788,6 @@ def _parse_categories(raw) -> list | None:
             out.append(p)
     return out or None
 
-
 def _parse_images(raw) -> list | None:
     """Parse an images field into an ordered list of URL strings, max 3."""
     if isinstance(raw, list):
@@ -656,7 +797,6 @@ def _parse_images(raw) -> list | None:
     else:
         return None
     return parts or None
-
 
 def _build_item(fields: dict) -> dict:
     """Build a canonical item dict from raw form fields."""
@@ -735,8 +875,8 @@ def _build_item(fields: dict) -> dict:
 
     return item
 
-
-def admin_write_item(item_id: str | None, fields: dict, is_new: bool) -> dict:
+def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
+                     actor: str = "unknown") -> dict:
     """Create (is_new=True) or fully update (is_new=False) an item in shop_items.json.
 
     Returns ``{"ok": True, "item": {...}}`` or ``{"error": "..."}"""
@@ -775,10 +915,15 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool) -> dict:
             return {"error": f"Failed to write catalogue: {exc}"}
 
     _reload_items()
+    _log_admin_action(
+        actor,
+        "item_created" if is_new else "item_edited",
+        item["id"],
+        {"item_id": item["id"], "name": item.get("name"), "type": item.get("type")},
+    )
     return {"ok": True, "item": item}
 
-
-def admin_delete_item(item_id: str) -> dict:
+def admin_delete_item(item_id: str, actor: str = "unknown") -> dict:
     """Remove an item from shop_items.json. Returns ``{"ok": True}`` or ``{"error": "..."}"""
     with _json_write_lock:
         from shop.items import _load_json
@@ -809,10 +954,10 @@ def admin_delete_item(item_id: str) -> dict:
             print(f"[ADMIN] Failed to cancel auctions for deleted item {item_id}: {exc}",
                   file=sys.stderr)
 
+    _log_admin_action(actor, "item_deleted", item_id, {"item_id": item_id})
     return {"ok": True}
 
-
-def admin_reorder_items(ordered_ids: list) -> dict:
+def admin_reorder_items(ordered_ids: list, actor: str = "unknown") -> dict:
     """Rewrite shop_items.json so items appear in the order given by *ordered_ids*.
 
     IDs not present in *ordered_ids* are appended at the end (preserving
@@ -845,8 +990,11 @@ def admin_reorder_items(ordered_ids: list) -> dict:
             return {"error": f"Failed to write catalogue: {exc}"}
 
     _reload_items()
+    _log_admin_action(
+        actor, "items_reordered", None,
+        {"count": len(ordered_ids)},
+    )
     return {"ok": True}
-
 
 def admin_start_auction(item_id: str, starter_name: str) -> dict:
     """Create a new active auction instance for an auction-type item."""
@@ -920,6 +1068,10 @@ def admin_start_auction(item_id: str, starter_name: str) -> dict:
     except sqlite3.Error as exc:
         return {"error": f"Failed to create auction: {exc}"}
 
+    _log_admin_action(
+        starter_name, "auction_started", auction_id,
+        {"auction_id": auction_id, "item_id": item_id, "ends_at": ends_at.isoformat()},
+    )
     return {
         "ok": True,
         "auction_id": auction_id,
@@ -927,6 +1079,364 @@ def admin_start_auction(item_id: str, starter_name: str) -> dict:
         "ends_at": ends_at.isoformat(),
         "started_by": starter_name,
     }
+
+def _ensure_changes_log_indexes(conn: sqlite3.Connection) -> None:
+    """Idempotently create performance indexes for admin_get_changes_log."""
+    for s in [
+        "CREATE INDEX IF NOT EXISTS idx_sal_actor     ON shop_admin_log (actor)",
+        "CREATE INDEX IF NOT EXISTS idx_sal_action    ON shop_admin_log (action)",
+        "CREATE INDEX IF NOT EXISTS idx_sal_target_id ON shop_admin_log (target_id)",
+    ]:
+        try:
+            conn.execute(s)
+        except sqlite3.OperationalError:
+            pass
+
+def admin_get_changes_log(
+    page: int = 1, per_page: int = 50,
+    actor: str | None = None,
+    action: str | None = None,
+    target_id: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict:
+    """Paginated view of admin action log.  Uses LIMIT N+1 to avoid
+    COUNT(*) scans; returns ``has_more`` instead of a total count."""
+    offset = (page - 1) * per_page
+    fetch  = per_page + 1
+    if not os.path.isfile(_SHOP_DB):
+        return {"rows": [], "has_more": False, "page": page, "per_page": per_page}
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_admin_log_table(conn)
+        _ensure_changes_log_indexes(conn)
+        conn.row_factory = sqlite3.Row
+
+        w = ["1=1"]
+        p: list = []
+        if actor:
+            w.append("actor LIKE ?")
+            p.append(f"%{actor}%")
+        if action:
+            w.append("action = ?")
+            p.append(action)
+        if target_id:
+            w.append("target_id = ?")
+            p.append(target_id)
+        if date_from:
+            w.append("timestamp >= ?")
+            p.append(date_from)
+        if date_to:
+            w.append("timestamp <= ?")
+            p.append(date_to)
+
+        where = " AND ".join(w)
+        raw = conn.execute(
+            f"SELECT id, timestamp, actor, action, target_id, details "
+            f"FROM shop_admin_log WHERE {where} "
+            f"ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+            p + [fetch, offset],
+        ).fetchall()
+        conn.close()
+
+        has_more = len(raw) > per_page
+        result = []
+        for r in raw[:per_page]:
+            details = None
+            if r["details"]:
+                try:
+                    details = json.loads(r["details"])
+                except (json.JSONDecodeError, TypeError):
+                    details = {}
+            result.append({
+                "id":        r["id"],
+                "timestamp": r["timestamp"],
+                "actor":     r["actor"],
+                "action":    r["action"],
+                "target_id": r["target_id"],
+                "details":   details,
+            })
+        return {"rows": result, "has_more": has_more, "page": page, "per_page": per_page}
+    except sqlite3.Error as exc:
+        return {"rows": [], "has_more": False, "page": page, "per_page": per_page,
+                "error": str(exc)}
+
+def admin_get_users() -> list:
+    """Return aggregated per-user shop activity (purchases + bids + donations)."""
+    if not os.path.isfile(_SHOP_DB):
+        return []
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.row_factory = sqlite3.Row
+
+        # Aggregate purchases per user
+        p_rows = conn.execute("""
+            SELECT uuid, username,
+                   MIN(purchased_at) AS first_seen,
+                   MAX(purchased_at) AS last_p,
+                   SUM(ep_spent) AS ep_total,
+                   SUM(clean_ep_spent) AS ep_clean,
+                   SUM(dirty_ep_spent) AS ep_dirty,
+                   COUNT(*) AS orders,
+                   SUM(CASE WHEN status='fulfilled' THEN 1 ELSE 0 END) AS fulfilled,
+                   SUM(CASE WHEN status='rejected'  THEN 1 ELSE 0 END) AS rejected,
+                   SUM(CASE WHEN status='pending'   THEN 1 ELSE 0 END) AS pending_count
+            FROM bin_purchases GROUP BY uuid
+        """).fetchall()
+
+        # Aggregate bids per user
+        b_rows = conn.execute("""
+            SELECT b.uuid, b.username,
+                   MIN(b.placed_at) AS first_seen,
+                   MAX(b.placed_at) AS last_b,
+                   COUNT(*) AS total_bids,
+                   SUM(CASE WHEN a.status='active' THEN 1 ELSE 0 END) AS active_bids,
+                   COUNT(DISTINCT CASE WHEN b.is_winning=1 AND a.status='closed'
+                         THEN b.auction_id END) AS winning_bids
+            FROM bids b LEFT JOIN auctions a ON a.auction_id = b.auction_id
+            GROUP BY b.uuid
+        """).fetchall()
+
+        # Aggregate donations per user
+        d_rows = conn.execute("""
+            SELECT uuid, username,
+                   MIN(submitted_at) AS first_seen,
+                   MAX(submitted_at) AS last_d,
+                   COUNT(*) AS donations
+            FROM donation_tickets GROUP BY uuid
+        """).fetchall()
+
+        # Recent activity — last 5 per user, all types combined
+        act_rows = conn.execute("""
+            SELECT uuid, 'purchase' AS type, item_id AS item,
+                   ep_spent AS ep, status, purchased_at AS date
+            FROM bin_purchases
+            UNION ALL
+            SELECT b.uuid, 'bid', COALESCE(a.item_id,'') AS item,
+                   b.amount AS ep,
+                   CASE WHEN a.status='active' THEN 'active'
+                        WHEN b.is_winning=1 AND a.status='closed' THEN 'won'
+                        ELSE 'outbid' END AS status,
+                   b.placed_at AS date
+            FROM bids b LEFT JOIN auctions a ON a.auction_id = b.auction_id
+            UNION ALL
+            SELECT uuid, 'donation', '' AS item,
+                   dirty_ep_to_grant AS ep, status, submitted_at AS date
+            FROM donation_tickets
+            ORDER BY date DESC
+        """).fetchall()
+
+        # Cart contents per user
+        cart_rows = conn.execute(
+            "SELECT mc_uuid, item_id, quantity FROM cart_items"
+        ).fetchall()
+
+        # Reserved EP split by type (winning bids on active auctions)
+        res_ep_rows = conn.execute("""
+            SELECT b.uuid,
+                   COALESCE(SUM(b.clean_ep_used), 0) AS reserved_clean,
+                   COALESCE(SUM(b.dirty_ep_used), 0) AS reserved_dirty
+            FROM bids b
+            JOIN auctions a ON a.auction_id = b.auction_id
+            WHERE a.status = 'active' AND b.is_winning = 1
+            GROUP BY b.uuid
+        """).fetchall()
+
+        # Spent EP from fulfilled/pending purchases
+        spent_ep_rows = conn.execute("""
+            SELECT uuid,
+                   COALESCE(SUM(clean_ep_spent), 0) AS spent_clean,
+                   COALESCE(SUM(dirty_ep_spent), 0) AS spent_dirty
+            FROM bin_purchases
+            WHERE status IN ('pending', 'fulfilled')
+            GROUP BY uuid
+        """).fetchall()
+
+        # Confirmed donation dirty EP grants
+        donated_rows_ep = conn.execute("""
+            SELECT uuid, COALESCE(SUM(dirty_ep_to_grant), 0) AS donated_dirty
+            FROM donation_tickets WHERE status = 'confirmed'
+            GROUP BY uuid
+        """).fetchall()
+
+        conn.close()
+    except sqlite3.Error:
+        return []
+
+    # Build reverse UUID -> Discord ID + username maps from username_matches.json
+    try:
+        matches = _cfg_load_json(_USERNAME_MATCHES_JSON) or {}
+        uuid_to_discord: dict  = {}
+        uuid_to_username: dict = {}
+        for did, entry in matches.items():
+            if isinstance(entry, dict):
+                u = entry.get("uuid")
+                if u:
+                    uuid_to_discord[u]  = did
+                    uname = entry.get("username")
+                    if uname:
+                        uuid_to_username[u] = uname
+    except Exception:
+        uuid_to_discord  = {}
+        uuid_to_username = {}
+
+    # Build balance lookup tables
+    res_ep_map: dict  = {r["uuid"]: {"rc": r["reserved_clean"] or 0,
+                                     "rd": r["reserved_dirty"]  or 0}
+                         for r in res_ep_rows}
+    spent_map: dict   = {r["uuid"]: {"sc": r["spent_clean"]  or 0,
+                                     "sd": r["spent_dirty"]   or 0}
+                         for r in spent_ep_rows}
+    donated_map: dict = {r["uuid"]: r["donated_dirty"] or 0 for r in donated_rows_ep}
+
+    # Raw EP totals from _POINTS_DB
+    raw_ep_by_uuid: dict = {}
+    if os.path.isfile(_POINTS_DB):
+        try:
+            pts = sqlite3.connect(_POINTS_DB, timeout=5)
+            pts.row_factory = sqlite3.Row
+            for r in pts.execute("""
+                SELECT uuid,
+                       COALESCE(SUM(clean_ep), 0) AS raw_clean,
+                       COALESCE(SUM(dirty_ep), 0) AS raw_dirty
+                FROM esi_points GROUP BY uuid
+            """).fetchall():
+                raw_ep_by_uuid[r["uuid"]] = {
+                    "rc": r["raw_clean"] or 0,
+                    "rd": r["raw_dirty"] or 0,
+                }
+            pts.close()
+        except sqlite3.Error:
+            pass
+
+    def _make_balance(uuid: str) -> dict:
+        raw     = raw_ep_by_uuid.get(uuid, {"rc": 0, "rd": 0})
+        spent   = spent_map.get(uuid, {"sc": 0, "sd": 0})
+        donated = donated_map.get(uuid, 0)
+        res     = res_ep_map.get(uuid, {"rc": 0, "rd": 0})
+        ct = max(0, raw["rc"] - spent["sc"])
+        dt = max(0, raw["rd"] - spent["sd"] + donated)
+        cr = min(res["rc"], ct)
+        dr = min(res["rd"], dt)
+        return {
+            "clean_total":    ct,
+            "clean_reserved": cr,
+            "clean_free":     ct - cr,
+            "dirty_total":    dt,
+            "dirty_reserved": dr,
+            "dirty_free":     dt - dr,
+            "total":          ct + dt,
+            "free":           (ct - cr) + (dt - dr),
+        }
+
+    # Enrich cart with item catalogue data
+    try:
+        from shop.items import _load_json as _shop_items_json, _load_overrides, _merge as _merge_items
+        _items_map = {it["id"]: it for it in _merge_items(_shop_items_json(), _load_overrides()) if "id" in it}
+    except Exception:
+        _items_map = {}
+
+    def _ep_type_label(item: dict) -> str:
+        if not item.get("accepts_dirty_ep", True): return "clean"
+        so = item.get("spend_order", "clean_first")
+        if so == "dirty_only": return "dirty"
+        if so == "clean_only": return "clean"
+        return "mixed"
+
+    cart_by_uuid: dict = {}
+    for r in cart_rows:
+        it = _items_map.get(r["item_id"], {})
+        cart_by_uuid.setdefault(r["mc_uuid"], []).append({
+            "item_id":    r["item_id"],
+            "item_name":  it.get("name", r["item_id"]),
+            "type":       it.get("type", "bin"),
+            "quantity":   r["quantity"] or 1,
+            "price_each": it.get("price") or 0,
+            "ep_type":    _ep_type_label(it),
+        })
+
+    # Merge aggregates into per-uuid user dicts
+    users: dict = {}
+
+    def _get(uuid, username):
+        if uuid not in users:
+            users[uuid] = {
+                "uuid":        uuid,
+                "username":    username,
+                "discord_id":  uuid_to_discord.get(uuid),
+                "ep_total":    0, "ep_clean": 0, "ep_dirty": 0,
+                "balance":     _make_balance(uuid),
+                "orders":      0, "fulfilled": 0, "rejected": 0, "pending_count": 0,
+                "bids":        0, "active_bids": 0, "winning_bids": 0,
+                "donations":   0,
+                "first_seen":  None,
+                "last_activity": None,
+                "cart":        cart_by_uuid.get(uuid, []),
+            }
+        return users[uuid]
+
+    def _mindate(a, b):
+        if a is None: return b
+        if b is None: return a
+        return a if a < b else b
+
+    def _maxdate(a, b):
+        if a is None: return b
+        if b is None: return a
+        return a if a > b else b
+
+    for r in p_rows:
+        u = _get(r["uuid"], r["username"])
+        u["ep_total"]      += r["ep_total"]      or 0
+        u["ep_clean"]      += r["ep_clean"]      or 0
+        u["ep_dirty"]      += r["ep_dirty"]      or 0
+        u["orders"]        += r["orders"]        or 0
+        u["fulfilled"]     += r["fulfilled"]     or 0
+        u["rejected"]      += r["rejected"]      or 0
+        u["pending_count"] += r["pending_count"] or 0
+        u["first_seen"]    = _mindate(u["first_seen"],   r["first_seen"])
+        u["last_activity"] = _maxdate(u["last_activity"], r["last_p"])
+
+    for r in b_rows:
+        u = _get(r["uuid"], r["username"])
+        u["bids"]         += r["total_bids"]   or 0
+        u["active_bids"]  += r["active_bids"]  or 0
+        u["winning_bids"] += r["winning_bids"] or 0
+        u["first_seen"]    = _mindate(u["first_seen"],   r["first_seen"])
+        u["last_activity"] = _maxdate(u["last_activity"], r["last_b"])
+
+    for r in d_rows:
+        u = _get(r["uuid"], r["username"])
+        u["donations"]    += r["donations"] or 0
+        u["first_seen"]    = _mindate(u["first_seen"],   r["first_seen"])
+        u["last_activity"] = _maxdate(u["last_activity"], r["last_d"])
+
+    # Surface cart-only users (have a saved cart but no purchases/bids/donations yet)
+    for mc_uuid in cart_by_uuid:
+        if mc_uuid not in users:
+            username = uuid_to_username.get(mc_uuid, mc_uuid[:8] + "\u2026")
+            _get(mc_uuid, username)
+
+    # Attach recent activity
+    recent_by_uuid: dict = {}
+    for r in act_rows:
+        uid = r["uuid"]
+        lst = recent_by_uuid.setdefault(uid, [])
+        if len(lst) < 5:
+            lst.append({
+                "type":   r["type"],
+                "item":   r["item"]   or "",
+                "ep":     r["ep"]     or 0,
+                "status": r["status"] or "",
+                "date":   r["date"]   or "",
+            })
+
+    for u in users.values():
+        u["recent"] = recent_by_uuid.get(u["uuid"], [])
+
+    return list(users.values())
 
 
 def admin_get_raw_config() -> list | dict:

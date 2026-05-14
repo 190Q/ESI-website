@@ -823,11 +823,98 @@ def _close_expired_auctions():
                 file=sys.stderr,
             )
 
+def _cancel_orphaned_auction(auction_id: str, item_id: str, now_iso: str) -> None:
+    """Cancel an auction whose item no longer exists, release all EP, DM bidders."""
+    print(f"[AUCTION] Orphaned auction {auction_id} (item '{item_id}' removed) — cancelling.",
+          file=sys.stderr)
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("BEGIN IMMEDIATE")
+
+        live = conn.execute(
+            "SELECT status FROM auctions WHERE auction_id = ?", (auction_id,)
+        ).fetchone()
+        if not live or live["status"] != "active":
+            conn.rollback(); conn.close()
+            return
+
+        bidders = conn.execute(
+            "SELECT DISTINCT uuid FROM bids WHERE auction_id = ?", (auction_id,)
+        ).fetchall()
+
+        conn.execute(
+            "UPDATE auctions SET status = 'cancelled' WHERE auction_id = ?",
+            (auction_id,)
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[AUCTION] Failed to cancel orphan {auction_id}: {exc}", file=sys.stderr)
+        return
+
+    # Release EP reservations
+    source = f"auction:{auction_id}"
+    if os.path.isfile(_POINTS_DB):
+        try:
+            pts = sqlite3.connect(_POINTS_DB, timeout=10)
+            pts.execute(
+                "UPDATE ep_reservations SET released_at = ? "
+                "WHERE source = ? AND released_at IS NULL",
+                (now_iso, source),
+            )
+            pts.commit()
+            pts.close()
+        except sqlite3.Error as exc:
+            print(f"[AUCTION] Failed to release EP for orphan {auction_id}: {exc}",
+                  file=sys.stderr)
+
+    # DM all bidders
+    for b in bidders:
+        did = _resolve_discord_id_for_uuid(b["uuid"])
+        if did:
+            _dm_in_background(
+                did,
+                f"The auction for **{item_id}** has been cancelled because the item "
+                f"was removed from the shop. Your reserved EP has been released."
+            )
+
+
+def _cleanup_orphaned_auctions() -> None:
+    """Scan all active auctions and cancel any whose item no longer exists."""
+    if not os.path.isfile(_SHOP_DB):
+        return
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.row_factory = sqlite3.Row
+        active = conn.execute(
+            "SELECT auction_id, item_id FROM auctions WHERE status = 'active'"
+        ).fetchall()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[AUCTION] Orphan scan failed: {exc}", file=sys.stderr)
+        return
+
+    now_iso = _dt.now(_tz.utc).isoformat()
+    for row in active:
+        if get_item_unfiltered(row["item_id"]) is None:
+            try:
+                _cancel_orphaned_auction(row["auction_id"], row["item_id"], now_iso)
+            except Exception as exc:
+                print(f"[AUCTION] Orphan cancel error {row['auction_id']}: {exc}",
+                      file=sys.stderr)
+
+
 def _settle_auction(auction: sqlite3.Row, now_iso: str):
     """Close a single auction: mark winners, release losers, deduct EP."""
     aid = auction["auction_id"]
     item_id = auction["item_id"]
-    item = get_item_unfiltered(item_id) or {}
+    item = get_item_unfiltered(item_id)
+    if item is None:
+        # Item was removed after this auction expired; cancel cleanly instead
+        _cancel_orphaned_auction(aid, item_id, now_iso)
+        return
     winner_count = item.get("winner_count", 1) or 1
 
     shop_conn = sqlite3.connect(_SHOP_DB, timeout=10)
@@ -957,6 +1044,10 @@ def auction_close_loop():
     """Background loop that settles expired auctions and sends reminders."""
     while True:
         threading.Event().wait(_CLOSE_WORKER_INTERVAL)
+        try:
+            _cleanup_orphaned_auctions()
+        except Exception as exc:
+            print(f"[AUCTION] Orphan cleanup error: {exc}", file=sys.stderr)
         try:
             _send_ending_soon_reminders()
         except Exception as exc:

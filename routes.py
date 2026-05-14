@@ -1047,6 +1047,7 @@ from shop.admin import (
     admin_get_queue, admin_fulfill, admin_reject, admin_get_raw_config,
     admin_write_item, admin_delete_item, admin_reorder_items,
     admin_start_auction, admin_auction_detail, admin_remove_bid,
+    admin_get_changes_log, admin_get_users,
 )
 
 
@@ -1348,14 +1349,19 @@ def shop_orders():
 _SHOP_ADMIN = _CHIEF_PLUS | _PARLIAMENT_PLUS  # read access
 
 def _require_shop_admin():
-    """Parliament+ = full access (read + write). Returns (user, is_admin, err)."""
+    """Returns (user, is_parliament, err).
+
+    is_parliament=True  -> Parliament+ : full write (create/edit/delete items,
+                            cancel/extend auctions, remove bids).
+    is_parliament=False -> Chief+ only : limited write (stock, toggle, start
+                            auction, open manage modal, queue fulfill/reject).
+    """
     user, err = _require_role(_SHOP_ADMIN)
     if err:
         return None, False, err
-    # Any Parliament+ or Chief+ user has write access.
     user_roles = set(user.get("roles") or [])
-    is_chief = bool(user_roles & _SHOP_ADMIN)
-    return user, is_chief, None
+    is_parliament = bool(user_roles & _PARLIAMENT_PLUS)
+    return user, is_parliament, None
 
 
 @app.route("/api/admin/shop/items")
@@ -1408,7 +1414,8 @@ def admin_shop_create_item():
     fields = request.get_json(silent=True)
     if not isinstance(fields, dict):
         return jsonify({"error": "Invalid request body"}), 400
-    result = admin_write_item(None, fields, is_new=True)
+    chief_name = user.get("nick") or user.get("username", "")
+    result = admin_write_item(None, fields, is_new=True, actor=chief_name)
     return jsonify(result), 200 if result.get("ok") else 400
 
 
@@ -1424,7 +1431,8 @@ def admin_shop_update_item(item_id):
     fields = request.get_json(silent=True)
     if not isinstance(fields, dict):
         return jsonify({"error": "Invalid request body"}), 400
-    result = admin_write_item(item_id, fields, is_new=False)
+    chief_name = user.get("nick") or user.get("username", "")
+    result = admin_write_item(item_id, fields, is_new=False, actor=chief_name)
     return jsonify(result), 200 if result.get("ok") else 400
 
 
@@ -1443,7 +1451,8 @@ def admin_shop_reorder_items():
     ordered_ids = body.get("ordered_ids")
     if not isinstance(ordered_ids, list) or not ordered_ids:
         return jsonify({"error": "ordered_ids must be a non-empty array"}), 400
-    result = admin_reorder_items(ordered_ids)
+    chief_name = user.get("nick") or user.get("username", "")
+    result = admin_reorder_items(ordered_ids, actor=chief_name)
     return jsonify(result), 200 if result.get("ok") else 400
 
 
@@ -1456,7 +1465,8 @@ def admin_shop_delete_item_route(item_id):
         return err
     if not is_admin:
         return jsonify({"error": "Admin access required"}), 403
-    result = admin_delete_item(item_id)
+    chief_name = user.get("nick") or user.get("username", "")
+    result = admin_delete_item(item_id, actor=chief_name)
     return jsonify(result), 200 if result.get("ok") else 400
 
 
@@ -1466,8 +1476,6 @@ def admin_shop_item_override(item_id):
     user, is_chief, err = _require_shop_admin()
     if err:
         return err
-    if not is_chief:
-        return jsonify({"error": "Chief rank required for write operations"}), 403
     body = request.get_json(silent=True) or {}
     active = body.get("active")
     stock = body.get("stock")
@@ -1506,8 +1514,6 @@ def admin_shop_start_auction_route():
     user, is_admin, err = _require_shop_admin()
     if err:
         return err
-    if not is_admin:
-        return jsonify({"error": "Admin access required"}), 403
     body = request.get_json(silent=True) or {}
     item_id = (body.get("item_id") or "").strip()
     if not item_id:
@@ -1534,7 +1540,7 @@ def admin_shop_remove_bid(bid_id):
     if err:
         return err
     if not is_chief:
-        return jsonify({"error": "Chief rank required"}), 403
+        return jsonify({"error": "Parliament rank required"}), 403
     chief_name = user.get("nick") or user.get("username", "")
     body = request.get_json(silent=True) or {}
     reason = (body.get("reason") or "").strip() or None
@@ -1549,7 +1555,7 @@ def admin_shop_close_auction(auction_id):
     if err:
         return err
     if not is_chief:
-        return jsonify({"error": "Chief rank required"}), 403
+        return jsonify({"error": "Parliament rank required"}), 403
     chief_name = user.get("nick") or user.get("username", "")
     result = admin_cancel_auction(auction_id, chief_name)
     return jsonify(result), 200 if result.get("ok") else 400
@@ -1562,7 +1568,7 @@ def admin_shop_extend_auction(auction_id):
     if err:
         return err
     if not is_chief:
-        return jsonify({"error": "Chief rank required"}), 403
+        return jsonify({"error": "Parliament rank required"}), 403
     body = request.get_json(silent=True) or {}
     try:
         hours = int(body.get("hours", 0))
@@ -1570,7 +1576,8 @@ def admin_shop_extend_auction(auction_id):
         return jsonify({"error": "hours must be an integer"}), 400
     if hours == 0:
         return jsonify({"error": "hours must be non-zero"}), 400
-    result = admin_extend_auction(auction_id, hours)
+    actor = user.get("nick") or user.get("username", "")
+    result = admin_extend_auction(auction_id, hours, actor=actor)
     return jsonify(result), 200 if result.get("ok") else 400
 
 
@@ -1587,6 +1594,7 @@ def admin_shop_logs():
         username=request.args.get("username"),
         item_id=request.args.get("item_id"),
         status=request.args.get("status"),
+        entry_type=request.args.get("type"),
         date_from=request.args.get("date_from"),
         date_to=request.args.get("date_to"),
     ))
@@ -1608,7 +1616,7 @@ def admin_shop_release_reservation(reservation_id):
     if err:
         return err
     if not is_chief:
-        return jsonify({"error": "Chief rank required"}), 403
+        return jsonify({"error": "Parliament rank required"}), 403
     chief_name = user.get("nick") or user.get("username", "")
     result = admin_release_reservation(reservation_id, chief_name)
     return jsonify(result), 200 if result.get("ok") else 400
@@ -1629,8 +1637,6 @@ def admin_shop_fulfill():
     user, is_chief, err = _require_shop_admin()
     if err:
         return err
-    if not is_chief:
-        return jsonify({"error": "Chief rank required"}), 403
     body = request.get_json(silent=True) or {}
     ticket_type = (body.get("type") or "").strip()
     ticket_id = (body.get("ticket_id") or "").strip()
@@ -1647,8 +1653,6 @@ def admin_shop_reject():
     user, is_chief, err = _require_shop_admin()
     if err:
         return err
-    if not is_chief:
-        return jsonify({"error": "Chief rank required"}), 403
     body = request.get_json(silent=True) or {}
     ticket_type = (body.get("type") or "").strip()
     ticket_id = (body.get("ticket_id") or "").strip()
@@ -1660,6 +1664,35 @@ def admin_shop_reject():
     chief_name = user.get("nick") or user.get("username", "")
     result = admin_reject(ticket_type, ticket_id, reason, chief_name)
     return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/changes")
+@rate_limit(30)
+def admin_shop_changes():
+    """Paginated admin action log."""
+    user, _, err = _require_shop_admin()
+    if err:
+        return err
+    page = max(1, int(request.args.get("page", 1)))
+    per_page = min(200, max(1, int(request.args.get("per_page", 50))))
+    return jsonify(admin_get_changes_log(
+        page=page, per_page=per_page,
+        actor=request.args.get("actor"),
+        action=request.args.get("action"),
+        target_id=request.args.get("target_id"),
+        date_from=request.args.get("date_from"),
+        date_to=request.args.get("date_to"),
+    ))
+
+
+@app.route("/api/admin/shop/users")
+@rate_limit(10)
+def admin_shop_users():
+    """Aggregated per-user shop activity."""
+    user, _, err = _require_shop_admin()
+    if err:
+        return err
+    return jsonify(admin_get_users())
 
 
 @app.route("/api/admin/shop/config")

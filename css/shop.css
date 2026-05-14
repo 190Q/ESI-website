@@ -1250,7 +1250,7 @@ input.cart-qty:focus {
   margin-bottom: 14px;
   /* slight inset scroll track */
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  scrollbar-color: var(--border);
 }
 
 /* Cart modal */
