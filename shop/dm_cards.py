@@ -305,12 +305,27 @@ def _screenshot_html(html: str) -> bytes | None:
                 from playwright.sync_api import sync_playwright  # noqa: lazy
                 _pw_instance = sync_playwright().start()
                 _pw_browser = _pw_instance.chromium.launch(headless=True)
-            page = _pw_browser.new_page(viewport={"width": CARD_WIDTH, "height": 1})
-            page.set_content(html, wait_until="load")
-            card = page.query_selector(".card")
-            png = card.screenshot(type="png", omit_background=True) if card else None
-            page.close()
-            return png
+            try:
+                page = _pw_browser.new_page(viewport={"width": CARD_WIDTH, "height": 1})
+                page.set_content(html, wait_until="load")
+                card = page.query_selector(".card")
+                png = card.screenshot(type="png", omit_background=True) if card else None
+                page.close()
+                return png
+            except Exception:
+                # Browser may have crashed; tear down so the next call
+                # re-launches a fresh instance instead of reusing a dead one.
+                try:
+                    _pw_browser.close()
+                except Exception:
+                    pass
+                try:
+                    _pw_instance.stop()
+                except Exception:
+                    pass
+                _pw_browser = None
+                _pw_instance = None
+                raise
     except Exception as exc:
         print(f"[DM_CARDS] Render failed: {exc}", file=sys.stderr)
         return None
