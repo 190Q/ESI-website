@@ -25,6 +25,7 @@
   var _shellBuilt     = false;
   var _shopEnabled    = true;
   var _shopMaintenanceViewOnly = false;
+  var _shopComingSoon = false;
   var _shopDisabledMessage = 'Coming soon';
   var _cart           = {};    // { [item_id]: { item, quantity } }
   var _cartSyncTimer  = null;
@@ -56,9 +57,15 @@
     var msg = String(_shopDisabledMessage || '').trim();
     return msg || 'Coming soon';
   }
+  function _looksLikeComingSoon(msg) {
+    return /\bcoming\s*soon\b/i.test(String(msg || ''));
+  }
   function isComingSoonDisabled() {
     if (_shopEnabled !== false) return false;
-    return disabledMessage().toLowerCase() === 'coming soon';
+    if (_shopComingSoon) return true;
+    if (_binData && typeof _binData.coming_soon === 'boolean') return !!_binData.coming_soon;
+    if (_auctionData && typeof _auctionData.coming_soon === 'boolean') return !!_auctionData.coming_soon;
+    return _looksLikeComingSoon(disabledMessage());
   }
 
   /* Cross-tab cart sync via BroadcastChannel */
@@ -204,6 +211,13 @@
           _shopEnabled = !!data.shop_enabled;
         }
         _shopMaintenanceViewOnly = !!(data && data.maintenance_view_only);
+        if (data && typeof data.coming_soon === 'boolean') {
+          _shopComingSoon = !!data.coming_soon;
+        } else if (_shopEnabled === false) {
+          _shopComingSoon = _looksLikeComingSoon(data && data.message);
+        } else {
+          _shopComingSoon = false;
+        }
         if (data && typeof data.message === 'string' && data.message.trim()) {
           _shopDisabledMessage = data.message.trim();
         }
@@ -222,18 +236,18 @@
   function renderComingSoonBalanceBar() {
     var el = document.getElementById('shopBalanceBar');
     if (!el) return;
-    var message = esc(disabledMessage());
+    var message = 'Coming Soon';
     el.classList.remove('shop-balance-bar--hidden');
-    el.classList.add('shop-balance-bar--coming-soon');
+    el.classList.remove('shop-balance-bar--coming-soon');
     el.innerHTML =
-      '<div class=\"bal-blocks\">' +
-        '<div class=\"bal-block\"><span class=\"bal-block-label\">Clean EP</span><span class=\"bal-block-value\">' + message + '</span></div>' +
-        '<div class=\"bal-block\"><span class=\"bal-block-label\">Dirty EP</span><span class=\"bal-block-value\">' + message + '</span></div>' +
-        '<div class=\"bal-block\"><span class=\"bal-block-label\">Total EP</span><span class=\"bal-block-value\">' + message + '</span></div>' +
+      '<div class="bal-blocks">' +
+        '<div class="bal-block"><span class="bal-block-label">Clean EP</span><span class="bal-block-value">' + message + '</span></div>' +
+        '<div class="bal-block"><span class="bal-block-label">Dirty EP</span><span class="bal-block-value">' + message + '</span></div>' +
+        '<div class="bal-block"><span class="bal-block-label">Total EP</span><span class="bal-block-value">' + message + '</span></div>' +
       '</div>' +
-      '<div class=\"bal-cycle bal-cycle--coming-soon\">' +
-        '<span class=\"bal-cycle-label\">End of Cycle</span>' +
-        '<span class=\"bal-cycle-value\">' + message + '</span>' +
+      '<div class="bal-cycle">' +
+        '<span class="bal-cycle-label">End of Cycle</span>' +
+        '<span class="bal-cycle-value">' + message + '</span>' +
       '</div>';
   }
 
@@ -272,8 +286,9 @@
     if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
     _filterBarBuilt = false;
     _shopMaintenanceViewOnly = false;
-    _binData = { shop_enabled: false, coming_soon: disabledMessage() === 'Coming soon', message: disabledMessage(), items: [], item_order: [] };
-    _auctionData = { shop_enabled: false, coming_soon: disabledMessage() === 'Coming soon', message: disabledMessage(), auctions: [] };
+    _shopComingSoon = _looksLikeComingSoon(disabledMessage());
+    _binData = { shop_enabled: false, coming_soon: _shopComingSoon, message: disabledMessage(), items: [], item_order: [] };
+    _auctionData = { shop_enabled: false, coming_soon: _shopComingSoon, message: disabledMessage(), auctions: [] };
     _cart = {};
     setComingSoonLayout(true);
     setTopActionsDisabled(true);
@@ -285,7 +300,13 @@
   function fetchBinData(cb) {
     fetch('/api/shop/bin', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) { if (data) _binData = data; if (cb) cb(data); })
+      .then(function (data) {
+        if (data) {
+          _binData = data;
+          if (typeof data.coming_soon === 'boolean') _shopComingSoon = !!data.coming_soon;
+        }
+        if (cb) cb(data);
+      })
       .catch(function () { if (cb) cb(null); });
   }
 
@@ -295,6 +316,7 @@
       .then(function (data) {
         if (data) {
           _auctionData = data;
+          if (typeof data.coming_soon === 'boolean') _shopComingSoon = !!data.coming_soon;
           if (data.balance && _binData) { _binData.balance = data.balance; renderBalanceBar(); }
         }
         if (cb) cb(data);
@@ -320,9 +342,7 @@
     var el = document.getElementById('shopBalanceBar');
     if (!el) return;
     if (_shopEnabled === false && isComingSoonDisabled()) {
-      el.classList.remove('shop-balance-bar--coming-soon');
-      el.classList.add('shop-balance-bar--hidden');
-      el.innerHTML = '';
+      renderComingSoonBalanceBar();
       return;
     }
     el.classList.remove('shop-balance-bar--hidden');
@@ -1978,6 +1998,7 @@
         return;
       }
       _shopEnabled = true;
+      _shopComingSoon = false;
       loadEnabledShopData();
     });
   }
