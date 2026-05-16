@@ -1,9 +1,20 @@
 import os
 import sqlite3
 import sys
+from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
 from config import _POINTS_DB, _SHOP_DB, _USERNAME_MATCHES_JSON, _load_json_file
 
+_CYCLE_ANCHOR = _dt(2026, 4, 21, 16, 0, 0, tzinfo=_tz.utc)
+_CYCLE_DURATION = _td(weeks=2)
+
+def _get_cycle_id(dt=None) -> int:
+    if dt is None:
+        dt = _dt.now(_tz.utc)
+    return int((dt - _CYCLE_ANCHOR) / _CYCLE_DURATION) + 1
+
+def _previous_cycle_id(dt=None) -> int:
+    return _get_cycle_id(dt) - 1
 
 def _ensure_ep_reservations_table(conn: sqlite3.Connection) -> None:
     """Create the ep_reservations table in shop.db if it doesn't exist (idempotent)."""
@@ -91,23 +102,37 @@ def resolve_uuid_for_user(discord_id: str) -> tuple[str | None, str | None]:
 
     return None, mc_username
 
-def fetch_ep_balance(uuid: str) -> dict:
+def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
     """Compute the full EP balance for a player UUID.
+    By default, earned EP is sourced from the previous completed cycle only.
+    Pass points_cycle_id explicitly to override this behavior.
 
     Returns a dict with keys: clean_ep, dirty_ep, total_ep,
     reserved_clean, reserved_dirty, spendable_clean, spendable_dirty.
     """
-    # 1. Accumulated EP from esi_points (sum across ALL cycles)
+    if points_cycle_id is None:
+        points_cycle_id = _previous_cycle_id()
+
     clean_ep = 0
     dirty_ep = 0
     if os.path.isfile(_POINTS_DB):
         try:
             conn = sqlite3.connect(_POINTS_DB, timeout=5)
-            row = conn.execute(
-                "SELECT COALESCE(SUM(clean_ep), 0), COALESCE(SUM(dirty_ep), 0) "
-                "FROM esi_points WHERE uuid = ?",
-                (uuid,),
-            ).fetchone()
+            if points_cycle_id > 0:
+                try:
+                    row = conn.execute(
+                        "SELECT COALESCE(SUM(clean_ep), 0), COALESCE(SUM(dirty_ep), 0) "
+                        "FROM esi_points WHERE uuid = ? AND cycle_id = ?",
+                        (uuid, points_cycle_id),
+                    ).fetchone()
+                except sqlite3.OperationalError:
+                    row = conn.execute(
+                        "SELECT COALESCE(SUM(clean_ep), 0), COALESCE(SUM(dirty_ep), 0) "
+                        "FROM esi_points WHERE uuid = ?",
+                        (uuid,),
+                    ).fetchone()
+            else:
+                row = (0, 0)
             if row:
                 clean_ep = int(row[0])
                 dirty_ep = int(row[1])

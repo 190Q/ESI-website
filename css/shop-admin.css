@@ -1,3 +1,68 @@
+/* Global shop state banner */
+.sa-state-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.sa-state-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.sa-state-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-family: 'Cinzel', serif;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.sa-state-pill--on {
+  color: var(--online);
+  border: 1px solid rgba(59,165,92,0.35);
+  background: rgba(59,165,92,0.12);
+}
+.sa-state-pill--off {
+  color: var(--warn);
+  border: 1px solid rgba(250,166,26,0.35);
+  background: rgba(250,166,26,0.12);
+}
+.sa-state-text {
+  color: var(--text-faint);
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+.sa-state-toggle {
+  flex-shrink: 0;
+}
+
+/* Coming-soon tab state */
+.sa-coming-soon-tab {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.sa-coming-soon-title {
+  font-family: 'Cinzel', serif;
+  font-size: 0.82rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gold-dim);
+}
 /* Item editor */
 .ie-modal {
   max-width: 720px !important;

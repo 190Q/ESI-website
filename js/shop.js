@@ -23,6 +23,8 @@
   var _auctionTimer   = null;  // 1s tick for auction countdowns
   var _auctionPoll    = null;  // 30s auction data refresh
   var _shellBuilt     = false;
+  var _shopEnabled    = true;
+  var _shopDisabledMessage = 'Coming soon';
   var _cart           = {};    // { [item_id]: { item, quantity } }
   var _cartSyncTimer  = null;
   var _cartContentTimer = null;
@@ -49,6 +51,10 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
   function num(n) { return Number(n || 0).toLocaleString(); }
+  function disabledMessage() {
+    var msg = String(_shopDisabledMessage || '').trim();
+    return msg || 'Coming soon';
+  }
 
   /* Cross-tab cart sync via BroadcastChannel */
   var _cartChannel = null;
@@ -139,7 +145,7 @@
     var btn   = document.getElementById('shopCartBtn');
     var total = cartTotal();
     if (badge) badge.textContent = total;
-    syncCart();
+    if (_shopEnabled !== false) syncCart();
   }
 
   /* Shell */
@@ -175,10 +181,98 @@
     document.getElementById('shopModal').addEventListener('click', function (e) {
       if (e.target.closest('.modal-close')) closeModal();
     });
-    document.getElementById('shopCartBtn').addEventListener('click', openCartModal);
-    document.getElementById('shopOrdersBtn').addEventListener('click', openOrdersModal);
+    document.getElementById('shopCartBtn').addEventListener('click', function () {
+      if (_shopEnabled === false) { openComingSoonModal('Cart'); return; }
+      openCartModal();
+    });
+    document.getElementById('shopOrdersBtn').addEventListener('click', function () {
+      if (_shopEnabled === false) { openComingSoonModal('My Orders'); return; }
+      openOrdersModal();
+    });
   }
 
+  function fetchShopState(cb) {
+    fetch('/api/shop/state', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (data && typeof data.shop_enabled === 'boolean') {
+          _shopEnabled = !!data.shop_enabled;
+        }
+        if (data && typeof data.message === 'string' && data.message.trim()) {
+          _shopDisabledMessage = data.message.trim();
+        }
+        if (cb) cb(data);
+      })
+      .catch(function () { if (cb) cb(null); });
+  }
+
+  function setTopActionsDisabled(disabled) {
+    var cartBtn = document.getElementById('shopCartBtn');
+    var ordBtn  = document.getElementById('shopOrdersBtn');
+    if (cartBtn) cartBtn.classList.toggle('shop-btn-disabled', !!disabled);
+    if (ordBtn) ordBtn.classList.toggle('shop-btn-disabled', !!disabled);
+  }
+
+  function renderComingSoonBalanceBar() {
+    var el = document.getElementById('shopBalanceBar');
+    if (!el) return;
+    var message = esc(disabledMessage());
+    el.classList.add('shop-balance-bar--coming-soon');
+    el.innerHTML =
+      '<div class=\"bal-blocks\">' +
+        '<div class=\"bal-block\"><span class=\"bal-block-label\">Clean EP</span><span class=\"bal-block-value\">' + message + '</span></div>' +
+        '<div class=\"bal-block\"><span class=\"bal-block-label\">Dirty EP</span><span class=\"bal-block-value\">' + message + '</span></div>' +
+        '<div class=\"bal-block\"><span class=\"bal-block-label\">Total EP</span><span class=\"bal-block-value\">' + message + '</span></div>' +
+      '</div>' +
+      '<div class=\"bal-cycle bal-cycle--coming-soon\">' +
+        '<span class=\"bal-cycle-label\">End of Cycle</span>' +
+        '<span class=\"bal-cycle-value\">' + message + '</span>' +
+      '</div>';
+  }
+
+  function renderComingSoonContent() {
+    var container = document.getElementById('shopContent');
+    if (!container) return;
+    container.innerHTML = '<div class=\"shop-empty shop-empty--coming-soon\">' + esc(disabledMessage()) + '</div>';
+  }
+
+  function setComingSoonLayout(enabled) {
+    var layout = panel.querySelector('.shop-main-layout');
+    var filters = document.getElementById('shopFilters');
+    var content = document.getElementById('shopContent');
+    if (layout) layout.classList.toggle('shop-main-layout--coming-soon', !!enabled);
+    if (filters && enabled) filters.innerHTML = '';
+    if (content) content.classList.toggle('shop-content--coming-soon', !!enabled);
+  }
+
+  function openComingSoonModal(section) {
+    buildShell();
+    var modal = document.getElementById('shopModal');
+    if (!modal) return;
+    modal.innerHTML =
+      '<button class=\"modal-close\" aria-label=\"Close\">' + _svg.close + '</button>' +
+      '<div class=\"shop-modal-title\">' + esc(section) + '</div>' +
+      '<div class=\"shop-modal-body\">' + esc(disabledMessage()) + '</div>';
+    var backdrop = document.getElementById('shopModalBackdrop');
+    if (backdrop) {
+      backdrop.classList.remove('orders-open', 'cart-open');
+      backdrop.classList.add('open');
+    }
+  }
+
+  function applyDisabledShopState() {
+    stopAuctionTimers();
+    if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
+    _filterBarBuilt = false;
+    _binData = { shop_enabled: false, coming_soon: disabledMessage() === 'Coming soon', message: disabledMessage(), items: [], item_order: [] };
+    _auctionData = { shop_enabled: false, coming_soon: disabledMessage() === 'Coming soon', message: disabledMessage(), auctions: [] };
+    _cart = {};
+    setComingSoonLayout(true);
+    setTopActionsDisabled(true);
+    updateCartBadge();
+    renderComingSoonBalanceBar();
+    renderComingSoonContent();
+  }
   /* Data fetching */
   function fetchBinData(cb) {
     fetch('/api/shop/bin', { credentials: 'same-origin' })
@@ -216,7 +310,10 @@
 
   function renderBalanceBar() {
     var el = document.getElementById('shopBalanceBar');
-    if (!el || !_binData || !_binData.balance) return;
+    if (!el) return;
+    if (_shopEnabled === false) { renderComingSoonBalanceBar(); return; }
+    el.classList.remove('shop-balance-bar--coming-soon');
+    if (!_binData || !_binData.balance) return;
     var b = _binData.balance;
     var html = '<div class="bal-blocks">' +
       _mkBlock('Clean EP', b.spendable_clean, b.reserved_clean) +
@@ -480,6 +577,10 @@
   function renderContent() {
     var container = document.getElementById('shopContent');
     if (!container) return;
+    if (_shopEnabled === false) {
+      renderComingSoonContent();
+      return;
+    }
 
     var binItems     = (_binData && _binData.items) ? _binData.items : [];
     var auctionItems = (_auctionData && _auctionData.auctions) ? _auctionData.auctions : [];
@@ -1214,6 +1315,7 @@
 
   /* Cart modal */
   function openCartModal() {
+    if (_shopEnabled === false) { openComingSoonModal('Cart'); return; }
     buildShell(); renderCartModal();
     document.getElementById('shopModalBackdrop').classList.add('open', 'cart-open');
   }
@@ -1630,6 +1732,7 @@
   }
 
   function openOrdersModal() {
+    if (_shopEnabled === false) { openComingSoonModal('My Orders'); return; }
     buildShell();
     var modal = document.getElementById('shopModal');
     if (!modal) return;
@@ -1765,22 +1868,15 @@
 
   /* Init */
   var _initDone = false;
-
-  function initShop() {
-    if (_initDone) return;
-    _initDone = true;
-    if (!window.state || !window.state.loggedIn) {
-      panel.innerHTML = '<div class="shop-login-prompt">Log in with Discord to access the shop.</div>';
-      return;
-    }
-    buildShell();
+  function loadEnabledShopData() {
+    setComingSoonLayout(false);
+    setTopActionsDisabled(false);
     document.getElementById('shopContent').innerHTML =
-      '<div class="shop-loading"><span class="loading-spinner"></span> Loading shop\u2026</div>';
-
+      '<div class=\"shop-loading\"><span class=\"loading-spinner\"></span> Loading shop\u2026</div>';
     fetchBinData(function (data) {
       if (!data) {
         document.getElementById('shopContent').innerHTML =
-          '<div class="shop-empty">Could not load shop data. You may not be a guild member.</div>';
+          '<div class=\"shop-empty\">Could not load shop data. You may not be a guild member.</div>';
         return;
       }
       renderBalanceBar();
@@ -1793,6 +1889,28 @@
     fetchAuctionData(function (data) { if (data) { updateFilterBarData(); renderContent(); } });
   }
 
+  function refreshShopByState() {
+    fetchShopState(function (state) {
+      if (state && state.shop_enabled === false) {
+        applyDisabledShopState();
+        return;
+      }
+      _shopEnabled = true;
+      loadEnabledShopData();
+    });
+  }
+
+  function initShop() {
+    if (_initDone) return;
+    _initDone = true;
+    if (!window.state || !window.state.loggedIn) {
+      panel.innerHTML = '<div class="shop-login-prompt">Log in with Discord to access the shop.</div>';
+      return;
+    }
+    buildShell();
+    refreshShopByState();
+  }
+
   var observer = new MutationObserver(function () {
     if (panel.classList.contains('active')) initShop();
   });
@@ -1801,6 +1919,7 @@
 
   // Re-fetch cart when this tab regains visibility
   document.addEventListener('visibilitychange', function () {
+    if (_shopEnabled === false) return;
     if (document.visibilityState !== 'visible' || !_initDone || !_cartLoaded || !_binData) return;
     if (_cartSyncTimer) return; // pending write
     fetch('/api/shop/cart', { credentials: 'same-origin' })
@@ -1825,15 +1944,6 @@
   // Refresh shop bin data whenever the admin panel writes an item change
   window.addEventListener('shop:items-updated', function () {
     if (!_initDone) return; // shop hasn't loaded yet, skip
-    var done = 0;
-    function check() {
-      if (++done < 2) return;
-      renderBalanceBar();
-      updateFilterBarData();
-      loadCart((_binData && _binData.items) || []);
-      renderContent();
-    }
-    fetchBinData(function (data) { if (data) check(); else check(); });
-    fetchAuctionData(function (data) { check(); });
+    refreshShopByState();
   });
 })()

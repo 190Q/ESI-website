@@ -7,7 +7,7 @@ import time as _time
 import uuid as _uuid_mod
 from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
-from config import _SHOP_DB, _POINTS_DB, _SHOP_ITEMS_JSON, _USERNAME_MATCHES_JSON, _load_json_file as _cfg_load_json
+from config import _SHOP_DB, _POINTS_DB, _SHOP_ITEMS_JSON, _USERNAME_MATCHES_JSON, _get_latest_api_db, _load_json_file as _cfg_load_json
 from shop.items import get_items, reload as _reload_items
 from shop.auction import _resolve_discord_id_for_uuid, _dm_card_in_background
 
@@ -59,6 +59,42 @@ def _log_admin_action(
 _USERS_CACHE_TTL: float    = 60.0   # seconds
 _users_cache_lock          = threading.Lock()
 _users_cache: dict         = {"data": None, "ts": 0.0}
+
+def _load_current_guild_members() -> tuple[set[str], set[str]]:
+    """Return (uuid_set, username_set) for current ESI guild members."""
+    latest_db = _get_latest_api_db()
+    if not latest_db:
+        return set(), set()
+    conn = None
+    try:
+        conn = sqlite3.connect(latest_db, timeout=5)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT username, uuid FROM player_stats "
+                "WHERE UPPER(COALESCE(guild_prefix, '')) = 'ESI'"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            # Older snapshots may not have guild_prefix; fall back to all rows.
+            rows = conn.execute(
+                "SELECT username, uuid FROM player_stats"
+            ).fetchall()
+    except sqlite3.Error:
+        return set(), set()
+    finally:
+        if conn is not None:
+            conn.close()
+
+    member_uuids: set[str] = set()
+    member_usernames: set[str] = set()
+    for row in rows:
+        uid = (row["uuid"] or "").strip().lower()
+        uname = (row["username"] or "").strip().lower()
+        if uid:
+            member_uuids.add(uid)
+        if uname:
+            member_usernames.add(uname)
+    return member_uuids, member_usernames
 
 
 def _invalidate_users_cache() -> None:
@@ -1537,6 +1573,7 @@ def _admin_get_users_uncached() -> list:
     except Exception:
         uuid_to_discord  = {}
         uuid_to_username = {}
+    guild_member_uuids, guild_member_usernames = _load_current_guild_members()
 
     # Build balance lookup tables
     res_ep_map: dict  = {r["uuid"]: {"rc": r["reserved_clean"] or 0,
@@ -1547,22 +1584,52 @@ def _admin_get_users_uncached() -> list:
                          for r in spent_ep_rows}
     donated_map: dict = {r["uuid"]: r["donated_dirty"] or 0 for r in donated_rows_ep}
 
-    # Raw EP totals from _POINTS_DB
+    # Raw EP totals from _POINTS_DB (previous cycle only)
     raw_ep_by_uuid: dict = {}
+    raw_ep_username_by_uuid: dict = {}
     if os.path.isfile(_POINTS_DB):
         try:
+            from shop.bin import _get_cycle_id
+            target_cycle = _get_cycle_id(_now()) - 1
             pts = sqlite3.connect(_POINTS_DB, timeout=5)
             pts.row_factory = sqlite3.Row
-            for r in pts.execute("""
-                SELECT uuid,
-                       COALESCE(SUM(clean_ep), 0) AS raw_clean,
-                       COALESCE(SUM(dirty_ep), 0) AS raw_dirty
-                FROM esi_points GROUP BY uuid
-            """).fetchall():
-                raw_ep_by_uuid[r["uuid"]] = {
+            if target_cycle > 0:
+                try:
+                    rows = pts.execute(
+                        """
+                        SELECT uuid,
+                               MAX(username) AS username,
+                               COALESCE(SUM(clean_ep), 0) AS raw_clean,
+                               COALESCE(SUM(dirty_ep), 0) AS raw_dirty
+                        FROM esi_points
+                        WHERE cycle_id = ?
+                        GROUP BY uuid
+                        """,
+                        (target_cycle,),
+                    ).fetchall()
+                except sqlite3.OperationalError:
+                    rows = pts.execute(
+                        """
+                        SELECT uuid,
+                               MAX(username) AS username,
+                               COALESCE(SUM(clean_ep), 0) AS raw_clean,
+                               COALESCE(SUM(dirty_ep), 0) AS raw_dirty
+                        FROM esi_points
+                        GROUP BY uuid
+                        """
+                    ).fetchall()
+            else:
+                rows = []
+            for r in rows:
+                uuid = r["uuid"]
+                if not uuid:
+                    continue
+                raw_ep_by_uuid[uuid] = {
                     "rc": r["raw_clean"] or 0,
                     "rd": r["raw_dirty"] or 0,
                 }
+                if r["username"]:
+                    raw_ep_username_by_uuid[uuid] = r["username"]
             pts.close()
         except sqlite3.Error:
             pass
@@ -1675,6 +1742,29 @@ def _admin_get_users_uncached() -> list:
             username = uuid_to_username.get(mc_uuid, mc_uuid[:8] + "\u2026")
             _get(mc_uuid, username)
 
+    # Surface EP-only users (earned EP in the points cycle but no shop activity yet)
+    for mc_uuid, raw in raw_ep_by_uuid.items():
+        if mc_uuid in users:
+            continue
+        if (raw.get("rc", 0) or 0) <= 0 and (raw.get("rd", 0) or 0) <= 0:
+            continue
+        username = (
+            uuid_to_username.get(mc_uuid)
+            or raw_ep_username_by_uuid.get(mc_uuid)
+            or (mc_uuid[:8] + "\u2026")
+        )
+        _get(mc_uuid, username)
+
+    # Keep only users who are current guild members
+    if guild_member_uuids or guild_member_usernames:
+        filtered_users: dict = {}
+        for uid, user_data in users.items():
+            uid_l = (uid or "").strip().lower()
+            uname_l = (user_data.get("username") or "").strip().lower()
+            if (uid_l and uid_l in guild_member_uuids) or (uname_l and uname_l in guild_member_usernames):
+                filtered_users[uid] = user_data
+        users = filtered_users
+
     # Attach recent activity
     recent_by_uuid: dict = {}
     for r in act_rows:
@@ -1693,6 +1783,19 @@ def _admin_get_users_uncached() -> list:
         u["recent"] = recent_by_uuid.get(u["uuid"], [])
 
     return list(users.values())
+
+def admin_set_shop_enabled(enabled: bool, actor: str = "unknown") -> dict:
+    """Persist global shop enabled state and add an admin audit entry."""
+    from shop.state import set_shop_enabled
+    result = set_shop_enabled(bool(enabled), actor=actor)
+    if result.get("ok"):
+        _log_admin_action(
+            actor,
+            "shop_enabled" if enabled else "shop_disabled",
+            None,
+            {"shop_enabled": bool(enabled)},
+        )
+    return result
 
 
 def admin_get_raw_config() -> list | dict:

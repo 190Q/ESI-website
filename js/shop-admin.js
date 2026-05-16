@@ -10,6 +10,9 @@
   var _isChief      = false; // any shop admin (chief+ or parliament+)
   var _isParliament = false; // parliament+ only
   var _shellBuilt   = false;
+  var _shopEnabled  = true;
+  var _shopDisabledMessage = 'Coming soon';
+  var _canToggleShopState = false;
 
   var _svg = {
     check:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
@@ -55,6 +58,39 @@
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); });
   }
 
+  function fetchShopState(cb) {
+    fetch('/api/admin/shop/state', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (d && typeof d.shop_enabled === 'boolean') _shopEnabled = !!d.shop_enabled;
+        if (d && typeof d.message === 'string' && d.message.trim()) _shopDisabledMessage = d.message.trim();
+        _canToggleShopState = !!(d && d.can_toggle);
+        if (cb) cb(d);
+      })
+      .catch(function () { if (cb) cb(null); });
+  }
+
+  function setShopState(enabled) {
+    return apiPost('/api/admin/shop/state', { shop_enabled: !!enabled });
+  }
+
+  function _isOwnerShopAdmin() {
+    return !!_canToggleShopState;
+  }
+
+  function _canChiefEditShopAdmin() {
+    return (_isChief || _isOwnerShopAdmin()) && (_shopEnabled || _isOwnerShopAdmin());
+  }
+
+  function _canParliamentEditShopAdmin() {
+    return (_isParliament || _isOwnerShopAdmin()) && (_shopEnabled || _isOwnerShopAdmin());
+  }
+
+  function _disabledMessageLabel() {
+    var msg = String(_shopDisabledMessage || '').trim();
+    return msg || 'Coming soon';
+  }
+
   // Notify the shop page that item data changed so it can refresh without a reload
   function _notifyShopUpdated() {
     window.dispatchEvent(new CustomEvent('shop:items-updated'));
@@ -68,6 +104,7 @@
     _isParliament = window.hasParliamentPlus ? window.hasParliamentPlus() : false;
 
     panel.innerHTML =
+      '<div class=\"sa-state-banner\" id=\"saStateBanner\"></div>' +
       '<div class="shop-tabs" id="saTabs">' +
         '<button class="shop-tab active" data-tab="items">Items</button>' +
         '<button class="shop-tab" data-tab="queue">Queue</button>' +
@@ -105,6 +142,93 @@
   }
 
   function closeModal() { document.getElementById('saModalBackdrop').classList.remove('open'); }
+
+  function _clearQueueBadges() {
+    var queueBtn = document.querySelector('#saTabs [data-tab=\"queue\"]');
+    if (queueBtn) {
+      var qBadge = queueBtn.querySelector('.sa-badge');
+      if (qBadge) qBadge.remove();
+    }
+    var navItem = document.querySelector('[data-panel=\"shop-admin\"]');
+    if (navItem) {
+      var navBadge = navItem.querySelector('.nav-upcoming-badge');
+      if (navBadge) navBadge.remove();
+      navItem.removeAttribute('title');
+    }
+  }
+
+  function renderShopStateBanner() {
+    var banner = document.getElementById('saStateBanner');
+    if (!banner) return;
+    var isOn = _shopEnabled !== false;
+    if (isOn && !_canToggleShopState) {
+      banner.style.display = 'none';
+      banner.innerHTML = '';
+      return;
+    }
+    banner.style.display = '';
+    var statusText = isOn ? 'Shop ON' : 'Shop OFF';
+    var disabledModeLabel = _disabledMessageLabel() + ' mode';
+    var helper = isOn
+      ? 'Live mode: users can access the shop.'
+      : (_canToggleShopState
+          ? disabledModeLabel + ': tabs stay available. You can still edit as OWNER.'
+          : disabledModeLabel + ': tabs stay available in read-only mode. Only OWNER can edit.');
+    banner.innerHTML =
+      '<div class=\"sa-state-meta\">' +
+        '<span class=\"sa-state-pill ' + (isOn ? 'sa-state-pill--on' : 'sa-state-pill--off') + '\">' + statusText + '</span>' +
+        '<span class=\"sa-state-text\">' + helper + '</span>' +
+      '</div>' +
+      (_canToggleShopState
+        ? '<button class=\"shop-modal-btn shop-modal-btn--confirm sa-state-toggle\" id=\"saToggleShopState\">' +
+            (isOn ? 'Turn shop off' : 'Turn shop on') +
+          '</button>'
+        : '');
+    var toggleBtn = document.getElementById('saToggleShopState');
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', function () {
+        var target = !_shopEnabled;
+        toggleBtn.disabled = true;
+        toggleBtn.textContent = 'Saving\u2026';
+        setShopState(target)
+          .then(function (res) {
+            if (res.ok && res.data && res.data.ok) {
+              _shopEnabled = !!res.data.shop_enabled;
+              if (typeof res.data.message === 'string' && res.data.message.trim()) {
+                _shopDisabledMessage = res.data.message.trim();
+              }
+              _items = null; _auctions = null; _queueData = null; _logsData = null; _logsFeed = null;
+              _changesData = null; _users = null; _usersOpenUuid = null;
+              renderShopStateBanner();
+              if (_shopEnabled) {
+                fetchQueue(function () { updateQueueBadge(); renderTab(); });
+              } else {
+                _clearQueueBadges();
+                renderTab();
+              }
+              _notifyShopUpdated();
+              showToast('\u2713 Shop turned ' + (_shopEnabled ? 'on' : 'off') + '.', 'success');
+            } else {
+              showToast('\u26a0 ' + ((res.data && res.data.error) || 'Failed to update shop state'), 'warn');
+              renderShopStateBanner();
+            }
+          })
+          .catch(function () {
+            showToast('\u26a0 Network error', 'warn');
+            renderShopStateBanner();
+          });
+      });
+    }
+  }
+
+  function renderComingSoonTab(c) {
+    var titleMap = { items: 'Items', queue: 'Queue', logs: 'Logs', users: 'Users' };
+    c.innerHTML =
+      '<div class=\"shop-empty sa-coming-soon-tab\">' +
+        '<div class=\"sa-coming-soon-title\">' + titleMap[_activeTab] + '</div>' +
+        '<div>' + esc(_disabledMessageLabel()) + '</div>' +
+      '</div>';
+  }
 
   function renderTab() {
     var c = document.getElementById('saContent');
@@ -151,7 +275,9 @@
 
   function renderItemsTable(c) {
     var html = '';
-    if (_isParliament) {
+    var canChiefEdit = _canChiefEditShopAdmin();
+    var canParliamentEdit = _canParliamentEditShopAdmin();
+    if (canParliamentEdit) {
       html += '<div style="display:flex;justify-content:flex-end;margin-bottom:12px;">' +
         '<button class="shop-modal-btn shop-modal-btn--confirm" id="saNewItem">+ New Item</button>' +
         '</div>';
@@ -159,19 +285,19 @@
     var _binItems = (_items || []).filter(function (it) { return it.type !== 'auction'; });
     var _aucItems = (_items || []).filter(function (it) { return it.type === 'auction'; });
 
-    html += '<div class="sa-table ie-item-table' + (_isParliament ? '' : ' ie-item-table--ro') + '" id="saItemTable">';
+    html += '<div class=\"sa-table ie-item-table' + (canParliamentEdit ? '' : ' ie-item-table--ro') + '\" id=\"saItemTable\">';
     html += '<div class="sa-row sa-header ie-row-cols">' +
       '<span></span><span>Name</span><span>ID</span><span>Type</span><span>Category</span>' +
       '<span>Active</span><span>Stock</span>' +
-      (_isParliament ? '<span>Controls</span>' : '') +
+      (canParliamentEdit ? '<span>Controls</span>' : '') +
       '</div>';
 
     function _renderItemRow(item, skipAuctionControls) {
       var isActive = item.active !== false;
       var rowClass = 'sa-row' + (!isActive ? ' sa-row--inactive' : '');
 
-      html += '<div class="' + rowClass + '" data-item-id="' + esc(item.id) + '"' + (_isParliament ? ' draggable="true"' : '') + '>';
-      html += '<span class="sa-grip" title="Drag to reorder">' + _svg.grip + '</span>';
+      html += '<div class=\"' + rowClass + '\" data-item-id=\"' + esc(item.id) + '\"' + (canParliamentEdit ? ' draggable=\"true\"' : '') + '>';
+      html += '<span class=\"sa-grip\"' + (canParliamentEdit ? ' title=\"Drag to reorder\"' : ' style=\"opacity:0.2;cursor:default\"') + '>' + _svg.grip + '</span>';
       html += '<span class="sa-item-name">' + esc(item.name) + '</span>';
       html += '<span class="sa-item-id">' + esc(item.id) + '</span>';
       var _typePill = item.type === 'auction'
@@ -190,12 +316,12 @@
         var _hasLive = (_auctions || []).some(function (a) { return a.item_id === item.id && a.status === 'active'; });
         if (_hasLive) {
           html += '<span><span class="sa-pill sa-pill--live">Live</span></span>';
-        } else if (_isParliament) {
+        } else if (canParliamentEdit) {
           html += '<span><button class="sa-action-btn" data-start-auction="' + esc(item.id) + '">Start</button></span>';
         } else {
           html += '<span><span class="sa-pill" style="color:var(--text-faint);border-color:var(--border)">Not live</span></span>';
         }
-      } else if (_isChief) {
+      } else if (canChiefEdit) {
         html += '<span><label class="settings-toggle" data-toggle-id="' + esc(item.id) + '">' +
           '<input type="checkbox"' + (isActive ? ' checked' : '') + ' />' +
           '<span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>' +
@@ -207,7 +333,7 @@
       // stock (not applicable for auctions)
       if (item.type === 'auction') {
         html += '<span style="color:var(--text-faint)">N/A</span>';
-      } else if (_isChief) {
+      } else if (canChiefEdit) {
         var stockVal = item.stock != null ? item.stock : '';
         html += '<span><input type="number" min="0" max="99999" class="sa-stock-input" data-stock-id="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="\u221E" /></span>';
       } else {
@@ -215,7 +341,7 @@
       }
 
       // controls: auction actions + edit + delete
-      if (_isParliament) {
+      if (canParliamentEdit) {
       html += '<span class="sa-actions-cell">';
       if (item.type === 'auction' && !skipAuctionControls) {
         var activeAuction = (_auctions || []).find(function (a) { return a.item_id === item.id && a.status === 'active'; });
@@ -242,8 +368,8 @@
       } else if (_liveAucMap[item.id]) {
         var auc = _liveAucMap[item.id];
         var isActive = item.active !== false;
-        html += '<div class="sa-row sa-row--live' + (!isActive ? ' sa-row--inactive' : '') + '" data-item-id="' + esc(item.id) + '"' + (_isParliament ? ' draggable="true"' : '') + '>';
-        html += '<span class="sa-grip"' + (_isParliament ? ' title="Drag to reorder"' : ' style="opacity:0.2;cursor:default"') + '>' + _svg.grip + '</span>';
+        html += '<div class=\"sa-row sa-row--live' + (!isActive ? ' sa-row--inactive' : '') + '\" data-item-id=\"' + esc(item.id) + '\"' + (canParliamentEdit ? ' draggable=\"true\"' : '') + '>';
+        html += '<span class=\"sa-grip\"' + (canParliamentEdit ? ' title=\"Drag to reorder\"' : ' style=\"opacity:0.2;cursor:default\"') + '>' + _svg.grip + '</span>';
         html += '<span class="sa-item-name">' + esc(item.name) + '</span>';
         html += '<span class="sa-item-id">' + esc(item.id) + '</span>';
         html += '<span><span class="sa-pill sa-pill--auction">Auction</span></span>';
@@ -251,7 +377,7 @@
         html += '<span>' + (liveCats.length
           ? liveCats.map(function (c) { return '<span class="sa-pill sa-pill--cat">' + esc(c) + '</span>'; }).join(' ')
           : '<span style="color:var(--text-faint)">N/A</span>') + '</span>';
-        if (_isChief) {
+        if (canChiefEdit) {
           html += '<span><label class="settings-toggle" data-toggle-id="' + esc(item.id) + '">' +
             '<input type="checkbox"' + (isActive ? ' checked' : '') + ' />' +
             '<span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>' +
@@ -260,7 +386,7 @@
           html += '<span class="' + (isActive ? 'sa-status-on' : 'sa-status-off') + '">' + (isActive ? 'Active' : 'Inactive') + '</span>';
         }
         html += '<span style="color:var(--text-faint)">N/A</span>';
-        if (_isParliament) {
+        if (canParliamentEdit) {
           html += '<span class="sa-actions-cell">';
           html += '<button class="sa-action-btn sa-pill sa-pill--auction" data-manage-auction="' + esc(auc.auction_id) + '">Manage</button>';
           html += '</span>';
@@ -402,6 +528,7 @@
 
     // bind drag-to-reorder on item rows
     (function () {
+      if (!canParliamentEdit) return;
       var table = document.getElementById('saItemTable');
       if (!table) return;
       var dragRow = null;
@@ -588,7 +715,7 @@
           h += '<span class="am-bid-time">' + fmtDate(b.placed_at) + '</span>';
           h += '<span class="am-bid-actions">';
           if (b.is_winning) h += '<span class="am-bid-status am-bid-status--win">Winning</span> ';
-          if (_isParliament) h += '<button class="am-bid-remove" data-remove-bid="' + esc(b.bid_id) + '" aria-label="Remove bid">' + _svg.close + '</button>';
+          if (_canParliamentEditShopAdmin()) h += '<button class=\"am-bid-remove\" data-remove-bid=\"' + esc(b.bid_id) + '\" aria-label=\"Remove bid\">' + _svg.close + '</button>';
           h += '</span>';
           h += '</div>';
         });
@@ -626,7 +753,7 @@
       h += '</div></div>';
 
       // Adjust end time (Parliament only)
-      if (_isParliament) {
+    if (_canParliamentEditShopAdmin()) {
         var curExt = data.extended_hours || 0;
         h += '<div class="am-adjust">';
         h += '<span class="am-tl-label" style="min-width:auto">Adjust end time</span>';
@@ -647,7 +774,7 @@
       h += '</div>';
 
       // Cancel auction (Parliament only)
-      if (_isParliament) {
+      if (_canParliamentEditShopAdmin()) {
         h += '<div class="am-cancel-row">';
         h += '<button class="am-cancel-btn" id="amCancel">' + _svg.close + ' Cancel auction</button>';
         h += '</div>';
@@ -1466,6 +1593,7 @@
 
   function updateQueueBadge() {
     var btn = document.querySelector('#saTabs [data-tab="queue"]');
+    if (!_shopEnabled) { _clearQueueBadges(); return; }
     if (!_queueData) return;
     var count = (_queueData.purchases || []).length + (_queueData.donations || []).length;
 
@@ -1535,7 +1663,7 @@
 
     html += '<div id="saQueueList">';
     if (!merged.length) {
-      html += '<div class="shop-empty">No items in queue</div>';
+      html += '<div class=\"shop-empty sa-q-empty\">No items in queue</div>';
     } else {
       merged.forEach(function (item) {
         var hidden = _queueFilter !== 'all' &&
@@ -1619,7 +1747,7 @@
     }
 
     /* Actions */
-    if (_isChief) {
+    if (_canChiefEditShopAdmin()) {
       html += '<div class="sa-q-actions">';
       if (isPurchase) {
         html += '<button class="sa-q-btn sa-q-btn--primary" data-action="fulfill" data-type="purchase" data-id="' + esc(d.purchase_id) + '">Mark fulfilled</button>';
@@ -1810,6 +1938,8 @@
     purchase_rejected:  'Purchase Rejected',
     donation_confirmed: 'Donation Confirmed',
     donation_rejected:  'Donation Rejected',
+    shop_enabled:       'Shop Enabled',
+    shop_disabled:      'Shop Disabled',
   };
 
   var _ACTION_TYPES = Object.keys(_ACTION_LABELS);
@@ -2153,8 +2283,8 @@
     else if (act === 'donations') list = list.filter(function (u) { return (u.donations|| 0) > 0; });
     var sort = _usersFilters.sort;
     list.sort(function (a, b) {
-      if (sort === 'ep_desc') return (b.ep_total  || 0) - (a.ep_total  || 0);
-      if (sort === 'ep_asc')  return (a.ep_total  || 0) - (b.ep_total  || 0);
+      if (sort === 'ep_desc') return (((b.balance || {}).total) || 0) - (((a.balance || {}).total) || 0);
+      if (sort === 'ep_asc')  return (((a.balance || {}).total) || 0) - (((b.balance || {}).total) || 0);
       if (sort === 'orders')  return (b.orders    || 0) - (a.orders    || 0);
       if (sort === 'donated') return (b.donations || 0) - (a.donations || 0);
       if (sort === 'recent')  return (b.last_activity || '').localeCompare(a.last_activity || '');
@@ -2211,7 +2341,7 @@
       '<option value="donations"' + (_usersFilters.activity === 'donations' ? ' selected' : '') + '>Has donations</option>' +
       '</select>';
     html += '<select class="sa-filter-input" id="suSort">' +
-      [['az','A\u2192Z'],['ep_desc','Most EP spent'],['ep_asc','Least EP spent'],['orders','Most orders'],['donated','Most donated'],['recent','Most recent']]
+      [['az','A\u2192Z'],['ep_desc','Highest EP balance'],['ep_asc','Lowest EP balance'],['orders','Most orders'],['donated','Most donated'],['recent','Most recent']]
       .map(function (s) { return '<option value="' + s[0] + '"' + (_usersFilters.sort === s[0] ? ' selected' : '') + '>' + s[1] + '</option>'; }).join('') +
       '</select>';
     html += '</div>';
@@ -2228,10 +2358,11 @@
     /* Table */
     html += '<div class="sa-table">';
     html += '<div class="sa-row sa-header su-row">';
-    html += '<span></span><span>User</span><span>EP Spent</span><span>Orders</span><span>Bids</span><span>Donations</span><span>Last Activity</span><span>Status</span>';
+    html += '<span></span><span>User</span><span>EP Balance</span><span>Orders</span><span>Bids</span><span>Donations</span><span>Last Activity</span><span>Status</span>';
     html += '</div>';
 
     page.forEach(function (u) {
+      var bal = u.balance || {};
       var active = _isUserActive(u);
       var isOpen = _usersOpenUuid === u.uuid;
       html += '<div class="sa-row su-row su-user-row' + (isOpen ? ' su-row--open' : '') + '" data-uuid="' + esc(u.uuid) + '">';
@@ -2241,8 +2372,8 @@
         '<span class="su-tag">' + (u.discord_id ? esc(u.discord_id) : esc((u.uuid || '').substring(0, 8) + '\u2026')) + '</span>' +
         '</span>';
       html += '<span class="su-ep-cell">' +
-        '<span class="su-ep-total">' + num(u.ep_total) + ' EP</span>' +
-        '<span class="su-ep-split">' + num(u.ep_clean) + 'c + ' + num(u.ep_dirty) + 'd</span>' +
+        '<span class=\"su-ep-total\">' + num(bal.total) + ' EP</span>' +
+        '<span class=\"su-ep-split\">' + num(bal.clean_total) + 'c + ' + num(bal.dirty_total) + 'd</span>' +
         '</span>';
       html += '<span>' + (u.orders    || 0) + '</span>';
       html += '<span>' + (u.bids      || 0) + '</span>';
@@ -2325,9 +2456,9 @@
     /* Six-metric strip */
     html += '<div class="su-metrics">';
     [
-      [num(u.ep_total)    + ' EP', 'Total spent'],
-      [num(u.ep_clean)    + ' EP', 'Clean spent'],
-      [num(u.ep_dirty)    + ' EP', 'Dirty spent'],
+      [num(bal.total || 0)        + ' EP', 'Total balance'],
+      [num(bal.clean_total || 0)  + ' EP', 'Clean balance'],
+      [num(bal.dirty_total || 0)  + ' EP', 'Dirty balance'],
       [String(u.orders       || 0), 'Orders'],
       [String(u.bids         || 0), 'Bids placed'],
       [String(u.winning_bids || 0), 'Auctions won'],
@@ -2489,9 +2620,15 @@
       return;
     }
     buildShell();
-    // pre-fetch queue to show badge count
-    fetchQueue(function () { updateQueueBadge(); });
-    renderTab();
+    fetchShopState(function () {
+      renderShopStateBanner();
+      if (_shopEnabled) {
+        fetchQueue(function () { updateQueueBadge(); });
+      } else {
+        _clearQueueBadges();
+      }
+      renderTab();
+    });
   }
 
   var observer = new MutationObserver(function () {

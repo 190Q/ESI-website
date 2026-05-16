@@ -50,6 +50,7 @@ from config import (
     _APPLICATION_FORMS, _APPLICATIONS_JSON, _user_has_min_rank,
     _APPLICATION_DISCORD, _PARLI_SERVER_ID, _PARLI_PARLI_ROLE, _DEV_SERVER_ID,
 )
+from shop.state import get_shop_state as _shop_get_state, get_shop_enabled as _shop_get_enabled, get_shop_disabled_message as _shop_get_disabled_message
 import ipaddress
 
 # Flask app
@@ -1047,29 +1048,90 @@ from shop.admin import (
     admin_get_queue, admin_fulfill, admin_reject, admin_get_raw_config,
     admin_write_item, admin_delete_item, admin_reorder_items,
     admin_start_auction, admin_auction_detail, admin_remove_bid,
-    admin_get_changes_log, admin_get_users,
+    admin_get_changes_log, admin_get_users, admin_set_shop_enabled,
 )
 
 
 # Guild-member gate for all shop endpoints
-def _require_guild_member():
+def _shop_disabled_response():
+    message = _shop_get_disabled_message()
+    return (
+        jsonify({
+            "shop_enabled": False,
+            "coming_soon": message == "Coming soon",
+            "message": message,
+        }),
+        503,
+    )
+
+def _shop_disabled_payload(extra: dict | None = None) -> dict:
+    message = _shop_get_disabled_message()
+    payload = {
+        "shop_enabled": False,
+        "coming_soon": message == "Coming soon",
+        "message": message,
+    }
+    if isinstance(extra, dict):
+        payload.update(extra)
+    return payload
+
+def _is_shop_enabled() -> bool:
+    return bool(_shop_get_enabled(default=False))
+
+def _is_owner_user(user: dict | None) -> bool:
+    owner = str(os.environ.get("OWNER") or "").strip()
+    if not owner or not isinstance(user, dict):
+        return False
+    user_id = str(user.get("id") or "").strip()
+    owner_id = owner
+    if owner.startswith("<@") and owner.endswith(">"):
+        owner_id = owner.strip("<@!>").strip()
+    if owner_id and owner_id == user_id:
+        return True
+    owner_l = owner.lower()
+    username = str(user.get("username") or "").strip().lower()
+    nick = str(user.get("nick") or "").strip().lower()
+    discriminator = str(user.get("discriminator") or "").strip()
+    tag = (f"{username}#{discriminator}".lower()) if username and discriminator else ""
+    return owner_l in {username, nick, tag}
+
+def _require_guild_member(require_shop_enabled: bool = True):
     user, err = _require_login()
     if err:
         return None, err
     if not is_guild_member(user.get("roles") or []):
         return None, (jsonify({"error": "Shop is only available to guild members"}), 403)
+    if require_shop_enabled and not _is_shop_enabled():
+        return None, _shop_disabled_response()
     return user, None
 
 
 # EP balance endpoint (shop system)
+@app.route("/api/shop/state")
+@rate_limit(60)
+def shop_state():
+    user, err = _require_guild_member(require_shop_enabled=False)
+    if err:
+        return err
+    state = _shop_get_state() or {}
+    enabled = bool(state.get("shop_enabled"))
+    message = None if enabled else (state.get("message") or _shop_get_disabled_message())
+    return jsonify({
+        **state,
+        "shop_enabled": enabled,
+        "coming_soon": False if enabled else bool(state.get("coming_soon", message == "Coming soon")),
+        "message": message,
+    })
 
 @app.route("/api/me/ep-balance")
 @rate_limit(60)
 def me_ep_balance():
     """Return the logged-in user's EP balance breakdown."""
-    user, err = _require_guild_member()
+    user, err = _require_guild_member(require_shop_enabled=False)
     if err:
         return err
+    if not _is_shop_enabled():
+        return jsonify(_shop_disabled_payload({"linked": False})), 200
     discord_id = user.get("id", "")
     mc_uuid, mc_username = resolve_uuid_for_user(discord_id)
     if not mc_uuid:
@@ -1099,9 +1161,15 @@ def me_ep_balance():
 @rate_limit(60)
 def shop_bin_list():
     """Return all visible bin items for the logged-in user, with cooldowns and balance."""
-    user, err = _require_guild_member()
+    user, err = _require_guild_member(require_shop_enabled=False)
     if err:
         return err
+    if not _is_shop_enabled():
+        return jsonify(_shop_disabled_payload({
+            "items": [],
+            "item_order": [],
+            "linked": False,
+        })), 200
     result = list_bin_items(
         user_roles=user.get("roles") or [],
         discord_id=user.get("id", ""),
@@ -1200,9 +1268,14 @@ def shop_bin_purchase():
 @rate_limit(60)
 def shop_cart_get():
     """Return the logged-in user's persisted cart as [{item_id, quantity}]."""
-    user, err = _require_guild_member()
+    user, err = _require_guild_member(require_shop_enabled=False)
     if err:
         return err
+    if not _is_shop_enabled():
+        return jsonify(_shop_disabled_payload({
+            "ok": True,
+            "items": [],
+        })), 200
     items = get_cart(user.get("id", ""))
     return jsonify({"ok": True, "items": items})
 
@@ -1241,9 +1314,14 @@ def shop_cart_save():
 @rate_limit(60)
 def shop_auction_list():
     """Return active + recently-closed auctions with user bid status."""
-    user, err = _require_guild_member()
+    user, err = _require_guild_member(require_shop_enabled=False)
     if err:
         return err
+    if not _is_shop_enabled():
+        return jsonify(_shop_disabled_payload({
+            "auctions": [],
+            "linked": False,
+        })), 200
     return jsonify(list_auctions(discord_id=user.get("id", "")))
 
 
@@ -1320,9 +1398,14 @@ def shop_donate():
 @rate_limit(30)
 def shop_donation_history():
     """Return the logged-in user's donation history."""
-    user, err = _require_guild_member()
+    user, err = _require_guild_member(require_shop_enabled=False)
     if err:
         return err
+    if not _is_shop_enabled():
+        return jsonify(_shop_disabled_payload({
+            "linked": False,
+            "tickets": [],
+        })), 200
     return jsonify(get_donation_history(discord_id=user.get("id", "")))
 
 
@@ -1330,16 +1413,22 @@ def shop_donation_history():
 @rate_limit(30)
 def shop_orders():
     """Return the logged-in user's full order history."""
-    user, err = _require_guild_member()
+    user, err = _require_guild_member(require_shop_enabled=False)
     if err:
         return err
+    if not _is_shop_enabled():
+        return jsonify(_shop_disabled_payload({
+            "linked": False,
+            "purchases": [],
+            "bids": [],
+            "donations": [],
+        })), 200
     return jsonify(get_order_history(discord_id=user.get("id", "")))
 
 
 # Shop admin endpoints
 _SHOP_ADMIN = _CHIEF_PLUS | _PARLIAMENT_PLUS  # read access
-
-def _require_shop_admin():
+def _require_shop_admin(require_shop_enabled: bool = True):
     """Returns (user, is_parliament, err).
 
     is_parliament=True  -> Parliament+ : full write (create/edit/delete items,
@@ -1347,18 +1436,57 @@ def _require_shop_admin():
     is_parliament=False -> Chief+ only : limited write (stock, toggle, start
                             auction, open manage modal, queue fulfill/reject).
     """
-    user, err = _require_role(_SHOP_ADMIN)
+    user, err = _require_login()
     if err:
         return None, False, err
+    if _is_owner_user(user):
+        # OWNER always has full shop-admin capabilities, including while disabled.
+        return user, True, None
     user_roles = set(user.get("roles") or [])
+    if not (user_roles & _SHOP_ADMIN):
+        return None, False, (jsonify({"error": "Insufficient permissions"}), 403)
     is_parliament = bool(user_roles & _PARLIAMENT_PLUS)
+    if require_shop_enabled and not _is_shop_enabled():
+        return None, False, _shop_disabled_response()
     return user, is_parliament, None
 
+@app.route("/api/admin/shop/state")
+@rate_limit(30)
+def admin_shop_state():
+    user, _, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    state = _shop_get_state() or {}
+    enabled = bool(state.get("shop_enabled"))
+    message = None if enabled else (state.get("message") or _shop_get_disabled_message())
+    return jsonify({
+        **state,
+        "shop_enabled": enabled,
+        "coming_soon": False if enabled else bool(state.get("coming_soon", message == "Coming soon")),
+        "message": message,
+        "can_toggle": _is_owner_user(user),
+    })
+
+@app.route("/api/admin/shop/state", methods=["POST"])
+@rate_limit(10)
+def admin_shop_state_update():
+    user, err = _require_login()
+    if err:
+        return err
+    if not _is_owner_user(user):
+        return jsonify({"error": "Only OWNER can change shop state"}), 403
+    body = request.get_json(silent=True)
+    if not body or not isinstance(body, dict) or "shop_enabled" not in body:
+        return jsonify({"error": "shop_enabled is required"}), 400
+    enabled = _parse_bool(body.get("shop_enabled"))
+    actor = user.get("nick") or user.get("username", "")
+    result = admin_set_shop_enabled(enabled, actor=actor)
+    return jsonify(result), 200 if result.get("ok") else 400
 
 @app.route("/api/admin/shop/items")
 @rate_limit(30)
 def admin_shop_items():
-    user, _, err = _require_shop_admin()
+    user, _, err = _require_shop_admin(require_shop_enabled=False)
     if err:
         return err
     return jsonify(admin_list_all_items_unfiltered())
@@ -1535,7 +1663,7 @@ def admin_shop_start_auction_route():
 @app.route("/api/admin/shop/auctions/<auction_id>/detail")
 @rate_limit(30)
 def admin_shop_auction_detail(auction_id):
-    user, _, err = _require_shop_admin()
+    user, _, err = _require_shop_admin(require_shop_enabled=False)
     if err:
         return err
     result = admin_auction_detail(auction_id)
@@ -1593,7 +1721,7 @@ def admin_shop_extend_auction(auction_id):
 @app.route("/api/admin/shop/logs")
 @rate_limit(30)
 def admin_shop_logs():
-    user, _, err = _require_shop_admin()
+    user, _, err = _require_shop_admin(require_shop_enabled=False)
     if err:
         return err
     page = max(1, int(request.args.get("page", 1)))
@@ -1612,7 +1740,7 @@ def admin_shop_logs():
 @app.route("/api/admin/shop/reservations")
 @rate_limit(30)
 def admin_shop_reservations():
-    user, _, err = _require_shop_admin()
+    user, _, err = _require_shop_admin(require_shop_enabled=False)
     if err:
         return err
     return jsonify(admin_get_reservations())
@@ -1634,7 +1762,7 @@ def admin_shop_release_reservation(reservation_id):
 @app.route("/api/admin/shop/queue")
 @rate_limit(30)
 def admin_shop_queue():
-    user, _, err = _require_shop_admin()
+    user, _, err = _require_shop_admin(require_shop_enabled=False)
     if err:
         return err
     return jsonify(admin_get_queue())
@@ -1680,7 +1808,7 @@ def admin_shop_reject():
 @rate_limit(30)
 def admin_shop_changes():
     """Paginated admin action log."""
-    user, _, err = _require_shop_admin()
+    user, _, err = _require_shop_admin(require_shop_enabled=False)
     if err:
         return err
     page = max(1, int(request.args.get("page", 1)))
@@ -1699,7 +1827,7 @@ def admin_shop_changes():
 @rate_limit(10)
 def admin_shop_users():
     """Aggregated per-user shop activity (60-second cache; pass ?refresh=true to bypass)."""
-    user, _, err = _require_shop_admin()
+    user, _, err = _require_shop_admin(require_shop_enabled=False)
     if err:
         return err
     if request.args.get("refresh") == "true":
@@ -1711,7 +1839,7 @@ def admin_shop_users():
 @app.route("/api/admin/shop/config")
 @rate_limit(10)
 def admin_shop_config():
-    user, _, err = _require_shop_admin()
+    user, _, err = _require_shop_admin(require_shop_enabled=False)
     if err:
         return err
     return jsonify(admin_get_raw_config())
