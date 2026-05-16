@@ -24,6 +24,7 @@
   var _auctionPoll    = null;  // 30s auction data refresh
   var _shellBuilt     = false;
   var _shopEnabled    = true;
+  var _shopMaintenanceViewOnly = false;
   var _shopDisabledMessage = 'Coming soon';
   var _cart           = {};    // { [item_id]: { item, quantity } }
   var _cartSyncTimer  = null;
@@ -198,6 +199,7 @@
         if (data && typeof data.shop_enabled === 'boolean') {
           _shopEnabled = !!data.shop_enabled;
         }
+        _shopMaintenanceViewOnly = !!(data && data.maintenance_view_only);
         if (data && typeof data.message === 'string' && data.message.trim()) {
           _shopDisabledMessage = data.message.trim();
         }
@@ -264,6 +266,7 @@
     stopAuctionTimers();
     if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
     _filterBarBuilt = false;
+    _shopMaintenanceViewOnly = false;
     _binData = { shop_enabled: false, coming_soon: disabledMessage() === 'Coming soon', message: disabledMessage(), items: [], item_order: [] };
     _auctionData = { shop_enabled: false, coming_soon: disabledMessage() === 'Coming soon', message: disabledMessage(), auctions: [] };
     _cart = {};
@@ -577,7 +580,7 @@
   function renderContent() {
     var container = document.getElementById('shopContent');
     if (!container) return;
-    if (_shopEnabled === false) {
+    if (_shopEnabled === false && !_shopMaintenanceViewOnly) {
       renderComingSoonContent();
       return;
     }
@@ -796,7 +799,7 @@
         var id = card.dataset.itemId;
         var item = allItems.find(function (it) { return it.id === id; });
         if (item) {
-          if (item.type === 'donate') openDonateModal(item);
+          if (item.type === 'donate' && item.active !== false) openDonateModal(item);
           else openItemDetailModal(item);
         }
       }
@@ -1870,6 +1873,7 @@
   var _initDone = false;
   function loadEnabledShopData() {
     setComingSoonLayout(false);
+    _shopMaintenanceViewOnly = false;
     setTopActionsDisabled(false);
     document.getElementById('shopContent').innerHTML =
       '<div class=\"shop-loading\"><span class=\"loading-spinner\"></span> Loading shop\u2026</div>';
@@ -1888,10 +1892,43 @@
     // Pre-fetch auctions; update price range + re-render once ready
     fetchAuctionData(function (data) { if (data) { updateFilterBarData(); renderContent(); } });
   }
+  function loadMaintenanceViewOnlyData() {
+    stopAuctionTimers();
+    if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
+    _shopEnabled = false;
+    _shopMaintenanceViewOnly = true;
+    _cart = {};
+    _cartLoaded = false;
+    _filterBarBuilt = false;
+    setComingSoonLayout(false);
+    setTopActionsDisabled(true);
+    renderComingSoonBalanceBar();
+    document.getElementById('shopContent').innerHTML =
+      '<div class="shop-loading"><span class="loading-spinner"></span> Loading shop\u2026</div>';
+    fetchBinData(function (data) {
+      if (!data) {
+        document.getElementById('shopContent').innerHTML =
+          '<div class="shop-empty">Could not load shop data.</div>';
+        return;
+      }
+      renderComingSoonBalanceBar();
+      buildFilterBar();
+    });
+    fetchAuctionData(function (data) {
+      if (!data) return;
+      renderComingSoonBalanceBar();
+      updateFilterBarData();
+      renderContent();
+    });
+  }
 
   function refreshShopByState() {
     fetchShopState(function (state) {
       if (state && state.shop_enabled === false) {
+        if (state.maintenance_view_only) {
+          loadMaintenanceViewOnlyData();
+          return;
+        }
         applyDisabledShopState();
         return;
       }
