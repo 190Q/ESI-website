@@ -166,6 +166,9 @@
   font-style: italic;
   font-size: 0.84rem;
 }
+.shop-balance-bar--hidden {
+  visibility: hidden;
+}
 
 /* Tabs */
 .shop-tabs {
@@ -594,6 +597,10 @@
   background: var(--warn);
   color: var(--green-deep);
 }
+.shop-card-ribbon--maintenance {
+  background: rgba(212,160,23,0.92);
+  color: #0f1d0f;
+}
 
 /* Item type badge (Bin / Auction label on cards) */
 .shop-item-type-badge {
@@ -1009,9 +1016,11 @@ input.cart-qty:focus {
 
 /* Unavailable / cooldown overlays */
 .shop-card--unavailable,
-.shop-card--cooldown { opacity: 0.5; }
+.shop-card--cooldown,
+.shop-card--maintenance { opacity: 0.5; }
 .shop-card--unavailable::after,
-.shop-card--cooldown::after {
+.shop-card--cooldown::after,
+.shop-card--maintenance::after {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -1030,6 +1039,13 @@ input.cart-qty:focus {
 }
 .shop-card--unavailable::after { content: 'Unavailable'; font-size: 1rem; }
 .shop-card--cooldown::after { content: attr(data-cooldown); }
+.shop-card--maintenance::after {
+  content: attr(data-maintenance-line1) '\A' attr(data-maintenance-line2);
+  font-size: 0.95rem;
+  white-space: pre-line;
+  text-align: center;
+  line-height: 1.25;
+}
 
 /* Buy confirmation modal */
 .shop-modal-backdrop {

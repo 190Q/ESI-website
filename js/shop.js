@@ -56,6 +56,10 @@
     var msg = String(_shopDisabledMessage || '').trim();
     return msg || 'Coming soon';
   }
+  function isComingSoonDisabled() {
+    if (_shopEnabled !== false) return false;
+    return disabledMessage().toLowerCase() === 'coming soon';
+  }
 
   /* Cross-tab cart sync via BroadcastChannel */
   var _cartChannel = null;
@@ -219,6 +223,7 @@
     var el = document.getElementById('shopBalanceBar');
     if (!el) return;
     var message = esc(disabledMessage());
+    el.classList.remove('shop-balance-bar--hidden');
     el.classList.add('shop-balance-bar--coming-soon');
     el.innerHTML =
       '<div class=\"bal-blocks\">' +
@@ -314,7 +319,13 @@
   function renderBalanceBar() {
     var el = document.getElementById('shopBalanceBar');
     if (!el) return;
-    if (_shopEnabled === false) { renderComingSoonBalanceBar(); return; }
+    if (_shopEnabled === false && isComingSoonDisabled()) {
+      el.classList.remove('shop-balance-bar--coming-soon');
+      el.classList.add('shop-balance-bar--hidden');
+      el.innerHTML = '';
+      return;
+    }
+    el.classList.remove('shop-balance-bar--hidden');
     el.classList.remove('shop-balance-bar--coming-soon');
     if (!_binData || !_binData.balance) return;
     var b = _binData.balance;
@@ -749,24 +760,42 @@
     }
     return 'On Cooldown';
   }
+  function _maintenanceLines() {
+    var parts = String(disabledMessage() || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return ['Coming', 'Soon'];
+    if (parts.length === 1) return [parts[0], ''];
+    return [parts[0], parts.slice(1).join(' ')];
+  }
 
   function buildBinCard(item) {
+    var shopDisabled = _shopEnabled === false;
     var isDonate = item.type === 'donate';
     var inactive = !item.active;
-    var onCooldown = !isDonate && item.on_cooldown;
+    var onCooldown = !shopDisabled && !isDonate && item.on_cooldown;
     var inCart = !isDonate && !!_cart[item.id];
-    var cdText = !isDonate ? _cooldownLabel(item) : '';
-    var html = '<div class="shop-card' + (inactive ? ' shop-card--unavailable' : '') +
+    var showUnavailable = inactive && !shopDisabled;
+    var maintenanceLine1 = '';
+    var maintenanceLine2 = '';
+    if (shopDisabled) {
+      var mLines = _maintenanceLines();
+      maintenanceLine1 = mLines[0];
+      maintenanceLine2 = mLines[1];
+    }
+    var cdText = (!isDonate && !shopDisabled) ? _cooldownLabel(item) : '';
+    var html = '<div class="shop-card' + (showUnavailable ? ' shop-card--unavailable' : '') +
+      (shopDisabled ? ' shop-card--maintenance' : '') +
       (onCooldown && !inactive ? ' shop-card--cooldown' : '') +
       (inCart ? ' shop-card--in-cart' : '') + '" data-item-id="' + esc(item.id) + '"' +
-      (cdText ? ' data-cooldown="' + esc(cdText) + '"' : '') + '>';
+      (cdText ? ' data-cooldown="' + esc(cdText) + '"' : '') +
+      (maintenanceLine1 ? ' data-maintenance-line1="' + esc(maintenanceLine1) + '"' : '') +
+      (maintenanceLine2 ? ' data-maintenance-line2="' + esc(maintenanceLine2) + '"' : '') + '>';
     var _thumb = (item.images && item.images.length) ? item.images[0] : null;
     if (_thumb) html += '<img class="shop-card-img" src="' + esc(_thumb) + '" alt="" loading="lazy" />';
     else html += '<div class="shop-card-img shop-card-img--empty' + (isDonate ? ' donate-card-icon' : '') + '">' + (isDonate ? _svg.gem : 'No Image') + '</div>';
     html += isDonate
       ? '<span class="shop-item-type-badge shop-item-type-badge--donate">Donate</span>'
       : '<span class="shop-item-type-badge shop-item-type-badge--bin">Bin</span>';
-    if (!isDonate && item.stock != null) {
+    if (!shopDisabled && !isDonate && item.stock != null) {
       html += _ribbon(num(item.stock) + '\u00a0left', item.stock <= 0 ? 'outstock' : 'stock');
     }
     html += '<div class="shop-card-body">';
@@ -808,11 +837,24 @@
 
   /* Auction card */
   function buildAuctionCard(a, myUuid) {
+    var shopDisabled = _shopEnabled === false;
     var isActive = a.status === 'active';
     var itemInactive = a.active === false;
+    var showUnavailable = (a.status === 'closed') || (itemInactive && !shopDisabled);
+    var maintenanceLine1 = '';
+    var maintenanceLine2 = '';
+    if (shopDisabled) {
+      var mLines = _maintenanceLines();
+      maintenanceLine1 = mLines[0];
+      maintenanceLine2 = mLines[1];
+    }
     var endsMs   = new Date(a.ends_at).getTime();
-    var html = '<div class="shop-card' + (a.status === 'closed' || itemInactive ? ' shop-card--unavailable' : '') +
-      '" data-auction-id="' + esc(a.auction_id) + '">';
+    var html = '<div class="shop-card' + (showUnavailable ? ' shop-card--unavailable' : '') +
+      (shopDisabled ? ' shop-card--maintenance' : '') +
+      '" data-auction-id="' + esc(a.auction_id) + '"' +
+      (maintenanceLine1 ? ' data-maintenance-line1="' + esc(maintenanceLine1) + '"' : '') +
+      (maintenanceLine2 ? ' data-maintenance-line2="' + esc(maintenanceLine2) + '"' : '') +
+      '>';
     var _aThumb = (a.item_images && a.item_images.length) ? a.item_images[0] : a.item_image;
     if (_aThumb) html += '<img class="shop-card-img" src="' + esc(_aThumb) + '" alt="" loading="lazy" />';
     else html += '<div class="shop-card-img shop-card-img--empty">No Image</div>';
@@ -833,7 +875,7 @@
       : '<span class="shop-card-badge shop-card-badge--any">Any EP</span>';
     html += '</div>';
     html += '</div>'; // card-body
-    if (a.user_bid) {
+    if (a.user_bid && !shopDisabled) {
       html += a.user_bid.is_winning
         ? _ribbon('Winning', 'winning')
         : _ribbon('Outbid', 'outbid');
@@ -1017,10 +1059,11 @@
     buildShell();
     var modal = document.getElementById('shopModal');
     if (!modal) return;
+    var shopDisabled = _shopEnabled === false;
     var cartEntry = _cart[item.id];
     var inactive   = !item.active;
-    var onCooldown = item.on_cooldown;
-    var disabled   = inactive || onCooldown || (item.stock != null && item.stock <= 0);
+    var onCooldown = !shopDisabled && item.on_cooldown;
+    var disabled   = shopDisabled || inactive || onCooldown || (item.stock != null && item.stock <= 0);
     var html = '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>';
     var detailImgs = _getItemImages(item);
     if (detailImgs.length) html += _buildCarousel(detailImgs);
@@ -1041,7 +1084,8 @@
     if (item.description) html += '<div class="detail-full-desc">' + esc(item.description) + '</div>';
     var btnLabel = 'Add to Cart';
     var btnDisabled = disabled;
-    if (inactive) { btnLabel = 'Unavailable'; }
+    if (shopDisabled) { btnLabel = disabledMessage(); }
+    else if (inactive) { btnLabel = 'Unavailable'; }
     else if (item.stock != null && item.stock <= 0) { btnLabel = 'Out of Stock'; }
     else if (onCooldown && item.cooldown_ends_at) {
       btnLabel = 'Available in ' + Math.ceil(Math.max(0, new Date(item.cooldown_ends_at) - new Date()) / 86400000) + 'd';
@@ -1119,10 +1163,11 @@
     buildShell();
     var modal = document.getElementById('shopModal');
     if (!modal) return;
+    var shopDisabled = _shopEnabled === false;
     var myUuid   = (_auctionData && _auctionData.uuid) ? _auctionData.uuid : '';
     var isActive = auction.status === 'active';
     var itemActive = auction.active !== false;
-    var canBid = isActive && itemActive;
+    var canBid = !shopDisabled && isActive && itemActive;
     var isHighest = auction.current_highest_bidder_uuid === myUuid;
     var bal = (_auctionData && _auctionData.balance) || (_binData && _binData.balance);
     var minBid = auction.current_highest_bid > 0
@@ -1197,7 +1242,7 @@
       html += '</div>';
     } else {
       html += '<div class="shop-modal-actions">';
-      var abtnLabel = !isActive ? 'Auction Ended' : !itemActive ? 'Auction Paused' : 'Unavailable';
+      var abtnLabel = shopDisabled ? disabledMessage() : (!isActive ? 'Auction Ended' : !itemActive ? 'Auction Paused' : 'Unavailable');
       html += '<button class="shop-modal-btn shop-modal-btn--confirm" disabled>' + abtnLabel + '</button>';
       html += '</div>';
     }
@@ -1902,7 +1947,7 @@
     _filterBarBuilt = false;
     setComingSoonLayout(false);
     setTopActionsDisabled(true);
-    renderComingSoonBalanceBar();
+    renderBalanceBar();
     document.getElementById('shopContent').innerHTML =
       '<div class="shop-loading"><span class="loading-spinner"></span> Loading shop\u2026</div>';
     fetchBinData(function (data) {
@@ -1911,12 +1956,12 @@
           '<div class="shop-empty">Could not load shop data.</div>';
         return;
       }
-      renderComingSoonBalanceBar();
+      renderBalanceBar();
       buildFilterBar();
     });
     fetchAuctionData(function (data) {
       if (!data) return;
-      renderComingSoonBalanceBar();
+      renderBalanceBar();
       updateFilterBarData();
       renderContent();
     });

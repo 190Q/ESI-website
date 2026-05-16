@@ -1094,13 +1094,6 @@ def _is_owner_user(user: dict | None) -> bool:
     discriminator = str(user.get("discriminator") or "").strip()
     tag = (f"{username}#{discriminator}".lower()) if username and discriminator else ""
     return owner_l in {username, nick, tag}
-def _can_view_shop_items_while_disabled(user: dict | None) -> bool:
-    if _is_owner_user(user):
-        return True
-    if not isinstance(user, dict):
-        return False
-    user_roles = set(user.get("roles") or [])
-    return bool(user_roles & (_CHIEF_PLUS | _PARLIAMENT_PLUS))
 
 def _require_guild_member(require_shop_enabled: bool = True):
     user, err = _require_login()
@@ -1123,7 +1116,7 @@ def shop_state():
     state = _shop_get_state() or {}
     enabled = bool(state.get("shop_enabled"))
     message = None if enabled else (state.get("message") or _shop_get_disabled_message())
-    maintenance_view_only = bool((not enabled) and _can_view_shop_items_while_disabled(user))
+    maintenance_view_only = bool(not enabled)
     return jsonify({
         **state,
         "shop_enabled": enabled,
@@ -1174,31 +1167,24 @@ def shop_bin_list():
     if err:
         return err
     if not _is_shop_enabled():
-        if _can_view_shop_items_while_disabled(user):
-            result = list_bin_items(
-                user_roles=user.get("roles") or [],
-                discord_id=user.get("id", ""),
-            )
-            ro_items = []
-            for item in result.get("items") or []:
-                if not isinstance(item, dict):
-                    continue
-                ro_item = dict(item)
-                ro_item["active"] = False
-                ro_items.append(ro_item)
-            payload = {
-                **result,
-                "items": ro_items,
-                "maintenance_view_only": True,
-            }
-            payload.update(_shop_disabled_payload())
-            return jsonify(payload), 200
-        return jsonify(_shop_disabled_payload({
-            "items": [],
-            "item_order": [],
-            "linked": False,
-            "maintenance_view_only": False,
-        })), 200
+        result = list_bin_items(
+            user_roles=user.get("roles") or [],
+            discord_id=user.get("id", ""),
+        )
+        ro_items = []
+        for item in result.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            ro_item = dict(item)
+            ro_item["active"] = False
+            ro_items.append(ro_item)
+        payload = {
+            **result,
+            "items": ro_items,
+            "maintenance_view_only": True,
+        }
+        payload.update(_shop_disabled_payload())
+        return jsonify(payload), 200
     result = list_bin_items(
         user_roles=user.get("roles") or [],
         discord_id=user.get("id", ""),
@@ -1347,27 +1333,21 @@ def shop_auction_list():
     if err:
         return err
     if not _is_shop_enabled():
-        if _can_view_shop_items_while_disabled(user):
-            result = list_auctions(discord_id=user.get("id", ""))
-            ro_auctions = []
-            for auction in result.get("auctions") or []:
-                if not isinstance(auction, dict):
-                    continue
-                ro_auction = dict(auction)
-                ro_auction["active"] = False
-                ro_auctions.append(ro_auction)
-            payload = {
-                **result,
-                "auctions": ro_auctions,
-                "maintenance_view_only": True,
-            }
-            payload.update(_shop_disabled_payload())
-            return jsonify(payload), 200
-        return jsonify(_shop_disabled_payload({
-            "auctions": [],
-            "linked": False,
-            "maintenance_view_only": False,
-        })), 200
+        result = list_auctions(discord_id=user.get("id", ""))
+        ro_auctions = []
+        for auction in result.get("auctions") or []:
+            if not isinstance(auction, dict):
+                continue
+            ro_auction = dict(auction)
+            ro_auction["active"] = False
+            ro_auctions.append(ro_auction)
+        payload = {
+            **result,
+            "auctions": ro_auctions,
+            "maintenance_view_only": True,
+        }
+        payload.update(_shop_disabled_payload())
+        return jsonify(payload), 200
     return jsonify(list_auctions(discord_id=user.get("id", "")))
 
 
