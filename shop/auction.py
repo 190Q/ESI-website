@@ -533,8 +533,44 @@ def place_bid(
 
 _CLOSE_WORKER_INTERVAL = 60  # seconds
 _REMINDER_HOURS = 6  # hours before close to send reminder
-_reminded_auctions: set = set()  # in-memory tracker for ending-soon reminders
 _last_known_cycle_id: int | None = None  # tracks the cycle for auto-start detection
+_DM_NOTIFICATION_ENDING_SOON = "ending_soon"
+
+def _ensure_dm_notifications_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS auction_dm_notifications (
+            auction_id         TEXT NOT NULL,
+            recipient_uuid     TEXT NOT NULL,
+            notification_type  TEXT NOT NULL,
+            sent_at            TEXT NOT NULL,
+            PRIMARY KEY (auction_id, recipient_uuid, notification_type)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_adn_sent_at "
+        "ON auction_dm_notifications (sent_at)"
+    )
+
+def _claim_dm_notification_once(
+    conn: sqlite3.Connection,
+    auction_id: str,
+    recipient_uuid: str,
+    notification_type: str,
+    sent_at_iso: str,
+) -> bool:
+    before = conn.total_changes
+    conn.execute(
+        "INSERT OR IGNORE INTO auction_dm_notifications "
+        "(auction_id, recipient_uuid, notification_type, sent_at) "
+        "VALUES (?, ?, ?, ?)",
+        (auction_id, recipient_uuid, notification_type, sent_at_iso),
+    )
+    inserted = conn.total_changes > before
+    if inserted:
+        conn.commit()
+    return inserted
 
 def _send_ending_soon_reminders():
     """DM all bidders on auctions ending within _REMINDER_HOURS."""
@@ -545,18 +581,18 @@ def _send_ending_soon_reminders():
     if not os.path.isfile(_SHOP_DB):
         return
 
+    conn = None
     try:
         conn = sqlite3.connect(_SHOP_DB, timeout=5)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_dm_notifications_table(conn)
         soon = conn.execute(
             "SELECT * FROM auctions WHERE status = 'active' AND ends_at <= ? AND ends_at > ?",
             (threshold, now_iso),
         ).fetchall()
         for arow in soon:
             aid = arow["auction_id"]
-            if aid in _reminded_auctions:
-                continue
-            _reminded_auctions.add(aid)
             item = get_item_unfiltered(arow["item_id"]) or {}
             item_name = item.get("name", arow["item_id"])
             ends_at = _dt.fromisoformat(arow["ends_at"])
@@ -567,20 +603,33 @@ def _send_ending_soon_reminders():
                 "SELECT DISTINCT uuid FROM bids WHERE auction_id = ?", (aid,),
             ).fetchall()
             for b in bidders:
-                did = _resolve_discord_id_for_uuid(b["uuid"])
-                if did:
-                    _dm_card_in_background(
-                        did, "ending_soon", item_name, arow["current_highest_bid"],
-                        fields=[
-                            ("TIME LEFT", f"~{remaining_h}h"),
-                            ("HIGHEST BID", f"{arow['current_highest_bid']:,} EP"),
-                        ],
-                        fallback_text=f"Auction for {item_name} ends in ~{remaining_h}h. High: {arow['current_highest_bid']:,} EP.",
-                        low_urgency=True,
-                    )
-        conn.close()
+                bidder_uuid = b["uuid"]
+                did = _resolve_discord_id_for_uuid(bidder_uuid)
+                if not did:
+                    continue
+                claimed = _claim_dm_notification_once(
+                    conn,
+                    aid,
+                    bidder_uuid,
+                    _DM_NOTIFICATION_ENDING_SOON,
+                    now_iso,
+                )
+                if not claimed:
+                    continue
+                _dm_card_in_background(
+                    did, "ending_soon", item_name, arow["current_highest_bid"],
+                    fields=[
+                        ("TIME LEFT", f"~{remaining_h}h"),
+                        ("HIGHEST BID", f"{arow['current_highest_bid']:,} EP"),
+                    ],
+                    fallback_text=f"Auction for {item_name} ends in ~{remaining_h}h. High: {arow['current_highest_bid']:,} EP.",
+                    low_urgency=True,
+                )
     except sqlite3.Error as exc:
         print(f"[AUCTION] Ending-soon reminder error: {exc}", file=sys.stderr)
+    finally:
+        if conn is not None:
+            conn.close()
 
 def _close_expired_auctions():
     """Find auctions past their ends_at, close them, settle winners."""
@@ -603,7 +652,6 @@ def _close_expired_auctions():
         return
 
     for auction in expired:
-        _reminded_auctions.discard(auction["auction_id"])  # cleanup
         try:
             _settle_auction(auction, now_iso)
         except Exception as exc:

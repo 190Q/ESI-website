@@ -365,4 +365,7 @@ def render_card(
         print(f"[DM_CARDS] Unknown card type: {card_type!r}", file=sys.stderr)
         return None
     html = _build_html(cfg, item_name, amount, amount_label, fields or [], comment)
+    png = _screenshot_html(html)
+    if png:
+        return png
     return _screenshot_html(html)
