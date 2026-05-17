@@ -1992,8 +1992,43 @@
     });
   }
 
+  function _applyBannedState() {
+    stopAuctionTimers();
+    if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
+    _shopEnabled = false;
+    _cart = {};
+    _cartLoaded = false;
+    _shellBuilt = false;
+    _filterBarBuilt = false;
+    panel.innerHTML =
+      '<div class="shop-banned-notice">' +
+        '<div class="shop-banned-icon">' +
+          '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>' +
+        '</div>' +
+        '<div class="shop-banned-title">Shop Access Revoked</div>' +
+        '<div class="shop-banned-text">You have been banned from the shop. If you believe this is a mistake, please contact a Parliament member.</div>' +
+      '</div>';
+    // Hide shop nav item
+    window._shopBanned = true;
+    var shopNav = document.getElementById('shopNavItem');
+    if (shopNav) shopNav.style.display = 'none';
+  }
+
   function refreshShopByState() {
     fetchShopState(function (state) {
+      if (state && state.shop_banned) {
+        _applyBannedState();
+        return;
+      }
+      window._shopBanned = false;
+      // Detect admin panel ban and hide manage shop nav
+      if (state && state.admin_banned) {
+        window._adminBanned = true;
+        var adminNav = document.getElementById('shopAdminNavItem');
+        if (adminNav) adminNav.style.display = 'none';
+      } else if (state) {
+        window._adminBanned = false;
+      }
       if (state && state.shop_enabled === false) {
         if (state.maintenance_view_only) {
           loadMaintenanceViewOnlyData();

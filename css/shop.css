@@ -1156,6 +1156,31 @@ input.cart-qty:focus {
   font-size: 0.95rem;
 }
 
+/* Banned notice */
+.shop-banned-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 20px;
+  text-align: center;
+}
+.shop-banned-icon { margin-bottom: 18px; opacity: 0.7; }
+.shop-banned-title {
+  font-family: 'Cinzel', serif;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--danger);
+  letter-spacing: 0.06em;
+  margin-bottom: 10px;
+}
+.shop-banned-text {
+  font-size: 0.85rem;
+  color: var(--text-faint);
+  max-width: 400px;
+  line-height: 1.5;
+}
+
 /* Loading spinner */
 .shop-loading {
   display: flex;

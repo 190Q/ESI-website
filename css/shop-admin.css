@@ -1334,6 +1334,7 @@ select.sa-filter-input { cursor: pointer; }
 }
 .su-status--active   { background: rgba(59,165,92,0.12); color: var(--online); border: 1px solid rgba(59,165,92,0.3); }
 .su-status--inactive { background: transparent; color: var(--text-faint); border: 1px solid var(--border); }
+.su-status--banned   { background: rgba(237,66,69,0.12); color: var(--danger); border: 1px solid rgba(237,66,69,0.3); margin-right: 4px; }
 
 /* Expandable drawer */
 .su-drawer {
@@ -1651,6 +1652,17 @@ select.sa-filter-input { cursor: pointer; }
 .su-ep-pill--clean { background: rgba(59,165,92,0.12);  color: var(--online); border: 1px solid rgba(59,165,92,0.3);  }
 .su-ep-pill--dirty { background: rgba(250,166,26,0.12); color: var(--warn);   border: 1px solid rgba(250,166,26,0.3); }
 .su-ep-pill--mixed { background: rgba(106,74,122,0.12); color: #c084e0;       border: 1px solid rgba(106,74,122,0.3); }
+
+/* Ban section in drawer */
+.su-ban-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 
 @media (max-width: 700px) {
   .su-cards { grid-template-columns: 1fr; }

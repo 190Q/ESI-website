@@ -45,6 +45,7 @@
       const target = item.dataset.panel;
       if (!target) return;
       // if it's a restricted panels, just ignore the click
+      if (target === 'shop'          && isShopBanned()) return;
       if (target === 'inactivity'    && !hasParliamentPlus()) return;
       if (target === 'promotions'    && !hasJurorPlus()) return;
       if (target === 'events-manage' && !hasEventsAccess()) return;
@@ -961,9 +962,9 @@ fetch('/auth/session', { credentials: 'same-origin' })
     return _CHIEF_PLUS.some(function (id) { return roles.includes(id); });
   }
 
-  // true if the user can access the shop admin panel (Chief or Parliament)
+  // true if the user can access the shop admin panel (Chief or Parliament, not admin-banned)
   function hasShopAdmin() {
-    return isChiefPlus() || hasParliamentPlus();
+    return (isChiefPlus() || hasParliamentPlus()) && !isAdminBanned();
   }
 
   // true if the user holds any guild rank
@@ -973,6 +974,16 @@ fetch('/auth/session', { credentials: 'same-origin' })
     return ESI_RANK_ROLES.some(function (r) { return roles.includes(r.id); });
   }
 
+  // shop ban flag
+  window._shopBanned = false;
+  function isShopBanned() { return !!window._shopBanned; }
+  window.isShopBanned = isShopBanned;
+
+  // admin (manage shop) ban flag
+  window._adminBanned = false;
+  function isAdminBanned() { return !!window._adminBanned; }
+  window.isAdminBanned = isAdminBanned;
+
   /* permissions */
   function applyPermissions() {
     const activePanel = document.querySelector('.panel.active');
@@ -980,7 +991,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
     const canPromotions = hasJurorPlus();
     const canEvents     = hasEventsAccess();
 
-    const canShop = isGuildMember();
+    const canShop = isGuildMember() && !isShopBanned();
     const shopNavItem = document.getElementById('shopNavItem');
     if (shopNavItem) shopNavItem.style.display = canShop ? '' : 'none';
 

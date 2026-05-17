@@ -58,10 +58,23 @@
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); });
   }
 
+  var _adminBannedDetected = false;
+
   function fetchShopState(cb) {
     fetch('/api/admin/shop/state', { credentials: 'same-origin' })
-      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (r) {
+        if (r.status === 403) {
+          return r.json().then(function (d) {
+            if (d && d.error && d.error.indexOf('banned') !== -1) {
+              _adminBannedDetected = true;
+            }
+            return null;
+          });
+        }
+        return r.ok ? r.json() : null;
+      })
       .then(function (d) {
+        if (_adminBannedDetected) { if (cb) cb(null); return; }
         if (d && typeof d.shop_enabled === 'boolean') _shopEnabled = !!d.shop_enabled;
         if (d && typeof d.message === 'string' && d.message.trim()) _shopDisabledMessage = d.message.trim();
         _canToggleShopState = !!(d && d.can_toggle);
@@ -1954,6 +1967,10 @@
     donation_rejected:  'Donation Rejected',
     shop_enabled:       'Shop Enabled',
     shop_disabled:      'Shop Disabled',
+    user_shop_banned:   'User Banned (Shop)',
+    user_shop_unbanned: 'User Unbanned (Shop)',
+    user_admin_banned:  'Admin Banned (Manage)',
+    user_admin_unbanned:'Admin Unbanned (Manage)',
   };
 
   var _ACTION_TYPES = Object.keys(_ACTION_LABELS);
@@ -2011,6 +2028,13 @@
     if (action === 'donation_confirmed' || action === 'donation_rejected') {
       return esc(row.target_id || '') +
         (d.reason ? ' \u2022 ' + esc(d.reason) : '');
+    }
+    if (action === 'user_shop_banned' || action === 'user_admin_banned') {
+      return esc(d.username || row.target_id || '') +
+        (d.reason ? ' \u2022 ' + esc(d.reason) : '');
+    }
+    if (action === 'user_shop_unbanned' || action === 'user_admin_unbanned') {
+      return esc(d.username || row.target_id || '');
     }
     return esc(row.target_id || '');
   }
@@ -2277,12 +2301,21 @@
   var _usersFilters  = { search: '', activity: '', sort: 'az' };
   var _usersOpenUuid = null;
   var _usersCartOpen = {};
+  var _actorRankLevel = 0;
 
   function fetchUsers(cb, forceRefresh) {
     var url = '/api/admin/shop/users' + (forceRefresh ? '?refresh=true' : '');
     fetch(url, { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { if (d) _users = d; if (cb) cb(d); })
+      .then(function (d) {
+        if (d && d.users) {
+          _users = d.users;
+          _actorRankLevel = d.actor_rank_level || 0;
+        } else if (Array.isArray(d)) {
+          _users = d;
+        }
+        if (cb) cb(d);
+      })
       .catch(function () { if (cb) cb(null); });
   }
 
@@ -2393,7 +2426,11 @@
       html += '<span>' + (u.bids      || 0) + '</span>';
       html += '<span>' + (u.donations || 0) + '</span>';
       html += '<span class="su-date">' + fmtDate(u.last_activity) + '</span>';
-      html += '<span><span class="su-status su-status--' + (active ? 'active' : 'inactive') + '">' + (active ? 'Active' : 'Inactive') + '</span></span>';
+      html += '<span>' +
+        (u.shop_banned ? '<span class="su-status su-status--banned">Shop Ban</span>' : '') +
+        (u.admin_banned ? '<span class="su-status su-status--banned">Admin Ban</span>' : '') +
+        '<span class="su-status su-status--' + (active ? 'active' : 'inactive') + '">' + (active ? 'Active' : 'Inactive') + '</span>' +
+        '</span>';
       html += '</div>';
       if (isOpen) {
         html += '<div class="su-drawer">' + _buildUserDrawer(u) + '</div>';
@@ -2428,6 +2465,31 @@
         _renderUsersContent(c);
       });
     });
+    /* Bind: ban/unban buttons */
+    c.querySelectorAll('.su-ban-btn').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        _openBanModal(btn.dataset.banUuid, c);
+      });
+    });
+    c.querySelectorAll('.su-unban-btn').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        _openUnbanModal(btn.dataset.banUuid, c);
+      });
+    });
+    c.querySelectorAll('.su-admin-ban-btn').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        _openAdminBanModal(btn.dataset.banDiscord, c);
+      });
+    });
+    c.querySelectorAll('.su-admin-unban-btn').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        _openAdminUnbanModal(btn.dataset.banDiscord, c);
+      });
+    });
     /* Bind: pagination */
     c.querySelectorAll('[data-su-page]').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -2459,6 +2521,148 @@
     if (refreshBtn) refreshBtn.addEventListener('click', function () {
       _users = null; _usersPage = 1; _usersOpenUuid = null;
       renderUsers(c, true); // true = bypass server-side cache
+    });
+  }
+
+  function _openBanModal(uuid, contentEl) {
+    var user = (_users || []).find(function (u) { return u.uuid === uuid; });
+    var name = user ? user.username : uuid.substring(0, 8);
+    var modal = document.getElementById('saModal');
+    modal.innerHTML =
+      '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
+      '<div class="shop-modal-title">Ban ' + esc(name) + ' from shop</div>' +
+      '<div class="shop-modal-body">' +
+        '<label class="shop-modal-input-label">Reason (required)</label>' +
+        '<textarea class="shop-modal-input" id="saBanReason" placeholder="Reason for ban\u2026" maxlength="200" rows="3"></textarea>' +
+        '<p style="color:var(--text-faint);font-size:0.75rem;margin:6px 0 0">The user will be notified via DM and lose access to the shop.</p>' +
+      '</div>' +
+      '<div class="shop-modal-actions">' +
+        '<button class="shop-modal-btn shop-modal-btn--cancel" id="saBanConfirm" style="color:var(--danger);border-color:var(--danger)">Ban user</button>' +
+      '</div>';
+    document.getElementById('saModalBackdrop').classList.add('open');
+    document.getElementById('saBanConfirm').addEventListener('click', function () {
+      var reason = document.getElementById('saBanReason').value.trim();
+      if (!reason) { showToast('\u26a0 Reason is required.', 'warn'); return; }
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Banning\u2026';
+      apiPost('/api/admin/shop/users/' + encodeURIComponent(uuid) + '/ban', { reason: reason })
+        .then(function (res) {
+          if (res.ok && res.data.ok) {
+            showToast('\u2713 User banned from shop.', 'success');
+            closeModal();
+            if (user) user.shop_banned = true;
+            _renderUsersContent(contentEl);
+          } else {
+            showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+            btn.disabled = false; btn.textContent = 'Ban user';
+          }
+        })
+        .catch(function () { showToast('\u26a0 Network error', 'warn'); btn.disabled = false; btn.textContent = 'Ban user'; });
+    });
+  }
+
+  function _openUnbanModal(uuid, contentEl) {
+    var user = (_users || []).find(function (u) { return u.uuid === uuid; });
+    var name = user ? user.username : uuid.substring(0, 8);
+    var modal = document.getElementById('saModal');
+    modal.innerHTML =
+      '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
+      '<div class="shop-modal-title">Unban ' + esc(name) + '</div>' +
+      '<div class="shop-modal-body">' +
+        '<p>Are you sure you want to restore shop access for <strong>' + esc(name) + '</strong>?</p>' +
+        '<p style="color:var(--text-faint);font-size:0.75rem;margin:6px 0 0">The user will be notified via DM.</p>' +
+      '</div>' +
+      '<div class="shop-modal-actions">' +
+        '<button class="shop-modal-btn shop-modal-btn--confirm" id="saUnbanConfirm">Unban user</button>' +
+      '</div>';
+    document.getElementById('saModalBackdrop').classList.add('open');
+    document.getElementById('saUnbanConfirm').addEventListener('click', function () {
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Unbanning\u2026';
+      apiPost('/api/admin/shop/users/' + encodeURIComponent(uuid) + '/unban', {})
+        .then(function (res) {
+          if (res.ok && res.data.ok) {
+            showToast('\u2713 User unbanned from shop.', 'success');
+            closeModal();
+            if (user) user.shop_banned = false;
+            _renderUsersContent(contentEl);
+          } else {
+            showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+            btn.disabled = false; btn.textContent = 'Unban user';
+          }
+        })
+        .catch(function () { showToast('\u26a0 Network error', 'warn'); btn.disabled = false; btn.textContent = 'Unban user'; });
+    });
+  }
+
+  function _openAdminBanModal(discordId, contentEl) {
+    var user = (_users || []).find(function (u) { return u.discord_id === discordId; });
+    var name = user ? user.username : discordId;
+    var modal = document.getElementById('saModal');
+    modal.innerHTML =
+      '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
+      '<div class="shop-modal-title">Ban ' + esc(name) + ' from manage shop</div>' +
+      '<div class="shop-modal-body">' +
+        '<label class="shop-modal-input-label">Reason (required)</label>' +
+        '<textarea class="shop-modal-input" id="saAdminBanReason" placeholder="Reason for admin ban\u2026" maxlength="200" rows="3"></textarea>' +
+        '<p style="color:var(--text-faint);font-size:0.75rem;margin:6px 0 0">The user will lose access to the manage shop panel and be notified via DM.</p>' +
+      '</div>' +
+      '<div class="shop-modal-actions">' +
+        '<button class="shop-modal-btn shop-modal-btn--cancel" id="saAdminBanConfirm" style="color:var(--danger);border-color:var(--danger)">Ban from manage shop</button>' +
+      '</div>';
+    document.getElementById('saModalBackdrop').classList.add('open');
+    document.getElementById('saAdminBanConfirm').addEventListener('click', function () {
+      var reason = document.getElementById('saAdminBanReason').value.trim();
+      if (!reason) { showToast('\u26a0 Reason is required.', 'warn'); return; }
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Banning\u2026';
+      apiPost('/api/admin/shop/users/' + encodeURIComponent(discordId) + '/admin-ban', { reason: reason })
+        .then(function (res) {
+          if (res.ok && res.data.ok) {
+            showToast('\u2713 User banned from manage shop.', 'success');
+            closeModal();
+            if (user) user.admin_banned = true;
+            _renderUsersContent(contentEl);
+          } else {
+            showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+            btn.disabled = false; btn.textContent = 'Ban from manage shop';
+          }
+        })
+        .catch(function () { showToast('\u26a0 Network error', 'warn'); btn.disabled = false; btn.textContent = 'Ban from manage shop'; });
+    });
+  }
+
+  function _openAdminUnbanModal(discordId, contentEl) {
+    var user = (_users || []).find(function (u) { return u.discord_id === discordId; });
+    var name = user ? user.username : discordId;
+    var modal = document.getElementById('saModal');
+    modal.innerHTML =
+      '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
+      '<div class="shop-modal-title">Unban ' + esc(name) + ' from manage shop</div>' +
+      '<div class="shop-modal-body">' +
+        '<p>Are you sure you want to restore manage shop access for <strong>' + esc(name) + '</strong>?</p>' +
+        '<p style="color:var(--text-faint);font-size:0.75rem;margin:6px 0 0">The user will be notified via DM.</p>' +
+      '</div>' +
+      '<div class="shop-modal-actions">' +
+        '<button class="shop-modal-btn shop-modal-btn--confirm" id="saAdminUnbanConfirm">Unban from manage shop</button>' +
+      '</div>';
+    document.getElementById('saModalBackdrop').classList.add('open');
+    document.getElementById('saAdminUnbanConfirm').addEventListener('click', function () {
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Unbanning\u2026';
+      apiPost('/api/admin/shop/users/' + encodeURIComponent(discordId) + '/admin-unban', {})
+        .then(function (res) {
+          if (res.ok && res.data.ok) {
+            showToast('\u2713 User unbanned from manage shop.', 'success');
+            closeModal();
+            if (user) user.admin_banned = false;
+            _renderUsersContent(contentEl);
+          } else {
+            showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+            btn.disabled = false; btn.textContent = 'Unban from manage shop';
+          }
+        })
+        .catch(function () { showToast('\u26a0 Network error', 'warn'); btn.disabled = false; btn.textContent = 'Unban from manage shop'; });
     });
   }
 
@@ -2621,7 +2825,50 @@
     }
     html += '</div>'; /* su-recent */
 
+    /* Ban / Unban action (Parliament+ only, hierarchy-aware) */
+    var _actorDiscordId = (window.state && window.state.user) ? window.state.user.id : null;
+    var _isSelf = u.discord_id && _actorDiscordId && u.discord_id === _actorDiscordId;
+    var _canBanUser = !_isSelf && (u.rank_level || 0) < _actorRankLevel;
+    if ((_isParliament || _isOwnerShopAdmin()) && _canBanUser) {
+      html += '<div class="su-ban-section">';
+      /* Shop ban / unban */
+      if (u.shop_banned) {
+        html += '<button class="shop-modal-btn shop-modal-btn--confirm su-unban-btn" data-ban-uuid="' + esc(u.uuid) + '">' +
+          'Unban from shop</button>';
+      } else {
+        html += '<button class="shop-modal-btn shop-modal-btn--cancel su-ban-btn" data-ban-uuid="' + esc(u.uuid) + '" ' +
+          'style="color:var(--danger);border-color:var(--danger)">' +
+          'Ban from shop</button>';
+      }
+      /* Admin ban / unban (only for shop admins) */
+      if ((u.rank_level || 0) > 0 && u.discord_id) {
+        if (u.admin_banned) {
+          html += '<button class="shop-modal-btn shop-modal-btn--confirm su-admin-unban-btn" data-ban-discord="' + esc(u.discord_id) + '">' +
+            'Unban from manage shop</button>';
+        } else {
+          html += '<button class="shop-modal-btn shop-modal-btn--cancel su-admin-ban-btn" data-ban-discord="' + esc(u.discord_id) + '" ' +
+            'style="color:var(--danger);border-color:var(--danger)">' +
+            'Ban from manage shop</button>';
+        }
+      }
+      html += '</div>';
+    }
+
     return html;
+  }
+
+  function _applyAdminBannedState() {
+    panel.innerHTML =
+      '<div class="shop-banned-notice">' +
+        '<div class="shop-banned-icon">' +
+          '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>' +
+        '</div>' +
+        '<div class="shop-banned-title">Manage Shop Access Revoked</div>' +
+        '<div class="shop-banned-text">You have been banned from the manage shop panel. If you believe this is a mistake, please contact a Parliament member.</div>' +
+      '</div>';
+    window._adminBanned = true;
+    var adminNav = document.getElementById('shopAdminNavItem');
+    if (adminNav) adminNav.style.display = 'none';
   }
 
   /* Init */
@@ -2633,8 +2880,18 @@
       panel.innerHTML = '<div class="shop-login-prompt">Log in to access the shop admin.</div>';
       return;
     }
+    // If already detected as admin-banned (from shop state), don't load anything
+    if (window._adminBanned) {
+      _applyAdminBannedState();
+      return;
+    }
     buildShell();
     fetchShopState(function () {
+      // Check if the fetch detected an admin ban (403)
+      if (_adminBannedDetected) {
+        _applyAdminBannedState();
+        return;
+      }
       renderShopStateBanner();
       if (_shopEnabled) {
         fetchQueue(function () { updateQueueBadge(); });

@@ -1788,6 +1788,11 @@ def _admin_get_users_uncached() -> list:
     for u in users.values():
         u["recent"] = recent_by_uuid.get(u["uuid"], [])
 
+    # Attach shop ban status
+    banned_uuids = _get_banned_uuids()
+    for u in users.values():
+        u["shop_banned"] = u["uuid"] in banned_uuids
+
     return list(users.values())
 
 def admin_set_shop_enabled(enabled: bool, actor: str = "unknown") -> dict:
@@ -1803,6 +1808,314 @@ def admin_set_shop_enabled(enabled: bool, actor: str = "unknown") -> dict:
         )
     return result
 
+# Shop ban system
+def _ensure_shop_bans_table(conn: sqlite3.Connection) -> None:
+    """Create shop_bans if it doesn't exist (idempotent)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS shop_bans (
+            uuid        TEXT PRIMARY KEY,
+            discord_id  TEXT,
+            username    TEXT NOT NULL DEFAULT '',
+            reason      TEXT NOT NULL DEFAULT '',
+            banned_by   TEXT NOT NULL DEFAULT '',
+            banned_at   TEXT NOT NULL,
+            unbanned_at TEXT
+        )
+    """)
+
+def _get_banned_uuids() -> set:
+    """Return the set of currently-banned UUIDs."""
+    if not os.path.isfile(_SHOP_DB):
+        return set()
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_shop_bans_table(conn)
+        rows = conn.execute(
+            "SELECT uuid FROM shop_bans WHERE unbanned_at IS NULL"
+        ).fetchall()
+        conn.close()
+        return {r[0] for r in rows}
+    except sqlite3.Error:
+        return set()
+
+def is_shop_banned(uuid: str) -> bool:
+    """Check if a player UUID is currently banned from the shop."""
+    if not uuid or not os.path.isfile(_SHOP_DB):
+        return False
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_shop_bans_table(conn)
+        row = conn.execute(
+            "SELECT 1 FROM shop_bans WHERE uuid = ? AND unbanned_at IS NULL",
+            (uuid,),
+        ).fetchone()
+        conn.close()
+        return row is not None
+    except sqlite3.Error:
+        return False
+
+def admin_ban_user(uuid: str, reason: str, actor: str) -> dict:
+    """Ban a user from the shop. Sends a DM card notification."""
+    if not reason:
+        return {"error": "Reason is required"}
+    if not uuid:
+        return {"error": "UUID is required"}
+    if not os.path.isfile(_SHOP_DB):
+        return {"error": "Shop database unavailable"}
+
+    now_iso = _now_iso()
+    # Resolve username + discord_id
+    matches = _cfg_load_json(_USERNAME_MATCHES_JSON) or {}
+    discord_id = None
+    username = uuid[:8] + "\u2026"
+    for did, entry in matches.items():
+        if isinstance(entry, dict) and entry.get("uuid") == uuid:
+            discord_id = did
+            username = entry.get("username") or username
+            break
+
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_shop_bans_table(conn)
+
+        # Check if already banned
+        existing = conn.execute(
+            "SELECT unbanned_at FROM shop_bans WHERE uuid = ?",
+            (uuid,),
+        ).fetchone()
+        if existing and existing[0] is None:
+            conn.close()
+            return {"error": "User is already banned"}
+
+        if existing:
+            # Re-ban: update the existing row
+            conn.execute(
+                "UPDATE shop_bans SET discord_id = ?, username = ?, reason = ?, "
+                "banned_by = ?, banned_at = ?, unbanned_at = NULL WHERE uuid = ?",
+                (discord_id, username, reason, actor, now_iso, uuid),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO shop_bans (uuid, discord_id, username, reason, banned_by, banned_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (uuid, discord_id, username, reason, actor, now_iso),
+            )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"error": f"Database error: {exc}"}
+
+    # DM the user
+    if discord_id:
+        _dm_card_in_background(
+            discord_id, "shop_banned", "Shop Access", 0,
+            fields=[
+                ("REASON", reason[:50]),
+                ("BY", actor[:30]),
+                ("STATUS", "Banned"),
+            ],
+            fallback_text=f"You have been banned from the ESI shop by {actor}. Reason: {reason}",
+        )
+
+    _log_admin_action(
+        actor, "user_shop_banned", uuid,
+        {"uuid": uuid, "username": username, "reason": reason},
+    )
+    _invalidate_users_cache()
+    return {"ok": True, "uuid": uuid, "banned_at": now_iso}
+
+def admin_unban_user(uuid: str, actor: str) -> dict:
+    """Unban a user from the shop. Sends a DM card notification."""
+    if not uuid:
+        return {"error": "UUID is required"}
+    if not os.path.isfile(_SHOP_DB):
+        return {"error": "Shop database unavailable"}
+
+    now_iso = _now_iso()
+
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_shop_bans_table(conn)
+        row = conn.execute(
+            "SELECT discord_id, username FROM shop_bans WHERE uuid = ? AND unbanned_at IS NULL",
+            (uuid,),
+        ).fetchone()
+        if not row:
+            conn.close()
+            return {"error": "User is not banned"}
+        discord_id = row[0]
+        username = row[1] or uuid[:8]
+
+        conn.execute(
+            "UPDATE shop_bans SET unbanned_at = ? WHERE uuid = ? AND unbanned_at IS NULL",
+            (now_iso, uuid),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"error": f"Database error: {exc}"}
+
+    # DM the user
+    if discord_id:
+        _dm_card_in_background(
+            discord_id, "shop_unbanned", "Shop Access", 0,
+            fields=[
+                ("REASON", "Access restored"),
+                ("BY", actor[:30]),
+                ("STATUS", "Restored"),
+            ],
+            fallback_text=f"Your ESI shop access has been restored by {actor}.",
+        )
+
+    _log_admin_action(
+        actor, "user_shop_unbanned", uuid,
+        {"uuid": uuid, "username": username},
+    )
+    _invalidate_users_cache()
+    return {"ok": True, "uuid": uuid, "unbanned_at": now_iso}
+
+# Admin panel ban system (separate from shop bans)
+def _ensure_admin_bans_table(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS admin_bans (
+            discord_id  TEXT PRIMARY KEY,
+            username    TEXT NOT NULL DEFAULT '',
+            reason      TEXT NOT NULL DEFAULT '',
+            banned_by   TEXT NOT NULL DEFAULT '',
+            banned_at   TEXT NOT NULL,
+            unbanned_at TEXT
+        )
+    """)
+
+def _get_admin_banned_ids() -> set:
+    if not os.path.isfile(_SHOP_DB):
+        return set()
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_admin_bans_table(conn)
+        rows = conn.execute(
+            "SELECT discord_id FROM admin_bans WHERE unbanned_at IS NULL"
+        ).fetchall()
+        conn.close()
+        return {r[0] for r in rows}
+    except sqlite3.Error:
+        return set()
+
+def is_admin_banned(discord_id: str) -> bool:
+    if not discord_id or not os.path.isfile(_SHOP_DB):
+        return False
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_admin_bans_table(conn)
+        row = conn.execute(
+            "SELECT 1 FROM admin_bans WHERE discord_id = ? AND unbanned_at IS NULL",
+            (discord_id,),
+        ).fetchone()
+        conn.close()
+        return row is not None
+    except sqlite3.Error:
+        return False
+
+def admin_ban_admin(discord_id: str, username: str, reason: str, actor: str) -> dict:
+    """Ban a user from the manage shop panel."""
+    if not reason:
+        return {"error": "Reason is required"}
+    if not discord_id:
+        return {"error": "Discord ID is required"}
+    if not os.path.isfile(_SHOP_DB):
+        return {"error": "Shop database unavailable"}
+    now_iso = _now_iso()
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_admin_bans_table(conn)
+        existing = conn.execute(
+            "SELECT unbanned_at FROM admin_bans WHERE discord_id = ?",
+            (discord_id,),
+        ).fetchone()
+        if existing and existing[0] is None:
+            conn.close()
+            return {"error": "User is already banned from admin"}
+        if existing:
+            conn.execute(
+                "UPDATE admin_bans SET username = ?, reason = ?, banned_by = ?, "
+                "banned_at = ?, unbanned_at = NULL WHERE discord_id = ?",
+                (username, reason, actor, now_iso, discord_id),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO admin_bans (discord_id, username, reason, banned_by, banned_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (discord_id, username, reason, actor, now_iso),
+            )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"error": f"Database error: {exc}"}
+    _dm_card_in_background(
+        discord_id, "shop_banned", "Manage Shop Access", 0,
+        fields=[
+            ("REASON", reason[:50]),
+            ("BY", actor[:30]),
+            ("STATUS", "Admin Banned"),
+        ],
+        fallback_text=f"You have been banned from the ESI manage shop by {actor}. Reason: {reason}",
+    )
+    _log_admin_action(
+        actor, "user_admin_banned", discord_id,
+        {"discord_id": discord_id, "username": username, "reason": reason},
+    )
+    _invalidate_users_cache()
+    return {"ok": True, "discord_id": discord_id, "banned_at": now_iso}
+
+def admin_unban_admin(discord_id: str, actor: str) -> dict:
+    """Unban a user from the manage shop panel."""
+    if not discord_id:
+        return {"error": "Discord ID is required"}
+    if not os.path.isfile(_SHOP_DB):
+        return {"error": "Shop database unavailable"}
+    now_iso = _now_iso()
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_admin_bans_table(conn)
+        row = conn.execute(
+            "SELECT username FROM admin_bans WHERE discord_id = ? AND unbanned_at IS NULL",
+            (discord_id,),
+        ).fetchone()
+        if not row:
+            conn.close()
+            return {"error": "User is not admin-banned"}
+        username = row[0] or discord_id
+        conn.execute(
+            "UPDATE admin_bans SET unbanned_at = ? WHERE discord_id = ? AND unbanned_at IS NULL",
+            (now_iso, discord_id),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"error": f"Database error: {exc}"}
+    _dm_card_in_background(
+        discord_id, "shop_unbanned", "Manage Shop Access", 0,
+        fields=[
+            ("REASON", "Admin access restored"),
+            ("BY", actor[:30]),
+            ("STATUS", "Restored"),
+        ],
+        fallback_text=f"Your ESI manage shop access has been restored by {actor}.",
+    )
+    _log_admin_action(
+        actor, "user_admin_unbanned", discord_id,
+        {"discord_id": discord_id, "username": username},
+    )
+    _invalidate_users_cache()
+    return {"ok": True, "discord_id": discord_id, "unbanned_at": now_iso}
 
 def admin_get_raw_config() -> list | dict:
     """Return the raw shop_items.json content."""

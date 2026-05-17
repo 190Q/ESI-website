@@ -513,13 +513,26 @@ def _compute_inline_script_hashes():
 
 
 _INLINE_SCRIPT_HASHES = _compute_inline_script_hashes()
+_inline_script_cache = {"hashes": _INLINE_SCRIPT_HASHES, "mtime": 0}
+
+def _get_inline_script_hashes():
+    """Return CSP hashes, recomputing if index.html changed on disk."""
+    path = os.path.join(_BASE_DIR, "index.html")
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        return _inline_script_cache["hashes"]
+    if mt != _inline_script_cache["mtime"]:
+        _inline_script_cache["hashes"] = _compute_inline_script_hashes()
+        _inline_script_cache["mtime"] = mt
+    return _inline_script_cache["hashes"]
 
 
 @app.after_request
 def _after(response):
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        f"script-src 'self' {_INLINE_SCRIPT_HASHES}; "
+        f"script-src 'self' {_get_inline_script_hashes()}; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src https://fonts.gstatic.com; "
         "img-src 'self' https://cdn.discordapp.com https://visage.surgeplay.com https://crafatar.com https://mc-heads.net data:; "
@@ -1049,6 +1062,8 @@ from shop.admin import (
     admin_write_item, admin_delete_item, admin_reorder_items,
     admin_start_auction, admin_auction_detail, admin_remove_bid,
     admin_get_changes_log, admin_get_users, admin_set_shop_enabled,
+    admin_ban_user, admin_unban_user, is_shop_banned,
+    is_admin_banned, admin_ban_admin, admin_unban_admin, _get_admin_banned_ids,
 )
 
 
@@ -1101,6 +1116,12 @@ def _require_guild_member(require_shop_enabled: bool = True):
         return None, err
     if not is_guild_member(user.get("roles") or []):
         return None, (jsonify({"error": "Shop is only available to guild members"}), 403)
+    # Check shop ban (admins bypass)
+    user_roles = set(user.get("roles") or [])
+    if not (user_roles & _SHOP_ADMIN) and not _is_owner_user(user):
+        mc_uuid, _ = resolve_uuid_for_user(user.get("id", ""))
+        if mc_uuid and is_shop_banned(mc_uuid):
+            return None, (jsonify({"error": "You have been banned from the shop"}), 403)
     if require_shop_enabled and not _is_shop_enabled():
         return None, _shop_disabled_response()
     return user, None
@@ -1110,9 +1131,22 @@ def _require_guild_member(require_shop_enabled: bool = True):
 @app.route("/api/shop/state")
 @rate_limit(60)
 def shop_state():
-    user, err = _require_guild_member(require_shop_enabled=False)
+    user, err = _require_login()
     if err:
         return err
+    if not is_guild_member(user.get("roles") or []):
+        return jsonify({"error": "Shop is only available to guild members"}), 403
+    # Check ban status but return it as a flag instead of blocking
+    banned = False
+    admin_banned_flag = False
+    user_roles = set(user.get("roles") or [])
+    if not _is_owner_user(user):
+        if not (user_roles & _SHOP_ADMIN):
+            mc_uuid, _ = resolve_uuid_for_user(user.get("id", ""))
+            if mc_uuid and is_shop_banned(mc_uuid):
+                banned = True
+        if (user_roles & _SHOP_ADMIN) and is_admin_banned(user.get("id")):
+            admin_banned_flag = True
     state = _shop_get_state() or {}
     enabled = bool(state.get("shop_enabled"))
     message = None if enabled else (state.get("message") or _shop_get_disabled_message())
@@ -1123,6 +1157,8 @@ def shop_state():
         "coming_soon": False if enabled else bool(state.get("coming_soon", message == "Coming soon")),
         "message": message,
         "maintenance_view_only": maintenance_view_only,
+        "shop_banned": banned,
+        "admin_banned": admin_banned_flag,
     })
 
 @app.route("/api/me/ep-balance")
@@ -1481,6 +1517,9 @@ def _require_shop_admin(require_shop_enabled: bool = True):
     user_roles = set(user.get("roles") or [])
     if not (user_roles & _SHOP_ADMIN):
         return None, False, (jsonify({"error": "Insufficient permissions"}), 403)
+    # Admin-panel ban check
+    if is_admin_banned(user.get("id")):
+        return None, False, (jsonify({"error": "You have been banned from the manage shop"}), 403)
     is_parliament = bool(user_roles & _PARLIAMENT_PLUS)
     if require_shop_enabled and not _is_shop_enabled():
         return None, False, _shop_disabled_response()
@@ -1859,6 +1898,59 @@ def admin_shop_changes():
     ))
 
 
+# Cached map of shop admin discord_ids -> rank_level
+_shop_admin_map_cache = {"data": {}, "ts": 0}
+_SHOP_ADMIN_MAP_TTL = 300
+
+def _get_shop_admin_map() -> dict:
+    """Return {discord_id: rank_level} for all known shop admins (cached 5 min).
+
+    Uses the Discord guild roles endpoint (one call) to get all roles,
+    then checks each linked user's member record. Only members with
+    Chief+ or Parliament+ roles are included.
+    """
+    now = time()
+    if _shop_admin_map_cache["data"] and now - _shop_admin_map_cache["ts"] < _SHOP_ADMIN_MAP_TTL:
+        return _shop_admin_map_cache["data"]
+    result = {}
+    # Include the OWNER
+    owner_id = str(os.environ.get("OWNER") or "").strip()
+    if owner_id.startswith("<@") and owner_id.endswith(">"):
+        owner_id = owner_id.strip("<@!>").strip()
+    if owner_id.isdigit():
+        result[owner_id] = 3
+    # Bulk-fetch guild members and pick out admins
+    try:
+        after = "0"
+        while True:
+            resp = requests.get(
+                f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/members",
+                params={"limit": 1000, "after": after},
+                headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+                timeout=10,
+            )
+            if not resp.ok:
+                break
+            batch = resp.json()
+            if not batch:
+                break
+            for m in batch:
+                did = m.get("user", {}).get("id")
+                if not did or did in result:
+                    continue
+                roles = set(m.get("roles", []))
+                lvl = _rank_level(roles)
+                if lvl > 0:
+                    result[did] = lvl
+            if len(batch) < 1000:
+                break
+            after = batch[-1]["user"]["id"]
+    except Exception:
+        pass
+    _shop_admin_map_cache["data"] = result
+    _shop_admin_map_cache["ts"] = now
+    return result
+
 @app.route("/api/admin/shop/users")
 @rate_limit(10)
 def admin_shop_users():
@@ -1869,7 +1961,140 @@ def admin_shop_users():
     if request.args.get("refresh") == "true":
         from shop.admin import _invalidate_users_cache
         _invalidate_users_cache()
-    return jsonify(admin_get_users())
+    users = admin_get_users()
+    admin_map = _get_shop_admin_map()
+    admin_banned_ids = _get_admin_banned_ids()
+    for u in users:
+        did = u.get("discord_id")
+        u["rank_level"] = admin_map.get(did, 0) if did else 0
+        u["admin_banned"] = bool(did and did in admin_banned_ids)
+    is_owner = _is_owner_user(user)
+    actor_level = 3 if is_owner else _rank_level(set(user.get("roles") or []))
+    return jsonify({"users": users, "actor_rank_level": actor_level})
+
+
+def _rank_level(roles: set) -> int:
+    """Return a numeric rank level for hierarchy comparison.
+
+    3 = OWNER (checked separately), 2 = Parliament+, 1 = Chief+, 0 = regular.
+    """
+    if roles & _PARLIAMENT_PLUS:
+        return 2
+    if roles & _CHIEF_PLUS:
+        return 1
+    return 0
+
+def _fetch_target_roles(target_uuid: str) -> set | None:
+    """Resolve a MC UUID to a set of Discord role IDs, or None if unresolvable."""
+    matches = _load_json_file(_USERNAME_MATCHES_JSON)
+    if not isinstance(matches, dict):
+        return None
+    target_discord_id = None
+    for did, entry in matches.items():
+        if isinstance(entry, dict) and entry.get("uuid") == target_uuid:
+            target_discord_id = did
+            break
+    if not target_discord_id:
+        return None
+    try:
+        resp = requests.get(
+            f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/members/{target_discord_id}",
+            headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+            timeout=10,
+        )
+        if resp.ok:
+            return set(resp.json().get("roles", []))
+    except Exception:
+        pass
+    return None
+
+@app.route("/api/admin/shop/users/<uuid>/ban", methods=["POST"])
+@rate_limit(10)
+def admin_shop_ban_user(uuid):
+    """Ban a user from the shop (Parliament+ only)."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    # Hierarchy check: cannot ban someone at same or higher rank
+    is_owner = _is_owner_user(user)
+    actor_level = 3 if is_owner else _rank_level(set(user.get("roles") or []))
+    target_roles = _fetch_target_roles(uuid)
+    if target_roles is not None:
+        target_level = _rank_level(target_roles)
+        if target_level >= actor_level:
+            return jsonify({"error": "Cannot ban a user at your rank or above"}), 403
+    body = request.get_json(silent=True) or {}
+    reason = (body.get("reason") or "").strip()[:200]
+    if not reason:
+        return jsonify({"error": "Reason is required"}), 400
+    actor = user.get("nick") or user.get("username", "")
+    result = admin_ban_user(uuid, reason, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/users/<uuid>/unban", methods=["POST"])
+@rate_limit(10)
+def admin_shop_unban_user(uuid):
+    """Unban a user from the shop (Parliament+ only)."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    actor = user.get("nick") or user.get("username", "")
+    result = admin_unban_user(uuid, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/users/<discord_id>/admin-ban", methods=["POST"])
+@rate_limit(10)
+def admin_shop_admin_ban(discord_id):
+    """Ban a shop admin from the manage shop panel (Parliament+ only)."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    # Target must be a shop admin
+    admin_map = _get_shop_admin_map()
+    target_level = admin_map.get(discord_id, 0)
+    if target_level == 0:
+        return jsonify({"error": "Target is not a shop admin"}), 400
+    # Hierarchy check
+    is_owner = _is_owner_user(user)
+    actor_level = 3 if is_owner else _rank_level(set(user.get("roles") or []))
+    if target_level >= actor_level:
+        return jsonify({"error": "Cannot ban a user at your rank or above"}), 403
+    body = request.get_json(silent=True) or {}
+    reason = (body.get("reason") or "").strip()[:200]
+    if not reason:
+        return jsonify({"error": "Reason is required"}), 400
+    # Resolve username from users data
+    users = admin_get_users()
+    target_username = discord_id
+    for u in users:
+        if u.get("discord_id") == discord_id:
+            target_username = u.get("username") or discord_id
+            break
+    actor = user.get("nick") or user.get("username", "")
+    result = admin_ban_admin(discord_id, target_username, reason, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/users/<discord_id>/admin-unban", methods=["POST"])
+@rate_limit(10)
+def admin_shop_admin_unban(discord_id):
+    """Unban a shop admin from the manage shop panel (Parliament+ only)."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    actor = user.get("nick") or user.get("username", "")
+    result = admin_unban_admin(discord_id, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
 
 
 @app.route("/api/admin/shop/config")

@@ -163,6 +163,20 @@ _TYPES = {
         "action": "CONFIRMED", "action_bg": "#1a4a3a",
         "amount_color": "#4a9a5a",
     },
+    "shop_banned": {
+        "badge": "BANNED", "badge_color": "#a04040",
+        "icon": "ban", "icon_color": "#a04040",
+        "title": "Shop Access Revoked",
+        "action": "BANNED", "action_bg": "#4a1515",
+        "amount_color": "#a04040",
+    },
+    "shop_unbanned": {
+        "badge": "RESTORED", "badge_color": "#4a9a5a",
+        "icon": "check", "icon_color": "#4a9a5a",
+        "title": "Shop Access Restored",
+        "action": "UNBANNED", "action_bg": "#1a4a3a",
+        "amount_color": "#4a9a5a",
+    },
 }
 
 # Uses $PLACEHOLDER markers replaced via str.replace to avoid CSS {} conflicts.
@@ -249,6 +263,8 @@ $STATS_HTML
 </div>
 </body></html>'''
 
+_HIDE_AMOUNT_TYPES = {"shop_banned", "shop_unbanned"}
+
 def _build_html(
     cfg: dict,
     item_name: str,
@@ -256,6 +272,7 @@ def _build_html(
     amount_label: str,
     fields: list[tuple[str, str]],
     comment: str = "",
+    card_type: str = "",
 ) -> str:
     esc = _html.escape
     icon_color = cfg["icon_color"]
@@ -281,6 +298,8 @@ def _build_html(
             f'<div class="st-val">{esc(comment)}</div></div>\n'
         )
 
+    hide_amount = card_type in _HIDE_AMOUNT_TYPES
+
     html = _TEMPLATE
     html = html.replace("$BADGE_TEXT", esc(cfg["badge"]))
     html = html.replace("$BADGE_COLOR", cfg["badge_color"])
@@ -288,9 +307,16 @@ def _build_html(
     html = html.replace("$ICON_SVG", icon_svg)
     html = html.replace("$TITLE", esc(cfg["title"]))
     html = html.replace("$SUBTITLE", esc(item_name))
-    html = html.replace("$AMOUNT_DISPLAY", esc(f"{_num(amount)} EP"))
-    html = html.replace("$AMOUNT_COLOR", cfg["amount_color"])
-    html = html.replace("$AMOUNT_LABEL", esc(amount_label))
+    if hide_amount:
+        html = html.replace(
+            '    <div class="amt" style="color:$AMOUNT_COLOR">$AMOUNT_DISPLAY</div>\n'
+            '    <div class="amt-lbl">$AMOUNT_LABEL</div>\n',
+            '    <div style="height:56px"></div>\n',
+        )
+    else:
+        html = html.replace("$AMOUNT_DISPLAY", esc(f"{_num(amount)} EP"))
+        html = html.replace("$AMOUNT_COLOR", cfg["amount_color"])
+        html = html.replace("$AMOUNT_LABEL", esc(amount_label))
     html = html.replace("$STATS_HTML", stats_html)
     html = html.replace("$ACTION_TEXT", esc(cfg["action"]))
     html = html.replace("$ACTION_BG", cfg["action_bg"])
@@ -364,7 +390,7 @@ def render_card(
     if not cfg:
         print(f"[DM_CARDS] Unknown card type: {card_type!r}", file=sys.stderr)
         return None
-    html = _build_html(cfg, item_name, amount, amount_label, fields or [], comment)
+    html = _build_html(cfg, item_name, amount, amount_label, fields or [], comment, card_type=card_type)
     png = _screenshot_html(html)
     if png:
         return png
