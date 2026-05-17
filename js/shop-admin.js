@@ -1091,7 +1091,8 @@
     h += '</div>';
     h += '<div class="ie-field"><label class="ie-label">Type</label>' +
          '<select id="ieType" class="ie-input"><option value="bin"' + _sel(itType === 'bin') + '>Bin</option>' +
-         '<option value="auction"' + _sel(itType === 'auction') + '>Auction</option></select></div>';
+         '<option value="auction"' + _sel(itType === 'auction') + '>Auction</option>' +
+         '<option value="donate"' + _sel(itType === 'donate') + '>Donate</option></select></div>';
     h += '<div class="ie-field"><label class="ie-label">Active</label>' +
          '<select id="ieActive" class="ie-input"><option value="true"' + _sel(it.active !== false) + '>Yes</option>' +
          '<option value="false"' + _sel(it.active === false) + '>No</option></select></div>';
@@ -1217,9 +1218,9 @@
   function _ieTypeToggle(modal) {
     var typeEl = modal.querySelector('#ieType');
     if (!typeEl) return;
-    var isBin = typeEl.value === 'bin';
-    modal.querySelectorAll('[data-ie-bin]').forEach(function (el) { el.style.display = isBin ? '' : 'none'; });
-    modal.querySelectorAll('[data-ie-auction]').forEach(function (el) { el.style.display = isBin ? 'none' : ''; });
+    var t = typeEl.value;
+    modal.querySelectorAll('[data-ie-bin]').forEach(function (el) { el.style.display = t === 'bin' ? '' : 'none'; });
+    modal.querySelectorAll('[data-ie-auction]').forEach(function (el) { el.style.display = t === 'auction' ? '' : 'none'; });
   }
 
   function _ieCollect(modal) {
