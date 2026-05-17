@@ -1205,7 +1205,14 @@
          '<span class="ie-rl-dot" style="background:var(--border)"></span>Neutral (no filter) &ensp;' +
          '<span class="ie-rl-dot" style="background:var(--gold)"></span>Include &ensp;' +
          '<span class="ie-rl-dot" style="background:var(--danger)"></span>Exclude &ensp;- click to cycle</div>';
-    h += '</div></div>'; // field + section
+    h += '</div>';
+    // Top N from previous cycle
+    var topN = (it.visible_to_top_n != null && it.visible_to_top_n > 0) ? String(it.visible_to_top_n) : '';
+    h += '<div class="ie-field ie-field--full" style="margin-top:8px"><label class="ie-label">Top N from Previous Cycle</label>';
+    h += '<input id="ieTopN" type="text" inputmode="numeric" class="ie-input ie-num" value="' + esc(topN) + '" maxlength="3" placeholder="No filter" style="max-width:140px" />';
+    h += '<div class="ie-hint">Only the top N players from the previous EP cycle can see and purchase this item. Leave blank for no restriction.</div>';
+    h += '</div>';
+    h += '</div>'; // section
 
     h += '</div>'; // ie-form-scroll
     h += '<div class="shop-modal-actions">';
@@ -1249,6 +1256,11 @@
       else if (s === -1) rankResult.push('!' + c.dataset.rank);
     });
 
+    // Top N from previous cycle
+    var topNVal = gv('ieTopN');
+    var topN = topNVal ? (parseInt(topNVal, 10) || null) : null;
+    if (topN !== null && topN <= 0) topN = null;
+
     return {
       id:                    gv('ieId'),
       type:                  gv('ieType'),
@@ -1272,6 +1284,7 @@
       spend_order:           gv('ieSpendOrder'),
       cooldown:              cooldownVal,
       visible_to_ranks:      rankResult.length ? rankResult : null,
+      visible_to_top_n:      topN,
     };
   }
 

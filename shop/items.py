@@ -150,11 +150,15 @@ def _ensure_loaded() -> None:
     if not _loaded or (_time.monotonic() - _loaded_at) > _CACHE_TTL:
         reload()
 
-def _is_visible(item: dict, tags: set | None) -> bool:
+def _is_visible(item: dict, tags: set | None,
+                user_position: int | None = None) -> bool:
     """Check whether a user with *tags* is allowed to see *item*.
 
     *tags* is a **lowercased** set of the user's guild rank tags, e.g.
     ``{"knight"}``.  ``None`` means anonymous / not a guild member.
+
+    *user_position* is the user's 1-indexed leaderboard position in the
+    previous cycle, or ``None`` if unknown / not ranked.
 
     ``visible_to_ranks`` rules:
       - ``None`` -> visible to everyone.
@@ -165,29 +169,40 @@ def _is_visible(item: dict, tags: set | None) -> bool:
           can see the item.
       - If *tags* is ``None`` (anonymous), only items with
         ``visible_to_ranks = None`` are shown.
+
+    ``visible_to_top_n`` rules:
+      - ``None`` -> no top-N restriction.
+      - An integer N -> only users with ``user_position <= N`` can see it.
+        If *user_position* is ``None`` the item is hidden.
     """
+    # Rank-based visibility
     allowed = item.get("visible_to_ranks")
-    if allowed is None:
-        return True
-    if tags is None:
-        return False
+    if allowed is not None:
+        if tags is None:
+            return False
 
-    includes: set = set()
-    excludes: set = set()
-    for entry in allowed:
-        e = entry.strip().lower()
-        if e.startswith("!"):
-            excludes.add(e[1:])
-        else:
-            includes.add(e)
+        includes: set = set()
+        excludes: set = set()
+        for entry in allowed:
+            e = entry.strip().lower()
+            if e.startswith("!"):
+                excludes.add(e[1:])
+            else:
+                includes.add(e)
 
-    # Any exclude match -> blocked
-    if excludes & tags:
-        return False
-    # If there are explicit includes, user must match at least one
-    if includes:
-        return bool(includes & tags)
-    # Only excludes were listed and the user didn't match any -> visible
+        # Any exclude match -> blocked
+        if excludes & tags:
+            return False
+        # If there are explicit includes, user must match at least one
+        if includes and not (includes & tags):
+            return False
+
+    # Top-N visibility
+    top_n = item.get("visible_to_top_n")
+    if top_n is not None and isinstance(top_n, int) and top_n > 0:
+        if user_position is None or user_position > top_n:
+            return False
+
     return True
 
 def _resolve_multi_quantity(item: dict) -> dict:
@@ -214,7 +229,8 @@ def _resolve_multi_quantity(item: dict) -> dict:
     return item
 
 
-def get_items(tags: set | None = None) -> list:
+def get_items(tags: set | None = None,
+              user_position: int | None = None) -> list:
     """Return every catalogue item visible to a user with *tags*.
 
     Parameters
@@ -223,6 +239,9 @@ def get_items(tags: set | None = None) -> list:
         Lowercased set of the user's applicable tags, e.g.
         ``{"knight", "citizen"}``.  ``None`` means anonymous / unknown 
         only universally-visible items are returned.
+    user_position : int or None
+        1-indexed leaderboard position from the previous cycle.
+        Used for ``visible_to_top_n`` filtering.
 
     Returns
     -------
@@ -231,7 +250,8 @@ def get_items(tags: set | None = None) -> list:
     """
     _ensure_loaded()
     with _items_lock:
-        return [_resolve_multi_quantity(item) for item in _items_list if _is_visible(item, tags)]
+        return [_resolve_multi_quantity(item) for item in _items_list
+                if _is_visible(item, tags, user_position)]
 
 def get_item_unfiltered(item_id: str) -> dict | None:
     """Look up a single item by ID with no visibility check.
@@ -247,7 +267,8 @@ def get_item_unfiltered(item_id: str) -> dict | None:
     return _resolve_multi_quantity(item)
 
 
-def get_item(item_id: str, tags: set | None = None) -> dict | None:
+def get_item(item_id: str, tags: set | None = None,
+             user_position: int | None = None) -> dict | None:
     """Look up a single item by ID, respecting visibility.
 
     Returns a shallow copy of the item dict, or ``None`` if the item does
@@ -258,6 +279,6 @@ def get_item(item_id: str, tags: set | None = None) -> dict | None:
         item = _items_by_id.get(item_id)
     if item is None:
         return None
-    if not _is_visible(item, tags):
+    if not _is_visible(item, tags, user_position):
         return None
     return _resolve_multi_quantity(item)

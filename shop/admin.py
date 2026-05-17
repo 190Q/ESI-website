@@ -1045,6 +1045,11 @@ def _build_item(fields: dict) -> dict:
     if _raw_spend_order == "clean_only":
         _raw_accepts_dirty = False         # clean_only implies no dirty EP
 
+    # visible_to_top_n
+    _raw_top_n = _cap_int(fields.get("visible_to_top_n"), 999)
+    if _raw_top_n is not None and _raw_top_n <= 0:
+        _raw_top_n = None
+
     item = {
         "id":                    (fields.get("id") or "").strip(),
         "type":                  item_type,
@@ -1066,6 +1071,7 @@ def _build_item(fields: dict) -> dict:
         "max_quantity":          _cap_int(fields.get("max_quantity"), 99),
         "active":                _coerce_bool(fields.get("active"), True),
         "visible_to_ranks":      vtr,
+        "visible_to_top_n":      _raw_top_n,
     }
 
     if item_type == "donate":

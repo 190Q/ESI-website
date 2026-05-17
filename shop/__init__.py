@@ -14,3 +14,4 @@ from shop.auction import (
 from shop.donate import submit_donation, get_donation_history
 from shop.orders import get_order_history
 from shop.cart import get_cart, save_cart
+from shop.leaderboard import get_user_cycle_position

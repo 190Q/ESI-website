@@ -654,7 +654,7 @@
     // Filter auction items
     var fAuc = [];
     if (showAuction && !_filterStock) {
-      fAuc = auctionItems.slice();
+      fAuc = auctionItems.filter(function (a) { return a.visible_to_user !== false; });
       if (searchLow) fAuc = fAuc.filter(function (a) {
         return (a.item_name || '').toLowerCase().indexOf(searchLow) !== -1 ||
                (a.item_description || '').toLowerCase().indexOf(searchLow) !== -1;

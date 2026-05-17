@@ -1333,7 +1333,8 @@ def shop_auction_list():
     if err:
         return err
     if not _is_shop_enabled():
-        result = list_auctions(discord_id=user.get("id", ""))
+        result = list_auctions(discord_id=user.get("id", ""),
+                               user_roles=user.get("roles") or [])
         ro_auctions = []
         for auction in result.get("auctions") or []:
             if not isinstance(auction, dict):
@@ -1348,7 +1349,8 @@ def shop_auction_list():
         }
         payload.update(_shop_disabled_payload())
         return jsonify(payload), 200
-    return jsonify(list_auctions(discord_id=user.get("id", "")))
+    return jsonify(list_auctions(discord_id=user.get("id", ""),
+                                user_roles=user.get("roles") or []))
 
 
 @app.route("/api/shop/auctions/bid", methods=["POST"])

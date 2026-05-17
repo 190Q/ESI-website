@@ -7,6 +7,7 @@ from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 from config import _SHOP_DB, _CLIENT_CONFIG
 from shop.ep_balance import resolve_uuid_for_user, fetch_ep_balance, resolve_spend, InsufficientFunds
 from shop.items import get_items, get_item, parse_duration, reload as _reload_items
+from shop.leaderboard import get_user_cycle_position
 
 
 _CYCLE_ANCHOR = _dt(2026, 4, 21, 16, 0, 0, tzinfo=_tz.utc)
@@ -112,10 +113,10 @@ def list_bin_items(user_roles: list, discord_id: str) -> dict:
     Includes per-item cooldown status and the user's EP balance.
     """
     tags = build_user_tags(user_roles)
-    all_items = get_items(tags=tags)
-    bin_items = [i for i in all_items if i.get("type") in ("bin", "donate")]
-
     mc_uuid, mc_username = resolve_uuid_for_user(discord_id)
+    user_position = get_user_cycle_position(mc_uuid) if mc_uuid else None
+    all_items = get_items(tags=tags, user_position=user_position)
+    bin_items = [i for i in all_items if i.get("type") in ("bin", "donate")]
     balance = fetch_ep_balance(mc_uuid) if mc_uuid else {
         "spendable_clean": 0, "spendable_dirty": 0,
         "clean_ep": 0, "dirty_ep": 0, "total_ep": 0,
@@ -191,6 +192,7 @@ def execute_cart_checkout(
         seen_ids.add(iid)
 
     tags = build_user_tags(user_roles)
+    user_position = get_user_cycle_position(mc_uuid) if mc_uuid else None
 
     # validate every item and build resolved line list
     lines = []  # [{item, qty, price_per_unit, spend_order, ack_clean, ack_dirty}]
@@ -204,7 +206,7 @@ def execute_cart_checkout(
         if qty < 1:
             raise PurchaseError(f"Invalid quantity for {item_id!r}: must be >= 1", 400)
 
-        item = get_item(item_id, tags=tags)
+        item = get_item(item_id, tags=tags, user_position=user_position)
         if item is None:
             raise PurchaseError(f"Item {item_id!r} not found or not visible to your rank", 404)
         if item.get("type") != "bin":
@@ -425,7 +427,8 @@ def execute_bin_purchase(
 
     # resolve item (with visibility check)
     tags = build_user_tags(user_roles)
-    item = get_item(item_id, tags=tags)
+    user_position = get_user_cycle_position(mc_uuid) if mc_uuid else None
+    item = get_item(item_id, tags=tags, user_position=user_position)
     if item is None:
         raise PurchaseError("Item not found or not visible to your rank", 404)
     if item.get("type") != "bin":

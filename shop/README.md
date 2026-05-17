@@ -7,7 +7,7 @@ Guild shop system for the ESI website. Members spend EP (Experience Points) earn
 | File | Purpose |
 |---|---|
 | `__init__.py` | Package exports |
-| `items.py` | Item catalogue loader — reads `shop_items.json`, applies DB overrides, filters by rank visibility |
+| `items.py` | Item catalogue loader — reads `shop_items.json`, applies DB overrides, filters by rank visibility and top-N position |
 | `ep_balance.py` | EP balance computation — reads earned EP from `esi_points.db` (read-only), reservations + spending from `shop.db` |
 | `bin.py` | Fixed-price purchases — item listing with cooldowns, single purchase, cart checkout |
 | `auction.py` | Auction system — bidding, anti-snipe, settlement, ending-soon reminders, orphan cleanup |
@@ -15,6 +15,7 @@ Guild shop system for the ESI website. Members spend EP (Experience Points) earn
 | `donate.py` | LE-to-EP donation tickets (pending until admin confirms) |
 | `orders.py` | Order history queries |
 | `admin.py` | Admin operations — item CRUD, stock/active overrides, queue fulfillment, auction management, bid removal, logs |
+| `leaderboard.py` | Cycle leaderboard persistence — lazily caches per-cycle positions from `esi_points.db` into `shop.db` for top-N visibility |
 | `dm_cards.py` | Branded notification card renderer — HTML template → Playwright screenshot → PNG |
 
 ## Data stores
@@ -28,6 +29,7 @@ Guild shop system for the ESI website. Members spend EP (Experience Points) earn
 - `cart_items` — persisted cart contents
 - `donation_tickets` — LE donation records
 - `item_overrides` — admin stock/active toggles
+- `cycle_leaderboard` — cached per-cycle leaderboard positions (for `visible_to_top_n` item gating)
 - `shop_admin_log` — audit trail
 
 **`esi_points.db`** (read-only from this app) — earned EP per cycle, owned by ESI-Bot.

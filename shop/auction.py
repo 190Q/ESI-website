@@ -16,8 +16,9 @@ from shop.ep_balance import (
     resolve_uuid_for_user, fetch_ep_balance, resolve_spend, InsufficientFunds,
     _ensure_ep_reservations_table,
 )
-from shop.items import get_item, get_item_unfiltered
+from shop.items import get_item, get_item_unfiltered, _is_visible
 from shop.bin import build_user_tags, PurchaseError, _get_cycle_id, _get_cycle_bounds
+from shop.leaderboard import get_user_cycle_position
 
 
 def _discord_headers():
@@ -174,9 +175,11 @@ def _compute_extended_hours(row, item) -> int:
     except Exception:
         return 0
 
-def list_auctions(discord_id: str) -> dict:
+def list_auctions(discord_id: str, user_roles: list | None = None) -> dict:
     """Return active + recently-closed auctions, enriched for the logged-in user."""
     mc_uuid, mc_username = resolve_uuid_for_user(discord_id)
+    user_position = get_user_cycle_position(mc_uuid) if mc_uuid else None
+    tags = build_user_tags(user_roles or []) if user_roles else None
     now = _dt.now(_tz.utc)
     now_iso = now.isoformat()
     cutoff = (now - _td(hours=48)).isoformat()
@@ -224,6 +227,9 @@ def list_auctions(discord_id: str) -> dict:
                 remaining = max(0, (ends_at - now).total_seconds())
 
                 ext_hours = _compute_extended_hours(row, item)
+                # check visibility (rank + top-N)
+                visible_to_user = _is_visible(item, tags, user_position)
+
                 auctions.append({
                     "auction_id":       aid,
                     "item_id":          row["item_id"],
@@ -248,6 +254,7 @@ def list_auctions(discord_id: str) -> dict:
                     "active":           item.get("active", True),
                     "auto_start":       bool(item.get("auto_start", False)),
                     "user_bid":         user_bid,
+                    "visible_to_user":  visible_to_user,
                 })
             conn.close()
         except sqlite3.Error as exc:
@@ -319,6 +326,16 @@ def place_bid(
         if not item.get("active", True):
             shop_conn.rollback()
             raise PurchaseError("This auction is currently paused", 409)
+
+        # top-N visibility check (enforce on bids)
+        top_n = item.get("visible_to_top_n")
+        if top_n is not None and isinstance(top_n, int) and top_n > 0:
+            _bid_pos = get_user_cycle_position(mc_uuid)
+            if _bid_pos is None or _bid_pos > top_n:
+                shop_conn.rollback()
+                raise PurchaseError(
+                    "This auction is restricted to top players from the previous cycle", 403
+                )
 
         min_increment = item.get("min_increment", 1)
         current_high = arow["current_highest_bid"]
