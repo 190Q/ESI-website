@@ -230,7 +230,8 @@ def _resolve_multi_quantity(item: dict) -> dict:
 
 
 def get_items(tags: set | None = None,
-              user_position: int | None = None) -> list:
+              user_position: int | None = None,
+              include_blocked: bool = False) -> list:
     """Return every catalogue item visible to a user with *tags*.
 
     Parameters
@@ -242,6 +243,10 @@ def get_items(tags: set | None = None,
     user_position : int or None
         1-indexed leaderboard position from the previous cycle.
         Used for ``visible_to_top_n`` filtering.
+    include_blocked : bool
+        If ``True``, return ALL items regardless of visibility but tag
+        non-visible ones with ``visibility_blocked=True``.  Used for
+        chief+ shop admins who should see every item.
 
     Returns
     -------
@@ -250,6 +255,14 @@ def get_items(tags: set | None = None,
     """
     _ensure_loaded()
     with _items_lock:
+        if include_blocked:
+            result = []
+            for item in _items_list:
+                out = _resolve_multi_quantity(item)
+                if not _is_visible(item, tags, user_position):
+                    out["visibility_blocked"] = True
+                result.append(out)
+            return result
         return [_resolve_multi_quantity(item) for item in _items_list
                 if _is_visible(item, tags, user_position)]
 

@@ -175,8 +175,13 @@ def _compute_extended_hours(row, item) -> int:
     except Exception:
         return 0
 
-def list_auctions(discord_id: str, user_roles: list | None = None) -> dict:
-    """Return active + recently-closed auctions, enriched for the logged-in user."""
+def list_auctions(discord_id: str, user_roles: list | None = None,
+                  is_shop_admin: bool = False) -> dict:
+    """Return active + recently-closed auctions, enriched for the logged-in user.
+
+    If *is_shop_admin* is True, all auctions are returned but restricted
+    ones are tagged with ``visibility_blocked=True``.
+    """
     mc_uuid, mc_username = resolve_uuid_for_user(discord_id)
     user_position = get_user_cycle_position(mc_uuid) if mc_uuid else None
     tags = build_user_tags(user_roles or []) if user_roles else None
@@ -230,7 +235,11 @@ def list_auctions(discord_id: str, user_roles: list | None = None) -> dict:
                 # check visibility (rank + top-N)
                 visible_to_user = _is_visible(item, tags, user_position)
 
-                auctions.append({
+                # For non-admins, skip auctions they can't see
+                if not visible_to_user and not is_shop_admin:
+                    continue
+
+                entry = {
                     "auction_id":       aid,
                     "item_id":          row["item_id"],
                     "item_name":        item.get("name", ""),
@@ -255,7 +264,10 @@ def list_auctions(discord_id: str, user_roles: list | None = None) -> dict:
                     "auto_start":       bool(item.get("auto_start", False)),
                     "user_bid":         user_bid,
                     "visible_to_user":  visible_to_user,
-                })
+                }
+                if not visible_to_user:
+                    entry["visibility_blocked"] = True
+                auctions.append(entry)
             conn.close()
         except sqlite3.Error as exc:
             print(f"[AUCTION] Failed to list auctions: {exc}", file=sys.stderr)

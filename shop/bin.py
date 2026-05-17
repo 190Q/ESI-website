@@ -107,15 +107,20 @@ def check_cooldown(uuid: str, item: dict) -> dict:
 
     return {"on_cooldown": True, "cooldown_ends_at": expires.isoformat()}
 
-def list_bin_items(user_roles: list, discord_id: str) -> dict:
+def list_bin_items(user_roles: list, discord_id: str,
+                   is_shop_admin: bool = False) -> dict:
     """Return the full bin-item listing for a logged-in user.
 
     Includes per-item cooldown status and the user's EP balance.
+    If *is_shop_admin* is True, returns ALL items (including ones the
+    user normally can't see) with ``visibility_blocked=True`` on
+    restricted ones.
     """
     tags = build_user_tags(user_roles)
     mc_uuid, mc_username = resolve_uuid_for_user(discord_id)
     user_position = get_user_cycle_position(mc_uuid) if mc_uuid else None
-    all_items = get_items(tags=tags, user_position=user_position)
+    all_items = get_items(tags=tags, user_position=user_position,
+                          include_blocked=is_shop_admin)
     bin_items = [i for i in all_items if i.get("type") in ("bin", "donate")]
     balance = fetch_ep_balance(mc_uuid) if mc_uuid else {
         "spendable_clean": 0, "spendable_dirty": 0,

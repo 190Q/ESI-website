@@ -1166,10 +1166,13 @@ def shop_bin_list():
     user, err = _require_guild_member(require_shop_enabled=False)
     if err:
         return err
+    user_roles = user.get("roles") or []
+    _is_admin = bool(set(user_roles) & _SHOP_ADMIN) or _is_owner_user(user)
     if not _is_shop_enabled():
         result = list_bin_items(
-            user_roles=user.get("roles") or [],
+            user_roles=user_roles,
             discord_id=user.get("id", ""),
+            is_shop_admin=_is_admin,
         )
         ro_items = []
         for item in result.get("items") or []:
@@ -1186,8 +1189,9 @@ def shop_bin_list():
         payload.update(_shop_disabled_payload())
         return jsonify(payload), 200
     result = list_bin_items(
-        user_roles=user.get("roles") or [],
+        user_roles=user_roles,
         discord_id=user.get("id", ""),
+        is_shop_admin=_is_admin,
     )
     return jsonify(result)
 
@@ -1332,9 +1336,12 @@ def shop_auction_list():
     user, err = _require_guild_member(require_shop_enabled=False)
     if err:
         return err
+    user_roles = user.get("roles") or []
+    _is_admin = bool(set(user_roles) & _SHOP_ADMIN) or _is_owner_user(user)
     if not _is_shop_enabled():
         result = list_auctions(discord_id=user.get("id", ""),
-                               user_roles=user.get("roles") or [])
+                               user_roles=user_roles,
+                               is_shop_admin=_is_admin)
         ro_auctions = []
         for auction in result.get("auctions") or []:
             if not isinstance(auction, dict):
@@ -1350,7 +1357,8 @@ def shop_auction_list():
         payload.update(_shop_disabled_payload())
         return jsonify(payload), 200
     return jsonify(list_auctions(discord_id=user.get("id", ""),
-                                user_roles=user.get("roles") or []))
+                                user_roles=user_roles,
+                                is_shop_admin=_is_admin))
 
 
 @app.route("/api/shop/auctions/bid", methods=["POST"])

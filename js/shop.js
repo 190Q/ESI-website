@@ -654,7 +654,7 @@
     // Filter auction items
     var fAuc = [];
     if (showAuction && !_filterStock) {
-      fAuc = auctionItems.filter(function (a) { return a.visible_to_user !== false; });
+      fAuc = auctionItems.slice();
       if (searchLow) fAuc = fAuc.filter(function (a) {
         return (a.item_name || '').toLowerCase().indexOf(searchLow) !== -1 ||
                (a.item_description || '').toLowerCase().indexOf(searchLow) !== -1;
@@ -734,10 +734,12 @@
   // Build just the action area HTML (button/stepper/in-cart indicator)
   function _buildBinActionHtml(item) {
     var inactive   = !item.active;
+    var visBlocked = !!item.visibility_blocked;
     var onCooldown = item.on_cooldown;
-    var disabled   = inactive || onCooldown || (item.stock != null && item.stock <= 0);
+    var disabled   = inactive || visBlocked || onCooldown || (item.stock != null && item.stock <= 0);
     var label;
-    if (onCooldown && item.cooldown_ends_at) {
+    if (visBlocked) { label = 'Restricted';
+    } else if (onCooldown && item.cooldown_ends_at) {
       label = 'Available in ' + Math.ceil(Math.max(0, new Date(item.cooldown_ends_at) - new Date()) / 86400000) + 'd';
     } else if (onCooldown) { label = 'On Cooldown';
     } else if (item.stock != null && item.stock <= 0) { label = 'Out of Stock';
@@ -791,9 +793,10 @@
     var shopDisabled = _shopEnabled === false;
     var isDonate = item.type === 'donate';
     var inactive = !item.active;
-    var onCooldown = !shopDisabled && !isDonate && item.on_cooldown;
-    var inCart = !isDonate && !!_cart[item.id];
-    var showUnavailable = inactive && !shopDisabled;
+    var visBlocked = !!item.visibility_blocked;
+    var onCooldown = !shopDisabled && !isDonate && !visBlocked && item.on_cooldown;
+    var inCart = !isDonate && !visBlocked && !!_cart[item.id];
+    var showUnavailable = (inactive || visBlocked) && !shopDisabled;
     var maintenanceLine1 = '';
     var maintenanceLine2 = '';
     if (shopDisabled) {
@@ -860,7 +863,8 @@
     var shopDisabled = _shopEnabled === false;
     var isActive = a.status === 'active';
     var itemInactive = a.active === false;
-    var showUnavailable = (a.status === 'closed') || (itemInactive && !shopDisabled);
+    var visBlocked = !!a.visibility_blocked;
+    var showUnavailable = (a.status === 'closed') || ((itemInactive || visBlocked) && !shopDisabled);
     var maintenanceLine1 = '';
     var maintenanceLine2 = '';
     if (shopDisabled) {
@@ -1082,8 +1086,9 @@
     var shopDisabled = _shopEnabled === false;
     var cartEntry = _cart[item.id];
     var inactive   = !item.active;
-    var onCooldown = !shopDisabled && item.on_cooldown;
-    var disabled   = shopDisabled || inactive || onCooldown || (item.stock != null && item.stock <= 0);
+    var visBlocked = !!item.visibility_blocked;
+    var onCooldown = !shopDisabled && !visBlocked && item.on_cooldown;
+    var disabled   = shopDisabled || inactive || visBlocked || onCooldown || (item.stock != null && item.stock <= 0);
     var html = '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>';
     var detailImgs = _getItemImages(item);
     if (detailImgs.length) html += _buildCarousel(detailImgs);
