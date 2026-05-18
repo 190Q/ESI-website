@@ -1143,7 +1143,7 @@
     h += '</div>'; // basic section
 
     // Pricing & Stock
-    h += '<div class="ie-section"><div class="ie-section-title">Pricing &amp; Stock</div>';
+    h += '<div class="ie-section" data-ie-pricing><div class="ie-section-title">Pricing &amp; Stock</div>';
     h += '<div class="ie-row">';
     h += '<div class="ie-field" data-ie-bin><label class="ie-label">Price (EP)</label>' +
          '<input id="iePrice" type="text" inputmode="numeric" class="ie-input ie-num" value="' + _v(it.price, '') + '" maxlength="6" placeholder="0" /></div>';
@@ -1176,7 +1176,7 @@
     h += '</div>'; // pricing section
 
     // EP Settings
-    h += '<div class="ie-section"><div class="ie-section-title">EP Settings</div><div class="ie-row">';
+    h += '<div class="ie-section" data-ie-ep><div class="ie-section-title">EP Settings</div><div class="ie-row">';
     h += '<div class="ie-field"><label class="ie-label">Accepts Dirty EP</label>' +
          '<select id="ieDirtyEP" class="ie-input">' +
          '<option value="true"' + _sel(acceptsDirty) + '>Yes</option>' +
@@ -1258,8 +1258,11 @@
     var typeEl = modal.querySelector('#ieType');
     if (!typeEl) return;
     var t = typeEl.value;
+    var isDonate = t === 'donate';
     modal.querySelectorAll('[data-ie-bin]').forEach(function (el) { el.style.display = t === 'bin' ? '' : 'none'; });
     modal.querySelectorAll('[data-ie-auction]').forEach(function (el) { el.style.display = t === 'auction' ? '' : 'none'; });
+    modal.querySelectorAll('[data-ie-pricing]').forEach(function (el) { el.style.display = isDonate ? 'none' : ''; });
+    modal.querySelectorAll('[data-ie-ep]').forEach(function (el) { el.style.display = isDonate ? 'none' : ''; });
   }
 
   function _ieCollect(modal) {
