@@ -1183,7 +1183,7 @@
          '<option value="false"' + _sel(!acceptsDirty) + '>No (Clean Only)</option>' +
          '</select></div>';
     h += '<div class="ie-field"><label class="ie-label">Spend Order</label>' +
-         '<select id="ieSpendOrder" class="ie-input"' + (!acceptsDirty ? ' disabled' : '') + '>' +
+         '<select id="ieSpendOrder" class="ie-input">' +
          ['clean_first', 'dirty_first', 'clean_only', 'dirty_only'].map(function (o) {
            return '<option value="' + o + '"' + _sel(spendVal === o) + '>' + o.replace(/_/g, ' ') + '</option>';
          }).join('') + '</select></div>';
@@ -1362,20 +1362,8 @@
     var dirtyEPEl  = modal.querySelector('#ieDirtyEP');
     var spendOrdEl = modal.querySelector('#ieSpendOrder');
     if (dirtyEPEl && spendOrdEl) {
-      // Lock/unlock the No option based on current spend order
-      function _syncDirtyEpLock() {
-        var noOpt = dirtyEPEl.querySelector('option[value="false"]');
-        if (noOpt) noOpt.disabled = (spendOrdEl.value === 'dirty_only');
-      }
-
       dirtyEPEl.addEventListener('change', function () {
         if (dirtyEPEl.value === 'false') {
-          if (spendOrdEl.value === 'dirty_only') {
-            // Dirty Only requires dirty EP
-            showToast('\u26a0 Accepts Dirty EP cannot be No when Spend Order is Dirty Only.', 'warn');
-            dirtyEPEl.value = 'true'; // revert
-            return;
-          }
           spendOrdEl.value = 'clean_only';
         } else {
           if (spendOrdEl.value === 'clean_only') spendOrdEl.value = 'clean_first';
@@ -1387,10 +1375,7 @@
         } else {
           dirtyEPEl.value = 'true';
         }
-        _syncDirtyEpLock();
       });
-      // Apply lock for initial state when editor opens
-      _syncDirtyEpLock();
     }
 
     // Cooldown type -> show/hide number
