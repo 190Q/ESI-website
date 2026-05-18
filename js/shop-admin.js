@@ -1634,7 +1634,7 @@
     var btn = document.querySelector('#saTabs [data-tab="queue"]');
     if (!_shopEnabled) { _clearQueueBadges(); return; }
     if (!_queueData) return;
-    var count = (_queueData.purchases || []).length + (_queueData.donations || []).length;
+    var count = (_queueData.purchases || []).length + (_queueData.refund_requests || []).length + (_queueData.donations || []).length;
 
     // badge on the Queue tab inside the panel
     if (btn) {
@@ -1676,6 +1676,9 @@
     ((_queueData && _queueData.purchases) || []).forEach(function (p) {
       merged.push({ type: 'purchase', date: p.purchased_at, id: p.purchase_id, data: p });
     });
+    ((_queueData && _queueData.refund_requests) || []).forEach(function (p) {
+      merged.push({ type: 'refund', date: p.purchased_at, id: p.purchase_id, data: p });
+    });
     ((_queueData && _queueData.donations) || []).forEach(function (d) {
       merged.push({ type: 'donation', date: d.submitted_at, id: d.ticket_id, data: d });
     });
@@ -1689,11 +1692,13 @@
   function renderQueueContent(c) {
     var pCount = ((_queueData && _queueData.purchases) || []).length;
     var dCount = ((_queueData && _queueData.donations) || []).length;
-    var total  = pCount + dCount;
-
-    var html = '<div class="sa-q-filters">' +
+    var rCount = ((_queueData && _queueData.refund_requests) || []).length;
+    var total  = pCount + rCount + dCount;
+    var html = '';
+    html += '<div class="sa-q-filters">' +
       '<button class="sa-q-pill' + (_queueFilter === 'all' ? ' active' : '') + '" data-qf="all">All <span class="sa-q-count">' + total + '</span></button>' +
-      '<button class="sa-q-pill' + (_queueFilter === 'purchases' ? ' active' : '') + '" data-qf="purchases">Shop Items <span class="sa-q-count">' + pCount + '</span></button>' +
+      '<button class="sa-q-pill' + (_queueFilter === 'purchases' ? ' active' : '') + '" data-qf="purchases">Pending <span class="sa-q-count">' + pCount + '</span></button>' +
+      '<button class="sa-q-pill' + (_queueFilter === 'refunds' ? ' active' : '') + '" data-qf="refunds">Refund Requests <span class="sa-q-count">' + rCount + '</span></button>' +
       '<button class="sa-q-pill' + (_queueFilter === 'donations' ? ' active' : '') + '" data-qf="donations">Donations <span class="sa-q-count">' + dCount + '</span></button>' +
       '<span class="sa-q-sort" id="saQueueSort">' + (_queueSort === 'oldest' ? 'Oldest first' : 'Newest first') + '</span>' +
     '</div>';
@@ -1705,8 +1710,8 @@
       html += '<div class=\"shop-empty sa-q-empty\">No items in queue</div>';
     } else {
       merged.forEach(function (item) {
-        var hidden = _queueFilter !== 'all' &&
-          _queueFilter !== (item.type === 'purchase' ? 'purchases' : 'donations');
+        var filterMap = { purchase: 'purchases', refund: 'refunds', donation: 'donations' };
+        var hidden = _queueFilter !== 'all' && _queueFilter !== filterMap[item.type];
         html += _buildQueueCard(item, hidden);
       });
     }
@@ -1738,6 +1743,7 @@
   function _buildQueueCard(item, hidden) {
     var d = item.data;
     var isPurchase = item.type === 'purchase';
+    var isRefund = item.type === 'refund';
 
     var html = '<div class="sa-q-card' + (hidden ? ' sa-q-hidden' : '') +
       '" data-qtype="' + item.type +
@@ -1748,8 +1754,10 @@
     html += '<div class="sa-q-header"><div class="sa-q-header-left">';
     html += '<span class="sa-q-user">' + esc(d.username) + '</span>';
     html += '<div class="sa-q-tags">';
-    if (isPurchase) {
-      html += '<span class="sa-q-type sa-q-type--purchase">Shop item</span>';
+    if (isPurchase || isRefund) {
+      html += isRefund
+        ? '<span class="sa-q-type sa-q-type--refund">Refund Request</span>'
+        : '<span class="sa-q-type sa-q-type--purchase">Shop item</span>';
       var slugText = esc(d.item_id);
       try { if (d.quantity && d.quantity > 1) slugText += ' \u00d7' + d.quantity; } catch (ignore) {}
       html += '<span class="sa-q-slug">' + slugText + '</span>';
@@ -1763,7 +1771,7 @@
 
     /* Metrics */
     html += '<div class="sa-q-metrics">';
-    if (isPurchase) {
+    if (isPurchase || isRefund) {
       html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Total</span>' +
         '<span class="sa-q-metric-value sa-q-val--total">' + num(d.ep_spent) + ' EP</span></div>';
       html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Clean</span>' +
@@ -1781,8 +1789,11 @@
     html += '</div>';
 
     /* Fulfillment note */
-    if (isPurchase && d.fulfillment_note) {
+    if ((isPurchase || isRefund) && d.fulfillment_note) {
       html += '<div class="sa-q-note">' + _svg.pin + ' ' + esc(d.fulfillment_note) + '</div>';
+    }
+    if (isRefund && d.chief_note) {
+      html += '<div class="sa-q-note"><strong>Reason:</strong> ' + esc(d.chief_note) + '</div>';
     }
 
     /* Actions */
@@ -1791,6 +1802,9 @@
       if (isPurchase) {
         html += '<button class="sa-q-btn sa-q-btn--primary" data-action="fulfill" data-type="purchase" data-id="' + esc(d.purchase_id) + '">Mark fulfilled</button>';
         html += '<button class="sa-q-btn sa-q-btn--reject" data-action="reject" data-type="purchase" data-id="' + esc(d.purchase_id) + '">Reject</button>';
+      } else if (isRefund) {
+        html += '<button class="sa-q-btn sa-q-btn--primary" data-action="approve-refund" data-id="' + esc(d.purchase_id) + '">Approve Refund</button>';
+        html += '<button class="sa-q-btn sa-q-btn--reject" data-action="reject-refund" data-id="' + esc(d.purchase_id) + '">Deny</button>';
       } else {
         html += '<button class="sa-q-btn sa-q-btn--primary" data-action="fulfill" data-type="donation" data-id="' + esc(d.ticket_id) + '">Confirm</button>';
         html += '<button class="sa-q-btn sa-q-btn--reject" data-action="reject" data-type="donation" data-id="' + esc(d.ticket_id) + '">Reject</button>';
@@ -1805,8 +1819,9 @@
   function _applyQueueFilter() {
     document.querySelectorAll('.sa-q-card').forEach(function (card) {
       var t = card.dataset.qtype;
-      var match = _queueFilter === 'all' ||
+    var match = _queueFilter === 'all' ||
         (_queueFilter === 'purchases' && t === 'purchase') ||
+        (_queueFilter === 'refunds' && t === 'refund') ||
         (_queueFilter === 'donations' && t === 'donation');
       card.classList.toggle('sa-q-hidden', !match);
     });
@@ -1826,13 +1841,15 @@
 
   function _updateQueuePillCounts() {
     var pCount = ((_queueData && _queueData.purchases) || []).length;
+    var rCount = ((_queueData && _queueData.refund_requests) || []).length;
     var dCount = ((_queueData && _queueData.donations) || []).length;
     document.querySelectorAll('.sa-q-pill').forEach(function (p) {
       var cnt = p.querySelector('.sa-q-count');
       if (!cnt) return;
       var f = p.dataset.qf;
-      if (f === 'all') cnt.textContent = pCount + dCount;
+      if (f === 'all') cnt.textContent = pCount + rCount + dCount;
       else if (f === 'purchases') cnt.textContent = pCount;
+      else if (f === 'refunds') cnt.textContent = rCount;
       else if (f === 'donations') cnt.textContent = dCount;
     });
   }
@@ -1862,8 +1879,68 @@
         var id     = btn.dataset.id;
         if (action === 'fulfill') openFulfillModal(type, id, btn);
         else if (action === 'reject') openRejectModal(type, id, btn);
+        else if (action === 'approve-refund') openRefundModal(id, btn);
+        else if (action === 'reject-refund') _rejectRefund(id, btn);
       });
     });
+  }
+
+  function openRefundModal(purchaseId, triggerBtn) {
+    var modal = document.getElementById('saModal');
+    modal.innerHTML =
+      '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
+      '<div class="shop-modal-title">Approve Refund</div>' +
+      '<div class="shop-modal-body">' +
+        '<p>Approve this refund request? The user\u2019s EP will be restored and stock will be incremented.</p>' +
+        '<p style="color:var(--text-faint);font-size:0.75rem;margin:6px 0 0">The user will be notified via DM.</p>' +
+      '</div>' +
+      '<div class="shop-modal-actions">' +
+        '<button class="shop-modal-btn shop-modal-btn--confirm" id="saRefundConfirm">Approve Refund</button>' +
+      '</div>';
+    document.getElementById('saModalBackdrop').classList.add('open');
+    document.getElementById('saRefundConfirm').addEventListener('click', function () {
+      var confirmBtn = this;
+      confirmBtn.disabled = true; confirmBtn.textContent = 'Processing\u2026';
+      apiPost('/api/admin/shop/queue/refund', { purchase_id: purchaseId })
+        .then(function (res) {
+          if (res.ok && res.data.ok) {
+            showToast('\u2713 Refund approved.', 'success');
+            closeModal();
+            var card = triggerBtn.closest('.sa-q-card');
+            if (card) { card.style.opacity = '0.3'; card.style.pointerEvents = 'none'; }
+            if (_queueData && _queueData.refund_requests) {
+              _queueData.refund_requests = _queueData.refund_requests.filter(function (p) { return p.purchase_id !== purchaseId; });
+            }
+            _updateQueuePillCounts();
+            _checkQueueEmpty();
+          } else {
+            showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+            confirmBtn.disabled = false; confirmBtn.textContent = 'Approve Refund';
+          }
+        })
+        .catch(function () { showToast('\u26a0 Network error', 'warn'); confirmBtn.disabled = false; confirmBtn.textContent = 'Approve Refund'; });
+    });
+  }
+
+  function _rejectRefund(purchaseId, triggerBtn) {
+    triggerBtn.disabled = true; triggerBtn.textContent = 'Denying\u2026';
+    apiPost('/api/admin/shop/queue/refund/reject', { purchase_id: purchaseId })
+      .then(function (res) {
+        if (res.ok && res.data.ok) {
+          showToast('\u2713 Refund denied.', 'success');
+          var card = triggerBtn.closest('.sa-q-card');
+          if (card) { card.style.opacity = '0.3'; card.style.pointerEvents = 'none'; }
+          if (_queueData && _queueData.refund_requests) {
+            _queueData.refund_requests = _queueData.refund_requests.filter(function (p) { return p.purchase_id !== purchaseId; });
+          }
+          _updateQueuePillCounts();
+          _checkQueueEmpty();
+        } else {
+          showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+          triggerBtn.disabled = false; triggerBtn.textContent = 'Deny';
+        }
+      })
+      .catch(function () { showToast('\u26a0 Network error', 'warn'); triggerBtn.disabled = false; triggerBtn.textContent = 'Deny'; });
   }
 
   function openFulfillModal(type, id, triggerBtn) {
@@ -1974,7 +2051,8 @@
     auction_cancelled:  'Auction Cancelled',
     bid_removed:        'Bid Removed',
     purchase_fulfilled: 'Purchase Fulfilled',
-    purchase_rejected:  'Purchase Rejected',
+    purchase_refunded:  'Purchase Refunded',
+    refund_rejected:    'Refund Denied',
     donation_confirmed: 'Donation Confirmed',
     donation_rejected:  'Donation Rejected',
     shop_enabled:       'Shop Enabled',
@@ -2033,8 +2111,9 @@
       return esc(row.target_id || '') +
         (d.reason ? ' \u2022 ' + esc(d.reason) : '');
     }
-    if (action === 'purchase_fulfilled' || action === 'purchase_rejected') {
+    if (action === 'purchase_fulfilled' || action === 'purchase_rejected' || action === 'purchase_refunded') {
       return esc(d.item_id || row.target_id || '') +
+        (d.ep_spent ? ' \u2022 ' + num(d.ep_spent) + ' EP' : '') +
         (d.reason ? ' \u2022 ' + esc(d.reason) : '') +
         (d.note   ? ' \u2022 ' + esc(d.note)   : '');
     }

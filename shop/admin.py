@@ -727,9 +727,50 @@ def admin_release_reservation(reservation_id: str, chief_name: str) -> dict:
     except sqlite3.Error as exc:
         return {"error": str(exc)}
 
+def admin_reject_refund(purchase_id: str, chief_name: str) -> dict:
+    """Reject a refund request — set status back to 'fulfilled'."""
+    now_iso = _now_iso()
+    if not os.path.isfile(_SHOP_DB):
+        return {"error": "Shop database unavailable"}
+    conn = sqlite3.connect(_SHOP_DB, timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    row = conn.execute(
+        "SELECT * FROM bin_purchases WHERE purchase_id = ? AND status = 'refund_pending'",
+        (purchase_id,),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return {"error": "Refund request not found or not pending"}
+    conn.execute(
+        "UPDATE bin_purchases SET status = 'fulfilled', chief_note = NULL WHERE purchase_id = ?",
+        (purchase_id,),
+    )
+    conn.commit()
+    conn.close()
+
+    did = _resolve_discord_id_for_uuid(row["uuid"])
+    if did:
+        _dm_card_in_background(
+            did, "purchase_rejected", row["item_id"], 0,
+            fields=[
+                ("ITEM", row["item_id"][:30]),
+                ("STATUS", "Refund Denied"),
+                ("BY", chief_name[:30]),
+            ],
+            fallback_text=f"Your refund request for {row['item_id']} was denied by {chief_name}.",
+        )
+    _log_admin_action(chief_name, "refund_rejected", purchase_id, {
+        "purchase_id": purchase_id, "item_id": row["item_id"],
+    })
+    _invalidate_users_cache()
+    return {"ok": True, "purchase_id": purchase_id, "status": "fulfilled"}
+
+
 def admin_get_queue() -> dict:
-    """Return pending manual bin_purchases + pending donation_tickets."""
+    """Return pending bin_purchases + refund requests + pending donation_tickets."""
     pending_purchases = []
+    refund_requests = []
     pending_donations = []
 
     if os.path.isfile(_SHOP_DB):
@@ -744,6 +785,13 @@ def admin_get_queue() -> dict:
         pending_purchases = [dict(r) for r in rows]
 
         rows = conn.execute(
+            "SELECT * FROM bin_purchases "
+            "WHERE status = 'refund_pending' "
+            "ORDER BY purchased_at DESC"
+        ).fetchall()
+        refund_requests = [dict(r) for r in rows]
+
+        rows = conn.execute(
             "SELECT * FROM donation_tickets "
             "WHERE status = 'pending' "
             "ORDER BY submitted_at ASC"
@@ -754,6 +802,7 @@ def admin_get_queue() -> dict:
 
     return {
         "purchases": pending_purchases,
+        "refund_requests": refund_requests,
         "donations": pending_donations,
     }
 
@@ -924,6 +973,61 @@ def admin_reject(ticket_type: str, ticket_id: str, reason: str,
         )
     _invalidate_users_cache()
     return {"ok": True, "ticket_id": ticket_id, "status": "rejected", "resolved_at": now_iso}
+
+def admin_refund_purchase(purchase_id: str, reason: str, chief_name: str) -> dict:
+    """Approve a refund (from refund_pending or fulfilled). Sets status='refunded', restores stock, DMs user."""
+    now_iso = _now_iso()
+    if not os.path.isfile(_SHOP_DB):
+        return {"error": "Shop database unavailable"}
+    conn = sqlite3.connect(_SHOP_DB, timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+
+    row = conn.execute(
+        "SELECT * FROM bin_purchases WHERE purchase_id = ?", (purchase_id,),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return {"error": "Purchase not found"}
+    if row["status"] not in ("fulfilled", "refund_pending"):
+        conn.close()
+        return {"error": "Only fulfilled or refund-pending purchases can be refunded (current: " + row["status"] + ")"}
+
+    conn.execute(
+        "UPDATE bin_purchases SET status = 'refunded', chief_note = ?, resolved_at = ? "
+        "WHERE purchase_id = ?",
+        (reason or "Refunded", now_iso, purchase_id),
+    )
+    try:
+        qty = row["quantity"] or 1
+    except (IndexError, KeyError):
+        qty = 1
+    _restore_stock(conn, row["item_id"], qty, now_iso)
+    conn.commit()
+    conn.close()
+    _reload_items()
+
+    # DM the user
+    did = _resolve_discord_id_for_uuid(row["uuid"])
+    if did:
+        _dm_card_in_background(
+            did, "purchase_refunded", row["item_id"], row["ep_spent"],
+            fields=[
+                ("REASON", (reason or "Refunded")[:50]),
+                ("EP RETURNED", f"{row['ep_spent']} EP"),
+                ("BY", chief_name),
+            ],
+            fallback_text=f"Purchase of {row['item_id']} refunded by {chief_name}. {row['ep_spent']} EP returned.",
+        )
+
+    _log_admin_action(
+        chief_name, "purchase_refunded", purchase_id,
+        {"purchase_id": purchase_id, "item_id": row["item_id"],
+         "ep_spent": row["ep_spent"], "reason": reason},
+    )
+    _invalidate_users_cache()
+    return {"ok": True, "purchase_id": purchase_id, "status": "refunded"}
+
 
 # Item catalogue write operations
 _json_write_lock = threading.Lock()

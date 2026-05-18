@@ -8,6 +8,66 @@ from config import _SHOP_DB
 _SHOP_ENABLED_KEY = "shop_enabled"
 _SHOP_HAS_EVER_ENABLED_KEY = "shop_has_ever_enabled"
 
+def _migrate_bin_purchases_check(conn: sqlite3.Connection) -> None:
+    """Remove the CHECK constraint on bin_purchases.status if present.
+
+    SQLite doesn't support ALTER CONSTRAINT, so we recreate the table.
+    Only runs once (checks for 'refund_pending' insertability first).
+    """
+    try:
+        # Test if the new statuses are already allowed
+        conn.execute("SAVEPOINT _chk_test")
+        conn.execute(
+            "INSERT INTO bin_purchases (purchase_id, item_id, uuid, username, "
+            "ep_spent, clean_ep_spent, dirty_ep_spent, status, purchased_at) "
+            "VALUES ('__chk_test__', '', '', '', 0, 0, 0, 'refund_pending', '')"
+        )
+        conn.execute("DELETE FROM bin_purchases WHERE purchase_id = '__chk_test__'")
+        conn.execute("RELEASE _chk_test")
+        return  # constraint already allows new statuses
+    except sqlite3.IntegrityError:
+        conn.execute("ROLLBACK TO _chk_test")
+        conn.execute("RELEASE _chk_test")
+    except sqlite3.OperationalError:
+        try:
+            conn.execute("ROLLBACK TO _chk_test")
+            conn.execute("RELEASE _chk_test")
+        except Exception:
+            pass
+        return  # table doesn't exist yet, nothing to migrate
+
+    import sys
+    print("[SHOP] Migrating bin_purchases CHECK constraint...", file=sys.stderr)
+    try:
+        # Get the column list from the existing table
+        cols = conn.execute("PRAGMA table_info(bin_purchases)").fetchall()
+        col_names = [c[1] for c in cols]
+        col_csv = ", ".join(col_names)
+
+        conn.execute("ALTER TABLE bin_purchases RENAME TO _bin_purchases_old")
+        # Rebuild without the CHECK constraint
+        col_defs = []
+        for c in cols:
+            d = c[1] + " " + c[2]
+            if c[3]:  # NOT NULL
+                d += " NOT NULL"
+            if c[4] is not None:  # DEFAULT
+                d += " DEFAULT " + str(c[4])
+            if c[5]:  # PK
+                d += " PRIMARY KEY"
+            col_defs.append(d)
+        conn.execute("CREATE TABLE bin_purchases (" + ", ".join(col_defs) + ")")
+        conn.execute("INSERT INTO bin_purchases (" + col_csv + ") SELECT " + col_csv + " FROM _bin_purchases_old")
+        conn.execute("DROP TABLE _bin_purchases_old")
+        conn.commit()
+        print("[SHOP] Migration complete.", file=sys.stderr)
+    except Exception as exc:
+        print(f"[SHOP] Migration failed: {exc}", file=sys.stderr)
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+
 def _now_iso() -> str:
     return _dt.now(_tz.utc).isoformat()
 
@@ -69,7 +129,9 @@ def get_shop_enabled(default: bool = False) -> bool:
         return bool(default)
     try:
         conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
         _ensure_settings_table(conn)
+        _migrate_bin_purchases_check(conn)
         row = _get_setting_value(conn, _SHOP_ENABLED_KEY)
         conn.close()
     except sqlite3.Error:

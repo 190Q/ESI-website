@@ -1067,6 +1067,7 @@ from shop.admin import (
     admin_adjust_ep,
     get_user_notes, add_user_note, delete_user_note,
     set_user_limits,
+    admin_refund_purchase, admin_reject_refund,
 )
 
 
@@ -1499,6 +1500,25 @@ def shop_orders():
             "donations": [],
         })), 200
     return jsonify(get_order_history(discord_id=user.get("id", "")))
+
+
+@app.route("/api/shop/orders/refund", methods=["POST"])
+@rate_limit(3, 600)
+def shop_request_refund():
+    """Request a refund for a fulfilled purchase (one at a time)."""
+    user, err = _require_guild_member()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    purchase_id = (body.get("purchase_id") or "").strip()
+    reason = (body.get("reason") or "").strip()[:100]
+    if not purchase_id:
+        return jsonify({"error": "purchase_id is required"}), 400
+    if not reason:
+        return jsonify({"error": "Reason is required"}), 400
+    from shop.orders import request_refund
+    result = request_refund(user.get("id", ""), purchase_id, reason)
+    return jsonify(result), 200 if result.get("ok") else 400
 
 
 # Shop admin endpoints
@@ -2139,6 +2159,43 @@ def admin_shop_delete_note(uuid, note_id):
         return jsonify({"error": "Parliament rank required"}), 403
     result = delete_user_note(note_id)
     return jsonify(result), 200 if result.get("ok") else 404
+
+
+@app.route("/api/admin/shop/queue/refund", methods=["POST"])
+@rate_limit(10)
+def admin_shop_refund():
+    """Approve a refund request (Parliament+ only)."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    body = request.get_json(silent=True) or {}
+    purchase_id = (body.get("purchase_id") or "").strip()
+    if not purchase_id:
+        return jsonify({"error": "purchase_id is required"}), 400
+    reason = (body.get("reason") or "").strip()[:50]
+    actor = user.get("nick") or user.get("username", "")
+    result = admin_refund_purchase(purchase_id, reason, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/queue/refund/reject", methods=["POST"])
+@rate_limit(10)
+def admin_shop_reject_refund():
+    """Reject a refund request (Parliament+ only)."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    body = request.get_json(silent=True) or {}
+    purchase_id = (body.get("purchase_id") or "").strip()
+    if not purchase_id:
+        return jsonify({"error": "purchase_id is required"}), 400
+    actor = user.get("nick") or user.get("username", "")
+    result = admin_reject_refund(purchase_id, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
 
 
 @app.route("/api/admin/shop/users/<uuid>/limits", methods=["POST"])

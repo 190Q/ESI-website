@@ -188,10 +188,16 @@
       '</div>';
 
     document.getElementById('shopModalBackdrop').addEventListener('click', function (e) {
-      if (e.target === this) closeModal();
+      if (e.target === this) {
+        if (_refundOverride) { _refundOverride(); return; }
+        closeModal();
+      }
     });
     document.getElementById('shopModal').addEventListener('click', function (e) {
-      if (e.target.closest('.modal-close')) closeModal();
+      if (e.target.closest('.modal-close')) {
+        if (_refundOverride) { _refundOverride(); return; }
+        closeModal();
+      }
     });
     document.getElementById('shopCartBtn').addEventListener('click', function () {
       if (_shopEnabled === false) { openComingSoonModal('Cart'); return; }
@@ -1896,6 +1902,7 @@
         qty: p.quantity || 1,
         cleanEp: p.clean_ep_spent || 0,
         dirtyEp: p.dirty_ep_spent || 0,
+        purchaseId: p.purchase_id,
       });
     });
     bids.forEach(function (b) {
@@ -1925,9 +1932,10 @@
     if (entry.outcomeColor) {
       return '<span class="order-outcome" style="color:' + entry.outcomeColor + '">' + esc(entry.outcome) + '</span>';
     }
-    var colors = { pending: 'var(--warn)', fulfilled: 'var(--online)', confirmed: 'var(--online)', rejected: 'var(--danger)' };
+    var colors = { pending: 'var(--warn)', fulfilled: 'var(--online)', confirmed: 'var(--online)', rejected: 'var(--danger)', refund_pending: '#e67e22', refunded: 'var(--danger)' };
     var c = colors[entry.outcome] || 'var(--text-faint)';
-    var label = entry.outcome === 'fulfilled' ? 'Completed' : entry.outcome;
+    var labels = { fulfilled: 'Completed', refund_pending: 'Refund Pending', refunded: 'Refunded' };
+    var label = labels[entry.outcome] || entry.outcome;
     return '<span class="order-outcome" style="color:' + c + '">' + esc(label) + '</span>';
   }
 
@@ -1974,7 +1982,14 @@
           html += '<span class="order-ep-split">' + num(e.cleanEp) + ' clean \u00b7 ' + num(e.dirtyEp) + ' dirty</span>';
         }
         html += '</span>';
-        html += '<span>' + _outcomeHtml(e) + '</span>';
+        html += '<span class="order-outcome-cell">' + _outcomeHtml(e);
+        if (e.kind === 'purchase' && e.outcome === 'fulfilled' && e.purchaseId) {
+          var hasPendingRefund = feed.some(function (f) { return f.kind === 'purchase' && f.outcome === 'refund_pending'; });
+          if (!hasPendingRefund) {
+            html += '<button class="order-refund-btn" data-refund-id="' + esc(e.purchaseId) + '">Request Refund</button>';
+          }
+        }
+        html += '</span>';
         html += '</div>';
       });
       html += '</div>';
@@ -1989,6 +2004,73 @@
         _ordersFilter = btn.dataset.ofilter;
         _renderOrdersInModal(modal);
       });
+    });
+
+    // Bind refund request buttons
+    modal.querySelectorAll('.order-refund-btn').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var pid = btn.dataset.refundId;
+        _openRefundRequestModal(pid, modal);
+      });
+    });
+  }
+
+  var _refundOverride = null;
+
+  function _openRefundRequestModal(purchaseId, ordersModal) {
+    // Remove wide orders class so the refund modal is normal width
+    var backdrop = document.getElementById('shopModalBackdrop');
+    backdrop.classList.remove('orders-open');
+
+    ordersModal.innerHTML =
+      '<button class="modal-close" id="shopRefundBack">\u2715</button>' +
+      '<div class="shop-modal-title">Request Refund</div>' +
+      '<div class="shop-modal-body">' +
+        '<label class="shop-modal-input-label">Reason (required)</label>' +
+        '<textarea class="shop-modal-input" id="shopRefundReason" placeholder="Why do you want a refund?" maxlength="100" rows="3"></textarea>' +
+        '<p style="color:var(--text-faint);font-size:0.75rem;margin:6px 0 0">An admin will review your request.</p>' +
+      '</div>' +
+      '<div class="shop-modal-actions">' +
+        '<button class="shop-modal-btn shop-modal-btn--cancel" id="shopRefundConfirm" style="color:var(--danger);border-color:var(--danger)">Submit Request</button>' +
+      '</div>';
+
+    function _goBack() {
+      _refundOverride = null;
+      backdrop.classList.add('orders-open');
+      _ordersData = null;
+      fetchOrders(function () { _renderOrdersInModal(ordersModal); });
+    }
+
+    // Override backdrop click to go back instead of close
+    _refundOverride = _goBack;
+
+    document.getElementById('shopRefundBack').addEventListener('click', function (e) {
+      e.stopPropagation();
+      _goBack();
+    });
+
+    document.getElementById('shopRefundConfirm').addEventListener('click', function () {
+      var reason = document.getElementById('shopRefundReason').value.trim();
+      if (!reason) { showToast('\u26a0 Reason is required.', 'warn'); return; }
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Submitting\u2026';
+      fetch('/api/shop/orders/refund', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ purchase_id: purchaseId, reason: reason }),
+      })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+      .then(function (res) {
+        if (res.ok && res.data.ok) {
+          showToast('\u2713 Refund requested. An admin will review it.', 'success');
+          _goBack();
+        } else {
+          showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+          btn.disabled = false; btn.textContent = 'Submit Request';
+        }
+      })
+      .catch(function () { showToast('\u26a0 Network error', 'warn'); btn.disabled = false; btn.textContent = 'Submit Request'; });
     });
   }
 

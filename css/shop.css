@@ -1335,6 +1335,27 @@ input.cart-qty:focus {
   font-weight: 600;
   font-size: 0.8rem;
 }
+.order-outcome-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+.order-refund-btn {
+  background: none;
+  border: 1px solid rgba(237,66,69,0.3);
+  border-radius: 8px;
+  color: var(--danger);
+  font-family: 'Cinzel', serif;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+.order-refund-btn:hover { background: rgba(237,66,69,0.1); border-color: var(--danger); }
+.order-refund-btn:disabled { opacity: 0.5; cursor: wait; }
 .order-note {
   font-size: 0.72rem;
   color: var(--text-faint);

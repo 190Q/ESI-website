@@ -68,3 +68,51 @@ def get_order_history(discord_id: str) -> dict:
         "bids":      bids,
         "donations": donations,
     }
+
+def request_refund(discord_id: str, purchase_id: str, reason: str) -> dict:
+    """User requests a refund for a fulfilled purchase. Sets status to refund_pending."""
+    mc_uuid, _ = resolve_uuid_for_user(discord_id)
+    if not mc_uuid:
+        return {"error": "No linked Minecraft account"}
+    if not purchase_id:
+        return {"error": "purchase_id is required"}
+    reason = (reason or "").strip()[:100]
+    if not reason:
+        return {"error": "Reason is required"}
+    if not os.path.isfile(_SHOP_DB):
+        return {"error": "Shop database unavailable"}
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        # Verify ownership and status
+        row = conn.execute(
+            "SELECT status, uuid FROM bin_purchases WHERE purchase_id = ?",
+            (purchase_id,),
+        ).fetchone()
+        if not row:
+            conn.close()
+            return {"error": "Purchase not found"}
+        if row["uuid"] != mc_uuid:
+            conn.close()
+            return {"error": "This purchase does not belong to you"}
+        if row["status"] != "fulfilled":
+            conn.close()
+            return {"error": "Only fulfilled purchases can be refunded (current: " + row["status"] + ")"}
+        # Check no existing pending refund for this user
+        existing = conn.execute(
+            "SELECT 1 FROM bin_purchases WHERE uuid = ? AND status = 'refund_pending'",
+            (mc_uuid,),
+        ).fetchone()
+        if existing:
+            conn.close()
+            return {"error": "You already have a pending refund request"}
+        conn.execute(
+            "UPDATE bin_purchases SET status = 'refund_pending', chief_note = ? WHERE purchase_id = ?",
+            (reason, purchase_id),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"error": f"Database error: {exc}"}
+    return {"ok": True, "purchase_id": purchase_id}

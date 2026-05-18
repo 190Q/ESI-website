@@ -156,6 +156,13 @@ _TYPES = {
         "action": "FULFILLED", "action_bg": "#1a4a3a",
         "amount_color": "#4a9a5a",
     },
+    "purchase_refunded": {
+        "badge": "REFUNDED", "badge_color": "#c98a30",
+        "icon": "check", "icon_color": "#c98a30",
+        "title": "Purchase Refunded",
+        "action": "EP RETURNED", "action_bg": "#3a2a10",
+        "amount_color": "#c98a30",
+    },
     "donation_confirmed": {
         "badge": "CONFIRMED", "badge_color": "#4a9a5a",
         "icon": "check", "icon_color": "#4a9a5a",
