@@ -1331,6 +1331,11 @@ def shop_cart_get():
     if err:
         return err
     if not _is_shop_enabled():
+        # Shop admins can still view their cart (read-only)
+        user_roles = set(user.get("roles") or [])
+        if (user_roles & _SHOP_ADMIN) or _is_owner_user(user):
+            items = get_cart(user.get("id", ""))
+            return jsonify({"ok": True, "items": items, "read_only": True})
         return jsonify(_shop_disabled_payload({
             "ok": True,
             "items": [],
@@ -1493,6 +1498,12 @@ def shop_orders():
     if err:
         return err
     if not _is_shop_enabled():
+        # Shop admins can still view their orders (read-only)
+        user_roles = set(user.get("roles") or [])
+        if (user_roles & _SHOP_ADMIN) or _is_owner_user(user):
+            result = get_order_history(discord_id=user.get("id", ""))
+            result["read_only"] = True
+            return jsonify(result)
         return jsonify(_shop_disabled_payload({
             "linked": False,
             "purchases": [],

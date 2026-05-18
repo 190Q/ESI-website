@@ -200,11 +200,11 @@
       }
     });
     document.getElementById('shopCartBtn').addEventListener('click', function () {
-      if (_shopEnabled === false) { openComingSoonModal('Cart'); return; }
+      if (_shopEnabled === false && !_shopMaintenanceViewOnly) { openComingSoonModal('Cart'); return; }
       openCartModal();
     });
     document.getElementById('shopOrdersBtn').addEventListener('click', function () {
-      if (_shopEnabled === false) { openComingSoonModal('My Orders'); return; }
+      if (_shopEnabled === false && !_shopMaintenanceViewOnly) { openComingSoonModal('My Orders'); return; }
       openOrdersModal();
     });
   }
@@ -1447,7 +1447,7 @@
 
   /* Cart modal */
   function openCartModal() {
-    if (_shopEnabled === false) { openComingSoonModal('Cart'); return; }
+    if (_shopEnabled === false && !_shopMaintenanceViewOnly) { openComingSoonModal('Cart'); return; }
     buildShell(); renderCartModal();
     document.getElementById('shopModalBackdrop').classList.add('open', 'cart-open');
   }
@@ -1478,6 +1478,8 @@
     var total = entries.reduce(function (n, e) { return n + e.item.price * e.quantity; }, 0);
     var split = bal ? computeCartSplit(entries, bal) : null;
 
+    var _cartReadOnly = _shopMaintenanceViewOnly;
+
     /* Item list */
     html += '<div class="cart-items">';
     entries.forEach(function (entry) {
@@ -1491,26 +1493,32 @@
         '<span class="cart-row-meta">' + num(item.price) + ' EP each ' + _cartEpBadge(item) + '</span>' +
       '</div>';
       // Col 2: stepper
-      html += '<div class="cart-row-stepper' + (isMulti ? '' : ' cart-row-stepper--static') + '">';
-      if (isMulti) {
-        html +=
-          '<button class="cart-step-btn" data-modal-dec="' + esc(item.id) + '"' + (entry.quantity <= 1 ? ' disabled' : '') + '>&#8722;</button>' +
-          '<input type="text" inputmode="numeric" class="cart-qty" data-modal-qty="' + esc(item.id) + '" value="' + entry.quantity + '" maxlength="3" />' +
-          '<button class="cart-step-btn" data-modal-inc="' + esc(item.id) + '"' + (entry.quantity >= maxQ ? ' disabled' : '') + '>&#43;</button>';
+      if (_cartReadOnly) {
+        html += '<div class="cart-row-stepper cart-row-stepper--static">' + entry.quantity + '</div>';
       } else {
-        html += '1';
+        html += '<div class="cart-row-stepper' + (isMulti ? '' : ' cart-row-stepper--static') + '">';
+        if (isMulti) {
+          html +=
+            '<button class="cart-step-btn" data-modal-dec="' + esc(item.id) + '"' + (entry.quantity <= 1 ? ' disabled' : '') + '>&#8722;</button>' +
+            '<input type="text" inputmode="numeric" class="cart-qty" data-modal-qty="' + esc(item.id) + '" value="' + entry.quantity + '" maxlength="3" />' +
+            '<button class="cart-step-btn" data-modal-inc="' + esc(item.id) + '"' + (entry.quantity >= maxQ ? ' disabled' : '') + '>&#43;</button>';
+        } else {
+          html += '1';
+        }
+        html += '</div>';
       }
-      html += '</div>';
       // Col 3: subtotal + trash
       html += '<div class="cart-row-end">' +
-        '<span class="cart-row-subtotal">' + num(item.price * entry.quantity) + ' EP</span>' +
-        '<button class="cart-row-remove" data-modal-remove="' + esc(item.id) + '">' +
+        '<span class="cart-row-subtotal">' + num(item.price * entry.quantity) + ' EP</span>';
+      if (!_cartReadOnly) {
+        html += '<button class="cart-row-remove" data-modal-remove="' + esc(item.id) + '">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
             '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>' +
             '<path d="M10 11v6"/><path d="M14 11v6"/>' +
           '</svg>' +
-        '</button>' +
-      '</div>';
+        '</button>';
+      }
+      html += '</div>';
       html += '</div>';
     });
     html += '</div>';
@@ -1541,7 +1549,7 @@
     html += '<div class="cart-summary-divider"></div>';
     html += '<div class="cart-summary-row cart-summary-row--total' + (split && !split.affordable ? ' cart-summary-row--danger' : '') + '">' +
       '<span>Total</span><span>' + num(total) + ' EP</span></div>';
-    if (split && split.affordable) {
+    if (split && split.affordable && !_cartReadOnly) {
       html += '<button class="cart-checkout-btn" id="shopModalConfirm">CHECKOUT: ' + num(total) + ' EP</button>';
     }
     html += '</div>';
@@ -1864,7 +1872,7 @@
   }
 
   function openOrdersModal() {
-    if (_shopEnabled === false) { openComingSoonModal('My Orders'); return; }
+    if (_shopEnabled === false && !_shopMaintenanceViewOnly) { openComingSoonModal('My Orders'); return; }
     buildShell();
     var modal = document.getElementById('shopModal');
     if (!modal) return;
@@ -1983,7 +1991,7 @@
         }
         html += '</span>';
         html += '<span class="order-outcome-cell">' + _outcomeHtml(e);
-        if (e.kind === 'purchase' && e.outcome === 'fulfilled' && e.purchaseId) {
+        if (!_shopMaintenanceViewOnly && e.kind === 'purchase' && e.outcome === 'fulfilled' && e.purchaseId) {
           var hasPendingRefund = feed.some(function (f) { return f.kind === 'purchase' && f.outcome === 'refund_pending'; });
           if (!hasPendingRefund) {
             html += '<button class="order-refund-btn" data-refund-id="' + esc(e.purchaseId) + '">Request Refund</button>';
@@ -2106,7 +2114,7 @@
     _cartLoaded = false;
     _filterBarBuilt = false;
     setComingSoonLayout(false);
-    setTopActionsDisabled(true);
+    setTopActionsDisabled(false);
     renderBalanceBar();
     document.getElementById('shopContent').innerHTML =
       '<div class="shop-loading"><span class="loading-spinner"></span> Loading shop\u2026</div>';
@@ -2118,6 +2126,7 @@
       }
       renderBalanceBar();
       buildFilterBar();
+      loadCart(data.items || []);
     });
     fetchAuctionData(function (data) {
       if (!data) return;
