@@ -1065,6 +1065,7 @@ from shop.admin import (
     admin_ban_user, admin_unban_user, is_shop_banned,
     is_admin_banned, admin_ban_admin, admin_unban_admin, _get_admin_banned_ids,
     admin_adjust_ep,
+    get_user_notes, add_user_note, delete_user_note,
 )
 
 
@@ -2096,6 +2097,47 @@ def admin_shop_admin_unban(discord_id):
     actor = user.get("nick") or user.get("username", "")
     result = admin_unban_admin(discord_id, actor)
     return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/users/<uuid>/notes")
+@rate_limit(30)
+def admin_shop_user_notes(uuid):
+    """Get all notes for a user (Chief+ can view)."""
+    user, _, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    return jsonify({"notes": get_user_notes(uuid)})
+
+
+@app.route("/api/admin/shop/users/<uuid>/notes", methods=["POST"])
+@rate_limit(20)
+def admin_shop_add_note(uuid):
+    """Add a note to a user (Parliament+ only)."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    body = request.get_json(silent=True) or {}
+    note = (body.get("note") or "").strip()[:200]
+    if not note:
+        return jsonify({"error": "Note cannot be empty"}), 400
+    actor = user.get("nick") or user.get("username", "")
+    result = add_user_note(uuid, note, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/users/<uuid>/notes/<note_id>", methods=["DELETE"])
+@rate_limit(20)
+def admin_shop_delete_note(uuid, note_id):
+    """Delete a note (Parliament+ only)."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    result = delete_user_note(note_id)
+    return jsonify(result), 200 if result.get("ok") else 404
 
 
 @app.route("/api/admin/shop/users/<uuid>/ep-adjust", methods=["POST"])

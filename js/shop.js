@@ -719,6 +719,34 @@
     return '<div class="shop-card-ribbon' + (modifier ? ' shop-card-ribbon--' + modifier : '') + '">' + text + '</div>';
   }
 
+  /* Schedule ribbon: deactivate_at countdown takes priority */
+  function _scheduleRibbon(item) {
+    var now = Date.now();
+    // Deactivate countdown ribbon (only for active items with a future deactivate_at)
+    var deact = item.deactivate_at;
+    if (deact && item.active !== false) {
+      var deactMs = new Date(deact).getTime();
+      var diff = deactMs - now;
+      if (diff > 0 && diff <= 7 * 86400000) {
+        var hours = Math.ceil(diff / 3600000);
+        if (hours <= 24) return _ribbon(hours + 'H Left', 'sched-hours');
+        return _ribbon(Math.ceil(diff / 86400000) + 'D Left', 'sched-days');
+      }
+    }
+    // Activate ribbon (item is inactive with a future activate_at)
+    var act = item.activate_at;
+    if (act && item.active === false) {
+      var actMs = new Date(act).getTime();
+      var adiff = actMs - now;
+      if (adiff > 0) {
+        var aHours = Math.ceil(adiff / 3600000);
+        if (aHours <= 24) return _ribbon('In ' + aHours + 'H', 'sched-pending');
+        return _ribbon('In ' + Math.ceil(adiff / 86400000) + 'D', 'sched-pending');
+      }
+    }
+    return null;
+  }
+
   /* Category badges helper */
   var _catIcon = '<svg class="shop-cat-icon" viewBox="0 0 448 512" fill="currentColor"><path d="M0 80V229.5c0 17 6.7 33.3 18.7 45.3l176 176c25 25 65.5 25 90.5 0L418.7 317.3c25-25 25-65.5 0-90.5l-176-176c-12-12-28.3-18.7-45.3-18.7H48C21.5 32 0 53.5 0 80zm112 32a32 32 0 1 1 0 64 32 32 0 1 1 0-64z"/></svg>';
   function _catBadges(cats) {
@@ -736,9 +764,15 @@
     var inactive   = !item.active;
     var visBlocked = !!item.visibility_blocked;
     var onCooldown = item.on_cooldown;
-    var disabled   = inactive || visBlocked || onCooldown || (item.stock != null && item.stock <= 0);
+    // Pending schedule activation
+    var schedPending = inactive && item.activate_at && new Date(item.activate_at).getTime() > Date.now();
+    var disabled   = inactive || visBlocked || onCooldown || schedPending || (item.stock != null && item.stock <= 0);
     var label;
     if (visBlocked) { label = 'Restricted';
+    } else if (schedPending) {
+      var sdiff = new Date(item.activate_at).getTime() - Date.now();
+      var sHours = Math.ceil(sdiff / 3600000);
+      label = sHours <= 24 ? 'Available in ' + sHours + 'h' : 'Available in ' + Math.ceil(sdiff / 86400000) + 'd';
     } else if (onCooldown && item.cooldown_ends_at) {
       label = 'Available in ' + Math.ceil(Math.max(0, new Date(item.cooldown_ends_at) - new Date()) / 86400000) + 'd';
     } else if (onCooldown) { label = 'On Cooldown';
@@ -755,7 +789,8 @@
             (cartEntry.quantity >= maxQ ? ' disabled' : '') + '>&#43;</button></div>';
       }
       return '<button class="shop-buy-btn shop-buy-btn--add-cart" data-add-cart="' +
-        esc(item.id) + '"' + (disabled ? ' disabled' : '') + '>Add to Cart</button>';
+        esc(item.id) + '"' + (disabled ? ' disabled' : '') + '>' +
+        (schedPending ? label : 'Add to Cart') + '</button>';
     } else {
       if (cartEntry) {
         return '<div class="cart-in-cart-wrap">' +
@@ -765,7 +800,7 @@
       }
       return '<button class="shop-buy-btn shop-buy-btn--add-cart" data-add-cart="' +
         esc(item.id) + '"' + (disabled ? ' disabled' : '') + '>' +
-        (onCooldown ? label : 'Add to Cart') + '</button>';
+        ((onCooldown || schedPending) ? label : 'Add to Cart') + '</button>';
     }
   }
 
@@ -796,7 +831,8 @@
     var visBlocked = !!item.visibility_blocked;
     var onCooldown = !shopDisabled && !isDonate && !visBlocked && item.on_cooldown;
     var inCart = !isDonate && !visBlocked && !!_cart[item.id];
-    var showUnavailable = (inactive || visBlocked) && !shopDisabled;
+    var schedPending = inactive && item.activate_at && new Date(item.activate_at).getTime() > Date.now();
+    var showUnavailable = (inactive || visBlocked) && !shopDisabled && !schedPending;
     var maintenanceLine1 = '';
     var maintenanceLine2 = '';
     if (shopDisabled) {
@@ -805,11 +841,19 @@
       maintenanceLine2 = mLines[1];
     }
     var cdText = (!isDonate && !shopDisabled) ? _cooldownLabel(item) : '';
+    // Schedule pending label=
+    var schedLabel = '';
+    if (!shopDisabled && !isDonate && schedPending) {
+      var _sdiff = new Date(item.activate_at).getTime() - Date.now();
+      var _sH = Math.ceil(_sdiff / 3600000);
+      schedLabel = _sH <= 24 ? 'Available in ' + _sH + 'h' : 'Available in ' + Math.ceil(_sdiff / 86400000) + 'd';
+    }
     var html = '<div class="shop-card' + (showUnavailable ? ' shop-card--unavailable' : '') +
       (shopDisabled ? ' shop-card--maintenance' : '') +
-      (onCooldown && !inactive ? ' shop-card--cooldown' : '') +
+      ((onCooldown && !inactive) || schedPending ? ' shop-card--cooldown' : '') +
       (inCart ? ' shop-card--in-cart' : '') + '" data-item-id="' + esc(item.id) + '"' +
       (cdText ? ' data-cooldown="' + esc(cdText) + '"' : '') +
+      (schedLabel ? ' data-cooldown="' + esc(schedLabel) + '"' : '') +
       (maintenanceLine1 ? ' data-maintenance-line1="' + esc(maintenanceLine1) + '"' : '') +
       (maintenanceLine2 ? ' data-maintenance-line2="' + esc(maintenanceLine2) + '"' : '') + '>';
     var _thumb = (item.images && item.images.length) ? item.images[0] : null;
@@ -818,7 +862,10 @@
     html += isDonate
       ? '<span class="shop-item-type-badge shop-item-type-badge--donate">Donate</span>'
       : '<span class="shop-item-type-badge shop-item-type-badge--bin">Bin</span>';
-    if (!shopDisabled && !isDonate && item.stock != null) {
+    var _schedR = (!shopDisabled && !isDonate) ? _scheduleRibbon(item) : null;
+    if (_schedR) {
+      html += _schedR;
+    } else if (!shopDisabled && !isDonate && item.stock != null) {
       html += _ribbon(num(item.stock) + '\u00a0left', item.stock <= 0 ? 'outstock' : 'stock');
     }
     html += '<div class="shop-card-body">';
@@ -1088,6 +1135,7 @@
     var inactive   = !item.active;
     var visBlocked = !!item.visibility_blocked;
     var onCooldown = !shopDisabled && !visBlocked && item.on_cooldown;
+    var schedPending = inactive && item.activate_at && new Date(item.activate_at).getTime() > Date.now();
     var disabled   = shopDisabled || inactive || visBlocked || onCooldown || (item.stock != null && item.stock <= 0);
     var html = '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>';
     var detailImgs = _getItemImages(item);
@@ -1110,6 +1158,11 @@
     var btnLabel = 'Add to Cart';
     var btnDisabled = disabled;
     if (shopDisabled) { btnLabel = disabledMessage(); }
+    else if (schedPending) {
+      var _mdiff = new Date(item.activate_at).getTime() - Date.now();
+      var _mH = Math.ceil(_mdiff / 3600000);
+      btnLabel = _mH <= 24 ? 'Available in ' + _mH + 'h' : 'Available in ' + Math.ceil(_mdiff / 86400000) + 'd';
+    }
     else if (inactive) { btnLabel = 'Unavailable'; }
     else if (item.stock != null && item.stock <= 0) { btnLabel = 'Out of Stock'; }
     else if (onCooldown && item.cooldown_ends_at) {

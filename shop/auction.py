@@ -1079,10 +1079,53 @@ def _auto_start_auctions():
         print(f"[AUCTION] Auto-start error: {exc}", file=sys.stderr)
 
 
+def _check_item_schedules():
+    """Auto-activate/deactivate items based on activate_at / deactivate_at."""
+    try:
+        from shop.admin import admin_list_all_items_unfiltered, admin_set_override
+        from datetime import datetime as _sched_dt, timezone as _sched_tz
+        now = _sched_dt.now(_sched_tz.utc)
+        all_items = admin_list_all_items_unfiltered()
+        for item in all_items:
+            item_id = item.get("id")
+            if not item_id:
+                continue
+            # Auto-activate: item is inactive and activate_at is in the past
+            act_at = item.get("activate_at")
+            if act_at and item.get("active") is False:
+                try:
+                    act_dt = _sched_dt.fromisoformat(act_at.replace("Z", "+00:00"))
+                    if now >= act_dt:
+                        admin_set_override(item_id, active=True, stock=None,
+                                           updated_by="system:schedule")
+                        print(f"[SCHEDULE] Auto-activated '{item_id}'.",
+                              file=sys.stderr)
+                except (ValueError, TypeError):
+                    pass
+            # Auto-deactivate: item is active and deactivate_at is in the past
+            deact_at = item.get("deactivate_at")
+            if deact_at and item.get("active") is not False:
+                try:
+                    deact_dt = _sched_dt.fromisoformat(deact_at.replace("Z", "+00:00"))
+                    if now >= deact_dt:
+                        admin_set_override(item_id, active=False, stock=None,
+                                           updated_by="system:schedule")
+                        print(f"[SCHEDULE] Auto-deactivated '{item_id}'.",
+                              file=sys.stderr)
+                except (ValueError, TypeError):
+                    pass
+    except Exception as exc:
+        print(f"[SCHEDULE] Item schedule check error: {exc}", file=sys.stderr)
+
+
 def auction_close_loop():
     """Background loop that settles expired auctions and sends reminders."""
     while True:
         threading.Event().wait(_CLOSE_WORKER_INTERVAL)
+        try:
+            _check_item_schedules()
+        except Exception as exc:
+            print(f"[SCHEDULE] Schedule worker error: {exc}", file=sys.stderr)
         try:
             _auto_start_auctions()
         except Exception as exc:

@@ -1710,6 +1710,74 @@ select.sa-filter-input { cursor: pointer; }
   font-size: 0.78rem;
   padding: 6px 14px;
 }
+.su-manage-save {
+  width: 100%;
+  padding: 10px;
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+
+/* User notes */
+.su-notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--popup-scrollbar-thumb) var(--popup-scrollbar-track);
+}
+.su-notes-list::-webkit-scrollbar { width: var(--popup-scrollbar-width); }
+.su-notes-list::-webkit-scrollbar-track { background: var(--popup-scrollbar-track); }
+.su-notes-list::-webkit-scrollbar-thumb { background: var(--popup-scrollbar-thumb); border-radius: 3px; }
+.su-note {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+}
+.su-note-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.su-note-actor {
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--gold-dim);
+  letter-spacing: 0.04em;
+}
+.su-note-date {
+  font-size: 0.65rem;
+  color: var(--text-faint);
+}
+.su-note-del {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  transition: color var(--transition);
+}
+.su-note-del:hover { color: var(--danger); }
+.su-note-text {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.su-note-add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 
 @media (max-width: 700px) {
   .su-cards { grid-template-columns: 1fr; }

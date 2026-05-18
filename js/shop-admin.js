@@ -1189,8 +1189,8 @@
          }).join('') + '</select></div>';
     h += '</div></div>'; // EP section
 
-    // Cooldown
-    h += '<div class="ie-section" data-ie-bin><div class="ie-section-title">Cooldown</div><div class="ie-row">';
+    // Cooldown & Schedule
+    h += '<div class="ie-section" data-ie-bin><div class="ie-section-title">Cooldown &amp; Schedule</div><div class="ie-row">';
     h += '<div class="ie-field ie-field--wide"><label class="ie-label">Cooldown</label>';
     h += '<div class="ie-cooldown-row">';
     h += '<select id="ieCooldownType" class="ie-input ie-cd-type">' +
@@ -1203,7 +1203,25 @@
          ((cd.type === 'days' || cd.type === 'cycles') ? '' : ' style="display:none"') + ' />';
     h += '</div></div>'; // cooldown field
     h += '</div>'; // ie-row
-    h += '</div>'; // cooldown section
+    function _utcToLocal(iso) {
+      if (!iso) return '';
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      var pad = function (n) { return n < 10 ? '0' + n : String(n); };
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+        'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
+    var _actAt  = _utcToLocal(it.activate_at);
+    var _deactAt = _utcToLocal(it.deactivate_at);
+    h += '<div class="ie-row">';
+    h += '<div class="ie-field"><label class="ie-label">Auto-activate at</label>' +
+         '<input id="ieActivateAt" type="datetime-local" class="ie-input" value="' + esc(_actAt) + '" />' +
+         '<div class="ie-hint">Item will automatically activate at this date/time (your local timezone)</div></div>';
+    h += '<div class="ie-field"><label class="ie-label">Auto-deactivate at</label>' +
+         '<input id="ieDeactivateAt" type="datetime-local" class="ie-input" value="' + esc(_deactAt) + '" />' +
+         '<div class="ie-hint">Item will automatically deactivate at this date/time (your local timezone)</div></div>';
+    h += '</div>'; // ie-row
+    h += '</div>'; // cooldown & schedule section
 
     // Visibility
     h += '<div class="ie-section"><div class="ie-section-title">Visibility</div>';
@@ -1275,6 +1293,12 @@
     var topN = topNVal ? (parseInt(topNVal, 10) || null) : null;
     if (topN !== null && topN <= 0) topN = null;
 
+    // Schedule fields
+    var actAtRaw = gv('ieActivateAt');
+    var deactAtRaw = gv('ieDeactivateAt');
+    var activateAt = actAtRaw ? new Date(actAtRaw).toISOString() : null;
+    var deactivateAt = deactAtRaw ? new Date(deactAtRaw).toISOString() : null;
+
     return {
       id:                    gv('ieId'),
       type:                  gv('ieType'),
@@ -1299,6 +1323,8 @@
       cooldown:              cooldownVal,
       visible_to_ranks:      rankResult.length ? rankResult : null,
       visible_to_top_n:      topN,
+      activate_at:           activateAt,
+      deactivate_at:         deactivateAt,
     };
   }
 
@@ -2837,6 +2863,34 @@
     html += '<div class="shop-modal-title">Manage ' + esc(name) + '</div>';
     html += '<div class="shop-modal-body su-manage-body">';
 
+    /* Notes section */
+    var notes = user.notes || [];
+    html += '<div class="su-manage-section">';
+    html += '<div class="su-manage-section-title">Notes (' + notes.length + ')</div>';
+    if (notes.length) {
+      html += '<div class="su-notes-list">';
+      notes.forEach(function (n) {
+        html += '<div class="su-note">';
+        html += '<div class="su-note-meta"><span class="su-note-actor">' + esc(n.actor) + '</span>' +
+          '<span class="su-note-date">' + fmtDate(n.created_at) + '</span>';
+        if (_isParliament || _isOwnerShopAdmin()) {
+          html += '<button class="su-note-del" data-note-id="' + esc(n.id) + '" title="Delete note">' + _svg.close + '</button>';
+        }
+        html += '</div>';
+        html += '<div class="su-note-text">' + esc(n.note) + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div style="color:var(--text-faint);font-size:0.8rem;font-style:italic;padding:4px 0">No notes yet.</div>';
+    }
+    if (_isParliament || _isOwnerShopAdmin()) {
+      html += '<div class="su-note-add">' +
+        '<textarea class="shop-modal-input" id="suNoteInput" placeholder="Add a note\u2026" maxlength="200" rows="2"></textarea>' +
+        '</div>';
+    }
+    html += '</div>';
+
     /* EP Adjustment section */
     var _bal = user.balance || {};
     var _cleanMax = _bal.clean_total || 0;
@@ -2849,9 +2903,8 @@
     html += '<div style="flex:1"><label class="shop-modal-input-label">EP Type</label>' +
       '<select class="shop-modal-input" id="saEpAdjType"><option value="clean">Clean EP</option><option value="dirty">Dirty EP</option></select></div>';
     html += '</div>';
-    html += '<label class="shop-modal-input-label">Reason (required)</label>' +
+    html += '<label class="shop-modal-input-label">Reason (required for EP adjustment)</label>' +
       '<textarea class="shop-modal-input" id="saEpAdjReason" placeholder="Reason for adjustment\u2026" maxlength="50" rows="2"></textarea>';
-    html += '<button class="shop-modal-btn shop-modal-btn--confirm su-manage-action-btn" id="saEpAdjConfirm">Apply Adjustment</button>';
     html += '</div>';
 
     /* Ban actions */
@@ -2879,9 +2932,25 @@
       html += '</div>';
     }
 
+    /* Save button */
+    html += '<button class="shop-modal-btn shop-modal-btn--confirm su-manage-save" id="suMgSave" style="display:none">Save Changes</button>';
+
     html += '</div>'; /* shop-modal-body */
     modal.innerHTML = html;
     document.getElementById('saModalBackdrop').classList.add('open');
+
+    /* Dirty tracking */
+    var _saveBtn = document.getElementById('suMgSave');
+    var _noteInput = document.getElementById('suNoteInput');
+    function _hasPendingChanges() {
+      var hasNote = _noteInput && _noteInput.value.trim().length > 0;
+      var hasEp   = _adjInput && _adjInput.value.trim().length > 0;
+      return hasNote || hasEp;
+    }
+    function _updateSaveBtn() {
+      _saveBtn.style.display = _hasPendingChanges() ? '' : 'none';
+    }
+    if (_noteInput) _noteInput.addEventListener('input', _updateSaveBtn);
 
     /* Amount input: digits + optional leading minus only */
     var _adjInput = document.getElementById('saEpAdjAmount');
@@ -2916,6 +2985,7 @@
         this.value = cleaned;
         this.setSelectionRange(Math.min(pos, cleaned.length), Math.min(pos, cleaned.length));
       }
+      _updateSaveBtn();
     });
     _adjInput.addEventListener('blur', function () {
       var raw = this.value.trim();
@@ -2929,35 +2999,87 @@
       this.value = String(v);
     });
 
-    /* Wire EP adjust */
-    document.getElementById('saEpAdjConfirm').addEventListener('click', function () {
-      var amount = parseInt(_adjInput.value, 10);
-      if (!amount || isNaN(amount)) { showToast('\u26a0 Enter a non-zero amount.', 'warn'); return; }
-      if (amount > 100000) { showToast('\u26a0 Amount cannot exceed 100,000.', 'warn'); return; }
+    /* Wire Save Changes */
+    _saveBtn.addEventListener('click', function () {
+      var btn = _saveBtn;
+      var noteText = _noteInput ? _noteInput.value.trim() : '';
+      var epRaw = _adjInput.value.trim();
+      var amount = epRaw ? parseInt(epRaw, 10) : 0;
       var epType = _adjTypeEl.value;
-      if (amount < 0) {
-        var available = epType === 'clean' ? _cleanMax : _dirtyMax;
-        if (Math.abs(amount) > available) {
-          showToast('\u26a0 Cannot deduct ' + Math.abs(amount) + ' ' + epType + ' EP \u2014 user only has ' + num(available) + '.', 'warn');
-          return;
-        }
-      }
       var reason = document.getElementById('saEpAdjReason').value.trim();
-      if (!reason) { showToast('\u26a0 Reason is required.', 'warn'); return; }
-      var btn = this;
-      btn.disabled = true; btn.textContent = 'Applying\u2026';
-      apiPost('/api/admin/shop/users/' + encodeURIComponent(uuid) + '/ep-adjust', {
-        amount: amount, ep_type: epType, reason: reason
-      }).then(function (res) {
-        if (res.ok && res.data.ok) {
-          var sign = amount > 0 ? '+' : '';
-          showToast('\u2713 ' + sign + amount + ' ' + epType + ' EP applied.', 'success');
-          closeModal(); _users = null; renderUsers(contentEl, true);
-        } else {
-          showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
-          btn.disabled = false; btn.textContent = 'Apply Adjustment';
+
+      // Validate EP if filled
+      if (epRaw) {
+        if (!amount || isNaN(amount)) { showToast('\u26a0 EP amount must be a non-zero number.', 'warn'); return; }
+        if (amount > 100000) { showToast('\u26a0 Amount cannot exceed 100,000.', 'warn'); return; }
+        if (amount < 0) {
+          var available = epType === 'clean' ? _cleanMax : _dirtyMax;
+          if (Math.abs(amount) > available) {
+            showToast('\u26a0 Cannot deduct ' + Math.abs(amount) + ' ' + epType + ' EP \u2014 user only has ' + num(available) + '.', 'warn');
+            return;
+          }
         }
-      }).catch(function () { showToast('\u26a0 Network error', 'warn'); btn.disabled = false; btn.textContent = 'Apply Adjustment'; });
+        if (!reason) { showToast('\u26a0 Reason is required for EP adjustment.', 'warn'); return; }
+      }
+
+      btn.disabled = true; btn.textContent = 'Saving\u2026';
+      var _pending = [];
+
+      // Queue note
+      if (noteText) {
+        _pending.push(function () {
+          return apiPost('/api/admin/shop/users/' + encodeURIComponent(uuid) + '/notes', { note: noteText })
+            .then(function (res) {
+              if (res.ok && res.data.ok) {
+                if (!user.notes) user.notes = [];
+                user.notes.unshift(res.data);
+              } else { showToast('\u26a0 Note: ' + (res.data.error || 'Failed'), 'warn'); }
+            });
+        });
+      }
+      // Queue EP adjustment
+      if (epRaw && amount) {
+        _pending.push(function () {
+          return apiPost('/api/admin/shop/users/' + encodeURIComponent(uuid) + '/ep-adjust', {
+            amount: amount, ep_type: epType, reason: reason
+          }).then(function (res) {
+            if (res.ok && res.data.ok) {
+              var sign = amount > 0 ? '+' : '';
+              showToast('\u2713 ' + sign + amount + ' ' + epType + ' EP applied.', 'success');
+            } else { showToast('\u26a0 EP: ' + (res.data.error || 'Failed'), 'warn'); }
+          });
+        });
+      }
+
+      // Execute sequentially then refresh
+      var chain = Promise.resolve();
+      _pending.forEach(function (fn) { chain = chain.then(fn); });
+      chain.then(function () {
+        closeModal(); _users = null; renderUsers(contentEl, true);
+      }).catch(function () {
+        showToast('\u26a0 Network error', 'warn');
+        btn.disabled = false; btn.textContent = 'Save Changes';
+      });
+    });
+
+    /* Wire note delete */
+    modal.querySelectorAll('.su-note-del').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var noteId = btn.dataset.noteId;
+        btn.disabled = true;
+        apiDelete('/api/admin/shop/users/' + encodeURIComponent(uuid) + '/notes/' + encodeURIComponent(noteId))
+          .then(function (res) {
+            if (res.ok && res.data.ok) {
+              if (user.notes) user.notes = user.notes.filter(function (n) { return n.id !== noteId; });
+              _openManageUserModal(uuid, contentEl);
+            } else {
+              showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+              btn.disabled = false;
+            }
+          })
+          .catch(function () { showToast('\u26a0 Network error', 'warn'); btn.disabled = false; });
+      });
     });
 
     /* Wire ban actions */

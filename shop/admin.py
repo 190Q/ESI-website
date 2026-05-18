@@ -1050,6 +1050,19 @@ def _build_item(fields: dict) -> dict:
     if _raw_top_n is not None and _raw_top_n <= 0:
         _raw_top_n = None
 
+    # Schedule fields
+    _raw_activate_at = (fields.get("activate_at") or "").strip() or None
+    _raw_deactivate_at = (fields.get("deactivate_at") or "").strip() or None
+
+    # Auto-deactivate if activate_at is in the future
+    if _raw_activate_at:
+        try:
+            act_dt = _dt.fromisoformat(_raw_activate_at.replace("Z", "+00:00"))
+            if act_dt > _now():
+                fields["active"] = False  # force inactive until the schedule fires
+        except (ValueError, TypeError):
+            pass
+
     item = {
         "id":                    (fields.get("id") or "").strip(),
         "type":                  item_type,
@@ -1072,6 +1085,8 @@ def _build_item(fields: dict) -> dict:
         "active":                _coerce_bool(fields.get("active"), True),
         "visible_to_ranks":      vtr,
         "visible_to_top_n":      _raw_top_n,
+        "activate_at":           _raw_activate_at,
+        "deactivate_at":         _raw_deactivate_at,
     }
 
     if item_type == "donate":
@@ -1174,6 +1189,17 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
             return {"error": f"Failed to write catalogue: {exc}"}
 
     _reload_items()
+
+    # If activate_at is in the future, force the override to inactive
+    if item.get("activate_at"):
+        try:
+            _sched_dt = _dt.fromisoformat(item["activate_at"].replace("Z", "+00:00"))
+            if _sched_dt > _now():
+                admin_set_override(item["id"], active=False, stock=None,
+                                   updated_by="system:schedule")
+        except (ValueError, TypeError):
+            pass
+
     if not is_new:
         _evict_item_from_carts(item["id"])
         if old_cooldown != item.get("cooldown"):
@@ -1810,6 +1836,11 @@ def _admin_get_users_uncached() -> list:
     for u in users.values():
         u["shop_banned"] = u["uuid"] in banned_uuids
 
+    # Attach admin notes
+    notes_by_uuid = _get_all_user_notes()
+    for u in users.values():
+        u["notes"] = notes_by_uuid.get(u["uuid"], [])
+
     return list(users.values())
 
 def admin_set_shop_enabled(enabled: bool, actor: str = "unknown") -> dict:
@@ -1994,6 +2025,106 @@ def admin_unban_user(uuid: str, actor: str) -> dict:
     )
     _invalidate_users_cache()
     return {"ok": True, "uuid": uuid, "unbanned_at": now_iso}
+
+# User notes system (internal admin-only notes)
+def _ensure_user_notes_table(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_notes (
+            id         TEXT PRIMARY KEY,
+            uuid       TEXT NOT NULL,
+            note       TEXT NOT NULL,
+            actor      TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_user_notes_uuid ON user_notes (uuid)"
+    )
+
+def get_user_notes(uuid: str) -> list:
+    """Return all notes for a user, newest first."""
+    if not uuid or not os.path.isfile(_SHOP_DB):
+        return []
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_user_notes_table(conn)
+        rows = conn.execute(
+            "SELECT id, note, actor, created_at FROM user_notes "
+            "WHERE uuid = ? ORDER BY created_at DESC",
+            (uuid,),
+        ).fetchall()
+        conn.close()
+        return [{"id": r[0], "note": r[1], "actor": r[2], "created_at": r[3]} for r in rows]
+    except sqlite3.Error:
+        return []
+
+def add_user_note(uuid: str, note: str, actor: str) -> dict:
+    """Add an internal note to a user."""
+    if not uuid:
+        return {"error": "UUID is required"}
+    note = (note or "").strip()[:200]
+    if not note:
+        return {"error": "Note cannot be empty"}
+    if not os.path.isfile(_SHOP_DB):
+        return {"error": "Shop database unavailable"}
+    now_iso = _now_iso()
+    note_id = str(_uuid_mod.uuid4())
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_user_notes_table(conn)
+        conn.execute(
+            "INSERT INTO user_notes (id, uuid, note, actor, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (note_id, uuid, note, actor, now_iso),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"error": f"Database error: {exc}"}
+    _invalidate_users_cache()
+    return {"ok": True, "id": note_id, "note": note, "actor": actor, "created_at": now_iso}
+
+def delete_user_note(note_id: str) -> dict:
+    """Delete a note by ID."""
+    if not note_id or not os.path.isfile(_SHOP_DB):
+        return {"error": "Note not found"}
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_user_notes_table(conn)
+        cur = conn.execute("DELETE FROM user_notes WHERE id = ?", (note_id,))
+        conn.commit()
+        conn.close()
+        if cur.rowcount == 0:
+            return {"error": "Note not found"}
+    except sqlite3.Error as exc:
+        return {"error": f"Database error: {exc}"}
+    _invalidate_users_cache()
+    return {"ok": True}
+
+def _get_all_user_notes() -> dict:
+    """Return {uuid: [notes]} for all users. Used by admin_get_users."""
+    if not os.path.isfile(_SHOP_DB):
+        return {}
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_user_notes_table(conn)
+        rows = conn.execute(
+            "SELECT id, uuid, note, actor, created_at FROM user_notes "
+            "ORDER BY created_at DESC"
+        ).fetchall()
+        conn.close()
+        result: dict = {}
+        for r in rows:
+            result.setdefault(r[1], []).append(
+                {"id": r[0], "note": r[2], "actor": r[3], "created_at": r[4]}
+            )
+        return result
+    except sqlite3.Error:
+        return {}
 
 # EP adjustment system
 def admin_adjust_ep(uuid: str, amount: int, ep_type: str, reason: str, actor: str) -> dict:
