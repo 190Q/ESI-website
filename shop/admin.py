@@ -1547,6 +1547,9 @@ def admin_get_changes_log(
             p.append(date_to)
 
         where = " AND ".join(w)
+        total_count = conn.execute(
+            f"SELECT COUNT(*) FROM shop_admin_log WHERE {where}", p
+        ).fetchone()[0]
         raw = conn.execute(
             f"SELECT id, timestamp, actor, action, target_id, details "
             f"FROM shop_admin_log WHERE {where} "
@@ -1572,10 +1575,13 @@ def admin_get_changes_log(
                 "target_id": r["target_id"],
                 "details":   details,
             })
-        return {"rows": result, "has_more": has_more, "page": page, "per_page": per_page}
+        import math as _math
+        total_pages = max(1, _math.ceil(total_count / per_page))
+        return {"rows": result, "has_more": has_more, "page": page, "per_page": per_page,
+                "total_count": total_count, "total_pages": total_pages}
     except sqlite3.Error as exc:
         return {"rows": [], "has_more": False, "page": page, "per_page": per_page,
-                "error": str(exc)}
+                "total_count": 0, "total_pages": 1, "error": str(exc)}
 
 def admin_get_users() -> list:
     """Return aggregated per-user shop activity, served from a 60-second cache."""

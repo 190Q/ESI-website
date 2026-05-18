@@ -1557,12 +1557,14 @@ def admin_shop_state():
     state = _shop_get_state() or {}
     enabled = bool(state.get("shop_enabled"))
     message = None if enabled else (state.get("message") or _shop_get_disabled_message())
+    user_roles = set(user.get("roles") or [])
     return jsonify({
         **state,
         "shop_enabled": enabled,
         "coming_soon": False if enabled else bool(state.get("coming_soon", message == "Coming soon")),
         "message": message,
         "can_toggle": _is_owner_user(user),
+        "is_parliament": _is_owner_user(user) or bool(user_roles & _PARLIAMENT_PLUS),
     })
 
 @app.route("/api/admin/shop/state", methods=["POST"])
@@ -1594,7 +1596,7 @@ def admin_shop_items():
 @rate_limit(10)
 def admin_shop_upload_image():
     """Upload an image for a shop item. Returns the served URL."""
-    user, is_admin, err = _require_shop_admin()
+    user, is_admin, err = _require_shop_admin(require_shop_enabled=False)
     if err:
         return err
     if not is_admin:
@@ -1635,7 +1637,7 @@ def admin_shop_upload_image():
 @rate_limit(20)
 def admin_shop_create_item():
     """Create a new item in the JSON catalogue."""
-    user, is_admin, err = _require_shop_admin()
+    user, is_admin, err = _require_shop_admin(require_shop_enabled=False)
     if err:
         return err
     if not is_admin:
@@ -1652,7 +1654,7 @@ def admin_shop_create_item():
 @rate_limit(20)
 def admin_shop_update_item(item_id):
     """Fully update an existing item in the JSON catalogue."""
-    user, is_admin, err = _require_shop_admin()
+    user, is_admin, err = _require_shop_admin(require_shop_enabled=False)
     if err:
         return err
     if not is_admin:
@@ -1669,7 +1671,7 @@ def admin_shop_update_item(item_id):
 @rate_limit(10)
 def admin_shop_reorder_items():
     """Reorder items in the JSON catalogue."""
-    user, is_admin, err = _require_shop_admin()
+    user, is_admin, err = _require_shop_admin(require_shop_enabled=False)
     if err:
         return err
     if not is_admin:
@@ -1689,7 +1691,7 @@ def admin_shop_reorder_items():
 @rate_limit(10)
 def admin_shop_delete_item_route(item_id):
     """Remove an item from the JSON catalogue."""
-    user, is_admin, err = _require_shop_admin()
+    user, is_admin, err = _require_shop_admin(require_shop_enabled=False)
     if err:
         return err
     if not is_admin:
@@ -1702,7 +1704,7 @@ def admin_shop_delete_item_route(item_id):
 @app.route("/api/admin/shop/items/<item_id>/override", methods=["POST"])
 @rate_limit(20)
 def admin_shop_item_override(item_id):
-    user, _, err = _require_shop_admin()
+    user, _, err = _require_shop_admin(require_shop_enabled=False)
     if err:
         return err
     body = request.get_json(silent=True) or {}

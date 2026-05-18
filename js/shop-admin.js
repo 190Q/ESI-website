@@ -13,6 +13,7 @@
   var _shopEnabled  = true;
   var _shopDisabledMessage = 'Coming soon';
   var _canToggleShopState = false;
+  var _isParliamentFromState = false;
 
   var _svg = {
     check:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
@@ -79,6 +80,7 @@
         if (d && typeof d.shop_enabled === 'boolean') _shopEnabled = !!d.shop_enabled;
         if (d && typeof d.message === 'string' && d.message.trim()) _shopDisabledMessage = d.message.trim();
         _canToggleShopState = !!(d && d.can_toggle);
+        _isParliamentFromState = !!(d && d.is_parliament);
         if (cb) cb(d);
       })
       .catch(function () { if (cb) cb(null); });
@@ -93,11 +95,11 @@
   }
 
   function _canChiefEditShopAdmin() {
-    return (_isChief || _isOwnerShopAdmin()) && (_shopEnabled || _isOwnerShopAdmin());
+    return (_isChief || _isOwnerShopAdmin()) && (_shopEnabled || _isOwnerShopAdmin() || _isParliamentFromState);
   }
 
   function _canParliamentEditShopAdmin() {
-    return (_isParliament || _isOwnerShopAdmin()) && (_shopEnabled || _isOwnerShopAdmin());
+    return (_isParliament || _isOwnerShopAdmin()) && (_shopEnabled || _isOwnerShopAdmin() || _isParliamentFromState);
   }
 
   function _disabledMessageLabel() {
@@ -187,7 +189,9 @@
       ? 'Live mode: users can access the shop.'
       : (_canToggleShopState
           ? disabledModeLabel + ': tabs stay available. You can still edit as OWNER.'
-          : disabledModeLabel + ': tabs stay available in read-only mode. Only OWNER can edit.');
+          : (_isParliamentFromState
+              ? disabledModeLabel + ': tabs stay available. You can still edit as Parliament.'
+              : disabledModeLabel + ': tabs stay available in read-only mode. Only OWNER and Parliament can edit.'));
     banner.innerHTML =
       '<div class=\"sa-state-meta\">' +
         '<span class=\"sa-state-pill ' + (isOn ? 'sa-state-pill--on' : 'sa-state-pill--off') + '\">' + statusText + '</span>' +
@@ -2179,11 +2183,11 @@
     html += '</div>';
 
     // pagination
-    var chgHasMore = !!_changesData.has_more;
+    var chgTotalPages = _changesData.total_pages || 1;
     html += '<div class="sa-pagination">';
     html += '<button class="shop-modal-btn shop-modal-btn--cancel sa-page-btn" data-chg-page="prev"' + (_changesPage <= 1 ? ' disabled' : '') + '><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg> Prev</button>';
-    html += '<span class="sa-page-info">Page ' + _changesPage + '</span>';
-    html += '<button class="shop-modal-btn shop-modal-btn--cancel sa-page-btn" data-chg-page="next"' + (!chgHasMore ? ' disabled' : '') + '>Next <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
+    html += '<span class="sa-page-info">Page ' + _changesPage + ' of ' + chgTotalPages + '</span>';
+    html += '<button class="shop-modal-btn shop-modal-btn--cancel sa-page-btn" data-chg-page="next"' + (_changesPage >= chgTotalPages ? ' disabled' : '') + '>Next <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
     html += '</div>';
 
     c.innerHTML = html;
@@ -2208,7 +2212,7 @@
     c.querySelectorAll('[data-chg-page]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         if (btn.dataset.chgPage === 'prev' && _changesPage > 1) _changesPage--;
-        else if (btn.dataset.chgPage === 'next') _changesPage++;
+        else if (btn.dataset.chgPage === 'next' && _changesPage < chgTotalPages) _changesPage++;
         _changesData = null;
         renderChanges(c);
       });
@@ -2356,7 +2360,7 @@
     var hasMore = _logsPage < totalPages;
     html += '<div class="sa-pagination">';
     html += '<button class="shop-modal-btn shop-modal-btn--cancel sa-page-btn" data-page="prev"' + (_logsPage <= 1 ? ' disabled' : '') + '><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg> Prev</button>';
-    html += '<span class="sa-page-info">Page ' + _logsPage + ' / ' + totalPages + '</span>';
+    html += '<span class="sa-page-info">Page ' + _logsPage + ' of ' + totalPages + '</span>';
     html += '<button class="shop-modal-btn shop-modal-btn--cancel sa-page-btn" data-page="next"' + (!hasMore ? ' disabled' : '') + '>Next <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></button>';
     html += '</div>';
 
