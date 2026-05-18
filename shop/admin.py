@@ -1559,6 +1559,14 @@ def _admin_get_users_uncached() -> list:
             GROUP BY uuid
         """).fetchall()
 
+        # Manual EP adjustments
+        from shop.ep_balance import _ensure_ep_adjustments_table
+        _ensure_ep_adjustments_table(conn)
+        adj_rows_ep = conn.execute("""
+            SELECT uuid, ep_type, COALESCE(SUM(amount), 0) AS adj
+            FROM ep_adjustments GROUP BY uuid, ep_type
+        """).fetchall()
+
         conn.close()
     except sqlite3.Error:
         return []
@@ -1589,6 +1597,14 @@ def _admin_get_users_uncached() -> list:
                                      "sd": r["spent_dirty"]   or 0}
                          for r in spent_ep_rows}
     donated_map: dict = {r["uuid"]: r["donated_dirty"] or 0 for r in donated_rows_ep}
+    adj_map: dict = {}  # {uuid: {"clean": N, "dirty": N}}
+    for r in adj_rows_ep:
+        uid = r["uuid"]
+        adj_map.setdefault(uid, {"clean": 0, "dirty": 0})
+        if r["ep_type"] == "clean":
+            adj_map[uid]["clean"] += r["adj"] or 0
+        elif r["ep_type"] == "dirty":
+            adj_map[uid]["dirty"] += r["adj"] or 0
 
     # Raw EP totals from _POINTS_DB (previous cycle only)
     raw_ep_by_uuid: dict = {}
@@ -1644,9 +1660,10 @@ def _admin_get_users_uncached() -> list:
         raw     = raw_ep_by_uuid.get(uuid, {"rc": 0, "rd": 0})
         spent   = spent_map.get(uuid, {"sc": 0, "sd": 0})
         donated = donated_map.get(uuid, 0)
+        adj     = adj_map.get(uuid, {"clean": 0, "dirty": 0})
         res     = res_ep_map.get(uuid, {"rc": 0, "rd": 0})
-        ct = max(0, raw["rc"] - spent["sc"])
-        dt = max(0, raw["rd"] - spent["sd"] + donated)
+        ct = max(0, raw["rc"] - spent["sc"] + adj["clean"])
+        dt = max(0, raw["rd"] - spent["sd"] + donated + adj["dirty"])
         cr = min(res["rc"], ct)
         dr = min(res["rd"], dt)
         return {
@@ -1977,6 +1994,79 @@ def admin_unban_user(uuid: str, actor: str) -> dict:
     )
     _invalidate_users_cache()
     return {"ok": True, "uuid": uuid, "unbanned_at": now_iso}
+
+# EP adjustment system
+def admin_adjust_ep(uuid: str, amount: int, ep_type: str, reason: str, actor: str) -> dict:
+    """Grant or deduct EP for a user. amount can be positive (grant) or negative (deduct)."""
+    if not uuid:
+        return {"error": "UUID is required"}
+    if not amount:
+        return {"error": "Amount must be non-zero"}
+    if ep_type not in ("clean", "dirty"):
+        return {"error": "ep_type must be 'clean' or 'dirty'"}
+    if not reason:
+        return {"error": "Reason is required"}
+    if abs(amount) > 100000:
+        return {"error": "Amount cannot exceed 100,000"}
+    # Overdraft check: cannot deduct more than the user's current balance
+    if amount < 0:
+        from shop.ep_balance import fetch_ep_balance
+        bal = fetch_ep_balance(uuid)
+        available = bal.get("clean_ep", 0) if ep_type == "clean" else bal.get("dirty_ep", 0)
+        if abs(amount) > available:
+            return {"error": f"Cannot deduct {abs(amount)} {ep_type} EP — user only has {available}"}
+    if not os.path.isfile(_SHOP_DB):
+        return {"error": "Shop database unavailable"}
+    now_iso = _now_iso()
+    adj_id = str(_uuid_mod.uuid4())
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        from shop.ep_balance import _ensure_ep_adjustments_table
+        _ensure_ep_adjustments_table(conn)
+        conn.execute(
+            "INSERT INTO ep_adjustments (id, uuid, amount, ep_type, reason, actor, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (adj_id, uuid, amount, ep_type, reason, actor, now_iso),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"error": f"Database error: {exc}"}
+
+    # Resolve discord_id for DM
+    matches = _cfg_load_json(_USERNAME_MATCHES_JSON) or {}
+    discord_id = None
+    username = uuid[:8] + "\u2026"
+    for did, entry in matches.items():
+        if isinstance(entry, dict) and entry.get("uuid") == uuid:
+            discord_id = did
+            username = entry.get("username") or username
+            break
+
+    # DM notification
+    if discord_id:
+        sign = "+" if amount > 0 else ""
+        _dm_card_in_background(
+            discord_id, "shop_unbanned" if amount > 0 else "shop_banned",
+            "EP Adjustment", 0,
+            fields=[
+                ("AMOUNT", f"{sign}{amount} {ep_type.title()} EP"),
+                ("REASON", reason[:50]),
+                ("BY", actor[:30]),
+            ],
+            fallback_text=f"Your EP balance has been adjusted by {actor}: {sign}{amount} {ep_type} EP. Reason: {reason}",
+        )
+
+    _log_admin_action(
+        actor, "ep_adjusted", uuid,
+        {"uuid": uuid, "username": username, "amount": amount,
+         "ep_type": ep_type, "reason": reason},
+    )
+    _invalidate_users_cache()
+    return {"ok": True, "id": adj_id, "uuid": uuid, "amount": amount,
+            "ep_type": ep_type, "created_at": now_iso}
+
 
 # Admin panel ban system (separate from shop bans)
 def _ensure_admin_bans_table(conn: sqlite3.Connection) -> None:

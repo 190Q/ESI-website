@@ -39,6 +39,24 @@ def _ensure_ep_reservations_table(conn: sqlite3.Connection) -> None:
         "ON ep_reservations (source)"
     )
 
+def _ensure_ep_adjustments_table(conn: sqlite3.Connection) -> None:
+    """Create ep_adjustments table for manual admin EP grants/deductions."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ep_adjustments (
+            id         TEXT PRIMARY KEY,
+            uuid       TEXT NOT NULL,
+            amount     INTEGER NOT NULL,
+            ep_type    TEXT NOT NULL,
+            reason     TEXT NOT NULL DEFAULT '',
+            actor      TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ep_adj_uuid "
+        "ON ep_adjustments (uuid)"
+    )
+
 
 def _mc_uuid(discord_id: str) -> str | None:
     """Look up the Minecraft UUID tied to a Discord ID via username_matches.json."""
@@ -146,10 +164,13 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
     spent_clean = 0
     spent_dirty = 0
     donated_dirty = 0
+    adj_clean = 0
+    adj_dirty = 0
     if os.path.isfile(_SHOP_DB):
         try:
             conn = sqlite3.connect(_SHOP_DB, timeout=5)
             _ensure_ep_reservations_table(conn)
+            _ensure_ep_adjustments_table(conn)
 
             # Reservations (auction bid holds)
             rows = conn.execute(
@@ -186,13 +207,26 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
             ).fetchone()
             if don_row:
                 donated_dirty = int(don_row[0])
+
+            # Manual admin EP adjustments
+            adj_rows = conn.execute(
+                "SELECT ep_type, COALESCE(SUM(amount), 0) "
+                "FROM ep_adjustments WHERE uuid = ? GROUP BY ep_type",
+                (uuid,),
+            ).fetchall()
+            for ep_type, amount in adj_rows:
+                if ep_type == "clean":
+                    adj_clean = int(amount)
+                elif ep_type == "dirty":
+                    adj_dirty = int(amount)
+
             conn.close()
         except sqlite3.Error as exc:
             print(f"[EP] Failed to read shop.db: {exc}", file=sys.stderr)
 
     # 4. Assemble final balances
-    effective_clean = clean_ep - spent_clean
-    effective_dirty = dirty_ep - spent_dirty + donated_dirty
+    effective_clean = clean_ep - spent_clean + adj_clean
+    effective_dirty = dirty_ep - spent_dirty + donated_dirty + adj_dirty
     spendable_clean = effective_clean - reserved_clean
     spendable_dirty = effective_dirty - reserved_dirty
 

@@ -1254,8 +1254,8 @@ select.sa-filter-input { cursor: pointer; }
   margin-bottom: 10px;
 }
 
-/* Users table row: [expand] [user] [EP] [orders] [bids] [donations] [last activity] [status] */
-.su-row { grid-template-columns: 1.8rem 1.8fr 1.2fr 0.7fr 0.7fr 0.9fr 1.4fr 0.9fr; }
+/* Users table row: [expand] [user] [EP] [orders] [bids] [donations] [last activity] [status] [manage] */
+.su-row { grid-template-columns: 1.8rem 1.8fr 1.2fr 0.7fr 0.7fr 0.9fr 1.4fr 0.9fr 1.6rem; }
 
 .su-user-row { cursor: pointer; }
 .su-user-row:hover { background: var(--surface-2); }
@@ -1653,15 +1653,62 @@ select.sa-filter-input { cursor: pointer; }
 .su-ep-pill--dirty { background: rgba(250,166,26,0.12); color: var(--warn);   border: 1px solid rgba(250,166,26,0.3); }
 .su-ep-pill--mixed { background: rgba(106,74,122,0.12); color: #c084e0;       border: 1px solid rgba(106,74,122,0.3); }
 
-/* Ban section in drawer */
-.su-ban-section {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
+/* Manage user gear button */
+.su-manage-cell {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: center;
+}
+.su-manage-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-faint);
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: color var(--transition), border-color var(--transition), background var(--transition);
+}
+.su-manage-btn:hover {
+  color: var(--gold-light);
+  border-color: var(--gold-dim);
+  background: rgba(212,160,23,0.08);
+}
+
+/* Manage user modal sections */
+.su-manage-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.su-manage-section {
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.su-manage-section-title {
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gold-dim);
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.su-manage-actions {
+  display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+.su-manage-action-btn {
+  font-size: 0.78rem;
+  padding: 6px 14px;
 }
 
 @media (max-width: 700px) {

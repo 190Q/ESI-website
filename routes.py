@@ -1064,6 +1064,7 @@ from shop.admin import (
     admin_get_changes_log, admin_get_users, admin_set_shop_enabled,
     admin_ban_user, admin_unban_user, is_shop_banned,
     is_admin_banned, admin_ban_admin, admin_unban_admin, _get_admin_banned_ids,
+    admin_adjust_ep,
 )
 
 
@@ -2094,6 +2095,33 @@ def admin_shop_admin_unban(discord_id):
         return jsonify({"error": "Parliament rank required"}), 403
     actor = user.get("nick") or user.get("username", "")
     result = admin_unban_admin(discord_id, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/users/<uuid>/ep-adjust", methods=["POST"])
+@rate_limit(10)
+def admin_shop_ep_adjust(uuid):
+    """Manually adjust a user's EP balance (Parliament+ only)."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    body = request.get_json(silent=True) or {}
+    try:
+        amount = int(body.get("amount", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "amount must be an integer"}), 400
+    if amount == 0:
+        return jsonify({"error": "Amount must be non-zero"}), 400
+    ep_type = (body.get("ep_type") or "").strip().lower()
+    if ep_type not in ("clean", "dirty"):
+        return jsonify({"error": "ep_type must be 'clean' or 'dirty'"}), 400
+    reason = (body.get("reason") or "").strip()[:200]
+    if not reason:
+        return jsonify({"error": "Reason is required"}), 400
+    actor = user.get("nick") or user.get("username", "")
+    result = admin_adjust_ep(uuid, amount, ep_type, reason, actor)
     return jsonify(result), 200 if result.get("ok") else 400
 
 

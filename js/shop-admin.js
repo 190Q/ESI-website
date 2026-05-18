@@ -28,6 +28,7 @@
     pin:     '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>',
     dash:    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
     chevron: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>',
+    gear:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
   };
 
   function esc(s) {
@@ -1971,6 +1972,7 @@
     user_shop_unbanned: 'User Unbanned (Shop)',
     user_admin_banned:  'Admin Banned (Manage)',
     user_admin_unbanned:'Admin Unbanned (Manage)',
+    ep_adjusted:        'EP Adjusted',
   };
 
   var _ACTION_TYPES = Object.keys(_ACTION_LABELS);
@@ -2035,6 +2037,12 @@
     }
     if (action === 'user_shop_unbanned' || action === 'user_admin_unbanned') {
       return esc(d.username || row.target_id || '');
+    }
+    if (action === 'ep_adjusted') {
+      var sign = (d.amount > 0) ? '+' : '';
+      return esc(d.username || row.target_id || '') +
+        ' \u2022 ' + sign + num(d.amount) + ' ' + esc((d.ep_type || '').charAt(0).toUpperCase() + (d.ep_type || '').slice(1)) + ' EP' +
+        (d.reason ? ' \u2022 ' + esc(d.reason) : '');
     }
     return esc(row.target_id || '');
   }
@@ -2405,7 +2413,7 @@
     /* Table */
     html += '<div class="sa-table">';
     html += '<div class="sa-row sa-header su-row">';
-    html += '<span></span><span>User</span><span>EP Balance</span><span>Orders</span><span>Bids</span><span>Donations</span><span>Last Activity</span><span>Status</span>';
+    html += '<span></span><span>User</span><span>EP Balance</span><span>Orders</span><span>Bids</span><span>Donations</span><span>Last Activity</span><span>Status</span><span></span>';
     html += '</div>';
 
     page.forEach(function (u) {
@@ -2431,6 +2439,12 @@
         (u.admin_banned ? '<span class="su-status su-status--banned">Admin Ban</span>' : '') +
         '<span class="su-status su-status--' + (active ? 'active' : 'inactive') + '">' + (active ? 'Active' : 'Inactive') + '</span>' +
         '</span>';
+      /* Settings gear */
+      if (_isParliament || _isOwnerShopAdmin()) {
+        html += '<span class="su-manage-cell"><button class="su-manage-btn" data-manage-uuid="' + esc(u.uuid) + '" title="Manage user">' + _svg.gear + '</button></span>';
+      } else {
+        html += '<span></span>';
+      }
       html += '</div>';
       if (isOpen) {
         html += '<div class="su-drawer">' + _buildUserDrawer(u) + '</div>';
@@ -2465,29 +2479,11 @@
         _renderUsersContent(c);
       });
     });
-    /* Bind: ban/unban buttons */
-    c.querySelectorAll('.su-ban-btn').forEach(function (btn) {
+    /* Bind: manage user gear buttons */
+    c.querySelectorAll('.su-manage-btn').forEach(function (btn) {
       btn.addEventListener('click', function (e) {
         e.stopPropagation();
-        _openBanModal(btn.dataset.banUuid, c);
-      });
-    });
-    c.querySelectorAll('.su-unban-btn').forEach(function (btn) {
-      btn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        _openUnbanModal(btn.dataset.banUuid, c);
-      });
-    });
-    c.querySelectorAll('.su-admin-ban-btn').forEach(function (btn) {
-      btn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        _openAdminBanModal(btn.dataset.banDiscord, c);
-      });
-    });
-    c.querySelectorAll('.su-admin-unban-btn').forEach(function (btn) {
-      btn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        _openAdminUnbanModal(btn.dataset.banDiscord, c);
+        _openManageUserModal(btn.dataset.manageUuid, c);
       });
     });
     /* Bind: pagination */
@@ -2533,7 +2529,7 @@
       '<div class="shop-modal-title">Ban ' + esc(name) + ' from shop</div>' +
       '<div class="shop-modal-body">' +
         '<label class="shop-modal-input-label">Reason (required)</label>' +
-        '<textarea class="shop-modal-input" id="saBanReason" placeholder="Reason for ban\u2026" maxlength="200" rows="3"></textarea>' +
+        '<textarea class="shop-modal-input" id="saBanReason" placeholder="Reason for ban\u2026" maxlength="50" rows="2"></textarea>' +
         '<p style="color:var(--text-faint);font-size:0.75rem;margin:6px 0 0">The user will be notified via DM and lose access to the shop.</p>' +
       '</div>' +
       '<div class="shop-modal-actions">' +
@@ -2604,7 +2600,7 @@
       '<div class="shop-modal-title">Ban ' + esc(name) + ' from manage shop</div>' +
       '<div class="shop-modal-body">' +
         '<label class="shop-modal-input-label">Reason (required)</label>' +
-        '<textarea class="shop-modal-input" id="saAdminBanReason" placeholder="Reason for admin ban\u2026" maxlength="200" rows="3"></textarea>' +
+        '<textarea class="shop-modal-input" id="saAdminBanReason" placeholder="Reason for admin ban\u2026" maxlength="50" rows="2"></textarea>' +
         '<p style="color:var(--text-faint);font-size:0.75rem;margin:6px 0 0">The user will lose access to the manage shop panel and be notified via DM.</p>' +
       '</div>' +
       '<div class="shop-modal-actions">' +
@@ -2825,36 +2821,219 @@
     }
     html += '</div>'; /* su-recent */
 
-    /* Ban / Unban action (Parliament+ only, hierarchy-aware) */
+    return html;
+  }
+
+  function _openManageUserModal(uuid, contentEl) {
+    var user = (_users || []).find(function (u) { return u.uuid === uuid; });
+    if (!user) return;
+    var name = user.username || uuid.substring(0, 8);
     var _actorDiscordId = (window.state && window.state.user) ? window.state.user.id : null;
-    var _isSelf = u.discord_id && _actorDiscordId && u.discord_id === _actorDiscordId;
-    var _canBanUser = !_isSelf && (u.rank_level || 0) < _actorRankLevel;
-    if ((_isParliament || _isOwnerShopAdmin()) && _canBanUser) {
-      html += '<div class="su-ban-section">';
+    var _isSelf = user.discord_id && _actorDiscordId && user.discord_id === _actorDiscordId;
+    var _canBan = !_isSelf && (user.rank_level || 0) < _actorRankLevel;
+
+    var modal = document.getElementById('saModal');
+    var html = '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>';
+    html += '<div class="shop-modal-title">Manage ' + esc(name) + '</div>';
+    html += '<div class="shop-modal-body su-manage-body">';
+
+    /* EP Adjustment section */
+    var _bal = user.balance || {};
+    var _cleanMax = _bal.clean_total || 0;
+    var _dirtyMax = _bal.dirty_total || 0;
+    html += '<div class="su-manage-section">';
+    html += '<div class="su-manage-section-title">EP Adjustment</div>';
+    html += '<div style="display:flex;gap:10px;margin-bottom:8px">';
+    html += '<div style="flex:1"><label class="shop-modal-input-label">Amount (<span id="saEpAdjRange">' + (-_cleanMax) + ' to 100,000</span>)</label>' +
+      '<input type="text" inputmode="numeric" class="shop-modal-input" id="saEpAdjAmount" placeholder="e.g. 50 or -20" maxlength="7" /></div>';
+    html += '<div style="flex:1"><label class="shop-modal-input-label">EP Type</label>' +
+      '<select class="shop-modal-input" id="saEpAdjType"><option value="clean">Clean EP</option><option value="dirty">Dirty EP</option></select></div>';
+    html += '</div>';
+    html += '<label class="shop-modal-input-label">Reason (required)</label>' +
+      '<textarea class="shop-modal-input" id="saEpAdjReason" placeholder="Reason for adjustment\u2026" maxlength="50" rows="2"></textarea>';
+    html += '<button class="shop-modal-btn shop-modal-btn--confirm su-manage-action-btn" id="saEpAdjConfirm">Apply Adjustment</button>';
+    html += '</div>';
+
+    /* Ban actions */
+    if (_canBan) {
+      html += '<div class="su-manage-section">';
+      html += '<div class="su-manage-section-title">Access Control</div>';
+      html += '<div class="su-manage-actions">';
       /* Shop ban / unban */
-      if (u.shop_banned) {
-        html += '<button class="shop-modal-btn shop-modal-btn--confirm su-unban-btn" data-ban-uuid="' + esc(u.uuid) + '">' +
-          'Unban from shop</button>';
+      if (user.shop_banned) {
+        html += '<button class="shop-modal-btn shop-modal-btn--confirm su-manage-action-btn" id="suMgUnban">Unban from shop</button>';
       } else {
-        html += '<button class="shop-modal-btn shop-modal-btn--cancel su-ban-btn" data-ban-uuid="' + esc(u.uuid) + '" ' +
-          'style="color:var(--danger);border-color:var(--danger)">' +
-          'Ban from shop</button>';
+        html += '<button class="shop-modal-btn shop-modal-btn--cancel su-manage-action-btn" id="suMgBan" ' +
+          'style="color:var(--danger);border-color:var(--danger)">Ban from shop</button>';
       }
       /* Admin ban / unban (only for shop admins) */
-      if ((u.rank_level || 0) > 0 && u.discord_id) {
-        if (u.admin_banned) {
-          html += '<button class="shop-modal-btn shop-modal-btn--confirm su-admin-unban-btn" data-ban-discord="' + esc(u.discord_id) + '">' +
-            'Unban from manage shop</button>';
+      if ((user.rank_level || 0) > 0 && user.discord_id) {
+        if (user.admin_banned) {
+          html += '<button class="shop-modal-btn shop-modal-btn--confirm su-manage-action-btn" id="suMgAdminUnban">Unban from manage shop</button>';
         } else {
-          html += '<button class="shop-modal-btn shop-modal-btn--cancel su-admin-ban-btn" data-ban-discord="' + esc(u.discord_id) + '" ' +
-            'style="color:var(--danger);border-color:var(--danger)">' +
-            'Ban from manage shop</button>';
+          html += '<button class="shop-modal-btn shop-modal-btn--cancel su-manage-action-btn" id="suMgAdminBan" ' +
+            'style="color:var(--danger);border-color:var(--danger)">Ban from manage shop</button>';
         }
       }
       html += '</div>';
+      html += '</div>';
     }
 
-    return html;
+    html += '</div>'; /* shop-modal-body */
+    modal.innerHTML = html;
+    document.getElementById('saModalBackdrop').classList.add('open');
+
+    /* Amount input: digits + optional leading minus only */
+    var _adjInput = document.getElementById('saEpAdjAmount');
+    var _adjTypeEl = document.getElementById('saEpAdjType');
+    var _adjRangeEl = document.getElementById('saEpAdjRange');
+
+    function _epMaxDeduct() {
+      return _adjTypeEl.value === 'clean' ? _cleanMax : _dirtyMax;
+    }
+    function _updateRangeLabel() {
+      _adjRangeEl.textContent = (-_epMaxDeduct()) + ' to 100,000';
+    }
+    function _reclampAmount() {
+      var raw = _adjInput.value.trim();
+      if (!raw) return;
+      var v = parseInt(raw, 10);
+      if (isNaN(v) || v === 0) { _adjInput.value = ''; return; }
+      var maxDeduct = _epMaxDeduct();
+      if (v < 0 && maxDeduct <= 0) { _adjInput.value = ''; return; }
+      if (v < -maxDeduct) _adjInput.value = String(-maxDeduct);
+    }
+    _adjTypeEl.addEventListener('change', function () { _updateRangeLabel(); _reclampAmount(); });
+
+    _adjInput.addEventListener('input', function () {
+      var pos = this.selectionStart;
+      // Allow digits and a leading minus
+      var raw = this.value;
+      var neg = raw.charAt(0) === '-';
+      var digits = raw.replace(/[^0-9]/g, '').slice(0, 6);
+      var cleaned = (neg ? '-' : '') + digits;
+      if (cleaned !== raw) {
+        this.value = cleaned;
+        this.setSelectionRange(Math.min(pos, cleaned.length), Math.min(pos, cleaned.length));
+      }
+    });
+    _adjInput.addEventListener('blur', function () {
+      var raw = this.value.trim();
+      if (!raw) return;
+      var v = parseInt(raw, 10);
+      if (isNaN(v) || v === 0) { this.value = ''; return; }
+      var maxDeduct = _epMaxDeduct();
+      if (v < 0 && maxDeduct <= 0) { this.value = ''; return; }
+      if (v < -maxDeduct) v = -maxDeduct;
+      if (v > 100000) v = 100000;
+      this.value = String(v);
+    });
+
+    /* Wire EP adjust */
+    document.getElementById('saEpAdjConfirm').addEventListener('click', function () {
+      var amount = parseInt(_adjInput.value, 10);
+      if (!amount || isNaN(amount)) { showToast('\u26a0 Enter a non-zero amount.', 'warn'); return; }
+      if (amount > 100000) { showToast('\u26a0 Amount cannot exceed 100,000.', 'warn'); return; }
+      var epType = _adjTypeEl.value;
+      if (amount < 0) {
+        var available = epType === 'clean' ? _cleanMax : _dirtyMax;
+        if (Math.abs(amount) > available) {
+          showToast('\u26a0 Cannot deduct ' + Math.abs(amount) + ' ' + epType + ' EP \u2014 user only has ' + num(available) + '.', 'warn');
+          return;
+        }
+      }
+      var reason = document.getElementById('saEpAdjReason').value.trim();
+      if (!reason) { showToast('\u26a0 Reason is required.', 'warn'); return; }
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Applying\u2026';
+      apiPost('/api/admin/shop/users/' + encodeURIComponent(uuid) + '/ep-adjust', {
+        amount: amount, ep_type: epType, reason: reason
+      }).then(function (res) {
+        if (res.ok && res.data.ok) {
+          var sign = amount > 0 ? '+' : '';
+          showToast('\u2713 ' + sign + amount + ' ' + epType + ' EP applied.', 'success');
+          closeModal(); _users = null; renderUsers(contentEl, true);
+        } else {
+          showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+          btn.disabled = false; btn.textContent = 'Apply Adjustment';
+        }
+      }).catch(function () { showToast('\u26a0 Network error', 'warn'); btn.disabled = false; btn.textContent = 'Apply Adjustment'; });
+    });
+
+    /* Wire ban actions */
+    var banBtn = document.getElementById('suMgBan');
+    if (banBtn) banBtn.addEventListener('click', function () {
+      closeModal(); _openBanModal(uuid, contentEl);
+    });
+    var unbanBtn = document.getElementById('suMgUnban');
+    if (unbanBtn) unbanBtn.addEventListener('click', function () {
+      closeModal(); _openUnbanModal(uuid, contentEl);
+    });
+    var adminBanBtn = document.getElementById('suMgAdminBan');
+    if (adminBanBtn) adminBanBtn.addEventListener('click', function () {
+      closeModal(); _openAdminBanModal(user.discord_id, contentEl);
+    });
+    var adminUnbanBtn = document.getElementById('suMgAdminUnban');
+    if (adminUnbanBtn) adminUnbanBtn.addEventListener('click', function () {
+      closeModal(); _openAdminUnbanModal(user.discord_id, contentEl);
+    });
+  }
+
+  function _openEpAdjustModal(uuid, contentEl) {
+    var user = (_users || []).find(function (u) { return u.uuid === uuid; });
+    var name = user ? user.username : uuid.substring(0, 8);
+    var modal = document.getElementById('saModal');
+    modal.innerHTML =
+      '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
+      '<div class="shop-modal-title">Adjust EP for ' + esc(name) + '</div>' +
+      '<div class="shop-modal-body">' +
+        '<div style="display:flex;gap:10px;margin-bottom:10px">' +
+          '<div style="flex:1">' +
+            '<label class="shop-modal-input-label">Amount (use negative to deduct)</label>' +
+            '<input type="number" class="shop-modal-input" id="saEpAdjAmount" placeholder="e.g. 50 or -20" min="-100000" max="100000" />' +
+          '</div>' +
+          '<div style="flex:1">' +
+            '<label class="shop-modal-input-label">EP Type</label>' +
+            '<select class="shop-modal-input" id="saEpAdjType">' +
+              '<option value="clean">Clean EP</option>' +
+              '<option value="dirty">Dirty EP</option>' +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+        '<label class="shop-modal-input-label">Reason (required)</label>' +
+        '<textarea class="shop-modal-input" id="saEpAdjReason" placeholder="Reason for adjustment\u2026" maxlength="50" rows="2"></textarea>' +
+        '<p style="color:var(--text-faint);font-size:0.75rem;margin:6px 0 0">The user will be notified via DM.</p>' +
+      '</div>' +
+      '<div class="shop-modal-actions">' +
+        '<button class="shop-modal-btn shop-modal-btn--confirm" id="saEpAdjConfirm">Apply Adjustment</button>' +
+      '</div>';
+    document.getElementById('saModalBackdrop').classList.add('open');
+    document.getElementById('saEpAdjConfirm').addEventListener('click', function () {
+      var amount = parseInt(document.getElementById('saEpAdjAmount').value, 10);
+      if (!amount || isNaN(amount)) { showToast('\u26a0 Enter a non-zero amount.', 'warn'); return; }
+      var epType = document.getElementById('saEpAdjType').value;
+      var reason = document.getElementById('saEpAdjReason').value.trim();
+      if (!reason) { showToast('\u26a0 Reason is required.', 'warn'); return; }
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Applying\u2026';
+      apiPost('/api/admin/shop/users/' + encodeURIComponent(uuid) + '/ep-adjust', {
+        amount: amount, ep_type: epType, reason: reason
+      })
+        .then(function (res) {
+          if (res.ok && res.data.ok) {
+            var sign = amount > 0 ? '+' : '';
+            showToast('\u2713 ' + sign + amount + ' ' + epType + ' EP applied to ' + esc(name) + '.', 'success');
+            closeModal();
+            // Refresh users data to reflect updated balance
+            _users = null;
+            renderUsers(contentEl, true);
+          } else {
+            showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+            btn.disabled = false; btn.textContent = 'Apply Adjustment';
+          }
+        })
+        .catch(function () { showToast('\u26a0 Network error', 'warn'); btn.disabled = false; btn.textContent = 'Apply Adjustment'; });
+    });
   }
 
   function _applyAdminBannedState() {
