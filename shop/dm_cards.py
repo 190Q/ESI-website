@@ -216,7 +216,7 @@ body{background:transparent;font-family:'Segoe UI',system-ui,-apple-system,sans-
 .div{height:1px;background:rgba(201,162,39,0.15);margin-bottom:14px}
 
 /* stats grid */
-.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;margin-bottom:20px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;margin-bottom:20px;min-height:70px}
 .st-lbl{font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#5a5a42;margin-bottom:2px}
 .st-val{font-size:14px;font-weight:600;color:#d0cbb8}
 
