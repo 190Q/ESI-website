@@ -2907,6 +2907,24 @@
       '<textarea class="shop-modal-input" id="saEpAdjReason" placeholder="Reason for adjustment\u2026" maxlength="50" rows="2"></textarea>';
     html += '</div>';
 
+    /* Purchase Limits section */
+    var _lim = user.limits || {};
+    var _curMaxEp = _lim.max_ep_per_cycle;
+    var _curMaxP  = _lim.max_purchases_per_cycle;
+    html += '<div class="su-manage-section">';
+    html += '<div class="su-manage-section-title">Purchase Limits</div>';
+    html += '<div style="display:flex;gap:10px">';
+    html += '<div style="flex:1"><label class="shop-modal-input-label">Max EP per cycle (blank\u00a0=\u00a0no\u00a0limit)</label>' +
+      '<input type="text" inputmode="numeric" class="shop-modal-input" id="suLimMaxEp" placeholder="No limit" maxlength="6" value="' +
+      (_curMaxEp != null ? esc(String(_curMaxEp)) : '') + '" /></div>';
+    html += '<div style="flex:1"><label class="shop-modal-input-label">Max purchases per cycle (blank\u00a0=\u00a0no\u00a0limit)</label>' +
+      '<input type="text" inputmode="numeric" class="shop-modal-input" id="suLimMaxP" placeholder="No limit" maxlength="3" value="' +
+      (_curMaxP != null ? esc(String(_curMaxP)) : '') + '" /></div>';
+    html += '</div>';
+    html += '<div class="ie-hint">Limits reset each EP cycle. Blank = unlimited. Current cycle usage: ' +
+      num(user.orders || 0) + ' purchases, ' + num(user.ep_total || 0) + ' EP spent.</div>';
+    html += '</div>';
+
     /* Ban actions */
     if (_canBan) {
       html += '<div class="su-manage-section">';
@@ -2932,25 +2950,49 @@
       html += '</div>';
     }
 
-    /* Save button */
-    html += '<button class="shop-modal-btn shop-modal-btn--confirm su-manage-save" id="suMgSave" style="display:none">Save Changes</button>';
-
     html += '</div>'; /* shop-modal-body */
+
+    /* Save button (outside scrollable body) */
+    html += '<button class="shop-modal-btn shop-modal-btn--confirm su-manage-save" id="suMgSave" style="display:none">Save Changes</button>';
     modal.innerHTML = html;
     document.getElementById('saModalBackdrop').classList.add('open');
 
     /* Dirty tracking */
     var _saveBtn = document.getElementById('suMgSave');
     var _noteInput = document.getElementById('suNoteInput');
+    var _limMaxEpInput = document.getElementById('suLimMaxEp');
+    var _limMaxPInput  = document.getElementById('suLimMaxP');
+    var _limOrigEp = _curMaxEp != null ? String(_curMaxEp) : '';
+    var _limOrigP  = _curMaxP  != null ? String(_curMaxP)  : '';
+
+    function _limitsChanged() {
+      var epVal = _limMaxEpInput ? _limMaxEpInput.value.trim() : '';
+      var pVal  = _limMaxPInput  ? _limMaxPInput.value.trim()  : '';
+      return epVal !== _limOrigEp || pVal !== _limOrigP;
+    }
     function _hasPendingChanges() {
       var hasNote = _noteInput && _noteInput.value.trim().length > 0;
       var hasEp   = _adjInput && _adjInput.value.trim().length > 0;
-      return hasNote || hasEp;
+      return hasNote || hasEp || _limitsChanged();
     }
     function _updateSaveBtn() {
       _saveBtn.style.display = _hasPendingChanges() ? '' : 'none';
     }
     if (_noteInput) _noteInput.addEventListener('input', _updateSaveBtn);
+
+    /* Digits-only for limit inputs */
+    [_limMaxEpInput, _limMaxPInput].forEach(function (el) {
+      if (!el) return;
+      el.addEventListener('input', function () {
+        var pos = this.selectionStart;
+        var cleaned = this.value.replace(/\D/g, '');
+        if (cleaned !== this.value) {
+          this.value = cleaned;
+          this.setSelectionRange(Math.min(pos, cleaned.length), Math.min(pos, cleaned.length));
+        }
+        _updateSaveBtn();
+      });
+    });
 
     /* Amount input: digits + optional leading minus only */
     var _adjInput = document.getElementById('saEpAdjAmount');
@@ -3047,6 +3089,22 @@
               var sign = amount > 0 ? '+' : '';
               showToast('\u2713 ' + sign + amount + ' ' + epType + ' EP applied.', 'success');
             } else { showToast('\u26a0 EP: ' + (res.data.error || 'Failed'), 'warn'); }
+          });
+        });
+      }
+
+      // Queue limits if changed
+      if (_limitsChanged()) {
+        _pending.push(function () {
+          var epVal = _limMaxEpInput ? _limMaxEpInput.value.trim() : '';
+          var pVal  = _limMaxPInput  ? _limMaxPInput.value.trim()  : '';
+          return apiPost('/api/admin/shop/users/' + encodeURIComponent(uuid) + '/limits', {
+            max_ep_per_cycle: epVal || null,
+            max_purchases_per_cycle: pVal || null
+          }).then(function (res) {
+            if (res.ok && res.data.ok) {
+              user.limits = { max_ep_per_cycle: res.data.max_ep_per_cycle, max_purchases_per_cycle: res.data.max_purchases_per_cycle };
+            } else { showToast('\u26a0 Limits: ' + (res.data.error || 'Failed'), 'warn'); }
           });
         });
       }

@@ -1684,7 +1684,16 @@ select.sa-filter-input { cursor: pointer; }
   display: flex;
   flex-direction: column;
   gap: 16px;
+  max-height: 65vh;
+  overflow-y: auto;
+  margin-right: -28px;
+  padding-right: 28px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--popup-scrollbar-thumb) var(--popup-scrollbar-track);
 }
+.su-manage-body::-webkit-scrollbar { width: var(--popup-scrollbar-width); }
+.su-manage-body::-webkit-scrollbar-track { background: var(--popup-scrollbar-track); }
+.su-manage-body::-webkit-scrollbar-thumb { background: var(--popup-scrollbar-thumb); border-radius: 3px; }
 .su-manage-section {
   padding: 12px;
   background: var(--surface);

@@ -1841,6 +1841,11 @@ def _admin_get_users_uncached() -> list:
     for u in users.values():
         u["notes"] = notes_by_uuid.get(u["uuid"], [])
 
+    # Attach purchase limits
+    limits_map = _get_all_user_limits()
+    for u in users.values():
+        u["limits"] = limits_map.get(u["uuid"])
+
     return list(users.values())
 
 def admin_set_shop_enabled(enabled: bool, actor: str = "unknown") -> dict:
@@ -2025,6 +2030,87 @@ def admin_unban_user(uuid: str, actor: str) -> dict:
     )
     _invalidate_users_cache()
     return {"ok": True, "uuid": uuid, "unbanned_at": now_iso}
+
+# User purchase limits
+def _ensure_user_limits_table(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_limits (
+            uuid                    TEXT PRIMARY KEY,
+            max_ep_per_cycle        INTEGER,
+            max_purchases_per_cycle INTEGER
+        )
+    """)
+
+def get_user_limits(uuid: str) -> dict | None:
+    """Return limits for a user, or None if no limits set."""
+    if not uuid or not os.path.isfile(_SHOP_DB):
+        return None
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_user_limits_table(conn)
+        row = conn.execute(
+            "SELECT max_ep_per_cycle, max_purchases_per_cycle FROM user_limits WHERE uuid = ?",
+            (uuid,),
+        ).fetchone()
+        conn.close()
+        if not row:
+            return None
+        return {"max_ep_per_cycle": row[0], "max_purchases_per_cycle": row[1]}
+    except sqlite3.Error:
+        return None
+
+def set_user_limits(uuid: str, max_ep: int | None, max_purchases: int | None, actor: str) -> dict:
+    """Set purchase limits for a user. None = no limit."""
+    if not uuid:
+        return {"error": "UUID is required"}
+    if not os.path.isfile(_SHOP_DB):
+        return {"error": "Shop database unavailable"}
+    # Treat 0 and negative as "no limit"
+    if max_ep is not None and max_ep <= 0:
+        max_ep = None
+    if max_purchases is not None and max_purchases <= 0:
+        max_purchases = None
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_user_limits_table(conn)
+        if max_ep is None and max_purchases is None:
+            conn.execute("DELETE FROM user_limits WHERE uuid = ?", (uuid,))
+        else:
+            conn.execute(
+                "INSERT INTO user_limits (uuid, max_ep_per_cycle, max_purchases_per_cycle) "
+                "VALUES (?, ?, ?) "
+                "ON CONFLICT(uuid) DO UPDATE SET "
+                "max_ep_per_cycle = excluded.max_ep_per_cycle, "
+                "max_purchases_per_cycle = excluded.max_purchases_per_cycle",
+                (uuid, max_ep, max_purchases),
+            )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"error": f"Database error: {exc}"}
+    _log_admin_action(actor, "user_limits_changed", uuid, {
+        "uuid": uuid, "max_ep_per_cycle": max_ep, "max_purchases_per_cycle": max_purchases,
+    })
+    _invalidate_users_cache()
+    return {"ok": True, "max_ep_per_cycle": max_ep, "max_purchases_per_cycle": max_purchases}
+
+def _get_all_user_limits() -> dict:
+    """Return {uuid: {max_ep_per_cycle, max_purchases_per_cycle}} for all users with limits."""
+    if not os.path.isfile(_SHOP_DB):
+        return {}
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_user_limits_table(conn)
+        rows = conn.execute(
+            "SELECT uuid, max_ep_per_cycle, max_purchases_per_cycle FROM user_limits"
+        ).fetchall()
+        conn.close()
+        return {r[0]: {"max_ep_per_cycle": r[1], "max_purchases_per_cycle": r[2]} for r in rows}
+    except sqlite3.Error:
+        return {}
 
 # User notes system (internal admin-only notes)
 def _ensure_user_notes_table(conn: sqlite3.Connection) -> None:

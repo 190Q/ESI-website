@@ -1066,6 +1066,7 @@ from shop.admin import (
     is_admin_banned, admin_ban_admin, admin_unban_admin, _get_admin_banned_ids,
     admin_adjust_ep,
     get_user_notes, add_user_note, delete_user_note,
+    set_user_limits,
 )
 
 
@@ -2138,6 +2139,32 @@ def admin_shop_delete_note(uuid, note_id):
         return jsonify({"error": "Parliament rank required"}), 403
     result = delete_user_note(note_id)
     return jsonify(result), 200 if result.get("ok") else 404
+
+
+@app.route("/api/admin/shop/users/<uuid>/limits", methods=["POST"])
+@rate_limit(20)
+def admin_shop_set_limits(uuid):
+    """Set purchase limits for a user (Parliament+ only)."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    body = request.get_json(silent=True) or {}
+    max_ep = body.get("max_ep_per_cycle")
+    max_p  = body.get("max_purchases_per_cycle")
+    # Convert to int or None
+    try:
+        max_ep = int(max_ep) if max_ep not in (None, "", "null") else None
+    except (TypeError, ValueError):
+        max_ep = None
+    try:
+        max_p = int(max_p) if max_p not in (None, "", "null") else None
+    except (TypeError, ValueError):
+        max_p = None
+    actor = user.get("nick") or user.get("username", "")
+    result = set_user_limits(uuid, max_ep, max_p, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
 
 
 @app.route("/api/admin/shop/users/<uuid>/ep-adjust", methods=["POST"])

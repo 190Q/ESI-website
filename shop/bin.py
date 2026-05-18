@@ -188,6 +188,39 @@ def execute_cart_checkout(
     if not cart_items:
         raise PurchaseError("Cart is empty", 400)
 
+    # Purchase limits check
+    from shop.admin import get_user_limits as _get_limits
+    _limits = _get_limits(mc_uuid)
+    if _limits:
+        _cycle_id = _get_cycle_id(now)
+        _cycle_start, _ = _get_cycle_bounds(_cycle_id)
+        _cycle_start_iso = _cycle_start.isoformat()
+        try:
+            _lconn = sqlite3.connect(_SHOP_DB, timeout=5)
+            _lrow = _lconn.execute(
+                "SELECT COUNT(*), COALESCE(SUM(ep_spent), 0) FROM bin_purchases "
+                "WHERE uuid = ? AND status IN ('pending', 'fulfilled') AND purchased_at >= ?",
+                (mc_uuid, _cycle_start_iso),
+            ).fetchone()
+            _lconn.close()
+            _cycle_purchases = _lrow[0] if _lrow else 0
+            _cycle_ep_spent = _lrow[1] if _lrow else 0
+        except sqlite3.Error:
+            _cycle_purchases = 0
+            _cycle_ep_spent = 0
+        _max_p = _limits.get("max_purchases_per_cycle")
+        _cart_count = len(cart_items)
+        if _max_p is not None and (_cycle_purchases + _cart_count) > _max_p:
+            _remaining = max(0, _max_p - _cycle_purchases)
+            raise PurchaseError(
+                f"Purchase limit reached: {_cycle_purchases}/{_max_p} purchases this cycle "
+                f"({_remaining} remaining, cart has {_cart_count})", 403)
+        _max_ep = _limits.get("max_ep_per_cycle")
+        _cart_ep = sum(int(e.get("quantity", 1)) * int(e.get("price", 0) or 0) for e in cart_items)
+        if _max_ep is not None and (_cycle_ep_spent + _cart_ep) > _max_ep:
+            raise PurchaseError(
+                f"EP spend limit reached: {_cycle_ep_spent}/{_max_ep} EP this cycle", 403)
+
     # check for duplicate item_ids
     seen_ids: set = set()
     for entry in cart_items:
@@ -447,6 +480,35 @@ def execute_bin_purchase(
     if isinstance(price, float) and price != int(price):
         raise PurchaseError("Item has a non-integer price; contact an admin", 400)
     price = int(price)
+
+    # Purchase limits check
+    from shop.admin import get_user_limits as _get_limits
+    _limits = _get_limits(mc_uuid)
+    if _limits:
+        _cycle_id = _get_cycle_id(now)
+        _cycle_start, _ = _get_cycle_bounds(_cycle_id)
+        _cycle_start_iso = _cycle_start.isoformat()
+        try:
+            _lconn = sqlite3.connect(_SHOP_DB, timeout=5)
+            _lrow = _lconn.execute(
+                "SELECT COUNT(*), COALESCE(SUM(ep_spent), 0) FROM bin_purchases "
+                "WHERE uuid = ? AND status IN ('pending', 'fulfilled') AND purchased_at >= ?",
+                (mc_uuid, _cycle_start_iso),
+            ).fetchone()
+            _lconn.close()
+            _cycle_purchases = _lrow[0] if _lrow else 0
+            _cycle_ep_spent = _lrow[1] if _lrow else 0
+        except sqlite3.Error:
+            _cycle_purchases = 0
+            _cycle_ep_spent = 0
+        _max_p = _limits.get("max_purchases_per_cycle")
+        if _max_p is not None and _cycle_purchases >= _max_p:
+            raise PurchaseError(
+                f"Purchase limit reached: {_cycle_purchases}/{_max_p} purchases this cycle", 403)
+        _max_ep = _limits.get("max_ep_per_cycle")
+        if _max_ep is not None and (_cycle_ep_spent + price) > _max_ep:
+            raise PurchaseError(
+                f"EP spend limit reached: {_cycle_ep_spent}/{_max_ep} EP this cycle", 403)
 
     # cooldown check
     cd = check_cooldown(mc_uuid, item)
