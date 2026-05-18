@@ -184,6 +184,20 @@ _TYPES = {
         "action": "UNBANNED", "action_bg": "#1a4a3a",
         "amount_color": "#4a9a5a",
     },
+    "ep_granted": {
+        "badge": "ADJUSTED", "badge_color": "#4a9a5a",
+        "icon": "check", "icon_color": "#4a9a5a",
+        "title": "EP Adjusted",
+        "action": "EP GRANTED", "action_bg": "#1a4a3a",
+        "amount_color": "#4a9a5a",
+    },
+    "ep_deducted": {
+        "badge": "ADJUSTED", "badge_color": "#c98a30",
+        "icon": "warning", "icon_color": "#c98a30",
+        "title": "EP Adjusted",
+        "action": "EP DEDUCTED", "action_bg": "#3a2a10",
+        "amount_color": "#c98a30",
+    },
 }
 
 # Uses $PLACEHOLDER markers replaced via str.replace to avoid CSS {} conflicts.
@@ -270,7 +284,7 @@ $STATS_HTML
 </div>
 </body></html>'''
 
-_HIDE_AMOUNT_TYPES = {"shop_banned", "shop_unbanned"}
+_HIDE_AMOUNT_TYPES = {"shop_banned", "shop_unbanned", "ep_granted", "ep_deducted"}
 
 def _build_html(
     cfg: dict,

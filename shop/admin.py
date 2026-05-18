@@ -2368,12 +2368,13 @@ def admin_adjust_ep(uuid: str, amount: int, ep_type: str, reason: str, actor: st
     # DM notification
     if discord_id:
         sign = "+" if amount > 0 else ""
+        card_type = "ep_granted" if amount > 0 else "ep_deducted"
         _dm_card_in_background(
-            discord_id, "shop_unbanned" if amount > 0 else "shop_banned",
+            discord_id, card_type,
             "EP Adjustment", 0,
             fields=[
-                ("AMOUNT", f"{sign}{amount} {ep_type.title()} EP"),
                 ("REASON", reason[:50]),
+                ("AMOUNT", f"{sign}{amount:,} {ep_type.title()} EP"),
                 ("BY", actor[:30]),
             ],
             fallback_text=f"Your EP balance has been adjusted by {actor}: {sign}{amount} {ep_type} EP. Reason: {reason}",
