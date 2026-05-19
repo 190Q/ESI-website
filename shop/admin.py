@@ -154,6 +154,13 @@ def admin_set_override(item_id: str, active: bool | None, stock: int | None,
     now_iso = _now_iso()
     conn = sqlite3.connect(_SHOP_DB, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL")
+    _old_stock = None
+    if stock is not None:
+        _os_row = conn.execute(
+            "SELECT stock FROM item_overrides WHERE item_id = ?", (item_id,)
+        ).fetchone()
+        if _os_row is not None:
+            _old_stock = _os_row[0]
     conn.execute(
         "INSERT INTO item_overrides (item_id, active, stock, updated_by, updated_at) "
         "VALUES (?, ?, ?, ?, ?) "
@@ -178,7 +185,7 @@ def admin_set_override(item_id: str, active: bool | None, stock: int | None,
     if stock is not None:
         _log_admin_action(
             updated_by, "stock_updated", item_id,
-            {"item_id": item_id, "new_stock": stock},
+            {"item_id": item_id, "old_stock": _old_stock, "new_stock": stock},
         )
     return {"item_id": item_id, "active": active, "stock": stock,
             "updated_by": updated_by, "updated_at": now_iso}
@@ -590,10 +597,12 @@ def admin_get_logs(page: int = 1, per_page: int = 50,
     has_more_d = False
 
     is_active_filter   = (status == "active")
+    is_bid_only_status = status in ("won", "outbid")
     # statuses that only exist on purchases (not bids or donations)
-    is_purchase_only_status = status == "fulfilled"
+    is_purchase_only_status = status in ("fulfilled", "refunded", "refund_pending")
     # statuses that never appear on bids
-    is_not_bid_status = status in ("pending", "fulfilled", "rejected", "confirmed")
+    is_not_bid_status = status in ("pending", "fulfilled", "rejected", "confirmed",
+                                   "refunded", "refund_pending")
     want_purchases = not entry_type or entry_type == "purchase"
     want_bids      = not entry_type or entry_type == "bid"
     want_donations = not entry_type or entry_type == "donation"
@@ -604,8 +613,8 @@ def admin_get_logs(page: int = 1, per_page: int = 50,
         conn.row_factory = sqlite3.Row
         _ensure_log_indexes(conn)
 
-        # purchases (skip when type!=purchase or status=active)
-        if want_purchases and not is_active_filter:
+        # purchases (skip when type!=purchase or status=active or bid-only status)
+        if want_purchases and not is_active_filter and not is_bid_only_status:
             pw = ["1=1"]
             pp: list = []
             if username:
@@ -638,6 +647,12 @@ def admin_get_logs(page: int = 1, per_page: int = 50,
                 bw.append("a.item_id = ?"); bp.append(item_id)
             if is_active_filter:
                 bw.append("a.status = 'active'")
+            elif status == "won":
+                bw.append("a.status = 'closed'")
+                bw.append("b.is_winning = 1")
+            elif status == "outbid":
+                bw.append("a.status = 'closed'")
+                bw.append("(b.is_winning = 0 OR b.is_winning IS NULL)")
             if date_from:
                 bw.append("b.placed_at >= ?"); bp.append(date_from)
             if date_to:
@@ -654,7 +669,7 @@ def admin_get_logs(page: int = 1, per_page: int = 50,
             bids       = [dict(r) for r in raw[:per_page]]
 
         # donations (skip when type!=donation, skip on bid-only or purchase-only statuses)
-        if want_donations and not is_active_filter and not is_purchase_only_status:
+        if want_donations and not is_active_filter and not is_purchase_only_status and not is_bid_only_status:
             dw = ["1=1"]
             dp: list = []
             if username:
@@ -878,12 +893,15 @@ def admin_fulfill(ticket_type: str, ticket_id: str, chief_note: str | None,
     if ticket_type == "purchase":
         _log_admin_action(
             chief_name, "purchase_fulfilled", ticket_id,
-            {"purchase_id": ticket_id, "note": chief_note},
+            {"purchase_id": ticket_id, "item_id": row_data["item_id"],
+             "ep_spent": row_data["ep_spent"], "username": row_data["username"],
+             "note": chief_note},
         )
     else:
         _log_admin_action(
             chief_name, "donation_confirmed", ticket_id,
-            {"ticket_id": ticket_id, "note": chief_note},
+            {"ticket_id": ticket_id, "le_amount": row_data["le_amount"],
+             "username": row_data["username"], "note": chief_note},
         )
     _invalidate_users_cache()
     return {"ok": True, "ticket_id": ticket_id, "status": "fulfilled", "resolved_at": now_iso}
@@ -964,12 +982,15 @@ def admin_reject(ticket_type: str, ticket_id: str, reason: str,
     if ticket_type == "purchase":
         _log_admin_action(
             chief_name, "purchase_rejected", ticket_id,
-            {"purchase_id": ticket_id, "item_id": row["item_id"], "reason": reason},
+            {"purchase_id": ticket_id, "item_id": row["item_id"],
+             "ep_spent": row["ep_spent"], "username": row["username"],
+             "reason": reason},
         )
     else:
         _log_admin_action(
             chief_name, "donation_rejected", ticket_id,
-            {"ticket_id": ticket_id, "reason": reason},
+            {"ticket_id": ticket_id, "le_amount": row["le_amount"],
+             "username": row["username"], "reason": reason},
         )
     _invalidate_users_cache()
     return {"ok": True, "ticket_id": ticket_id, "status": "rejected", "resolved_at": now_iso}
@@ -1262,6 +1283,8 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
     if _so_raw == "clean_only" and _accepts and _dirty_raw not in (None, ""):
         return {"error": "Spend order 'clean_only' requires Accepts Dirty EP to be No"}
 
+    old_item = None
+
     with _json_write_lock:
         from shop.items import _load_json
         items = _load_json()
@@ -1281,6 +1304,7 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
             idx = next((i for i, it in enumerate(items) if it.get("id") == item_id), None)
             if idx is None:
                 return {"error": f"Item '{item_id}' not found in catalogue"}
+            old_item     = dict(items[idx])            # snapshot for edit diff
             old_type     = items[idx].get("type")      # capture before overwrite
             old_cooldown = items[idx].get("cooldown")  # capture before overwrite
             fields["id"] = item_id
@@ -1331,19 +1355,34 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
                         f"for {item['id']}: {exc}",
                         file=sys.stderr,
                     )
+    _log_details = {"item_id": item["id"], "name": item.get("name"), "type": item.get("type")}
+    if is_new:
+        _log_details["item"] = dict(item)
+    elif old_item is not None:
+        _diff = {}
+        for _k in sorted(set(old_item.keys()) | set(item.keys())):
+            if _k == "id":
+                continue
+            _ov, _nv = old_item.get(_k), item.get(_k)
+            if _ov != _nv:
+                _diff[_k] = [_ov, _nv]
+        if _diff:
+            _log_details["changes"] = _diff
     _log_admin_action(
         actor,
         "item_created" if is_new else "item_edited",
         item["id"],
-        {"item_id": item["id"], "name": item.get("name"), "type": item.get("type")},
+        _log_details,
     )
     return {"ok": True, "item": item}
 
 def admin_delete_item(item_id: str, actor: str = "unknown") -> dict:
-    """Remove an item from shop_items.json. Returns ``{"ok": True}`` or ``{"error": "..."}"""
+    """Remove an item from shop_items.json. Returns ``{"ok": True}`` or ``{"error": "..."}``"""
+    _deleted_item = None
     with _json_write_lock:
         from shop.items import _load_json
         items = _load_json()
+        _deleted_item = next((i for i in items if i.get("id") == item_id), None)
         new_items = [i for i in items if i.get("id") != item_id]
         if len(new_items) == len(items):
             return {"error": f"Item '{item_id}' not found in catalogue"}
@@ -1370,7 +1409,11 @@ def admin_delete_item(item_id: str, actor: str = "unknown") -> dict:
                   file=sys.stderr)
 
     _evict_item_from_carts(item_id)
-    _log_admin_action(actor, "item_deleted", item_id, {"item_id": item_id})
+    _del_d = {"item_id": item_id}
+    if _deleted_item:
+        _del_d["name"] = _deleted_item.get("name")
+        _del_d["type"] = _deleted_item.get("type")
+    _log_admin_action(actor, "item_deleted", item_id, _del_d)
     return {"ok": True}
 
 def admin_reorder_items(ordered_ids: list, actor: str = "unknown") -> dict:

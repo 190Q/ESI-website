@@ -1247,8 +1247,11 @@ select.sa-filter-input { cursor: pointer; }
   margin-bottom: -1px;
 }
 
-/* Changes log row: 4-column grid */
-.sa-log-row.sa-chg-row { grid-template-columns: 1.3fr 0.9fr 1.1fr 1.8fr; }
+/* Changes log row: 5-column grid */
+.sa-log-row.sa-chg-row { grid-template-columns: 1.3fr 1fr 0.7fr 1fr 1.5fr; }
+.sa-chg-target { font-size: 0.78rem; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sa-chg-changes { font-size: 0.76rem; color: var(--text-secondary); word-break: break-word; line-height: 1.5; }
+.sa-chg-field { color: var(--text-faint); font-weight: 600; }
 
 /* Users tab */
 .su-count {

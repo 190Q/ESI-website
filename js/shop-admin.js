@@ -2069,6 +2069,8 @@
     user_admin_banned:  'Admin Banned (Manage)',
     user_admin_unbanned:'Admin Unbanned (Manage)',
     ep_adjusted:        'EP Adjusted',
+    purchase_rejected:  'Purchase Rejected',
+    user_limits_changed:'User Limits Changed',
   };
 
   var _ACTION_TYPES = Object.keys(_ACTION_LABELS);
@@ -2086,62 +2088,150 @@
       .catch(function () { if (cb) cb(null); });
   }
 
-  function _fmtChangesDetails(row) {
+  function _fmtChangesTarget(row) {
     var d = row.details || {};
-    var action = row.action;
-    if (action === 'item_created' || action === 'item_edited') {
-      return esc(d.item_id || row.target_id || '') +
-        (d.type ? ' <span style="color:var(--text-faint)">(' + esc(d.type) + ')</span>' : '');
+    var a = row.action;
+    if (d.item_id) return esc(d.item_id);
+    if (d.username) return esc(d.username);
+    if (a === 'items_reordered') return (d.count || '?') + ' items';
+    if (a === 'shop_enabled' || a === 'shop_disabled') return '\u2014';
+    return esc(row.target_id || '\u2014');
+  }
+
+  function _fmtDiffVal(field, val) {
+    if (val === null || val === undefined || val === '') {
+      if (field === 'stock') return '\u221E';
+      return 'none';
     }
-    if (action === 'item_deleted')      return esc(d.item_id || row.target_id || '');
-    if (action === 'item_activated' || action === 'item_deactivated') {
-      return esc(d.item_id || row.target_id || '');
+    if (field === 'active' || field === 'accepts_dirty_ep' || field === 'auto_start')
+      return val ? 'Yes' : 'No';
+    if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+    if (Array.isArray(val)) return val.length ? val.join(', ') : 'none';
+    if (field === 'duration_hours') return val + 'h';
+    if (field === 'anti_snipe_seconds') return val + 's';
+    var s = String(val);
+    return s.length > 40 ? s.slice(0, 40) + '\u2026' : s;
+  }
+
+  var _DIFF_LABELS = {
+    name: 'Name', type: 'Type', description: 'Desc', price: 'Price',
+    stock: 'Stock', active: 'Active', category: 'Category', cooldown: 'Cooldown',
+    starting_bid: 'Start Bid', min_increment: 'Min Inc', duration_hours: 'Duration',
+    duration_type: 'Dur Type', anti_snipe_seconds: 'Anti-Snipe', winner_count: 'Winners',
+    max_quantity: 'Max Qty', accepts_dirty_ep: 'Dirty EP', spend_order: 'Spend Order',
+    visible_to_ranks: 'Ranks', visible_to_top_n: 'Top N', auto_start: 'Auto Start',
+    activate_at: 'Activate', deactivate_at: 'Deactivate', images: 'Images',
+  };
+
+  function _fmtItemDiff(changes) {
+    if (!changes || typeof changes !== 'object') return '';
+    var keys = Object.keys(changes);
+    if (!keys.length) return '';
+    return keys.map(function (f) {
+      var c = changes[f];
+      var ov = Array.isArray(c) ? c[0] : (c && c.old);
+      var nv = Array.isArray(c) ? c[1] : (c && c['new']);
+      return '<span class="sa-chg-field">' + esc(_DIFF_LABELS[f] || f) + ':</span> ' +
+        esc(_fmtDiffVal(f, ov)) + ' \u2192 ' + esc(_fmtDiffVal(f, nv));
+    }).join(' \u00b7 ');
+  }
+
+  function _fmtChangesWhat(row) {
+    var d = row.details || {};
+    var a = row.action;
+    if (a === 'item_edited') {
+      if (d.changes) return _fmtItemDiff(d.changes);
+      if (d.type) return 'type: ' + esc(d.type);
+      return '\u2014';
     }
-    if (action === 'stock_updated') {
-      var ns = d.new_stock != null ? d.new_stock : '\u221E';
-      return esc(d.item_id || row.target_id || '') +
-        ' \u2192 ' + esc(String(ns));
+    if (a === 'item_created') {
+      if (d.item) {
+        var p = [];
+        if (d.item.type) p.push('Type: ' + esc(d.item.type));
+        if (d.item.price != null) p.push('Price: ' + num(d.item.price));
+        if (d.item.stock != null) p.push('Stock: ' + num(d.item.stock));
+        if (d.item.category) p.push('Cat: ' + esc(Array.isArray(d.item.category) ? d.item.category.join(', ') : d.item.category));
+        return p.length ? p.join(' \u00b7 ') : 'type: ' + esc(d.type || '');
+      }
+      return d.type ? 'type: ' + esc(d.type) : '\u2014';
     }
-    if (action === 'items_reordered') return (d.count || '?') + ' items';
-    if (action === 'auction_started') {
-      return esc(d.item_id || '') +
-        (d.ends_at ? ' \u2022 ends ' + fmtDate(d.ends_at) : '');
+    if (a === 'item_deleted') {
+      var p = [];
+      if (d.name) p.push(esc(d.name));
+      if (d.type) p.push(esc(d.type));
+      return p.join(' \u00b7 ') || '\u2014';
     }
-    if (action === 'auction_extended') {
+    if (a === 'item_activated') return 'active \u2192 Yes';
+    if (a === 'item_deactivated') return 'active \u2192 No';
+    if (a === 'stock_updated') {
+      var ov = d.old_stock != null ? num(d.old_stock) : '\u221E';
+      var nv = d.new_stock != null ? num(d.new_stock) : '\u221E';
+      return 'stock: ' + ov + ' \u2192 ' + nv;
+    }
+    if (a === 'items_reordered') return (d.count || '?') + ' items';
+    if (a === 'auction_started') return d.ends_at ? 'ends ' + fmtDate(d.ends_at) : '\u2014';
+    if (a === 'auction_extended') {
       var h = d.extra_hours > 0 ? '+' + d.extra_hours + 'h' : d.extra_hours + 'h';
-      return esc(row.target_id || '') + ' ' + h;
+      return h + (d.new_ends_at ? ' \u2192 ends ' + fmtDate(d.new_ends_at) : '');
     }
-    if (action === 'auction_cancelled') {
-      return esc(d.item_id || row.target_id || '');
+    if (a === 'auction_cancelled') return '\u2014';
+    if (a === 'bid_removed') {
+      var p = [];
+      if (d.amount) p.push(num(d.amount) + ' EP');
+      if (d.reason) p.push(esc(d.reason));
+      return p.join(' \u00b7 ') || '\u2014';
     }
-    if (action === 'bid_removed') {
-      return esc(row.target_id || '') +
-        (d.reason ? ' \u2022 ' + esc(d.reason) : '');
+    if (a === 'purchase_fulfilled') {
+      var p = [];
+      if (d.ep_spent) p.push(num(d.ep_spent) + ' EP');
+      if (d.username) p.push(esc(d.username));
+      if (d.note) p.push(esc(d.note));
+      return p.join(' \u00b7 ') || '\u2014';
     }
-    if (action === 'purchase_fulfilled' || action === 'purchase_rejected' || action === 'purchase_refunded') {
-      return esc(d.item_id || row.target_id || '') +
-        (d.ep_spent ? ' \u2022 ' + num(d.ep_spent) + ' EP' : '') +
-        (d.reason ? ' \u2022 ' + esc(d.reason) : '') +
-        (d.note   ? ' \u2022 ' + esc(d.note)   : '');
+    if (a === 'purchase_rejected') {
+      var p = [];
+      if (d.username) p.push(esc(d.username));
+      if (d.reason) p.push(esc(d.reason));
+      if (d.ep_spent) p.push('refunded ' + num(d.ep_spent) + ' EP');
+      return p.join(' \u00b7 ') || '\u2014';
     }
-    if (action === 'donation_confirmed' || action === 'donation_rejected') {
-      return esc(row.target_id || '') +
-        (d.reason ? ' \u2022 ' + esc(d.reason) : '');
+    if (a === 'purchase_refunded') {
+      var p = [];
+      if (d.ep_spent) p.push(num(d.ep_spent) + ' EP');
+      if (d.reason) p.push(esc(d.reason));
+      return p.join(' \u00b7 ') || '\u2014';
     }
-    if (action === 'user_shop_banned' || action === 'user_admin_banned') {
-      return esc(d.username || row.target_id || '') +
-        (d.reason ? ' \u2022 ' + esc(d.reason) : '');
+    if (a === 'refund_rejected') return '\u2014';
+    if (a === 'donation_confirmed') {
+      var p = [];
+      if (d.le_amount) p.push(num(d.le_amount) + ' LE');
+      if (d.note) p.push(esc(d.note));
+      return p.join(' \u00b7 ') || '\u2014';
     }
-    if (action === 'user_shop_unbanned' || action === 'user_admin_unbanned') {
-      return esc(d.username || row.target_id || '');
+    if (a === 'donation_rejected') {
+      var p = [];
+      if (d.le_amount) p.push(num(d.le_amount) + ' LE');
+      if (d.reason) p.push(esc(d.reason));
+      return p.join(' \u00b7 ') || '\u2014';
     }
-    if (action === 'ep_adjusted') {
+    if (a === 'shop_enabled') return 'Shop \u2192 On';
+    if (a === 'shop_disabled') return 'Shop \u2192 Off';
+    if (a === 'user_shop_banned' || a === 'user_admin_banned')
+      return d.reason ? esc(d.reason) : '\u2014';
+    if (a === 'user_shop_unbanned' || a === 'user_admin_unbanned') return '\u2014';
+    if (a === 'user_limits_changed') {
+      if (d.max_ep_per_cycle == null && d.max_purchases_per_cycle == null) return 'Limits cleared';
+      var p = [];
+      if (d.max_ep_per_cycle != null) p.push('Max EP/cycle: ' + num(d.max_ep_per_cycle));
+      if (d.max_purchases_per_cycle != null) p.push('Max purchases/cycle: ' + num(d.max_purchases_per_cycle));
+      return p.join(' \u00b7 ') || 'Limits cleared';
+    }
+    if (a === 'ep_adjusted') {
       var sign = (d.amount > 0) ? '+' : '';
-      return esc(d.username || row.target_id || '') +
-        ' \u2022 ' + sign + num(d.amount) + ' ' + esc((d.ep_type || '').charAt(0).toUpperCase() + (d.ep_type || '').slice(1)) + ' EP' +
-        (d.reason ? ' \u2022 ' + esc(d.reason) : '');
+      var ep = sign + num(d.amount) + ' ' + esc((d.ep_type || '').charAt(0).toUpperCase() + (d.ep_type || '').slice(1)) + ' EP';
+      return d.reason ? ep + ' \u00b7 ' + esc(d.reason) : ep;
     }
-    return esc(row.target_id || '');
+    return '\u2014';
   }
 
   function renderChangesContent(c) {
@@ -2167,9 +2257,9 @@
     html += '</div>';
 
     html += '<div class="sa-table">';
-    html += '<div class="sa-row sa-header sa-log-row sa-chg-row"><span>Time</span><span>Actor</span><span>Action</span><span>Details</span></div>';
+    html += '<div class="sa-row sa-header sa-log-row sa-chg-row"><span>Time</span><span>Actor</span><span>Action</span><span>Target</span><span>Changes</span></div>';
     if (!_changesData.rows || !_changesData.rows.length) {
-      html += '<div class="sa-row sa-log-row sa-chg-row" style="justify-content:center;color:var(--text-faint);">No records found.</div>';
+      html += '<div class="sa-row sa-log-row sa-chg-row" style="justify-content:center;color:var(--text-faint);grid-column:1/-1;">No records found.</div>';
     }
     (_changesData.rows || []).forEach(function (row) {
       html += '<div class="sa-row sa-log-row sa-chg-row">';
@@ -2177,7 +2267,8 @@
       html += '<span>' + esc(row.actor) + '</span>';
       html += '<span><span class="sa-log-type sa-log-type--change">' +
         esc(_ACTION_LABELS[row.action] || row.action) + '</span></span>';
-      html += '<span style="font-size:0.8rem;color:var(--text-secondary)">' + _fmtChangesDetails(row) + '</span>';
+      html += '<span class="sa-chg-target">' + _fmtChangesTarget(row) + '</span>';
+      html += '<span class="sa-chg-changes">' + _fmtChangesWhat(row) + '</span>';
       html += '</div>';
     });
     html += '</div>';
@@ -2229,7 +2320,8 @@
     if (_logsFilters.username)  qs += '&username=' + encodeURIComponent(_logsFilters.username);
     if (_logsFilters.item_id)   qs += '&item_id='  + encodeURIComponent(_logsFilters.item_id);
     if (_logsFilters.type)      qs += '&type='     + encodeURIComponent(_logsFilters.type);
-    if (_logsFilters.status)    qs += '&status='   + encodeURIComponent(_logsFilters.status);
+    if (_logsFilters.status && ['active', 'won', 'outbid'].indexOf(_logsFilters.status) === -1)
+      qs += '&status=' + encodeURIComponent(_logsFilters.status);
     if (_logsFilters.date_from) qs += '&date_from=' + encodeURIComponent(_logsFilters.date_from);
     if (_logsFilters.date_to)   qs += '&date_to='   + encodeURIComponent(_logsFilters.date_to);
     fetch('/api/admin/shop/logs?' + qs, { credentials: 'same-origin' })
@@ -2310,7 +2402,11 @@
       '<option value="fulfilled"' + (_logsFilters.status === 'fulfilled' ? ' selected' : '') + '>Fulfilled</option>' +
       '<option value="confirmed"' + (_logsFilters.status === 'confirmed' ? ' selected' : '') + '>Confirmed</option>' +
       '<option value="rejected"'  + (_logsFilters.status === 'rejected'  ? ' selected' : '') + '>Rejected</option>' +
+      '<option value="refunded"'  + (_logsFilters.status === 'refunded'  ? ' selected' : '') + '>Refunded</option>' +
+      '<option value="refund_pending"' + (_logsFilters.status === 'refund_pending' ? ' selected' : '') + '>Refund Pending</option>' +
       '<option value="active"'    + (_logsFilters.status === 'active'    ? ' selected' : '') + '>Active</option>' +
+      '<option value="won"'       + (_logsFilters.status === 'won'       ? ' selected' : '') + '>Won</option>' +
+      '<option value="outbid"'    + (_logsFilters.status === 'outbid'    ? ' selected' : '') + '>Outbid</option>' +
       '</select>';
     html += '<span class="sa-filter-label">From:</span><input type="date" class="sa-filter-input" id="saLogFrom" value="' + esc(_logsFilters.date_from) + '" />';
     html += '<span class="sa-filter-label">To:</span><input type="date" class="sa-filter-input" id="saLogTo" value="' + esc(_logsFilters.date_to) + '" />';
@@ -2320,6 +2416,9 @@
     // client-side pagination over the full merged+sorted feed
     var _LOGS_PER_PAGE = 25;
     var totalFeed  = _logsFeed || [];
+    if (_logsFilters.status) {
+      totalFeed = totalFeed.filter(function (f) { return f.status === _logsFilters.status; });
+    }
     var totalPages = Math.max(1, Math.ceil(totalFeed.length / _LOGS_PER_PAGE));
     if (_logsPage > totalPages) _logsPage = 1;
     var feed = totalFeed.slice((_logsPage - 1) * _LOGS_PER_PAGE, _logsPage * _LOGS_PER_PAGE);
