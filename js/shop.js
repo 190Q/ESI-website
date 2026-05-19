@@ -15,6 +15,7 @@
   var _filterMaxPrice = null;  // null = no upper limit
   var _filterCooldown = null;  // null | 'has' | 'none'
   var _filterStock    = null;  // null | 'instock' | 'outstock' | 'unlimited'
+  var _sortBy         = '';    // '' = default order | 'price_desc' | 'price_asc' | 'stock_desc' | 'stock_asc'
   var _priceAbsMin    = 0;
   var _priceAbsMax    = 1000;
   var _filterBarBuilt = false;
@@ -461,6 +462,16 @@
           '</div>' +
         '</div>' +
         '<div class="sf-section">' +
+          '<span class="sf-section-title">Sort By</span>' +
+          '<select id="sfSort" class="sf-select">' +
+            '<option value="">Default</option>' +
+            '<option value="price_desc"' + (_sortBy === 'price_desc' ? ' selected' : '') + '>Price: High \u2192 Low</option>' +
+            '<option value="price_asc"'  + (_sortBy === 'price_asc'  ? ' selected' : '') + '>Price: Low \u2192 High</option>' +
+            '<option value="stock_desc"' + (_sortBy === 'stock_desc' ? ' selected' : '') + '>Stock: Most First</option>' +
+            '<option value="stock_asc"'  + (_sortBy === 'stock_asc'  ? ' selected' : '') + '>Stock: Least First</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="sf-section">' +
           '<span class="sf-section-title">Category</span>' +
           '<select id="sfCat" class="sf-select">' + catOpts + '</select>' +
         '</div>' +
@@ -567,6 +578,7 @@
       { id: 'sfAvail',    fn: function (v) { _filterAvail   = v || null; } },
       { id: 'sfStock',    fn: function (v) { _filterStock   = v || null; } },
       { id: 'sfCooldown', fn: function (v) { _filterCooldown = v || null; } },
+      { id: 'sfSort',     fn: function (v) { _sortBy         = v || ''; } },
     ];
     selDefs.forEach(function (s) {
       var el = document.getElementById(s.id);
@@ -579,7 +591,7 @@
       resetBtn.addEventListener('click', function () {
         _filterSearch = ''; _filterCat = null; _filterEP = null;
         _filterAvail = null; _filterMinPrice = null; _filterMaxPrice = null;
-        _filterCooldown = null; _filterStock = null;
+        _filterCooldown = null; _filterStock = null; _sortBy = '';
         _filterType = 'all';
         _filterBarBuilt = false;
         buildFilterBar();
@@ -691,6 +703,21 @@
     // Append any leftovers not in the order list
     Object.keys(binById).forEach(function (id) { filtered.push({ kind: 'bin', data: binById[id] }); });
     Object.keys(aucById).forEach(function (id) { filtered.push({ kind: 'auction', data: aucById[id] }); });
+
+    // Sort
+    if (_sortBy) {
+      filtered.sort(function (a, b) {
+        var pA = a.kind === 'bin' ? (a.data.price || 0) : (a.data.current_highest_bid || a.data.starting_bid || 0);
+        var pB = b.kind === 'bin' ? (b.data.price || 0) : (b.data.current_highest_bid || b.data.starting_bid || 0);
+        var sA = a.kind === 'bin' ? (a.data.stock != null ? a.data.stock : Infinity) : Infinity;
+        var sB = b.kind === 'bin' ? (b.data.stock != null ? b.data.stock : Infinity) : Infinity;
+        if (_sortBy === 'price_desc') return pB - pA;
+        if (_sortBy === 'price_asc')  return pA - pB;
+        if (_sortBy === 'stock_desc') return (sB === Infinity && sA === Infinity) ? 0 : sA === Infinity ? -1 : sB === Infinity ? 1 : sB - sA;
+        if (_sortBy === 'stock_asc')  return (sA === Infinity && sB === Infinity) ? 0 : sB === Infinity ? 1 : sA === Infinity ? -1 : sA - sB;
+        return 0;
+      });
+    }
 
     if (!filtered.length) {
       stopAuctionTimers();
