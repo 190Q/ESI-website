@@ -160,11 +160,10 @@
 
   function renderGate(status) {
     var loggedIn = window.state && window.state.loggedIn;
-    var msg = !loggedIn
-      ? 'You must be logged in to access this page.'
-      : (status === 403
-          ? 'You do not have permission to view this page.'
-          : 'Failed to load data. Please try again.');
+    if (!loggedIn && window.renderAuthGate) { window.renderAuthGate(panel); return; }
+    var msg = status === 403
+      ? 'You do not have permission to view this page.'
+      : 'Failed to load data. Please try again.';
     panel.innerHTML =
       '<div class="panel-header">' +
         '<h1 class="panel-title">Inactivity</h1>' +

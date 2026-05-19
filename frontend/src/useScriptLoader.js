@@ -29,6 +29,7 @@ export default function useScriptLoader() {
       await loadScript('/js/activity_prefetch.js')
       await loadScript('/js/purify.min.js')
       await loadScript('/js/html2canvas.min.js')
+      await loadScript('/js/auth-gate.js')
       await loadScript('/js/app.js')
       await loadScript('/js/graph-shared.js')
       await loadScript('/js/player.js')

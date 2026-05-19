@@ -1010,19 +1010,24 @@ fetch('/auth/session', { credentials: 'same-origin' })
     if (promotionsNav)   promotionsNav.parentElement.style.display   = canPromotions ? '' : 'none';
     if (eventsManageNav) eventsManageNav.parentElement.style.display = canEvents     ? '' : 'none';
 
-    // if they're on a panel they can't access anymore, bounce them to player
+    // if they're on a panel they can't access anymore, show auth gate or bounce
     if (activePanel) {
-    const blocked =
+      var panelId = activePanel.id.replace('panel-', '');
+      var blocked =
         (activePanel.id === 'panel-shop'          && !canShop) ||
         (activePanel.id === 'panel-shop-admin'    && !canShopAdmin) ||
         (activePanel.id === 'panel-inactivity'    && !canInactivity) ||
         (activePanel.id === 'panel-promotions'    && !canPromotions) ||
         (activePanel.id === 'panel-events-manage' && !canEvents);
       if (blocked) {
-        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-        document.getElementById('panel-player').classList.add('active');
-        navItems.forEach(n => n.classList.remove('active'));
-        document.querySelector('[data-panel="player"]').classList.add('active');
+        if (!state.loggedIn && _LOGIN_REQUIRED_PANELS.indexOf(panelId) !== -1 && window.renderAuthGate) {
+          window.renderAuthGate(activePanel);
+        } else {
+          document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+          document.getElementById('panel-player').classList.add('active');
+          navItems.forEach(n => n.classList.remove('active'));
+          document.querySelector('[data-panel="player"]').classList.add('active');
+        }
       }
     }
   }
@@ -1581,9 +1586,24 @@ fetch('/auth/session', { credentials: 'same-origin' })
   var showToast = window.showToast;
 
   /* panel switching */
+  var _LOGIN_REQUIRED_PANELS = ['shop', 'shop-admin', 'inactivity', 'promotions', 'events-manage'];
+
   function switchToPanel(panel) {
     const validPanels = ['player', 'guild', 'bot', 'events', 'shop', 'shop-admin', 'profile', 'inactivity', 'promotions', 'events-manage'];
     let target = validPanels.includes(panel) ? panel : 'player';
+
+    // If the panel requires login and user isn't logged in, show auth gate
+    if (_LOGIN_REQUIRED_PANELS.indexOf(target) !== -1 && !state.loggedIn) {
+      navItems.forEach(n => n.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      const panelEl = document.getElementById('panel-' + target);
+      if (panelEl) {
+        panelEl.classList.add('active');
+        if (window.renderAuthGate) window.renderAuthGate(panelEl);
+      }
+      return;
+    }
+
     // quietly fall back if they can't access the panel
     if (target === 'shop'          && !isGuildMember())     target = 'player';
     if (target === 'shop-admin'    && !hasShopAdmin())      target = 'player';

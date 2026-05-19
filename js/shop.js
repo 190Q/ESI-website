@@ -6,7 +6,7 @@
 
   var _binData        = null;   // cached GET /api/shop/bin response
   var _auctionData    = null;   // cached GET /api/shop/auctions response
-  var _filterType     = 'all'; // 'all' | 'bin' | 'auction'
+  var _filterType     = 'all'; // 'all' | 'bin' | 'donate' | 'auction'
   var _filterCat      = null;  // null | category string
   var _filterEP       = null;  // null | 'clean' | 'any'
   var _filterAvail    = null;  // null | 'available' | 'unavailable'
@@ -444,7 +444,8 @@
           '<div class="sf-chips">' +
             '<button class="shop-chip' + (_filterType === 'all' ? ' active' : '') + '" data-sftype="all">All</button>' +
             '<button class="shop-chip' + (_filterType === 'bin' ? ' active' : '') + '" data-sftype="bin">Bin</button>' +
-            '<button class="shop-chip' + (_filterType === 'auction' ? ' active' : '') + '" data-sftype="auction">Auctions</button>' +
+            '<button class="shop-chip' + (_filterType === 'donate' ? ' active' : '') + '" data-sftype="donate">Donation</button>' +
+            '<button class="shop-chip' + (_filterType === 'auction' ? ' active' : '') + '" data-sftype="auction">Auction</button>' +
           '</div>' +
         '</div>' +
         '<div class="sf-section">' +
@@ -540,8 +541,8 @@
         bar.setAttribute('data-type', _filterType);
         bar.querySelectorAll('[data-sftype]').forEach(function (c) { c.classList.remove('active'); });
         chip.classList.add('active');
-        // Reset bin-only filters when switching to Auctions
-        if (_filterType === 'auction') {
+        // Reset bin-only filters when switching to Auctions or Donations
+        if (_filterType === 'auction' || _filterType === 'donate') {
           _filterStock = null; _filterCooldown = null;
           ['sfStock','sfCooldown'].forEach(function (id) {
             var s = document.getElementById(id); if (s) s.value = '';
@@ -638,7 +639,7 @@
     var auctionItems = (_auctionData && _auctionData.auctions) ? _auctionData.auctions : [];
     var myUuid       = (_auctionData && _auctionData.uuid) ? _auctionData.uuid : '';
 
-    var showBin     = (_filterType === 'all' || _filterType === 'bin');
+    var showBin     = (_filterType === 'all' || _filterType === 'bin' || _filterType === 'donate');
     var showAuction = (_filterType === 'all' || _filterType === 'auction');
     var filtered    = [];
     var searchLow   = _filterSearch.trim().toLowerCase();
@@ -647,6 +648,8 @@
     var fBin = [];
     if (showBin) {
       fBin = binItems.slice();
+      if (_filterType === 'bin') fBin = fBin.filter(function (it) { return it.type !== 'donate'; });
+      else if (_filterType === 'donate') fBin = fBin.filter(function (it) { return it.type === 'donate'; });
       if (searchLow) fBin = fBin.filter(function (it) {
         return (it.name || '').toLowerCase().indexOf(searchLow) !== -1 ||
                (it.description || '').toLowerCase().indexOf(searchLow) !== -1 ||
@@ -2218,7 +2221,8 @@
     if (_initDone) return;
     _initDone = true;
     if (!window.state || !window.state.loggedIn) {
-      panel.innerHTML = '<div class="shop-login-prompt">Log in with Discord to access the shop.</div>';
+      if (window.renderAuthGate) window.renderAuthGate(panel);
+      else panel.innerHTML = '<div class="shop-login-prompt">Log in with Discord to access the shop.</div>';
       return;
     }
     buildShell();

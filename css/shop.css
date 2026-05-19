@@ -386,8 +386,9 @@
   gap: 3px;
 }
 
-/* Hide bin-only fields when viewing auctions only */
-.shop-filter-bar[data-type="auction"] [data-bin-field] { display: none; }
+/* Hide bin-only fields when viewing auctions or donations only */
+.shop-filter-bar[data-type="auction"] [data-bin-field],
+.shop-filter-bar[data-type="donate"] [data-bin-field] { display: none; }
 
 /* Responsive: collapse sidebar on narrow screens */
 @media (max-width: 768px) {
