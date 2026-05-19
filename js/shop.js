@@ -875,7 +875,6 @@
       html += _ribbon(num(item.stock) + '\u00a0left', item.stock <= 0 ? 'outstock' : 'stock');
     }
     html += '<div class="shop-card-body">';
-    html += _catBadges(item.category);
     html += '<div class="shop-card-name">' + esc(item.name) + '</div>';
     html += '<div class="shop-card-divider"><span class="shop-card-divider-icon">' + _svg.diamond + '</span></div>';
     html += '<div class="shop-card-desc">' + esc(item.description) + '</div>';
@@ -889,6 +888,7 @@
         : '<span class="shop-card-badge shop-card-badge--any">Any EP</span>';
     }
     html += '</div>';
+    html += '<div class="shop-card-cats">' + _catBadges(item.category) + '</div>';
     html += '</div>'; // card-body
     html += '</div>'; // card
     return html;
@@ -937,7 +937,6 @@
     else html += '<div class="shop-card-img shop-card-img--empty">No Image</div>';
     html += '<span class="shop-item-type-badge shop-item-type-badge--auction">Auction</span>';
     html += '<div class="shop-card-body">';
-    html += _catBadges(a.item_category);
     html += '<div class="shop-card-name">' + esc(a.item_name) + '</div>';
     html += '<div class="shop-card-divider"><span class="shop-card-divider-icon">\u2726</span></div>';
     html += '<div class="shop-card-desc shop-card-desc--short">' + esc(a.item_description) + '</div>';
@@ -951,6 +950,7 @@
       ? '<span class="shop-card-badge shop-card-badge--clean">Clean EP Only</span>'
       : '<span class="shop-card-badge shop-card-badge--any">Any EP</span>';
     html += '</div>';
+    html += '<div class="shop-card-cats">' + _catBadges(a.item_category) + '</div>';
     html += '</div>'; // card-body
     if (a.user_bid && !shopDisabled) {
       html += a.user_bid.is_winning

@@ -283,6 +283,7 @@
     var done = 0;
     function check() {
       if (++done >= 2) {
+        if (_activeTab !== 'items') return;
         if (!_items) { c.innerHTML = '<div class="shop-empty">Could not load items.</div>'; return; }
         renderItemsTable(c);
       }
@@ -1628,6 +1629,7 @@
     if (!_queueData) {
       c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading queue\u2026</div>';
       fetchQueue(function (d) {
+        if (_activeTab !== 'queue') return;
         if (!d) { c.innerHTML = '<div class="shop-empty">Could not load queue.</div>'; return; }
         renderQueueContent(c);
         updateQueueBadge();
@@ -2552,7 +2554,10 @@
 
   function renderUsers(c, forceRefresh) {
     c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading users\u2026</div>';
-    fetchUsers(function () { _renderUsersContent(c); }, forceRefresh);
+    fetchUsers(function () {
+      if (_activeTab !== 'users') return; // user switched away while loading
+      _renderUsersContent(c);
+    }, forceRefresh);
   }
 
   function _renderUsersContent(c) {
