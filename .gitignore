@@ -252,3 +252,4 @@ data/
 images/shop/
 images/dm_cards
 test_dm_cards.py
+print_ep_logic.py
