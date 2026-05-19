@@ -149,30 +149,62 @@ def admin_list_all_items_unfiltered() -> list:
     return _merge(items, overrides)
 
 def admin_set_override(item_id: str, active: bool | None, stock: int | None,
-                       updated_by: str) -> dict:
-    """Create or update an item override. Returns the new override state."""
+                       updated_by: str, clear_stock: bool = False) -> dict:
+    """Create or update an item override. Returns the new override state.
+
+    *clear_stock*: when ``True``, explicitly sets stock to NULL (unlimited)
+    even though *stock* is ``None``.  Without this flag, ``stock=None``
+    means "don't change the existing stock".
+    """
     now_iso = _now_iso()
     conn = sqlite3.connect(_SHOP_DB, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL")
     _old_stock = None
-    if stock is not None:
-        _os_row = conn.execute(
-            "SELECT stock FROM item_overrides WHERE item_id = ?", (item_id,)
-        ).fetchone()
-        if _os_row is not None:
-            _old_stock = _os_row[0]
-    conn.execute(
-        "INSERT INTO item_overrides (item_id, active, stock, updated_by, updated_at) "
-        "VALUES (?, ?, ?, ?, ?) "
-        "ON CONFLICT(item_id) DO UPDATE SET "
-        "  active = COALESCE(excluded.active, item_overrides.active), "
-        "  stock = COALESCE(excluded.stock, item_overrides.stock), "
-        "  updated_by = excluded.updated_by, "
-        "  updated_at = excluded.updated_at",
-        (item_id, active, stock, updated_by, now_iso),
-    )
+    _stock_changed = stock is not None or clear_stock
+    if _stock_changed:
+        # Read the effective stock the user actually sees (merged JSON + override)
+        from shop.items import get_item_unfiltered
+        _visible = get_item_unfiltered(item_id)
+        if _visible is not None:
+            _old_stock = _visible.get("stock")
+    if clear_stock:
+        conn.execute(
+            "INSERT INTO item_overrides (item_id, active, stock, updated_by, updated_at) "
+            "VALUES (?, ?, NULL, ?, ?) "
+            "ON CONFLICT(item_id) DO UPDATE SET "
+            "  active = COALESCE(excluded.active, item_overrides.active), "
+            "  stock = NULL, "
+            "  updated_by = excluded.updated_by, "
+            "  updated_at = excluded.updated_at",
+            (item_id, active, updated_by, now_iso),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO item_overrides (item_id, active, stock, updated_by, updated_at) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(item_id) DO UPDATE SET "
+            "  active = COALESCE(excluded.active, item_overrides.active), "
+            "  stock = COALESCE(excluded.stock, item_overrides.stock), "
+            "  updated_by = excluded.updated_by, "
+            "  updated_at = excluded.updated_at",
+            (item_id, active, stock, updated_by, now_iso),
+        )
     conn.commit()
     conn.close()
+    # Keep JSON in sync so the override and catalogue always agree on stock
+    if _stock_changed:
+        try:
+            with _json_write_lock:
+                from shop.items import _load_json
+                _json_items = _load_json()
+                for _ji, _jit in enumerate(_json_items):
+                    if _jit.get("id") == item_id:
+                        _json_items[_ji] = dict(_jit)
+                        _json_items[_ji]["stock"] = stock
+                        break
+                _atomic_write_json(_SHOP_ITEMS_JSON, _json_items)
+        except Exception:
+            pass  # best-effort; DB override is the authority
     _evict_item_from_carts(item_id)
     _reload_items()
     if active is not None:
@@ -182,7 +214,7 @@ def admin_set_override(item_id: str, active: bool | None, stock: int | None,
             item_id,
             {"item_id": item_id},
         )
-    if stock is not None:
+    if _stock_changed:
         _log_admin_action(
             updated_by, "stock_updated", item_id,
             {"item_id": item_id, "old_stock": _old_stock, "new_stock": stock},
@@ -1317,6 +1349,34 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
             return {"error": f"Failed to write catalogue: {exc}"}
 
     _reload_items()
+
+    # Sync the DB stock override so it doesn't shadow the JSON value
+    if not is_new and os.path.isfile(_SHOP_DB):
+        _sync_conn = None
+        try:
+            _sync_conn = sqlite3.connect(_SHOP_DB, timeout=5)
+            _sync_conn.execute("PRAGMA journal_mode=WAL")
+            _ov_row = _sync_conn.execute(
+                "SELECT stock FROM item_overrides WHERE item_id = ?",
+                (item["id"],),
+            ).fetchone()
+            if _ov_row is not None:
+                _new_stock = item.get("stock")
+                _ov_stock = _ov_row[0]
+                if _ov_stock != _new_stock:
+                    _sync_conn.execute(
+                        "UPDATE item_overrides SET stock = ?, "
+                        "updated_by = ?, updated_at = ? "
+                        "WHERE item_id = ?",
+                        (_new_stock, actor, _now_iso(), item["id"]),
+                    )
+                    _sync_conn.commit()
+        except sqlite3.Error:
+            pass
+        finally:
+            if _sync_conn is not None:
+                _sync_conn.close()
+        _reload_items()
 
     # If activate_at is in the future, force the override to inactive
     if item.get("activate_at"):

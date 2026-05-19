@@ -1721,6 +1721,8 @@ def admin_shop_item_override(item_id):
     body = request.get_json(silent=True) or {}
     active = body.get("active")
     stock = body.get("stock")
+    # Distinguish "stock not sent" from "stock explicitly set to null (unlimited)"
+    clear_stock = "stock" in body and stock is None
     if active is not None:
         active = bool(active)
     if stock is not None:
@@ -1733,7 +1735,8 @@ def admin_shop_item_override(item_id):
         if stock > 99999:
             return jsonify({"error": "stock cannot exceed 99,999"}), 400
     chief_name = user.get("nick") or user.get("username", "")
-    return jsonify(admin_set_override(item_id, active, stock, chief_name))
+    return jsonify(admin_set_override(item_id, active, stock, chief_name,
+                                      clear_stock=clear_stock))
 
 
 @app.route("/api/admin/shop/purchases/<purchase_id>/cancel", methods=["POST"])
