@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  /* ── Tracker definitions ── */
+  /* Tracker definitions */
   var TRACKERS = [
     { name: 'Activity Data Refresh',    interval: 600, color: '#eb7d34' },
     { name: 'API Tracker',      interval: 300, color: '#5865F2' },
@@ -11,13 +11,14 @@
   ];
 
   var trackerTimers = {};
+  var trackerLastPct = {};
   var botInitialized = false;
   var botUptimeSeconds = 0;
   var botUptimeKnown = false;
   var trackerUptimeSeconds = 0;
   var trackerUptimeKnown = false;
 
-  /* ── Observe panel activation ── */
+  /* Observe panel activation */
   var panel = document.getElementById('panel-bot');
   var observer = new MutationObserver(function () {
     if (panel.classList.contains('active') && !botInitialized) {
@@ -33,7 +34,7 @@
     initBot();
   }
 
-  /* ── Init ── */
+  /* Init */
   function initBot() {
     var loadingEl = document.getElementById('botLoading');
     var errorEl   = document.getElementById('botError');
@@ -359,7 +360,9 @@
       var remote = remoteByName[normalizeTrackerName(t.name)];
       var remaining = remote && remote.remaining_seconds;
       trackerTimers[i] = normalizeRemaining(remaining, t.interval);
-      var initialPct = ((t.interval - trackerTimers[i]) / t.interval) * 100;
+      var initialPct = t.interval > 1
+        ? Math.min(((t.interval - trackerTimers[i]) / (t.interval - 1)) * 100, 100)
+        : 0;
       html += '<div class="tracker-item">' +
         '<div class="tracker-header">' +
         '<span class="tracker-name">' + t.name + '</span>' +
@@ -382,11 +385,23 @@
       var frozen = !trackerUptimeKnown && !isActivity;
       var remaining = Number(trackerTimers[i]);
       if (!isFinite(remaining) || remaining <= 0) remaining = t.interval;
-      var pct = ((t.interval - remaining) / t.interval) * 100;
+      var pct = t.interval > 1
+        ? Math.min(((t.interval - remaining) / (t.interval - 1)) * 100, 100)
+        : 0;
       var timeEl = document.getElementById('trackerTime' + i);
       var barEl  = document.getElementById('trackerBar' + i);
       if (timeEl) timeEl.textContent = frozen ? 'Offline' : formatCountdown(remaining);
-      if (barEl)  barEl.style.width  = pct + '%';
+      if (barEl) {
+        var prevPct = trackerLastPct[i] || 0;
+        trackerLastPct[i] = pct;
+        if (pct < prevPct - 5) {
+          barEl.style.transition = 'width 0.8s ease-out';
+          barEl.style.width = pct + '%';
+          setTimeout(function (el) { el.style.transition = 'width 1s linear'; }, 850, barEl);
+        } else {
+          barEl.style.width = pct + '%';
+        }
+      }
       if (!frozen) {
         remaining = remaining - 1;
         if (remaining <= 0) remaining = t.interval;
