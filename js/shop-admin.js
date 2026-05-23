@@ -1216,7 +1216,8 @@
       h += '<button class="ie-variant-tab' + (_ieActiveVariant === -1 ? ' ie-variant-tab--active' : '') + '" data-variant-idx="-1">';
       h += '<span class="ie-variant-tab-label">General</span></button>';
       _ieVariants.forEach(function (v, i) {
-        h += '<button class="ie-variant-tab' + (_ieActiveVariant === i ? ' ie-variant-tab--active' : '') + '" data-variant-idx="' + i + '" title="' + esc(v.label) + '">';
+        var _vInactive = v.data && v.data.active === 'false';
+        h += '<button class="ie-variant-tab' + (_ieActiveVariant === i ? ' ie-variant-tab--active' : '') + (_vInactive ? ' ie-variant-tab--inactive' : '') + '" data-variant-idx="' + i + '" title="' + esc(v.label) + '">';
         h += '<span class="ie-variant-tab-label">' + esc(v.label) + '</span>';
         if (_ieVariants.length > 1) h += '<span class="ie-variant-tab-close" data-variant-remove="' + i + '" title="Remove">&times;</span>';
         h += '</button>';
@@ -1755,8 +1756,56 @@
     }
 
 
+    // Helper: check whether ALL variants are currently inactive
+    function _allVariantsInactive() {
+      for (var _ai = 0; _ai < _ieVariants.length; _ai++) {
+        var _ad = _ieVariants[_ai].data;
+        // Check both the saved data and the live DOM dropdown
+        var _aSel = modal.querySelector('#ieVarActive_' + _ai);
+        var _aVal = _aSel ? _aSel.value : (_ad ? _ad.active : 'true');
+        if (_aVal !== 'false') return false;
+      }
+      return _ieVariants.length > 0;
+    }
+
+    // Helper: update a variant tab's inactive visual class
+    function _syncVariantTabClass(idx) {
+      var tabBtn = modal.querySelector('.ie-variant-tab[data-variant-idx="' + idx + '"]');
+      if (!tabBtn) return;
+      var sel = modal.querySelector('#ieVarActive_' + idx);
+      var isOff = sel ? sel.value === 'false' : false;
+      tabBtn.classList.toggle('ie-variant-tab--inactive', isOff);
+    }
+
+    var ieActiveEl = modal.querySelector('#ieActive');
+    if (ieActiveEl && _ieVariants.length > 0) {
+      ieActiveEl.addEventListener('change', function () {
+        if (ieActiveEl.value === 'true' && _allVariantsInactive()) {
+          // Turning item ON while all variants are off → reactivate all variants
+          _ieVariants.forEach(function (_rv, _ri) {
+            var _rSel = modal.querySelector('#ieVarActive_' + _ri);
+            if (_rSel) _rSel.value = 'true';
+            if (_rv.data) _rv.data.active = 'true';
+            _syncVariantTabClass(_ri);
+          });
+        }
+      });
+    }
+
     // Variant dirty EP / spend order sync
     _ieVariants.forEach(function (v, i) {
+      var vActiveEl = modal.querySelector('#ieVarActive_' + i);
+      if (vActiveEl) {
+        vActiveEl.addEventListener('change', function () {
+          // Update the in-memory data so _allVariantsInactive reads correctly
+          if (v.data) v.data.active = vActiveEl.value;
+          _syncVariantTabClass(i);
+          // If ALL variants are now inactive, set item-level Active to No
+          if (_allVariantsInactive() && ieActiveEl) {
+            ieActiveEl.value = 'false';
+          }
+        });
+      }
       var vDirty = modal.querySelector('#ieVarDirtyEP_' + i);
       var vSpend = modal.querySelector('#ieVarSpendOrder_' + i);
       if (vDirty && vSpend) {

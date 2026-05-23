@@ -906,7 +906,7 @@
     var _schedR = (!shopDisabled && !isDonate) ? _scheduleRibbon(item) : null;
     if (_schedR) {
       html += _schedR;
-    } else if (!shopDisabled && !isDonate && item.stock != null) {
+    } else if (!shopDisabled && !isDonate && item.stock != null && item.stock <= 200) {
       html += _ribbon(num(item.stock) + '\u00a0left', item.stock <= 0 ? 'outstock' : 'stock');
     }
     html += '<div class="shop-card-body">';
@@ -1207,7 +1207,12 @@
     if (_mIsMultiV) {
       if (_cart[_tmpKey] != null) { _mSelIdx = _cart[_tmpKey]; delete _cart[_tmpKey]; }
       else if (cartEntry && cartEntry.variantIdx != null) { _mSelIdx = cartEntry.variantIdx; }
-      else { _mSelIdx = 0; }
+      else {
+        _mSelIdx = 0;
+        for (var _fi = 0; _fi < _mVariants.length; _fi++) {
+          if (_mVariants[_fi].active !== false && !(_mVariants[_fi].stock != null && _mVariants[_fi].stock <= 0)) { _mSelIdx = _fi; break; }
+        }
+      }
     } else { _mSelIdx = null; }
     var _mEff = _mIsMultiV && _mSelIdx != null ? _mVariants[_mSelIdx] : item;
 
@@ -1236,7 +1241,7 @@
       _mVariants.forEach(function (v, vi) {
         var vLabel = v.name || v.label;
         var vPrice = v.price != null ? ': ' + num(v.price) + ' EP' : '';
-        var vStock = v.stock != null ? ' (' + num(v.stock) + ' left)' : ' (unlimited)';
+        var vStock = v.stock != null ? ' (' + num(v.stock) + ' left)' : '';
         var vDisabled = v.active === false || (v.stock != null && v.stock <= 0);
         html += '<option value="' + vi + '"' + (vi === _mSelIdx ? ' selected' : '') +
           (vDisabled ? ' disabled' : '') + '>' + esc(vLabel) + vPrice + vStock + '</option>';

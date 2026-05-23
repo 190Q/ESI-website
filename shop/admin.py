@@ -215,6 +215,29 @@ def admin_set_override(item_id: str, active: bool | None, stock: int | None,
                 _atomic_write_json(_SHOP_ITEMS_JSON, _json_items)
         except Exception:
             pass  # best-effort; DB override is the authority
+    # When activating an item whose variants are ALL inactive, reactivate them
+    if active is True:
+        try:
+            from shop.items import _load_json
+            with _json_write_lock:
+                _act_items = _load_json()
+                for _ai, _ait in enumerate(_act_items):
+                    if _ait.get("id") != item_id:
+                        continue
+                    _avars = _ait.get("variants")
+                    if not isinstance(_avars, list) or len(_avars) < 2:
+                        break
+                    _all_off = all(sv.get("active") is False for sv in _avars)
+                    if not _all_off:
+                        break
+                    _act_items[_ai] = dict(_ait)
+                    _act_items[_ai]["variants"] = [
+                        dict(sv, active=True) for sv in _avars
+                    ]
+                    _atomic_write_json(_SHOP_ITEMS_JSON, _act_items)
+                    break
+        except Exception:
+            pass  # best-effort
     _evict_item_from_carts(item_id)
     _reload_items()
     if active is not None:
