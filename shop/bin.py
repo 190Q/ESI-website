@@ -233,13 +233,14 @@ def execute_cart_checkout(
     user_position = get_user_cycle_position(mc_uuid) if mc_uuid else None
 
     # validate every item and build resolved line list
-    lines = []  # [{item, qty, price_per_unit, spend_order, ack_clean, ack_dirty}]
+    lines = []  # [{item, qty, price_per_unit, spend_order, ack_clean, ack_dirty, variant_index, variant}]
     for entry in cart_items:
         item_id = (entry.get("item_id") or "").strip()
         qty = int(entry.get("quantity", 1))
         ack = entry.get("acknowledged_spend") or {}
         ack_clean = int(ack.get("clean_ep", 0)) if isinstance(ack, dict) else 0
         ack_dirty = int(ack.get("dirty_ep", 0)) if isinstance(ack, dict) else 0
+        variant_index = entry.get("variant_index")  # None for non-variant items
 
         if qty < 1:
             raise PurchaseError(f"Invalid quantity for {item_id!r}: must be >= 1", 400)
@@ -252,35 +253,56 @@ def execute_cart_checkout(
         if not item.get("active", False):
             raise PurchaseError(f"Item {item_id!r} is currently not available", 400)
 
-        price = item.get("price")
+        # Resolve variant if specified
+        variant = None
+        variants = item.get("variants") or []
+        if variant_index is not None:
+            if not isinstance(variants, list) or variant_index < 0 or variant_index >= len(variants):
+                raise PurchaseError(f"Item {item_id!r}: invalid variant_index {variant_index}", 400)
+            variant = variants[variant_index]
+            if not variant.get("active", True):
+                raise PurchaseError(f"Item {item_id!r}: selected variant is not available", 400)
+        elif len(variants) > 1:
+            raise PurchaseError(f"Item {item_id!r}: variant_index is required for multi-variant items", 400)
+
+        # Use variant properties when present, fall back to item-level
+        effective = variant if variant else item
+        price = effective.get("price") if variant else item.get("price")
         if not isinstance(price, (int, float)) or price <= 0:
             raise PurchaseError(f"Item {item_id!r} has no valid price", 400)
         if isinstance(price, float) and price != int(price):
             raise PurchaseError(f"Item {item_id!r} has a non-integer price; contact an admin", 400)
         price = int(price)
 
-        # multi-quantity check
+        # multi-quantity check (use variant max_quantity if present)
+        eff_max_qty = effective.get("max_quantity") if variant else item.get("max_quantity")
+        eff_allow_multi = item.get("allow_multi_quantity", False)
         if qty > 1:
-            if not item.get("allow_multi_quantity", False):
+            if not eff_allow_multi:
                 raise PurchaseError(
                     f"Item {item_id!r} does not support multi-quantity purchase", 400
                 )
-            max_q = item.get("max_quantity") or 1
+            max_q = eff_max_qty or 1
             if qty > max_q:
                 raise PurchaseError(
                     f"Item {item_id!r}: quantity {qty} exceeds max_quantity {max_q}", 400
                 )
 
-        # cooldown check; items with cooldowns cannot be in a multi-qty cart
-        cd = check_cooldown(mc_uuid, item)
+        # cooldown check (use variant cooldown if present)
+        eff_cooldown_item = dict(item)
+        if variant and variant.get("cooldown") is not None:
+            eff_cooldown_item["cooldown"] = variant["cooldown"]
+        cd = check_cooldown(mc_uuid, eff_cooldown_item)
         if cd["on_cooldown"]:
             raise PurchaseError(
                 f"Item {item_id!r}: you are on cooldown until {cd['cooldown_ends_at']}",
                 409,
             )
 
-        spend_order = item.get("spend_order", "clean_first")
-        if not item.get("accepts_dirty_ep", False) and spend_order not in ("clean_only", "clean_first"):
+        # EP spend order (use variant if present)
+        spend_order = effective.get("spend_order", "clean_first")
+        accepts_dirty = effective.get("accepts_dirty_ep", False)
+        if not accepts_dirty and spend_order not in ("clean_only", "clean_first"):
             spend_order = "clean_only"
 
         lines.append({
@@ -292,6 +314,8 @@ def execute_cart_checkout(
             "spend_order": spend_order,
             "ack_clean": ack_clean,
             "ack_dirty": ack_dirty,
+            "variant_index": variant_index,
+            "variant": variant,
         })
 
     if not os.path.isfile(_SHOP_DB):
@@ -350,34 +374,78 @@ def execute_cart_checkout(
         live_stocks: dict = {}  # item_id -> live_stock (None if unlimited)
         for ln in lines:
             item_id = ln["item_id"]
-            json_stock = ln["item"].get("stock")
-            if json_stock is not None:
-                row = conn.execute(
-                    "SELECT stock FROM item_overrides WHERE item_id = ?", (item_id,),
-                ).fetchone()
-                live_stock = row[0] if (row and row[0] is not None) else json_stock
-                if live_stock < ln["qty"]:
-                    conn.rollback()
-                    avail = max(0, live_stock)
-                    raise PurchaseError(
-                        f"Item {item_id!r} has insufficient stock: need {ln['qty']}, available {avail}",
-                        409,
-                    )
-                live_stocks[item_id] = live_stock
-            else:
-                live_stocks[item_id] = None
+            vi = ln["variant_index"]
+            variant = ln["variant"]
 
+            if variant is not None:
+                # For variant purchases, check variant-level stock from JSON
+                v_stock = variant.get("stock")
+                if v_stock is not None:
+                    if v_stock < ln["qty"]:
+                        conn.rollback()
+                        raise PurchaseError(
+                            f"Item {item_id!r} variant has insufficient stock: need {ln['qty']}, available {max(0, v_stock)}",
+                            409,
+                        )
+                live_stocks[item_id] = v_stock  # None means unlimited
+            else:
+                json_stock = ln["item"].get("stock")
+                if json_stock is not None:
+                    row = conn.execute(
+                        "SELECT stock FROM item_overrides WHERE item_id = ?", (item_id,),
+                    ).fetchone()
+                    live_stock = row[0] if (row and row[0] is not None) else json_stock
+                    if live_stock < ln["qty"]:
+                        conn.rollback()
+                        avail = max(0, live_stock)
+                        raise PurchaseError(
+                            f"Item {item_id!r} has insufficient stock: need {ln['qty']}, available {avail}",
+                            409,
+                        )
+                    live_stocks[item_id] = live_stock
+                else:
+                    live_stocks[item_id] = None
+
+
+        # Collect variant stock decrements to apply to JSON after DB commit
+        _variant_json_updates = []  # [(item_id, variant_index, new_variant_stock)]
 
         for ln in lines:
             item = ln["item"]
             item_id = ln["item_id"]
             qty = ln["qty"]
+            vi = ln["variant_index"]
+            variant = ln["variant"]
             status = "pending"
             purchase_id = str(_uuid_mod.uuid4())
 
             # stock decrement
             live_stock = live_stocks[item_id]
-            if live_stock is not None:
+            if variant is not None and live_stock is not None:
+                # Variant purchase: decrement variant stock in JSON, recompute top-level
+                new_v_stock = live_stock - qty
+                _variant_json_updates.append((item_id, vi, new_v_stock))
+                variants = item.get("variants") or []
+                new_total = 0
+                has_infinite = False
+                for idx, v in enumerate(variants):
+                    vs = v.get("stock")
+                    if idx == vi:
+                        vs = new_v_stock
+                    if vs is None:
+                        has_infinite = True
+                        break
+                    new_total += vs
+                top_stock = None if has_infinite else new_total
+                if top_stock is not None:
+                    conn.execute(
+                        "INSERT INTO item_overrides (item_id, stock, updated_by, updated_at) "
+                        "VALUES (?, ?, 'system:cart', ?) "
+                        "ON CONFLICT(item_id) DO UPDATE SET "
+                        "  stock = ?, updated_by = 'system:cart', updated_at = ?",
+                        (item_id, top_stock, now_iso, top_stock, now_iso),
+                    )
+            elif live_stock is not None:
                 new_stock = live_stock - qty
                 conn.execute(
                     "INSERT INTO item_overrides (item_id, stock, updated_by, updated_at) "
@@ -403,7 +471,8 @@ def execute_cart_checkout(
             )
 
             # cooldown (only applicable when qty == 1 — enforced earlier by allow_multi_quantity)
-            if parse_duration(item.get("cooldown")) is not None:
+            eff_cooldown = variant.get("cooldown") if variant and variant.get("cooldown") is not None else item.get("cooldown")
+            if parse_duration(eff_cooldown) is not None:
                 conn.execute(
                     "INSERT INTO cooldowns (uuid, item_id, last_purchased_at) "
                     "VALUES (?, ?, ?) "
@@ -435,6 +504,33 @@ def execute_cart_checkout(
         raise PurchaseError("Internal error processing cart", 500)
     finally:
         conn.close()
+
+    # Apply variant stock decrements to JSON (best-effort, DB is authority)
+    if _variant_json_updates:
+        try:
+            from shop.admin import _json_write_lock, _atomic_write_json
+            from shop.items import _load_json
+            from config import _SHOP_ITEMS_JSON
+            with _json_write_lock:
+                _json_items = _load_json()
+                for _upd_item_id, _upd_vi, _upd_new_stock in _variant_json_updates:
+                    for _ji, _jit in enumerate(_json_items):
+                        if _jit.get("id") == _upd_item_id:
+                            _jvars = _jit.get("variants")
+                            if isinstance(_jvars, list) and _upd_vi < len(_jvars):
+                                _json_items[_ji] = dict(_jit)
+                                _json_items[_ji]["variants"] = [dict(v) for v in _jvars]
+                                _json_items[_ji]["variants"][_upd_vi]["stock"] = _upd_new_stock
+                                # Recompute top-level stock
+                                _all_stocks = [v.get("stock") for v in _json_items[_ji]["variants"]]
+                                if any(s is None for s in _all_stocks):
+                                    _json_items[_ji]["stock"] = None
+                                else:
+                                    _json_items[_ji]["stock"] = sum(_all_stocks)
+                            break
+                _atomic_write_json(_SHOP_ITEMS_JSON, _json_items)
+        except Exception:
+            pass  # best-effort; DB override is the authority
 
     _reload_items()
     return results

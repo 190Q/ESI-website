@@ -103,7 +103,10 @@
     _cartSyncTimer = setTimeout(function () {
       _cartSyncTimer = null;
       var items = Object.keys(_cart).map(function (id) {
-        return { item_id: id, quantity: _cart[id].quantity };
+        var e = _cart[id];
+        var o = { item_id: id, quantity: e.quantity };
+        if (e.variantIdx != null) o.variant_index = e.variantIdx;
+        return o;
       });
       fetch('/api/shop/cart', {
         method: 'PUT', credentials: 'same-origin',
@@ -131,7 +134,9 @@
             var maxQ = item.allow_multi_quantity
               ? Math.min(item.max_quantity || 999, item.stock != null ? item.stock : 999)
               : 1;
-            _cart[entry.item_id] = { item: item, quantity: Math.max(1, Math.min(entry.quantity, maxQ)) };
+            var ce = { item: item, quantity: Math.max(1, Math.min(entry.quantity, maxQ)) };
+            if (entry.variant_index != null) ce.variantIdx = entry.variant_index;
+            _cart[entry.item_id] = ce;
           });
         }
         _cartLoaded = true;
@@ -912,10 +917,24 @@
       html += '<div class="shop-card-meta"><span class="shop-card-price">1 LE = ' + _DONATE_LE_TO_EP + ' EP</span>';
       html += '<span class="shop-card-badge shop-card-badge--any">Earns Dirty EP</span>';
     } else {
-      html += '<div class="shop-card-meta"><span class="shop-card-price">' + num(item.price) + ' EP</span>';
-      html += (!item.accepts_dirty_ep || item.spend_order === 'clean_only')
-        ? '<span class="shop-card-badge shop-card-badge--clean">Clean EP Only</span>'
+    var _variants = item.variants || [];
+    var _isMultiV = _variants.length > 1;
+    if (_isMultiV) {
+      var _vPrices = _variants.map(function (v) { return v.price || 0; });
+      var _lowestP = Math.min.apply(null, _vPrices);
+      var _allSameEp = _variants.every(function (v) { return !!v.accepts_dirty_ep === !!_variants[0].accepts_dirty_ep; });
+      html += '<div class="shop-card-meta"><span class="shop-card-price">from ' + num(_lowestP) + ' EP</span>';
+      html += _allSameEp
+        ? ((!_variants[0].accepts_dirty_ep || _variants[0].spend_order === 'clean_only')
+          ? '<span class="shop-card-badge shop-card-badge--clean">Clean EP Only</span>'
+          : '<span class="shop-card-badge shop-card-badge--any">Any EP</span>')
         : '<span class="shop-card-badge shop-card-badge--any">Any EP</span>';
+      } else {
+        html += '<div class="shop-card-meta"><span class="shop-card-price">' + num(item.price) + ' EP</span>';
+        html += (!item.accepts_dirty_ep || item.spend_order === 'clean_only')
+          ? '<span class="shop-card-badge shop-card-badge--clean">Clean EP Only</span>'
+          : '<span class="shop-card-badge shop-card-badge--any">Any EP</span>';
+      }
     }
     html += '</div>';
     html += '<div class="shop-card-cats">' + _catBadges(item.category) + '</div>';
@@ -1056,9 +1075,11 @@
     var totClean = 0, totDirty = 0, grandTotal = 0;
     var hasDirtyFirst = false;
     entries.forEach(function (e) {
-      var price = e.item.price * e.quantity;
+      var _cv = (e.variantIdx != null && e.item.variants && e.item.variants[e.variantIdx]) ? e.item.variants[e.variantIdx] : null;
+      var _cEff = _cv || e.item;
+      var price = (_cEff.price || e.item.price) * e.quantity;
       grandTotal += price;
-      var so = (!e.item.accepts_dirty_ep) ? 'clean_only' : (e.item.spend_order || 'clean_first');
+      var so = (!_cEff.accepts_dirty_ep) ? 'clean_only' : (_cEff.spend_order || 'clean_first');
       if (so === 'dirty_first' || so === 'dirty_only') hasDirtyFirst = true;
       var lc = 0, ld = 0;
       if (so === 'clean_only') {
@@ -1179,9 +1200,25 @@
     else html += '<div class="detail-img-wrap detail-img-wrap--empty">No Image</div>';
     html += _catBadges(item.category);
     html += '<div class="shop-modal-title">' + esc(item.name) + '</div>';
+    var _mVariants = item.variants || [];
+    var _mIsMultiV = _mVariants.length > 1;
+    var _tmpKey = '__variantSel_' + item.id;
+    var _mSelIdx;
+    if (_mIsMultiV) {
+      if (_cart[_tmpKey] != null) { _mSelIdx = _cart[_tmpKey]; delete _cart[_tmpKey]; }
+      else if (cartEntry && cartEntry.variantIdx != null) { _mSelIdx = cartEntry.variantIdx; }
+      else { _mSelIdx = 0; }
+    } else { _mSelIdx = null; }
+    var _mEff = _mIsMultiV && _mSelIdx != null ? _mVariants[_mSelIdx] : item;
+
     html += '<div class="detail-meta-row">';
-    html += '<span class="shop-card-price">' + num(item.price) + ' EP</span>';
-    html += (!item.accepts_dirty_ep || item.spend_order === 'clean_only')
+    if (_mIsMultiV) {
+      var _mLowest = Math.min.apply(null, _mVariants.map(function (v) { return v.price || 0; }));
+      html += '<span class="shop-card-price">from ' + num(_mLowest) + ' EP</span>';
+    } else {
+      html += '<span class="shop-card-price">' + num(item.price) + ' EP</span>';
+    }
+    html += (!_mEff.accepts_dirty_ep || _mEff.spend_order === 'clean_only')
       ? '<span class="shop-card-badge shop-card-badge--clean">Clean EP Only</span>'
       : '<span class="shop-card-badge shop-card-badge--any">Any EP</span>';
     if (item.stock != null) html += '<span class="detail-stock-info">' + num(item.stock) + ' left</span>';
@@ -1190,9 +1227,36 @@
       ? '<span class="detail-cooldown-info">' + esc(cdDesc) + '</span>'
       : '<span class="detail-cooldown-info detail-cooldown-info--none">No Cooldown</span>';
     html += '</div>';
+
+    // Variant dropdown for multi-variant items
+    if (_mIsMultiV) {
+      html += '<div class="detail-variant-select">';
+      html += '<label class="detail-variant-label">Select Variant</label>';
+      html += '<select class="detail-variant-dropdown" id="shopDetailVariant">';
+      _mVariants.forEach(function (v, vi) {
+        var vLabel = v.name || v.label;
+        var vPrice = v.price != null ? ': ' + num(v.price) + ' EP' : '';
+        var vStock = v.stock != null ? ' (' + num(v.stock) + ' left)' : ' (unlimited)';
+        var vDisabled = v.active === false || (v.stock != null && v.stock <= 0);
+        html += '<option value="' + vi + '"' + (vi === _mSelIdx ? ' selected' : '') +
+          (vDisabled ? ' disabled' : '') + '>' + esc(vLabel) + vPrice + vStock + '</option>';
+      });
+      html += '</select>';
+      // Show selected variant details
+      var _sv = _mVariants[_mSelIdx];
+      html += '<div class="detail-variant-info">';
+      html += '<span class="shop-card-price">' + num(_sv.price) + ' EP</span>';
+      if (_sv.stock != null) html += '<span class="detail-stock-info">' + num(_sv.stock) + ' left</span>';
+      html += '</div>';
+      html += '</div>';
+    }
+
     if (item.description) html += '<div class="detail-full-desc">' + esc(item.description) + '</div>';
     var btnLabel = 'Add to Cart';
-    var btnDisabled = disabled;
+    // For multi-variant, disabled state is per-variant
+    var _effStock = _mIsMultiV && _mSelIdx != null ? _mVariants[_mSelIdx].stock : item.stock;
+    var _effActive = _mIsMultiV && _mSelIdx != null ? _mVariants[_mSelIdx].active !== false : true;
+    var btnDisabled = shopDisabled || inactive || visBlocked || onCooldown || (!_effActive) || (_effStock != null && _effStock <= 0);
     if (shopDisabled) { btnLabel = disabledMessage(); }
     else if (schedPending) {
       var _mdiff = new Date(item.activate_at).getTime() - Date.now();
@@ -1200,7 +1264,8 @@
       btnLabel = _mH <= 24 ? 'Available in ' + _mH + 'h' : 'Available in ' + Math.ceil(_mdiff / 86400000) + 'd';
     }
     else if (inactive) { btnLabel = 'Unavailable'; }
-    else if (item.stock != null && item.stock <= 0) { btnLabel = 'Out of Stock'; }
+    else if (!_effActive) { btnLabel = 'Variant Unavailable'; }
+    else if (_effStock != null && _effStock <= 0) { btnLabel = 'Out of Stock'; }
     else if (onCooldown && item.cooldown_ends_at) {
       btnLabel = 'Available in ' + Math.ceil(Math.max(0, new Date(item.cooldown_ends_at) - new Date()) / 86400000) + 'd';
     } else if (onCooldown) { btnLabel = 'On Cooldown'; }
@@ -1224,9 +1289,26 @@
     modal.innerHTML = html;
     _bindCarousel(modal);
     _freezeGifs(modal);
+    // Variant dropdown change handler
+    var variantSel = document.getElementById('shopDetailVariant');
+    if (variantSel) {
+      variantSel.addEventListener('change', function () {
+        var newIdx = parseInt(this.value, 10);
+        // If item is in cart with a different variant, remove it
+        if (_cart[item.id] && _cart[item.id].variantIdx !== newIdx) {
+          delete _cart[item.id];
+          updateCartBadge(); _patchCartAction(item.id);
+        }
+        // Re-render modal with new selection stored temporarily
+        _cart['__variantSel_' + item.id] = newIdx;
+        openItemDetailModal(item);
+      });
+    }
     var addBtn = document.getElementById('shopDetailAdd');
     if (addBtn) addBtn.addEventListener('click', function () {
-      _cart[item.id] = { item: item, quantity: 1 };
+      var entry = { item: item, quantity: 1 };
+      if (_mIsMultiV && _mSelIdx != null) entry.variantIdx = _mSelIdx;
+      _cart[item.id] = entry;
       updateCartBadge(); _patchCartAction(item.id);
       openItemDetailModal(item); // re-render modal with updated state
     });
@@ -1505,7 +1587,10 @@
       return;
     }
 
-    var total = entries.reduce(function (n, e) { return n + e.item.price * e.quantity; }, 0);
+    var total = entries.reduce(function (n, e) {
+      var _cv = (e.variantIdx != null && e.item.variants && e.item.variants[e.variantIdx]) ? e.item.variants[e.variantIdx] : null;
+      return n + ((_cv ? _cv.price : null) || e.item.price) * e.quantity;
+    }, 0);
     var split = bal ? computeCartSplit(entries, bal) : null;
 
     var _cartReadOnly = _shopMaintenanceViewOnly;
@@ -1518,9 +1603,15 @@
       var maxQ    = isMulti ? Math.min(item.max_quantity || 999, item.stock != null ? item.stock : 999) : 1;
       html += '<div class="cart-row">';
       // Col 1: info
+      var _cVariantIdx = entry.variantIdx;
+      var _cVariant = (_cVariantIdx != null && item.variants && item.variants[_cVariantIdx]) ? item.variants[_cVariantIdx] : null;
+      var _cPrice = _cVariant ? (_cVariant.price || item.price) : item.price;
+      var _cEpItem = _cVariant || item;
       html += '<div class="cart-row-info">' +
-        '<span class="cart-row-name">' + esc(item.name) + '</span>' +
-        '<span class="cart-row-meta">' + num(item.price) + ' EP each ' + _cartEpBadge(item) + '</span>' +
+        '<span class="cart-row-name">' + esc(item.name) +
+          (_cVariant ? ' <span class="cart-variant-label">(' + esc(_cVariant.name || _cVariant.label) + ')</span>' : '') +
+        '</span>' +
+        '<span class="cart-row-meta">' + num(_cPrice) + ' EP each ' + _cartEpBadge(_cEpItem) + '</span>' +
       '</div>';
       // Col 2: stepper
       if (_cartReadOnly) {
@@ -1539,7 +1630,7 @@
       }
       // Col 3: subtotal + trash
       html += '<div class="cart-row-end">' +
-        '<span class="cart-row-subtotal">' + num(item.price * entry.quantity) + ' EP</span>';
+        '<span class="cart-row-subtotal">' + num(_cPrice * entry.quantity) + ' EP</span>';
       if (!_cartReadOnly) {
         html += '<button class="cart-row-remove" data-modal-remove="' + esc(item.id) + '">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
@@ -1637,7 +1728,12 @@
     var modal      = document.getElementById('shopModal');
     var confirmBtn = document.getElementById('shopModalConfirm');
     if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Processing\u2026'; }
-    var items = Object.keys(_cart).map(function (id) { return { item_id: id, quantity: _cart[id].quantity }; });
+    var items = Object.keys(_cart).map(function (id) {
+      var e = _cart[id];
+      var o = { item_id: id, quantity: e.quantity };
+      if (e.variantIdx != null) o.variant_index = e.variantIdx;
+      return o;
+    });
     fetch('/api/shop/bin/cart/checkout', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },

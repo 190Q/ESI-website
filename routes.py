@@ -1265,9 +1265,12 @@ def shop_bin_cart_checkout():
         if qty < 1:
             return jsonify({"error": f"quantity must be >= 1 for item {item_id!r}"}), 400
         ack = entry.get("acknowledged_spend") or {}
+        vi_raw = entry.get("variant_index")
+        vi = int(vi_raw) if vi_raw is not None else None
         cart.append({
             "item_id": item_id,
             "quantity": qty,
+            "variant_index": vi,
             "acknowledged_spend": ack,
         })
     try:
@@ -1366,8 +1369,10 @@ def shop_cart_save():
             qty = int(entry.get("quantity", 1))
         except (TypeError, ValueError):
             continue
+        vi_raw = entry.get("variant_index")
+        vi = int(vi_raw) if vi_raw is not None else None
         if item_id and qty >= 1:
-            items.append({"item_id": item_id, "quantity": qty})
+            items.append({"item_id": item_id, "quantity": qty, "variant_index": vi})
     ok = save_cart(user.get("id", ""), items)
     return jsonify({"ok": ok})
 

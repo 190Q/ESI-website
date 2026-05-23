@@ -352,11 +352,28 @@
       // stock (not applicable for auctions)
       if (item.type === 'auction') {
         html += '<span style="color:var(--text-faint)">N/A</span>';
-      } else if (canChiefEdit) {
-        var stockVal = item.stock != null ? item.stock : '';
-        html += '<span><input type="number" min="0" max="99999" class="sa-stock-input" data-stock-id="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="\u221E" /></span>';
       } else {
-        html += '<span>' + (item.stock != null ? num(item.stock) : '\u221E') + '</span>';
+        var _sv = Array.isArray(item.variants) ? item.variants : [];
+        var _isMulti = _sv.length > 1;
+        var _effStock = item.stock;
+        if (_isMulti) {
+          var _hasInf = false, _sum = 0;
+          for (var _vi = 0; _vi < _sv.length; _vi++) {
+            if (_sv[_vi].stock == null) { _hasInf = true; break; }
+            _sum += _sv[_vi].stock;
+          }
+          _effStock = _hasInf ? null : _sum;
+        }
+        if (canChiefEdit) {
+          var stockVal = _effStock != null ? _effStock : '';
+          if (_isMulti) {
+            html += '<span><input type="number" class="sa-stock-input" value="' + esc(stockVal) + '" placeholder="\u221E" disabled title="Total from all variants" /></span>';
+          } else {
+            html += '<span><input type="number" min="0" max="99999" class="sa-stock-input" data-stock-id="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="\u221E" /></span>';
+          }
+        } else {
+          html += '<span>' + (_effStock != null ? num(_effStock) : '\u221E') + '</span>';
+        }
       }
 
       // controls: auction actions + edit + delete
@@ -641,7 +658,13 @@
               lastVal = val;
               showToast('\u2713 Stock updated for ' + id, 'success');
               var item = (_items || []).find(function (it) { return it.id === id; });
-              if (item) item.stock = stock;
+              if (item) {
+                item.stock = stock;
+                // Sync single-variant stock in local cache
+                if (Array.isArray(item.variants) && item.variants.length === 1) {
+                  item.variants[0].stock = stock;
+                }
+              }
               _notifyShopUpdated();
             } else {
               showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
@@ -943,6 +966,28 @@
   var _IE_RANKS = ['emperor', 'archduke', 'grand duke', 'duke', 'count', 'viscount', 'knight', 'squire'];
   var _ieCatTags = [];
   var _ieImages = [];
+  var _ieVariants = [];       // [{id, label}] – variant (sub-item) tabs
+  var _ieActiveVariant = -1;  // -1 = General tab
+  var _IE_MAX_TABS = 11;      // includes the permanent General tab
+
+  function _ieSaveVariantData(modal) {
+    if (_ieActiveVariant < 0 || _ieActiveVariant >= _ieVariants.length) return;
+    var i = _ieActiveVariant, d = _ieVariants[i].data;
+    if (!d) { _ieVariants[i].data = d = {}; }
+    function gv(id) { var el = modal.querySelector('#' + id); return el ? el.value.trim() : ''; }
+    d.name = gv('ieVarName_' + i);
+    d.price = gv('ieVarPrice_' + i);
+    d.stock = gv('ieVarStock_' + i);
+    d.max_quantity = gv('ieVarMaxQty_' + i);
+    d.accepts_dirty_ep = gv('ieVarDirtyEP_' + i);
+    d.spend_order = gv('ieVarSpendOrder_' + i);
+    d.cooldown_type = gv('ieVarCdType_' + i);
+    d.cooldown_num = gv('ieVarCdNum_' + i);
+    d.activate_at = gv('ieVarActAt_' + i);
+    d.deactivate_at = gv('ieVarDeactAt_' + i);
+    d.active = gv('ieVarActive_' + i);
+  }
+
   function _ieCatSyncHidden(el) { if (el) el.value = _ieCatTags.join(','); }
 
   /* Item Editor helpers */
@@ -1072,6 +1117,72 @@
   function openItemEditor(item, isNew) {
     var modal = document.getElementById('saModal');
     var bd    = document.getElementById('saModalBackdrop');
+    _ieVariants = [];
+    _ieActiveVariant = -1;
+
+    // Edit mode: seed variant state from existing item data
+    if (!isNew && item) {
+      var _t = item.type || 'bin';
+      if (_t !== 'auction') {
+        var subs = Array.isArray(item.variants) ? item.variants : [];
+        if (subs.length) {
+          // Pre-populate from existing sub-items
+          subs.forEach(function (sv, idx) {
+            _ieVariants.push({
+              id: 'v' + Date.now() + '_' + idx,
+              label: sv.label || ('Variant ' + (idx + 1)),
+              data: (function () {
+                var _svCd = _parseCooldownUI(sv.cooldown);
+                return {
+                  name: sv.name || '',
+                  price: _v(sv.price, ''),
+                  stock: _v(sv.stock, ''),
+                  max_quantity: _v(sv.max_quantity, ''),
+                  accepts_dirty_ep: sv.accepts_dirty_ep !== false ? 'true' : 'false',
+                  spend_order: sv.spend_order || 'clean_first',
+                  cooldown_type: _svCd.type, cooldown_num: String(_svCd.n),
+                  activate_at: sv.activate_at || '', deactivate_at: sv.deactivate_at || '',
+                  active: sv.active !== false ? 'true' : 'false',
+                };
+              })()
+            });
+          });
+        } else {
+          // Bin/Donation with no sub-items: single default variant from item data
+          _ieVariants.push({
+            id: 'v' + Date.now(),
+            label: 'Variant 1',
+            data: (function () {
+              var _iCd = _parseCooldownUI(item.cooldown);
+              return {
+                name: '',
+                price: _v(item.price, ''),
+                stock: _v(item.stock, ''),
+                max_quantity: _v(item.max_quantity, ''),
+                accepts_dirty_ep: item.accepts_dirty_ep !== false ? 'true' : 'false',
+                spend_order: item.spend_order || 'clean_first',
+                cooldown_type: _iCd.type, cooldown_num: String(_iCd.n),
+                activate_at: item.activate_at || '', deactivate_at: item.deactivate_at || '',
+                active: 'true',
+              };
+            })()
+          });
+        }
+      }
+      // Auction: _ieVariants stays empty
+    }
+
+    // Non-auction items always have at least one variant
+    if (!_ieVariants.length && (!item || (item.type || 'bin') !== 'auction')) {
+      _ieVariants.push({
+        id: 'v' + Date.now(), label: 'Variant 1',
+        data: { name: '', price: '', stock: '', max_quantity: '',
+                accepts_dirty_ep: 'true', spend_order: 'clean_first',
+                cooldown_type: 'none', cooldown_num: '1',
+                activate_at: '', deactivate_at: '', active: 'true' }
+      });
+    }
+
     modal.classList.add('ie-modal');
     modal.innerHTML = _buildItemEditorHtml(item, isNew);
     bd.classList.add('open');
@@ -1096,19 +1207,42 @@
 
     var h = '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>';
     h += '<div class="shop-modal-title">' + (isNew ? 'New Item' : 'Edit: ' + esc(it.name || it.id || '')) + '</div>';
-    h += '<div class="ie-form-scroll">';
 
-    // Basic Info
-    h += '<div class="ie-section"><div class="ie-section-title">Basic Info</div>';
+    // Variant tab bar (hidden for auction single-item edit)
+    var _showTabBar = isNew || _ieVariants.length > 0;
+    if (_showTabBar) {
+      h += '<div class="ie-variant-tabs" id="ieVariantTabs">';
+      h += '<div class="ie-variant-tabs-row">';
+      h += '<button class="ie-variant-tab' + (_ieActiveVariant === -1 ? ' ie-variant-tab--active' : '') + '" data-variant-idx="-1">';
+      h += '<span class="ie-variant-tab-label">General</span></button>';
+      _ieVariants.forEach(function (v, i) {
+        h += '<button class="ie-variant-tab' + (_ieActiveVariant === i ? ' ie-variant-tab--active' : '') + '" data-variant-idx="' + i + '" title="' + esc(v.label) + '">';
+        h += '<span class="ie-variant-tab-label">' + esc(v.label) + '</span>';
+        if (_ieVariants.length > 1) h += '<span class="ie-variant-tab-close" data-variant-remove="' + i + '" title="Remove">&times;</span>';
+        h += '</button>';
+      });
+      var _isAuction = itType === 'auction';
+      var canAddVariant = (1 + _ieVariants.length) < _IE_MAX_TABS && !_isAuction;
+      if (canAddVariant) {
+        h += '<button class="ie-variant-tab ie-variant-tab--add" id="ieAddVariant" title="Add Variant">' +
+          '<span class="ie-add-plus">+</span><span class="ie-add-text">\u00a0Add Variant</span></button>';
+      }
+      h += '</div>';
+      h += '<div class="ie-variant-tabs-border"></div>';
+      h += '</div>';
+    }
 
-    // Row 1: Name (+ auto-ID preview) | Type | Active
+    h += '<div class="ie-form-scroll"' + (_showTabBar ? '' : ' style="max-height:65vh"') + '>';
+
+    // Basic Info (hidden when variant tab active)
+    h += '<div class="ie-section" id="ieBasicInfo"' + (_ieActiveVariant >= 0 ? ' style="display:none"' : '') + '><div class="ie-section-title">Basic Info</div>';
     h += '<div class="ie-row">';
     h += '<div class="ie-field ie-field--wide">';
     h += '<label class="ie-label">Name</label>';
     h += '<input id="ieName" class="ie-input" value="' + esc(it.name || '') + '" placeholder="Display name" maxlength="45" />';
     h += '<input type="hidden" id="ieId" value="' + esc(it.id || '') + '" />';
     h += '</div>';
-    h += '<div class="ie-field"><label class="ie-label">Type</label>' +
+    h += '<div class="ie-field" id="ieTypeField"' + (_ieActiveVariant >= 0 ? ' style="display:none"' : '') + '><label class="ie-label">Type</label>' +
          '<select id="ieType" class="ie-input"><option value="bin"' + _sel(itType === 'bin') + '>Bin</option>' +
          '<option value="auction"' + _sel(itType === 'auction') + '>Auction</option>' +
          '<option value="donate"' + _sel(itType === 'donate') + '>Donate</option></select></div>';
@@ -1116,8 +1250,13 @@
          '<select id="ieActive" class="ie-input"><option value="true"' + _sel(it.active !== false) + '>Yes</option>' +
          '<option value="false"' + _sel(it.active === false) + '>No</option></select></div>';
     h += '</div>';
+    h += '</div>'; // basic info section
 
-    // Row 2: Categories (tag input)
+    // General tab panel
+    var _generalVis = _ieActiveVariant === -1 ? '' : 'none';
+    h += '<div class="ie-tab-panel" data-ie-panel="-1" style="display:' + _generalVis + '">';
+
+    // Categories (tag input)
     h += '<div class="ie-row">';
     var initTags = Array.isArray(it.category) ? it.category : (it.category ? [it.category] : []);
     h += '<div class="ie-field ie-field--full"><label class="ie-label">Categories</label>' +
@@ -1139,15 +1278,15 @@
          '<textarea id="ieDesc" class="ie-input ie-textarea" maxlength="500">' + esc(it.description || '') + '</textarea></div>';
 
     // Images: multi-upload
-    h += '<div class="ie-field ie-field--full"><label class="ie-label">Images <span class="ie-hint-inline">max 3</span></label>';
+    h += '<div class="ie-field ie-field--full" style="margin-bottom: 18px;"><label class="ie-label">Images <span class="ie-hint-inline">max 3</span></label>';
     h += '<div class="ie-img-list" id="ieImgList"></div>';
     h += '<button type="button" class="ie-img-add-btn" id="ieImgAdd">&#43; Upload Image</button>';
     h += '<input type="file" id="ieImgFile" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none" />';
     h += '<div class="ie-hint">PNG/JPG/GIF/WebP \u00b7 max 2 MB</div>';
-    h += '</div>'; // field
-    h += '</div>'; // basic section
+    h += '</div>';
 
     // Pricing & Stock
+    if (!_ieVariants.length) {
     h += '<div class="ie-section" data-ie-pricing><div class="ie-section-title">Pricing &amp; Stock</div>';
     h += '<div class="ie-row">';
     h += '<div class="ie-field" data-ie-bin><label class="ie-label">Price (EP)</label>' +
@@ -1193,21 +1332,8 @@
            return '<option value="' + o + '"' + _sel(spendVal === o) + '>' + o.replace(/_/g, ' ') + '</option>';
          }).join('') + '</select></div>';
     h += '</div></div>'; // EP section
+    } // end if (!_ieVariants.length)
 
-    // Cooldown & Schedule
-    h += '<div class="ie-section" data-ie-bin><div class="ie-section-title">Cooldown &amp; Schedule</div><div class="ie-row">';
-    h += '<div class="ie-field ie-field--wide"><label class="ie-label">Cooldown</label>';
-    h += '<div class="ie-cooldown-row">';
-    h += '<select id="ieCooldownType" class="ie-input ie-cd-type">' +
-         '<option value="none"'          + _sel(cd.type === 'none')         + '>None</option>' +
-         '<option value="days"'          + _sel(cd.type === 'days')         + '>Days</option>' +
-         '<option value="end_of_cycle"'  + _sel(cd.type === 'end_of_cycle') + '>End of Cycle</option>' +
-         '<option value="cycles"'        + _sel(cd.type === 'cycles')       + '>Cycles</option>' +
-         '</select>';
-    h += '<input id="ieCooldownNum" type="text" inputmode="numeric" class="ie-input ie-num ie-cd-num" maxlength="2" value="' + cd.n + '"' +
-         ((cd.type === 'days' || cd.type === 'cycles') ? '' : ' style="display:none"') + ' />';
-    h += '</div></div>'; // cooldown field
-    h += '</div>'; // ie-row
     function _utcToLocal(iso) {
       if (!iso) return '';
       var d = new Date(iso);
@@ -1216,17 +1342,34 @@
       return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
         'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
     }
-    var _actAt  = _utcToLocal(it.activate_at);
-    var _deactAt = _utcToLocal(it.deactivate_at);
-    h += '<div class="ie-row">';
-    h += '<div class="ie-field"><label class="ie-label">Auto-activate at</label>' +
-         '<input id="ieActivateAt" type="datetime-local" class="ie-input" value="' + esc(_actAt) + '" />' +
-         '<div class="ie-hint">Item will automatically activate at this date/time (your local timezone)</div></div>';
-    h += '<div class="ie-field"><label class="ie-label">Auto-deactivate at</label>' +
-         '<input id="ieDeactivateAt" type="datetime-local" class="ie-input" value="' + esc(_deactAt) + '" />' +
-         '<div class="ie-hint">Item will automatically deactivate at this date/time (your local timezone)</div></div>';
-    h += '</div>'; // ie-row
-    h += '</div>'; // cooldown & schedule section
+
+    // Cooldown & Schedule (in General only when no variants)
+    if (!_ieVariants.length) {
+      h += '<div class="ie-section" data-ie-bin><div class="ie-section-title">Cooldown &amp; Schedule</div><div class="ie-row">';
+      h += '<div class="ie-field ie-field--wide"><label class="ie-label">Cooldown</label>';
+      h += '<div class="ie-cooldown-row">';
+      h += '<select id="ieCooldownType" class="ie-input ie-cd-type">' +
+           '<option value="none"'          + _sel(cd.type === 'none')         + '>None</option>' +
+           '<option value="days"'          + _sel(cd.type === 'days')         + '>Days</option>' +
+           '<option value="end_of_cycle"'  + _sel(cd.type === 'end_of_cycle') + '>End of Cycle</option>' +
+           '<option value="cycles"'        + _sel(cd.type === 'cycles')       + '>Cycles</option>' +
+           '</select>';
+      h += '<input id="ieCooldownNum" type="text" inputmode="numeric" class="ie-input ie-num ie-cd-num" maxlength="2" value="' + cd.n + '"' +
+           ((cd.type === 'days' || cd.type === 'cycles') ? '' : ' style="display:none"') + ' />';
+      h += '</div></div>';
+      h += '</div>';
+      var _actAt  = _utcToLocal(it.activate_at);
+      var _deactAt = _utcToLocal(it.deactivate_at);
+      h += '<div class="ie-row">';
+      h += '<div class="ie-field"><label class="ie-label">Auto-activate at</label>' +
+           '<input id="ieActivateAt" type="datetime-local" class="ie-input" value="' + esc(_actAt) + '" />' +
+           '<div class="ie-hint">Item will automatically activate at this date/time (your local timezone)</div></div>';
+      h += '<div class="ie-field"><label class="ie-label">Auto-deactivate at</label>' +
+           '<input id="ieDeactivateAt" type="datetime-local" class="ie-input" value="' + esc(_deactAt) + '" />' +
+           '<div class="ie-hint">Item will automatically deactivate at this date/time (your local timezone)</div></div>';
+      h += '</div>';
+      h += '</div>';
+    }
 
     // Visibility
     h += '<div class="ie-section"><div class="ie-section-title">Visibility</div>';
@@ -1249,7 +1392,75 @@
     h += '<input id="ieTopN" type="text" inputmode="numeric" class="ie-input ie-num" value="' + esc(topN) + '" maxlength="3" placeholder="No filter" style="max-width:140px" />';
     h += '<div class="ie-hint">Only the top N players from the previous EP cycle can see and purchase this item. Leave blank for no restriction.</div>';
     h += '</div>';
-    h += '</div>'; // section
+    h += '</div>'; // visibility section
+
+    h += '</div>'; // General panel
+
+    // Variant tab panels
+    _ieVariants.forEach(function (v, i) {
+      var _varVis = _ieActiveVariant === i ? '' : 'none';
+      var d = v.data || {};
+      var vDirty = d.accepts_dirty_ep !== 'false';
+      var vSpend = vDirty ? (d.spend_order || 'clean_first') : 'clean_only';
+      h += '<div class="ie-tab-panel" data-ie-panel="' + i + '" style="display:' + _varVis + '">';
+      h += '<div class="ie-section">';
+      h += '<div class="ie-row">';
+      h += '<div class="ie-field ie-field--wide"><label class="ie-label">Name</label>' +
+           '<input id="ieVarName_' + i + '" class="ie-input" value="' + esc(d.name || '') + '" placeholder="Variant display name" maxlength="45" /></div>';
+      h += '<div class="ie-field"><label class="ie-label">Active</label>' +
+           '<select id="ieVarActive_' + i + '" class="ie-input">' +
+           '<option value="true"' + _sel(d.active !== 'false') + '>Yes</option>' +
+           '<option value="false"' + _sel(d.active === 'false') + '>No</option></select></div>';
+      h += '</div>';
+      h += '<div class="ie-row">';
+      h += '<div class="ie-field"><label class="ie-label">Price (EP)</label>' +
+           '<input id="ieVarPrice_' + i + '" type="text" inputmode="numeric" class="ie-input ie-num" value="' + _v(d.price, '') + '" maxlength="6" placeholder="0" /></div>';
+      h += '<div class="ie-field"><label class="ie-label">Stock (blank\u00a0=\u00a0\u221e)</label>' +
+           '<input id="ieVarStock_' + i + '" type="text" inputmode="numeric" class="ie-input ie-num" value="' + _v(d.stock, '') + '" maxlength="6" placeholder="\u221e" /></div>';
+      h += '<div class="ie-field"><label class="ie-label">Max Qty/purchase</label>' +
+           '<input id="ieVarMaxQty_' + i + '" type="text" inputmode="numeric" class="ie-input ie-num" value="' + _v(d.max_quantity, '') + '" maxlength="2" placeholder="1" /></div>';
+      h += '</div>';
+      h += '<div class="ie-row">';
+      h += '<div class="ie-field"><label class="ie-label">Accepts Dirty EP</label>' +
+           '<select id="ieVarDirtyEP_' + i + '" class="ie-input">' +
+           '<option value="true"' + _sel(vDirty) + '>Yes</option>' +
+           '<option value="false"' + _sel(!vDirty) + '>No (Clean Only)</option>' +
+           '</select></div>';
+      h += '<div class="ie-field"><label class="ie-label">Spend Order</label>' +
+           '<select id="ieVarSpendOrder_' + i + '" class="ie-input">';
+      ['clean_first', 'dirty_first', 'clean_only', 'dirty_only'].forEach(function (o) {
+        h += '<option value="' + o + '"' + _sel(vSpend === o) + '>' + o.replace(/_/g, ' ') + '</option>';
+      });
+      h += '</select></div>';
+      h += '</div>';
+      h += '</div>'; // section
+      // Cooldown & Schedule
+      var vCd = { type: d.cooldown_type || 'none', n: d.cooldown_num || '1' };
+      h += '<div class="ie-section"><div class="ie-section-title">Cooldown &amp; Schedule</div>';
+      h += '<div class="ie-row">';
+      h += '<div class="ie-field ie-field--wide"><label class="ie-label">Cooldown</label>';
+      h += '<div class="ie-cooldown-row">';
+      h += '<select id="ieVarCdType_' + i + '" class="ie-input ie-cd-type">' +
+           '<option value="none"' + _sel(vCd.type === 'none') + '>None</option>' +
+           '<option value="days"' + _sel(vCd.type === 'days') + '>Days</option>' +
+           '<option value="end_of_cycle"' + _sel(vCd.type === 'end_of_cycle') + '>End of Cycle</option>' +
+           '<option value="cycles"' + _sel(vCd.type === 'cycles') + '>Cycles</option>' +
+           '</select>';
+      h += '<input id="ieVarCdNum_' + i + '" type="text" inputmode="numeric" class="ie-input ie-num ie-cd-num" maxlength="2" value="' + esc(vCd.n) + '"' +
+           ((vCd.type === 'days' || vCd.type === 'cycles') ? '' : ' style="display:none"') + ' />';
+      h += '</div></div>';
+      h += '</div>';
+      var vActAt = _utcToLocal(d.activate_at || '');
+      var vDeactAt = _utcToLocal(d.deactivate_at || '');
+      h += '<div class="ie-row">';
+      h += '<div class="ie-field"><label class="ie-label">Auto-activate at</label>' +
+           '<input id="ieVarActAt_' + i + '" type="datetime-local" class="ie-input" value="' + esc(vActAt) + '" /></div>';
+      h += '<div class="ie-field"><label class="ie-label">Auto-deactivate at</label>' +
+           '<input id="ieVarDeactAt_' + i + '" type="datetime-local" class="ie-input" value="' + esc(vDeactAt) + '" /></div>';
+      h += '</div>';
+      h += '</div>'; // cooldown section
+      h += '</div>'; // panel
+    });
 
     h += '</div>'; // ie-form-scroll
     h += '<div class="shop-modal-actions">';
@@ -1271,6 +1482,7 @@
   }
 
   function _ieCollect(modal) {
+    _ieSaveVariantData(modal);
     function gv(id) { var el = modal.querySelector('#' + id); return el ? el.value.trim() : ''; }
     // Frontend sanitize helpers
     function gs(id, max) { return gv(id).slice(0, max); }
@@ -1307,6 +1519,20 @@
     var activateAt = actAtRaw ? new Date(actAtRaw).toISOString() : null;
     var deactivateAt = deactAtRaw ? new Date(deactAtRaw).toISOString() : null;
 
+    var _hasVariants = _ieVariants.length > 0;
+    var _firstV = _hasVariants ? (_ieVariants[0].data || {}) : null;
+    var _fvCdType, _fvCdNum, _fvCdVal;
+    if (_firstV) {
+      _fvCdType = _firstV.cooldown_type || 'none';
+      _fvCdNum  = parseInt(_firstV.cooldown_num || '1') || 1;
+      _fvCdVal  = _fvCdType === 'none' ? '' :
+                  _fvCdType === 'end_of_cycle' ? 'end_of_cycle' :
+                  _fvCdType === 'days' ? String(_fvCdNum) :
+                  _fvCdType === 'cycles' ? _fvCdNum + 'c' : '';
+    }
+    var _fvActAt = _firstV && _firstV.activate_at ? new Date(_firstV.activate_at).toISOString() : null;
+    var _fvDeactAt = _firstV && _firstV.deactivate_at ? new Date(_firstV.deactivate_at).toISOString() : null;
+
     return {
       id:                    gv('ieId'),
       type:                  gv('ieType'),
@@ -1316,9 +1542,9 @@
       images:                _ieImages.map(function (img) { return img.url; }),
       category:              _ieCatTags.slice(0, 10),
       active:                gv('ieActive'),
-      price:                 gv('iePrice'),
-      stock:                 gv('ieStock'),
-      max_quantity:          gv('ieMaxQty'),
+      price:                 _hasVariants ? (_firstV.price || '') : gv('iePrice'),
+      stock:                 _hasVariants ? (_firstV.stock || '') : gv('ieStock'),
+      max_quantity:          _hasVariants ? (_firstV.max_quantity || '') : gv('ieMaxQty'),
       starting_bid:          gv('ieStartBid'),
       min_increment:         gv('ieMinInc'),
       duration_type:         durType,
@@ -1326,20 +1552,162 @@
       anti_snipe_seconds:    gv('ieAntiSnipe'),
       winner_count:          gv('ieWinners'),
       auto_start:            gv('ieAutoStart'),
-      accepts_dirty_ep:      gv('ieDirtyEP'),
-      spend_order:           gv('ieSpendOrder'),
-      cooldown:              cooldownVal,
+      accepts_dirty_ep:      _hasVariants ? (_firstV.accepts_dirty_ep || 'true') : gv('ieDirtyEP'),
+      spend_order:           _hasVariants ? (_firstV.spend_order || 'clean_first') : gv('ieSpendOrder'),
+      cooldown:              _hasVariants ? _fvCdVal : cooldownVal,
       visible_to_ranks:      rankResult.length ? rankResult : null,
       visible_to_top_n:      topN,
-      activate_at:           activateAt,
-      deactivate_at:         deactivateAt,
+      activate_at:           _hasVariants ? _fvActAt : activateAt,
+      deactivate_at:         _hasVariants ? _fvDeactAt : deactivateAt,
+      variants:              _ieVariants.map(function (v) {
+        var d = v.data || {};
+        var _vCdType = d.cooldown_type || 'none';
+        var _vCdNum  = parseInt(d.cooldown_num || '1') || 1;
+        var _vCdVal  = _vCdType === 'none' ? '' :
+                       _vCdType === 'end_of_cycle' ? 'end_of_cycle' :
+                       _vCdType === 'days' ? String(_vCdNum) :
+                       _vCdType === 'cycles' ? _vCdNum + 'c' : '';
+        return {
+          label: v.label,
+          name: (d.name || '').slice(0, 45),
+          type: gv('ieType'),
+          price: d.price || '',
+          stock: d.stock || '',
+          max_quantity: d.max_quantity || '',
+          accepts_dirty_ep: d.accepts_dirty_ep || 'true',
+          spend_order: d.spend_order || 'clean_first',
+          cooldown: _vCdVal,
+          activate_at: d.activate_at ? new Date(d.activate_at).toISOString() : null,
+          deactivate_at: d.deactivate_at ? new Date(d.deactivate_at).toISOString() : null,
+          active: d.active !== 'false',
+        };
+      }),
     };
   }
 
   function _bindItemEditorEvents(modal, origItem, isNew) {
-    // Type toggle (bin/auction sections)
+    // Snapshot / restore General tab state across full rebuilds
+    function _snapshotGeneral() {
+      function _gv(id) { var el = modal.querySelector('#' + id); return el ? el.value : null; }
+      var s = {
+        name: _gv('ieName'), id: _gv('ieId'), type: _gv('ieType'), active: _gv('ieActive'),
+        desc: _gv('ieDesc'), topN: _gv('ieTopN'),
+        price: _gv('iePrice'), stock: _gv('ieStock'), maxQty: _gv('ieMaxQty'),
+        startBid: _gv('ieStartBid'), minInc: _gv('ieMinInc'),
+        durType: _gv('ieDurType'), durHrs: _gv('ieDurHrs'),
+        antiSnipe: _gv('ieAntiSnipe'), winners: _gv('ieWinners'), autoStart: _gv('ieAutoStart'),
+        dirtyEP: _gv('ieDirtyEP'), spendOrder: _gv('ieSpendOrder'),
+        cdType: _gv('ieCooldownType'), cdNum: _gv('ieCooldownNum'),
+        actAt: _gv('ieActivateAt'), deactAt: _gv('ieDeactivateAt'),
+        ranks: {}, catTags: _ieCatTags.slice(), images: _ieImages.slice()
+      };
+      modal.querySelectorAll('.ie-rank-chip').forEach(function (c) { s.ranks[c.dataset.rank] = c.dataset.state; });
+      return s;
+    }
+    function _restoreGeneral(s) {
+      function _sv(id, v) { var el = modal.querySelector('#' + id); if (el && v != null) el.value = v; }
+      _sv('ieName', s.name); _sv('ieId', s.id); _sv('ieType', s.type); _sv('ieActive', s.active);
+      _sv('ieDesc', s.desc); _sv('ieTopN', s.topN);
+      _sv('iePrice', s.price); _sv('ieStock', s.stock); _sv('ieMaxQty', s.maxQty);
+      _sv('ieStartBid', s.startBid); _sv('ieMinInc', s.minInc);
+      _sv('ieDurType', s.durType); _sv('ieDurHrs', s.durHrs);
+      _sv('ieAntiSnipe', s.antiSnipe); _sv('ieWinners', s.winners); _sv('ieAutoStart', s.autoStart);
+      _sv('ieDirtyEP', s.dirtyEP); _sv('ieSpendOrder', s.spendOrder);
+      _sv('ieCooldownType', s.cdType); _sv('ieCooldownNum', s.cdNum);
+      _sv('ieActivateAt', s.actAt); _sv('ieDeactivateAt', s.deactAt);
+      // Rank chips
+      modal.querySelectorAll('.ie-rank-chip').forEach(function (c) {
+        if (s.ranks[c.dataset.rank] != null) c.dataset.state = s.ranks[c.dataset.rank];
+      });
+      // Images
+      _ieImages = s.images;
+      var il = modal.querySelector('#ieImgList');
+      if (il) _ieRenderImageList(il);
+      // Categories – rebuild pills with handlers
+      _ieCatTags = s.catTags;
+      var cc = modal.querySelector('#ieCatContainer');
+      var cg = modal.querySelector('#ieCatGhost');
+      var ch = modal.querySelector('#ieCategory');
+      if (cc && cg) {
+        cc.querySelectorAll('.ie-tag-pill').forEach(function (p) { p.remove(); });
+        s.catTags.forEach(function (t) {
+          var pill = document.createElement('span');
+          pill.className = 'ie-tag-pill';
+          pill.textContent = t;
+          var x = document.createElement('button');
+          x.type = 'button'; x.className = 'ie-tag-x'; x.innerHTML = '&times;';
+          x.addEventListener('click', function () {
+            var idx = _ieCatTags.indexOf(t);
+            if (idx !== -1) _ieCatTags.splice(idx, 1);
+            pill.remove();
+            _ieCatSyncHidden(ch);
+            if (cg) cg.placeholder = _ieCatTags.length ? '' : 'Type and press Space or Enter\u2026';
+          });
+          pill.appendChild(x);
+          cc.insertBefore(pill, cg);
+        });
+        cg.placeholder = _ieCatTags.length ? '' : 'Type and press Space or Enter\u2026';
+      }
+      _ieCatSyncHidden(ch);
+      // Re-apply section toggles
+      _ieTypeToggle(modal);
+      var _cdT = modal.querySelector('#ieCooldownType'), _cdN = modal.querySelector('#ieCooldownNum');
+      if (_cdT && _cdN) _cdN.style.display = (_cdT.value === 'days' || _cdT.value === 'cycles') ? '' : 'none';
+      var _dT = modal.querySelector('#ieDurType'), _dN = modal.querySelector('#ieDurHrs');
+      if (_dT && _dN) _dN.style.display = _dT.value === 'eoc_minus_2' ? 'none' : '';
+    }
+
+    // Type toggle (bin/auction sections) + auction variant constraint
     var typeEl = modal.querySelector('#ieType');
-    if (typeEl) typeEl.addEventListener('change', function () { _ieTypeToggle(modal); });
+    if (typeEl) {
+      var _prevMainType = typeEl.value;
+      typeEl.addEventListener('focus', function () { _prevMainType = typeEl.value; });
+      typeEl.addEventListener('change', function () {
+        var newType = typeEl.value;
+        var isAuction = newType === 'auction';
+        if (isAuction && _ieVariants.length > 0) {
+          if (!confirm('Switching to Auction will remove all variants. Continue?')) {
+            typeEl.value = _prevMainType;
+            return;
+          }
+          _ieSaveVariantData(modal);
+          var _sg = _snapshotGeneral();
+          _ieVariants = [];
+          _ieActiveVariant = -1;
+          modal.innerHTML = _buildItemEditorHtml(origItem, isNew);
+          _ieTypeToggle(modal);
+          _bindItemEditorEvents(modal, origItem, isNew);
+          _sg.type = 'auction';
+          _restoreGeneral(_sg);
+          return;
+        }
+        // Switching from auction to non-auction: ensure at least one variant
+        if (!isAuction && _ieVariants.length === 0) {
+          var _sg2 = _snapshotGeneral();
+          _ieVariants.push({ id: 'v' + Date.now(), label: 'Variant 1', data: { name: '', price: '', stock: '', max_quantity: '', accepts_dirty_ep: 'true', spend_order: 'clean_first', cooldown_type: 'none', cooldown_num: '1', activate_at: '', deactivate_at: '', active: 'true' } });
+          _ieActiveVariant = -1;
+          modal.innerHTML = _buildItemEditorHtml(origItem, isNew);
+          _ieTypeToggle(modal);
+          _bindItemEditorEvents(modal, origItem, isNew);
+          _sg2.type = newType;
+          _restoreGeneral(_sg2);
+          return;
+        }
+        _prevMainType = newType;
+        _ieTypeToggle(modal);
+        var addBtn = modal.querySelector('#ieAddVariant');
+        if (addBtn) {
+          if (isAuction) {
+            addBtn.disabled = true;
+            addBtn.title = 'Auctions cannot have sub-items';
+          } else {
+            var underMax = (1 + _ieVariants.length) < _IE_MAX_TABS;
+            addBtn.disabled = !underMax;
+            addBtn.title = underMax ? 'Add Variant' : 'Maximum ' + _IE_MAX_TABS + ' tabs';
+          }
+        }
+      });
+    }
 
     // Digits-only enforcer for all numeric text inputs
     modal.querySelectorAll('.ie-num').forEach(function (input) {
@@ -1385,6 +1753,32 @@
         }
       });
     }
+
+
+    // Variant dirty EP / spend order sync
+    _ieVariants.forEach(function (v, i) {
+      var vDirty = modal.querySelector('#ieVarDirtyEP_' + i);
+      var vSpend = modal.querySelector('#ieVarSpendOrder_' + i);
+      if (vDirty && vSpend) {
+        vDirty.addEventListener('change', function () {
+          if (vDirty.value === 'false') vSpend.value = 'clean_only';
+          else if (vSpend.value === 'clean_only') vSpend.value = 'clean_first';
+        });
+        vSpend.addEventListener('change', function () {
+          if (vSpend.value === 'clean_only') vDirty.value = 'false';
+          else vDirty.value = 'true';
+        });
+      }
+      // Variant cooldown type
+      var vCdTypeEl = modal.querySelector('#ieVarCdType_' + i);
+      var vCdNumEl  = modal.querySelector('#ieVarCdNum_' + i);
+      if (vCdTypeEl && vCdNumEl) {
+        vCdTypeEl.addEventListener('change', function () {
+          var needs = vCdTypeEl.value === 'days' || vCdTypeEl.value === 'cycles';
+          vCdNumEl.style.display = needs ? '' : 'none';
+        });
+      }
+    });
 
     // Cooldown type -> show/hide number
     var cdTypeEl = modal.querySelector('#ieCooldownType');
@@ -1485,6 +1879,97 @@
       if (e.target === catContainer) catGhost.focus();
     });
 
+    // Variant tab bar
+    (function () {
+      var tabsEl = modal.querySelector('#ieVariantTabs');
+      if (!tabsEl) return;
+
+      function _renumberVariants() {
+        _ieVariants.forEach(function (v, i) {
+          v.label = 'Variant ' + (i + 1);
+        });
+      }
+
+      function _rebuildTabBar(item, isNew, skipSave) {
+        if (!skipSave) _ieSaveVariantData(modal);
+        var _sg = _snapshotGeneral();
+        modal.innerHTML = _buildItemEditorHtml(item || null, isNew || false);
+        _ieTypeToggle(modal);
+        _bindItemEditorEvents(modal, item || null, isNew || false);
+        _restoreGeneral(_sg);
+      }
+
+      function _removeVariant(ri) {
+        if (_ieVariants.length <= 1) return;
+        _ieSaveVariantData(modal); // save with original indices before splice
+        _ieVariants.splice(ri, 1);
+        if (_ieActiveVariant === ri) _ieActiveVariant = -1;
+        else if (_ieActiveVariant > ri) _ieActiveVariant--;
+        _renumberVariants();
+        _rebuildTabBar(origItem, isNew, true);
+      }
+
+      // Tab click (switch) + × remove
+      tabsEl.addEventListener('click', function (e) {
+        var removeBtn = e.target.closest('[data-variant-remove]');
+        if (removeBtn) {
+          e.stopPropagation();
+          _removeVariant(parseInt(removeBtn.dataset.variantRemove));
+          return;
+        }
+        var tab = e.target.closest('.ie-variant-tab[data-variant-idx]');
+        if (tab) {
+          var idx = parseInt(tab.dataset.variantIdx);
+          if (idx === _ieActiveVariant) return;
+          _ieSaveVariantData(modal);
+          _ieActiveVariant = idx;
+          tabsEl.querySelectorAll('.ie-variant-tab').forEach(function (t) {
+            t.classList.toggle('ie-variant-tab--active',
+              parseInt(t.dataset.variantIdx) === _ieActiveVariant);
+          });
+          // Switch tab panels
+          modal.querySelectorAll('.ie-tab-panel').forEach(function (p) {
+            p.style.display = parseInt(p.dataset.iePanel) === _ieActiveVariant ? '' : 'none';
+          });
+          // Show Type field only on General tab
+          var typeField = modal.querySelector('#ieTypeField');
+          if (typeField) typeField.style.display = _ieActiveVariant === -1 ? '' : 'none';
+          // Show Basic Info only on General tab
+          var basicInfo = modal.querySelector('#ieBasicInfo');
+          if (basicInfo) basicInfo.style.display = _ieActiveVariant === -1 ? '' : 'none';
+        }
+      });
+
+      // Middle-click to remove a variant tab
+      tabsEl.addEventListener('auxclick', function (e) {
+        if (e.button !== 1) return; // only middle click
+        var tab = e.target.closest('.ie-variant-tab[data-variant-idx]');
+        if (!tab) return;
+        var idx = parseInt(tab.dataset.variantIdx);
+        if (idx < 0) return; // cannot remove General
+        e.preventDefault();
+        _removeVariant(idx);
+      });
+
+      // Add Variant button
+      var addBtn = tabsEl.querySelector('#ieAddVariant');
+      if (addBtn) addBtn.addEventListener('click', function () {
+        var _typeEl = modal.querySelector('#ieType');
+        if ((1 + _ieVariants.length) >= _IE_MAX_TABS || (_typeEl && _typeEl.value === 'auction')) return;
+        _ieSaveVariantData(modal); // save current variant before switching
+        _ieVariants.push({ id: 'v' + Date.now(), label: 'Variant ' + (_ieVariants.length + 1), data: { name: '', price: '', stock: '', max_quantity: '', accepts_dirty_ep: 'true', spend_order: 'clean_first', cooldown_type: 'none', cooldown_num: '1', activate_at: '', deactivate_at: '', active: 'true' } });
+        _ieActiveVariant = _ieVariants.length - 1;
+        _rebuildTabBar(origItem, isNew, true);
+      });
+
+
+      // Prevent middle-click default (new-tab, paste) on the whole tab bar
+      tabsEl.addEventListener('mousedown', function (e) {
+        if (e.button === 1) e.preventDefault();
+      });
+
+    })();
+
     // Rank chips
     modal.querySelectorAll('.ie-rank-chip').forEach(function (chip) {
       chip.addEventListener('click', function () {
@@ -1572,13 +2057,33 @@
       if (!fields.name) { showToast('\u26a0 Name is required.', 'warn'); return; }
       if (isNew && !fields.id) { showToast('\u26a0 ID is required.', 'warn'); return; }
       // Validate Accepts Dirty EP / Spend Order consistency
-      var _acceptsDirty = fields.accepts_dirty_ep !== 'false' && fields.accepts_dirty_ep !== false;
-      var _so = fields.spend_order;
-      if (!_acceptsDirty && _so !== 'clean_only') {
-        showToast('\u26a0 \'Accepts Dirty EP\' is No but spend order is not \'Clean Only\'. Please fix this.', 'warn'); return;
-      }
-      if (_so === 'clean_only' && _acceptsDirty) {
-        showToast('\u26a0 Spend order is \'Clean Only\' but \'Accepts Dirty EP\' is Yes. Please fix this.', 'warn'); return;
+      if (fields.variants && fields.variants.length) {
+        // Per-variant validation
+        for (var _vi = 0; _vi < fields.variants.length; _vi++) {
+          var _vf = fields.variants[_vi];
+          var _vLabel = _vf.name || _vf.label || ('Variant ' + (_vi + 1));
+          // Multi-variant: require display name
+          if (fields.variants.length > 1 && !(_vf.name || '').trim()) {
+            showToast('\u26a0 ' + (_vf.label || 'Variant ' + (_vi + 1)) + ': Display name is required.', 'warn'); return;
+          }
+          var _vAccepts = _vf.accepts_dirty_ep !== 'false' && _vf.accepts_dirty_ep !== false;
+          var _vSo = _vf.spend_order;
+          if (!_vAccepts && _vSo !== 'clean_only') {
+            showToast('\u26a0 ' + _vLabel + ': Accepts Dirty EP is No but spend order is not Clean Only.', 'warn'); return;
+          }
+          if (_vSo === 'clean_only' && _vAccepts) {
+            showToast('\u26a0 ' + _vLabel + ': Spend order is Clean Only but Accepts Dirty EP is Yes.', 'warn'); return;
+          }
+        }
+      } else {
+        var _acceptsDirty = fields.accepts_dirty_ep !== 'false' && fields.accepts_dirty_ep !== false;
+        var _so = fields.spend_order;
+        if (!_acceptsDirty && _so !== 'clean_only') {
+          showToast('\u26a0 \'Accepts Dirty EP\' is No but spend order is not \'Clean Only\'. Please fix this.', 'warn'); return;
+        }
+        if (_so === 'clean_only' && _acceptsDirty) {
+          showToast('\u26a0 Spend order is \'Clean Only\' but \'Accepts Dirty EP\' is Yes. Please fix this.', 'warn'); return;
+        }
       }
 
       btn.disabled = true; btn.textContent = isNew ? 'Creating\u2026' : 'Saving\u2026';

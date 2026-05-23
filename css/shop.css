@@ -869,6 +869,62 @@ input.cart-qty:focus {
   color: var(--text-faint);
   border-color: var(--border);
 }
+/* Variant selector (detail modal) */
+.detail-variant-select {
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.detail-variant-label {
+  display: block;
+  font-family: 'Cinzel', serif;
+  font-size: 0.64rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.detail-variant-dropdown {
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-main);
+  font-family: 'Cinzel', serif;
+  font-size: 0.78rem;
+  outline: none;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: border-color var(--transition);
+}
+.detail-variant-dropdown:focus { border-color: var(--gold-dim); }
+.detail-variant-dropdown option:disabled { color: var(--text-faint); }
+.detail-variant-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.detail-variant-info .shop-card-price {
+  font-size: 0.92rem;
+}
+.detail-variant-info .detail-stock-info {
+  font-size: 0.78rem;
+}
+
+/* Variant label in cart rows */
+.cart-variant-label {
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
 .detail-full-desc {
   font-family: 'Crimson Pro', Georgia, serif;
   font-style: italic;

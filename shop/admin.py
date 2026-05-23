@@ -167,6 +167,11 @@ def admin_set_override(item_id: str, active: bool | None, stock: int | None,
         _visible = get_item_unfiltered(item_id)
         if _visible is not None:
             _old_stock = _visible.get("stock")
+            # Reject direct stock changes on multi-variant items
+            _item_variants = _visible.get("variants") or []
+            if len(_item_variants) > 1:
+                conn.close()
+                return {"error": "Cannot set stock directly on multi-variant items. Update stock per variant instead."}
     if clear_stock:
         conn.execute(
             "INSERT INTO item_overrides (item_id, active, stock, updated_by, updated_at) "
@@ -201,6 +206,11 @@ def admin_set_override(item_id: str, active: bool | None, stock: int | None,
                     if _jit.get("id") == item_id:
                         _json_items[_ji] = dict(_jit)
                         _json_items[_ji]["stock"] = stock
+                        # Also sync single-variant stock in JSON
+                        _jvars = _json_items[_ji].get("variants")
+                        if isinstance(_jvars, list) and len(_jvars) == 1:
+                            _json_items[_ji]["variants"] = [dict(_jvars[0])]
+                            _json_items[_ji]["variants"][0]["stock"] = stock
                         break
                 _atomic_write_json(_SHOP_ITEMS_JSON, _json_items)
         except Exception:
@@ -1280,6 +1290,52 @@ def _build_item(fields: dict) -> dict:
         item["winner_count"]     = item["winner_count"] or 1
         item["auto_start"]       = _coerce_bool(fields.get("auto_start"), False)
 
+    # Variants
+    raw_variants = fields.get("variants")
+    if isinstance(raw_variants, list) and raw_variants and item_type != "auction":
+        sanitized_variants = []
+        for sv in raw_variants:
+            if not isinstance(sv, dict):
+                continue
+            _sv_accepts = _coerce_bool(sv.get("accepts_dirty_ep"), True)
+            _sv_spend = (sv.get("spend_order") or "clean_first").strip()
+            if not _sv_accepts and _sv_spend in ("dirty_only", "dirty_first"):
+                _sv_spend = "clean_only"
+            if _sv_spend == "dirty_only" and not _sv_accepts:
+                _sv_accepts = True
+            if _sv_spend == "clean_only":
+                _sv_accepts = False
+            _sv_price = _cap_int(sv.get("price"), 999_999)
+            if item_type == "bin" and _sv_price is None:
+                _sv_price = 0
+            sanitized_variants.append({
+                "label":            _sanitize_str(sv.get("label"), 30) or "Variant",
+                "name":             _sanitize_str(sv.get("name"), 45) or "",
+                "price":            _sv_price if item_type != "donate" else None,
+                "stock":            _cap_int(sv.get("stock"), 999_999),
+                "max_quantity":     _cap_int(sv.get("max_quantity"), 99),
+                "accepts_dirty_ep": _sv_accepts,
+                "spend_order":      _sv_spend,
+                "cooldown":         (sv.get("cooldown") or "").strip() or None,
+                "activate_at":      (sv.get("activate_at") or "").strip() or None,
+                "deactivate_at":    (sv.get("deactivate_at") or "").strip() or None,
+                "active":           _coerce_bool(sv.get("active"), True),
+            })
+        if sanitized_variants:
+            item["variants"] = sanitized_variants
+            # Sync top-level stock from variants (bin items only)
+            if item_type == "bin":
+                if len(sanitized_variants) == 1:
+                    item["stock"] = sanitized_variants[0]["stock"]
+                else:
+                    if any(sv["stock"] is None for sv in sanitized_variants):
+                        item["stock"] = None
+                    else:
+                        item["stock"] = sum(sv["stock"] for sv in sanitized_variants)
+    elif item_type != "auction":
+        # Ensure no stale variants key if empty
+        item.pop("variants", None)
+
     return item
 
 def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
@@ -1292,28 +1348,61 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
     if not (fields.get("name") or "").strip():
         return {"error": "Name is required"}
 
-    # Reject fractional prices — price must be a whole number
     _item_type_for_check = (fields.get("type") or "bin").strip().lower()
-    if _item_type_for_check == "bin":
-        _price_raw = fields.get("price")
-        if _price_raw not in (None, "", "null"):
-            try:
-                _pf = float(str(_price_raw).strip())
-                if _pf != int(_pf):
-                    return {"error": "Price must be a whole number (no decimal places)"}
-            except (TypeError, ValueError):
-                pass  # _coerce_int will handle other invalid values
+    _raw_variants = fields.get("variants")
+    _has_variants = isinstance(_raw_variants, list) and len(_raw_variants) > 0
 
-    # Reject inconsistent accepts_dirty_ep / spend_order combinations
-    _so_raw     = (fields.get("spend_order") or "").strip()
-    _dirty_raw  = fields.get("accepts_dirty_ep")
-    _accepts    = _coerce_bool(_dirty_raw, True)
-    if not _accepts and _so_raw in ("dirty_only", "dirty_first"):
-        return {"error": f"Spend order '{_so_raw}' requires Accepts Dirty EP to be Yes"}
-    if _so_raw == "dirty_only" and not _accepts:
-        return {"error": "Spend order 'dirty_only' requires Accepts Dirty EP to be Yes"}
-    if _so_raw == "clean_only" and _accepts and _dirty_raw not in (None, ""):
-        return {"error": "Spend order 'clean_only' requires Accepts Dirty EP to be No"}
+    if _has_variants and _item_type_for_check != "auction":
+        # Per-variant validation
+        _multi_variant = len(_raw_variants) > 1
+        for _vi, _vf in enumerate(_raw_variants):
+            if not isinstance(_vf, dict):
+                continue
+            _vlabel = (_vf.get("name") or "").strip() or (_vf.get("label") or f"Variant {_vi + 1}")
+            # Multi-variant: require display name
+            if _multi_variant and not (_vf.get("name") or "").strip():
+                return {"error": f"Variant {_vi + 1}: Display name is required"}
+            # Price: whole number check for bin variants
+            if _item_type_for_check == "bin":
+                _vp_raw = _vf.get("price")
+                if _vp_raw not in (None, "", "null"):
+                    try:
+                        _vpf = float(str(_vp_raw).strip())
+                        if _vpf != int(_vpf):
+                            return {"error": f"{_vlabel}: Price must be a whole number"}
+                    except (TypeError, ValueError):
+                        pass
+            # EP / spend order consistency per variant
+            _vso = (_vf.get("spend_order") or "").strip()
+            _vdirty = _vf.get("accepts_dirty_ep")
+            _vaccepts = _coerce_bool(_vdirty, True)
+            if not _vaccepts and _vso in ("dirty_only", "dirty_first"):
+                return {"error": f"{_vlabel}: Spend order '{_vso}' requires Accepts Dirty EP to be Yes"}
+            if _vso == "dirty_only" and not _vaccepts:
+                return {"error": f"{_vlabel}: Spend order 'dirty_only' requires Accepts Dirty EP to be Yes"}
+            if _vso == "clean_only" and _vaccepts and _vdirty not in (None, ""):
+                return {"error": f"{_vlabel}: Spend order 'clean_only' requires Accepts Dirty EP to be No"}
+    else:
+        # Top-level validation (no variants)
+        if _item_type_for_check == "bin":
+            _price_raw = fields.get("price")
+            if _price_raw not in (None, "", "null"):
+                try:
+                    _pf = float(str(_price_raw).strip())
+                    if _pf != int(_pf):
+                        return {"error": "Price must be a whole number (no decimal places)"}
+                except (TypeError, ValueError):
+                    pass
+
+        _so_raw     = (fields.get("spend_order") or "").strip()
+        _dirty_raw  = fields.get("accepts_dirty_ep")
+        _accepts    = _coerce_bool(_dirty_raw, True)
+        if not _accepts and _so_raw in ("dirty_only", "dirty_first"):
+            return {"error": f"Spend order '{_so_raw}' requires Accepts Dirty EP to be Yes"}
+        if _so_raw == "dirty_only" and not _accepts:
+            return {"error": "Spend order 'dirty_only' requires Accepts Dirty EP to be Yes"}
+        if _so_raw == "clean_only" and _accepts and _dirty_raw not in (None, ""):
+            return {"error": "Spend order 'clean_only' requires Accepts Dirty EP to be No"}
 
     old_item = None
 

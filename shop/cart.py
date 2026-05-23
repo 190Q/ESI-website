@@ -15,6 +15,7 @@ def _ensure_cart_table(conn: sqlite3.Connection) -> None:
             mc_uuid    TEXT NOT NULL,
             item_id    TEXT NOT NULL,
             quantity   INTEGER NOT NULL DEFAULT 1,
+            variant_index INTEGER,
             updated_at TEXT NOT NULL,
             PRIMARY KEY (mc_uuid, item_id)
         )
@@ -22,6 +23,11 @@ def _ensure_cart_table(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_cart_uuid ON cart_items (mc_uuid)"
     )
+    # add variant_index if table already existed without it
+    try:
+        conn.execute("ALTER TABLE cart_items ADD COLUMN variant_index INTEGER")
+    except sqlite3.OperationalError:
+        pass  # already exists
 
 def get_cart(discord_id: str) -> list[dict]:
     """Return the persisted cart for a user as a list of {item_id, quantity}.
@@ -41,11 +47,11 @@ def get_cart(discord_id: str) -> list[dict]:
         _ensure_cart_table(conn)
         conn.commit()
         rows = conn.execute(
-            "SELECT item_id, quantity FROM cart_items WHERE mc_uuid = ?",
+            "SELECT item_id, quantity, variant_index FROM cart_items WHERE mc_uuid = ?",
             (mc_uuid,),
         ).fetchall()
         conn.close()
-        return [{"item_id": r[0], "quantity": r[1]} for r in rows]
+        return [{"item_id": r[0], "quantity": r[1], "variant_index": r[2]} for r in rows]
     except sqlite3.Error:
         return []
 
@@ -65,15 +71,17 @@ def save_cart(discord_id: str, items: list[dict]) -> bool:
         return False
 
     # Sanitise and cap the list before touching the DB.
-    clean: list[tuple[str, int]] = []
+    clean: list[tuple[str, int, int | None]] = []
     for entry in (items or []):
         item_id = (entry.get("item_id") or "").strip()
         try:
             qty = int(entry.get("quantity", 1))
         except (TypeError, ValueError):
             continue
+        vi_raw = entry.get("variant_index")
+        vi = int(vi_raw) if vi_raw is not None else None
         if item_id and qty >= 1:
-            clean.append((item_id, qty))
+            clean.append((item_id, qty, vi))
     clean = clean[:_MAX_CART_ITEMS]
 
     now_iso = _dt.now(_tz.utc).isoformat()
@@ -85,9 +93,9 @@ def save_cart(discord_id: str, items: list[dict]) -> bool:
         conn.execute("DELETE FROM cart_items WHERE mc_uuid = ?", (mc_uuid,))
         if clean:
             conn.executemany(
-                "INSERT INTO cart_items (mc_uuid, item_id, quantity, updated_at)"
-                " VALUES (?, ?, ?, ?)",
-                [(mc_uuid, iid, qty, now_iso) for iid, qty in clean],
+                "INSERT INTO cart_items (mc_uuid, item_id, quantity, variant_index, updated_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                [(mc_uuid, iid, qty, vi, now_iso) for iid, qty, vi in clean],
             )
         conn.commit()
         conn.close()
