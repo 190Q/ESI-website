@@ -2567,12 +2567,74 @@ def player_rank_history(username: str):
     return jsonify({"username": username, "rank_changes": []})
 
 
+def _get_graid_fault_offsets():
+    """Load guild-raid fault offsets from the most recent API tracking DB.
+
+    Returns a dict mapping lowercase username -> offset value.
+    """
+    offsets = {}
+    if not os.path.isdir(_API_TRACKING_DIR):
+        return offsets
+    try:
+        from datetime import datetime as _dt
+        db_files = []
+        for name in os.listdir(_API_TRACKING_DIR):
+            if not name.startswith("api_"):
+                continue
+            day_path = os.path.join(_API_TRACKING_DIR, name)
+            if not os.path.isdir(day_path):
+                continue
+            for fname in os.listdir(day_path):
+                if fname.endswith(".db"):
+                    db_files.append(os.path.join(day_path, fname))
+        if not db_files:
+            return offsets
+        # newest first
+        db_files.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+        for db_file in db_files:
+            try:
+                conn = _sqlite3.connect(db_file)
+                c = conn.cursor()
+                c.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='graid_fault_offsets'"
+                )
+                if c.fetchone():
+                    c.execute("SELECT username, offset FROM graid_fault_offsets")
+                    for row in c.fetchall():
+                        if row[0] and row[1]:
+                            offsets[row[0].lower()] = row[1]
+                    conn.close()
+                    break
+                conn.close()
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return offsets
+
+
 @app.route("/api/guild/aspects")
 @rate_limit(60)
 def aspects_get():
     data = _load_json_file(_ASPECTS_JSON)
     if not data:
         return jsonify({"total_aspects": 0, "members": {}})
+
+    # Correct owed values by subtracting aspects generated from inflated
+    offsets = _get_graid_fault_offsets()
+    if offsets:
+        members = data.get("members", {})
+        for uuid, member in members.items():
+            name_lower = (member.get("name") or "").lower()
+            offset = offsets.get(name_lower, 0)
+            if offset > 0:
+                bogus_aspects = offset // 2
+                member["owed"] = max(0, member.get("owed", 0) - bogus_aspects)
+        # Recalculate total
+        data["total_aspects"] = sum(
+            m.get("owed", 0) for m in members.values()
+        )
+
     return jsonify(data)
 
 
