@@ -235,6 +235,17 @@ def _compute_bulk_playtime():
                         stats[ulow]["guildRaids"] = row[1] or 0
                 except Exception:
                     pass
+                # Subtract guild-wide graid fault offsets if present
+                try:
+                    for row in c.execute(
+                        "SELECT LOWER(username), offset FROM graid_fault_offsets"
+                    ).fetchall():
+                        ulow = row[0]
+                        off = row[1] or 0
+                        if ulow in stats and "guildRaids" in stats[ulow]:
+                            stats[ulow]["guildRaids"] = max(0, stats[ulow]["guildRaids"] - off)
+                except Exception:
+                    pass
                 c.close()
                 return stats
             except Exception:
