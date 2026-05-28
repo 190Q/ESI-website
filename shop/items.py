@@ -212,8 +212,11 @@ def _resolve_multi_quantity(item: dict) -> dict:
     - Only meaningful for bin items.
     - ``max_quantity`` must be a positive integer AND ``cooldown`` must be
       ``None`` for multi-quantity to be enabled.
-    - If either condition is unmet, ``allow_multi_quantity`` is ``False``
-      and ``max_quantity`` is normalised to ``None`` in the output.
+    - If either condition is unmet at the item level, variants are checked:
+      if ANY variant has a valid ``max_quantity`` and no cooldown (variant-
+      level overrides item-level), ``allow_multi_quantity`` is ``True`` and
+      the item-level ``max_quantity`` is set to the highest qualifying
+      variant value as a fallback for contexts that lack variant info.
     """
     item = dict(item)
     raw_mq = item.get("max_quantity")
@@ -224,6 +227,32 @@ def _resolve_multi_quantity(item: dict) -> dict:
         and raw_mq > 0
         and not has_cooldown
     )
+
+    # Check variants: enable multi-quantity if any variant qualifies
+    if not valid_mq:
+        variants = item.get("variants")
+        if isinstance(variants, list):
+            best_variant_mq = None
+            for v in variants:
+                v_mq = v.get("max_quantity")
+                # Variant inherits cooldown from item if not overridden
+                v_cd_raw = (
+                    v.get("cooldown")
+                    if v.get("cooldown") is not None
+                    else item.get("cooldown")
+                )
+                if (
+                    isinstance(v_mq, int)
+                    and not isinstance(v_mq, bool)
+                    and v_mq > 0
+                    and parse_duration(v_cd_raw) is None
+                ):
+                    if best_variant_mq is None or v_mq > best_variant_mq:
+                        best_variant_mq = v_mq
+            if best_variant_mq is not None:
+                valid_mq = True
+                raw_mq = best_variant_mq
+
     item["allow_multi_quantity"] = valid_mq
     item["max_quantity"] = raw_mq if valid_mq else None
     return item

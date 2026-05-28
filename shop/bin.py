@@ -276,7 +276,21 @@ def execute_cart_checkout(
 
         # multi-quantity check (use variant max_quantity if present)
         eff_max_qty = effective.get("max_quantity") if variant else item.get("max_quantity")
-        eff_allow_multi = item.get("allow_multi_quantity", False)
+        if variant:
+            # Per-variant: variant qualifies if it has max_quantity and no cooldown
+            v_cd_raw = (
+                variant.get("cooldown")
+                if variant.get("cooldown") is not None
+                else item.get("cooldown")
+            )
+            eff_allow_multi = (
+                isinstance(eff_max_qty, int)
+                and not isinstance(eff_max_qty, bool)
+                and eff_max_qty > 0
+                and parse_duration(v_cd_raw) is None
+            )
+        else:
+            eff_allow_multi = item.get("allow_multi_quantity", False)
         if qty > 1:
             if not eff_allow_multi:
                 raise PurchaseError(

@@ -58,6 +58,12 @@
     var msg = String(_shopDisabledMessage || '').trim();
     return msg || 'Coming soon';
   }
+  function _effectiveMaxQty(item, variantIdx) {
+    var v = (variantIdx != null && item.variants && item.variants[variantIdx]) ? item.variants[variantIdx] : null;
+    var mq = (v && v.max_quantity != null) ? v.max_quantity : (item.max_quantity || 999);
+    var stock = (v && v.stock != null) ? v.stock : (item.stock != null ? item.stock : 999);
+    return Math.min(mq, stock);
+  }
   function _looksLikeComingSoon(msg) {
     return /\bcoming\s*soon\b/i.test(String(msg || ''));
   }
@@ -87,7 +93,7 @@
             var item = itemMap[entry.item_id];
             if (!item) return;
             var maxQ = item.allow_multi_quantity
-              ? Math.min(item.max_quantity || 999, item.stock != null ? item.stock : 999) : 1;
+              ? _effectiveMaxQty(item, entry.variant_index) : 1;
             _cart[entry.item_id] = { item: item, quantity: Math.max(1, Math.min(entry.quantity, maxQ)) };
           });
           updateCartBadge();
@@ -132,7 +138,7 @@
             if (!item) return;
             // Multi-qty items: cap by max_quantity & stock; single-qty: always 1
             var maxQ = item.allow_multi_quantity
-              ? Math.min(item.max_quantity || 999, item.stock != null ? item.stock : 999)
+              ? _effectiveMaxQty(item, entry.variant_index)
               : 1;
             var ce = { item: item, quantity: Math.max(1, Math.min(entry.quantity, maxQ)) };
             if (entry.variant_index != null) ce.variantIdx = entry.variant_index;
@@ -822,7 +828,7 @@
     var cartEntry = _cart[item.id];
     if (item.allow_multi_quantity) {
       if (cartEntry) {
-        var maxQ = Math.min(item.max_quantity || 999, item.stock != null ? item.stock : 999);
+        var maxQ = _effectiveMaxQty(item, cartEntry.variantIdx);
         return '<div class="cart-stepper">' +
           '<button class="cart-step-btn" data-step-dec="' + esc(item.id) + '">&#8722;</button>' +
           '<span class="cart-qty">' + cartEntry.quantity + '</span>' +
@@ -1278,7 +1284,7 @@
     if (!cartEntry || disabled) {
       html += '<button class="shop-modal-btn shop-modal-btn--confirm" id="shopDetailAdd"' + (btnDisabled ? ' disabled' : '') + '>' + btnLabel + '</button>';
     } else if (item.allow_multi_quantity) {
-      var maxQ = Math.min(item.max_quantity || 999, item.stock != null ? item.stock : 999);
+      var maxQ = _effectiveMaxQty(item, cartEntry ? cartEntry.variantIdx : _mSelIdx);
       html += '<div class="cart-stepper">' +
         '<button class="cart-step-btn" id="shopDetailDec">&#8722;</button>' +
         '<input type="text" inputmode="numeric" class="cart-qty" id="shopDetailQty" value="' + cartEntry.quantity + '" maxlength="3" />' +
@@ -1336,7 +1342,7 @@
       qtyInput.addEventListener('blur', function () {
         if (!_cart[item.id]) return;
         var v = parseInt(this.value, 10) || 0;
-        var mxQ = Math.min(item.max_quantity || 999, item.stock != null ? item.stock : 999);
+        var mxQ = _effectiveMaxQty(item, _cart[item.id] ? _cart[item.id].variantIdx : null);
         if (v < 1) delete _cart[item.id]; else _cart[item.id].quantity = Math.min(v, mxQ);
         updateCartBadge(); _patchCartAction(item.id);
         openItemDetailModal(item);
@@ -1354,7 +1360,7 @@
     var incBtn = document.getElementById('shopDetailInc');
     if (incBtn) incBtn.addEventListener('click', function () {
       if (!_cart[item.id]) return;
-      var mxQ = Math.min(item.max_quantity || 999, item.stock != null ? item.stock : 999);
+      var mxQ = _effectiveMaxQty(item, _cart[item.id] ? _cart[item.id].variantIdx : null);
       if (_cart[item.id].quantity < mxQ) { _cart[item.id].quantity++; updateCartBadge(); _patchCartAction(item.id); openItemDetailModal(item); }
     });
     document.getElementById('shopModalBackdrop').classList.add('open');
@@ -1605,7 +1611,7 @@
     entries.forEach(function (entry) {
       var item    = entry.item;
       var isMulti = item.allow_multi_quantity;
-      var maxQ    = isMulti ? Math.min(item.max_quantity || 999, item.stock != null ? item.stock : 999) : 1;
+      var maxQ    = isMulti ? _effectiveMaxQty(item, entry.variantIdx) : 1;
       html += '<div class="cart-row">';
       // Col 1: info
       var _cVariantIdx = entry.variantIdx;
@@ -1698,7 +1704,7 @@
       btn.addEventListener('click', function () {
         var id = btn.dataset.modalInc;
         if (!_cart[id]) return;
-        var mxQ = Math.min(_cart[id].item.max_quantity || 999, _cart[id].item.stock != null ? _cart[id].item.stock : 999);
+        var mxQ = _effectiveMaxQty(_cart[id].item, _cart[id].variantIdx);
         if (_cart[id].quantity < mxQ) { _cart[id].quantity++; updateCartBadge(); renderCartModal(); _debouncedRenderContent(); }
       });
     });
@@ -1721,7 +1727,7 @@
         var id = this.dataset.modalQty;
         if (!_cart[id]) return;
         var v = parseInt(this.value, 10) || 0;
-        var mxQ = Math.min(_cart[id].item.max_quantity || 999, _cart[id].item.stock != null ? _cart[id].item.stock : 999);
+        var mxQ = _effectiveMaxQty(_cart[id].item, _cart[id].variantIdx);
         _cart[id].quantity = Math.max(1, Math.min(v, mxQ));
         updateCartBadge(); renderCartModal(); _debouncedRenderContent();
       });
@@ -2352,7 +2358,7 @@
           var item = itemMap[entry.item_id];
           if (!item) return;
           var maxQ = item.allow_multi_quantity
-            ? Math.min(item.max_quantity || 999, item.stock != null ? item.stock : 999) : 1;
+            ? _effectiveMaxQty(item, entry.variant_index) : 1;
           _cart[entry.item_id] = { item: item, quantity: Math.max(1, Math.min(entry.quantity, maxQ)) };
         });
         updateCartBadge();
