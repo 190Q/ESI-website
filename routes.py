@@ -2782,7 +2782,10 @@ def _points_rows_for_cycles(cycle_ids, guild_members):
     for uuid, username, pts, clean, dirty in rows:
         if guild_members and (username or "").lower() not in guild_members:
             continue
-        out.append({"uuid": uuid, "username": username, "points": int(pts or 0),
+        total = int(pts or 0)
+        if total <= 0:
+            continue
+        out.append({"uuid": uuid, "username": username, "points": total,
                      "clean_ep": int(clean or 0), "dirty_ep": int(dirty or 0)})
     return out
 
