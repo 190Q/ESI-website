@@ -2811,7 +2811,15 @@
     if (field === 'active' || field === 'accepts_dirty_ep' || field === 'auto_start')
       return val ? 'Yes' : 'No';
     if (typeof val === 'boolean') return val ? 'Yes' : 'No';
-    if (Array.isArray(val)) return val.length ? val.join(', ') : 'none';
+    if (Array.isArray(val)) {
+      if (!val.length) return 'none';
+      // Variant arrays (array of objects)
+      if (typeof val[0] === 'object' && val[0] !== null) {
+        var names = val.map(function (v) { return v.label || v.name || '?'; });
+        return val.length + ' (' + names.join(', ') + ')';
+      }
+      return val.join(', ');
+    }
     if (field === 'duration_hours') return val + 'h';
     if (field === 'anti_snipe_seconds') return val + 's';
     var s = String(val);
@@ -2827,7 +2835,47 @@
     visible_to_ranks: 'Ranks', visible_to_top_n: 'Top N', auto_start: 'Auto Start',
     activate_at: 'Activate', deactivate_at: 'Deactivate', images: 'Images',
     creator_discord_id: 'Assigned Creator',
+    variants: 'Variants',
   };
+
+  function _fmtVariantsDiff(oldVars, newVars) {
+    var ov = Array.isArray(oldVars) ? oldVars : [];
+    var nv = Array.isArray(newVars) ? newVars : [];
+    var parts = [];
+    if (ov.length !== nv.length) {
+      parts.push(esc(ov.length + ' \u2192 ' + nv.length + ' variants'));
+    }
+    var _vFields = ['name','price','stock','max_quantity','accepts_dirty_ep','spend_order','cooldown','active'];
+    var _vLabels = { name:'Name', price:'Price', stock:'Stock', max_quantity:'Max Qty',
+      accepts_dirty_ep:'Dirty EP', spend_order:'Spend Order', cooldown:'Cooldown', active:'Active' };
+    var maxLen = Math.max(ov.length, nv.length);
+    for (var i = 0; i < maxLen; i++) {
+      var o = ov[i] || {};
+      var n = nv[i] || {};
+      var vLabel = n.label || o.label || ('V' + (i + 1));
+      if (i >= ov.length) {
+        parts.push(esc(vLabel) + ' added');
+        continue;
+      }
+      if (i >= nv.length) {
+        parts.push(esc(vLabel) + ' removed');
+        continue;
+      }
+      var fieldDiffs = [];
+      for (var fi = 0; fi < _vFields.length; fi++) {
+        var fk = _vFields[fi];
+        var oVal = o[fk], nVal = n[fk];
+        if (String(oVal == null ? '' : oVal) !== String(nVal == null ? '' : nVal)) {
+          fieldDiffs.push(esc(_vLabels[fk] || fk) + ': ' +
+            esc(_fmtDiffVal(fk, oVal)) + ' \u2192 ' + esc(_fmtDiffVal(fk, nVal)));
+        }
+      }
+      if (fieldDiffs.length) {
+        parts.push(esc(vLabel) + ' \u2014 ' + fieldDiffs.join(', '));
+      }
+    }
+    return parts.length ? parts.join(' \u00b7 ') : 'no field changes';
+  }
 
   function _fmtItemDiff(changes) {
     if (!changes || typeof changes !== 'object') return '';
@@ -2837,6 +2885,9 @@
       var c = changes[f];
       var ov = Array.isArray(c) ? c[0] : (c && c.old);
       var nv = Array.isArray(c) ? c[1] : (c && c['new']);
+      if (f === 'variants') {
+        return '<span class="sa-chg-field">Variants:</span> ' + _fmtVariantsDiff(ov, nv);
+      }
       return '<span class="sa-chg-field">' + esc(_DIFF_LABELS[f] || f) + ':</span> ' +
         esc(_fmtDiffVal(f, ov)) + ' \u2192 ' + esc(_fmtDiffVal(f, nv));
     }).join(' \u00b7 ');
