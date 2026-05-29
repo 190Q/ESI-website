@@ -1,0 +1,97 @@
+/* Creator Studio item table grid */
+.cs-item-row {
+  grid-template-columns: 1.8fr 1.4fr 0.6fr 0.8fr 0.6fr 0.7fr 1.2fr;
+}
+
+/* Requests tab grid */
+.cs-req-row {
+  grid-template-columns: 0.6fr 1.6fr 1fr 0.7fr 1.6fr;
+}
+
+/* status pills */
+.cs-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.cs-pill--pending        { background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b55; }
+.cs-pill--approved       { background: #22c55e22; color: #22c55e; border: 1px solid #22c55e55; }
+.cs-pill--rejected       { background: #ef444422; color: #ef4444; border: 1px solid #ef444455; }
+.cs-pill--fulfilled      { background: #22c55e22; color: #22c55e; border: 1px solid #22c55e55; }
+.cs-pill--refunded       { background: #8b5cf622; color: #8b5cf6; border: 1px solid #8b5cf655; }
+.cs-pill--refund_pending { background: #ef444422; color: #ef4444; border: 1px solid #ef444455; }
+
+/* Queue tab status hint */
+.cs-q-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+}
+.cs-q-status-hint {
+  font-family: 'Crimson Pro', serif;
+  font-size: 0.8rem;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* request form */
+.cs-form {
+  max-width: 560px;
+  padding: 16px 0;
+}
+.cs-form-title {
+  font-family: 'Cinzel', serif;
+  font-size: 1.1rem;
+  color: var(--gold-light);
+  margin: 0 0 16px;
+}
+.cs-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.cs-form-row label {
+  font-size: 0.8rem;
+  color: var(--text-faint);
+  font-weight: 600;
+}
+.cs-input {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+}
+.cs-input:focus {
+  border-color: var(--gold-dim);
+  outline: none;
+}
+.cs-form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+.cs-cancel-btn {
+  background: var(--bg-card);
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+}
+.cs-submit-btn {
+  background: var(--gold-dim);
+  color: var(--bg-dark);
+  font-weight: 600;
+}
+.cs-form-msg {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: var(--text-faint);
+}
+.cs-form-msg--warn {
+  color: #f59e0b;
+}

@@ -30,6 +30,7 @@ export default function App() {
           {/* Public events page (General tab) and management panels */}
           <section className="panel" id="panel-events" />
           <section className="panel" id="panel-shop" />
+          <section className="panel" id="panel-creator-studio" />
           <section className="panel" id="panel-shop-admin" />
           <section className="panel" id="panel-inactivity" />
           <section className="panel" id="panel-promotions" />

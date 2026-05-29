@@ -1279,6 +1279,9 @@ def _build_item(fields: dict) -> dict:
         "deactivate_at":         _raw_deactivate_at,
     }
 
+    # Creator assignment (not for donate items)
+    _raw_creator = (fields.get("creator_discord_id") or "").strip() or None
+
     if item_type == "donate":
         # Donate items have no price, stock, cooldown, or auction fields
         item["price"]              = None
@@ -1292,6 +1295,7 @@ def _build_item(fields: dict) -> dict:
         item["anti_snipe_seconds"] = None
         item["winner_count"]       = None
         item["auto_start"]         = None
+        _raw_creator = None  # donate items cannot have a creator
     elif item_type == "bin":
         item["price"]         = item["price"] if item["price"] is not None else 0
         item["duration_type"] = None
@@ -1358,6 +1362,9 @@ def _build_item(fields: dict) -> dict:
     elif item_type != "auction":
         # Ensure no stale variants key if empty
         item.pop("variants", None)
+
+    if _raw_creator:
+        item["creator_discord_id"] = _raw_creator
 
     return item
 
@@ -1451,6 +1458,9 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
             old_item     = dict(items[idx])            # snapshot for edit diff
             old_type     = items[idx].get("type")      # capture before overwrite
             old_cooldown = items[idx].get("cooldown")  # capture before overwrite
+            # Preserve creator_discord_id if not explicitly provided in fields
+            if "creator_discord_id" not in fields and items[idx].get("creator_discord_id"):
+                fields["creator_discord_id"] = items[idx]["creator_discord_id"]
             fields["id"] = item_id
             item = _build_item(fields)
             items[idx] = item
@@ -1539,6 +1549,14 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
             if _ov != _nv:
                 _diff[_k] = [_ov, _nv]
         if _diff:
+            # Resolve creator_discord_id values to usernames
+            if "creator_discord_id" in _diff:
+                from shop.creator import _resolve_creator_username
+                _cr_old, _cr_new = _diff["creator_discord_id"]
+                _diff["creator_discord_id"] = [
+                    _resolve_creator_username(_cr_old) if _cr_old else _cr_old,
+                    _resolve_creator_username(_cr_new) if _cr_new else _cr_new,
+                ]
             _log_details["changes"] = _diff
     _log_admin_action(
         actor,

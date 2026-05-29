@@ -254,10 +254,14 @@ document.getElementById('accountModalTabs').addEventListener('click', function (
   if (panel) panel.classList.add('active');
   // lazy-fetch badge progress on first open
   if (tab === 'badges' && !_badgeProgressFetched) _fetchBadgeProgress();
+  // lazy-fetch shop stats on first open
+  if (tab === 'shop' && !_shopStatsFetched) _fetchShopStats();
 });
 
 var _badgeProgressData = null;
 var _badgeProgressFetched = false;
+var _shopStatsData = null;
+var _shopStatsFetched = false;
 var _ESI_APP_FORMS = {};
 
 function _renderAccountModal(userRoles) {
@@ -267,6 +271,346 @@ function _renderAccountModal(userRoles) {
   _badgeProgressFetched = false;
   _badgeProgressData = null;
   _renderBadges(userRoles, null);
+  // reset shop stats so it re-fetches on next tab open
+  _shopStatsFetched = false;
+  _shopStatsData = null;
+  // show/hide shop tab based on permissions
+  _updateShopTabVisibility();
+}
+
+function _shouldShowShopTab() {
+  if (!state.loggedIn || !state.user) return false;
+  var roles = state.user.roles || [];
+  var isCitizen = roles.includes(ESI_CITIZEN_ROLE.id);
+  if (!isCitizen) return false;
+  if (isShopBanned()) return false;
+  return true;
+}
+
+function _updateShopTabVisibility() {
+  var show = _shouldShowShopTab();
+  var tabBtn = document.getElementById('accountShopTabBtn');
+  var tabPanel = document.getElementById('accountTabShop');
+  if (!tabBtn) {
+    // inject tab button if not present
+    var tabs = document.getElementById('accountModalTabs');
+    if (tabs) {
+      tabBtn = document.createElement('button');
+      tabBtn.className = 'account-tab';
+      tabBtn.setAttribute('data-acctab', 'shop');
+      tabBtn.id = 'accountShopTabBtn';
+      tabBtn.textContent = 'Shop';
+      tabs.appendChild(tabBtn);
+    }
+  }
+  if (tabBtn) tabBtn.style.display = show ? '' : 'none';
+  if (tabPanel) tabPanel.style.display = show ? '' : 'none';
+}
+
+function _fetchShopStats() {
+  _shopStatsFetched = true;
+  var container = document.getElementById('accountShopContent');
+  if (!container) return;
+  container.innerHTML = '<div style="padding:24px 0;text-align:center;color:var(--text-faint)">Loading\u2026</div>';
+  fetch('/api/me/shop-stats', { credentials: 'same-origin' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      _shopStatsData = data;
+      _renderShopStats(data);
+    })
+    .catch(function () {
+      if (container) container.innerHTML = '<div style="padding:24px 0;text-align:center;color:var(--text-faint)">Failed to load shop stats.</div>';
+    });
+}
+
+function _renderShopStats(data) {
+  var container = document.getElementById('accountShopContent');
+  if (!container) return;
+  if (!data || !data.linked) {
+    container.innerHTML = '<div style="padding:24px 0;text-align:center;color:var(--text-faint)">No linked Minecraft account found.</div>';
+    return;
+  }
+  var html = '';
+  // EP summary card
+  html += '<div class="acct-shop-ep-card">';
+  html += '<div class="acct-shop-ep-title">EP Balance</div>';
+  html += '<div class="acct-shop-ep-grid">';
+  var epMetrics = [
+    [data.total_ep || 0, 'Total EP'],
+    [data.clean_ep || 0, 'Clean EP'],
+    [data.dirty_ep || 0, 'Dirty EP'],
+    [data.reserved_ep || 0, 'Reserved'],
+  ];
+  epMetrics.forEach(function (m) {
+    html += '<div class="acct-shop-ep-item">';
+    html += '<div class="acct-shop-ep-val">' + (m[0]).toLocaleString() + '</div>';
+    html += '<div class="acct-shop-ep-lbl">' + m[1] + '</div>';
+    html += '</div>';
+  });
+  html += '</div></div>';
+  // Stats row
+  html += '<div class="acct-shop-stats">';
+  var stats = [
+    [data.total_orders || 0, 'Orders placed'],
+    [data.total_bids || 0, 'Bids placed'],
+    [data.auctions_won || 0, 'Auctions won'],
+  ];
+  stats.forEach(function (s) {
+    html += '<div class="acct-shop-stat">';
+    html += '<div class="acct-shop-stat-val">' + s[0] + '</div>';
+    html += '<div class="acct-shop-stat-lbl">' + s[1] + '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+  // Recent activity
+  html += '<div class="acct-shop-activity">';
+  html += '<div class="acct-shop-activity-title">Recent Activity</div>';
+  var recent = data.recent || [];
+  if (recent.length === 0) {
+    html += '<div class="acct-shop-empty">No activity yet.</div>';
+  } else {
+    recent.forEach(function (entry) {
+      var typeLabel = entry.type === 'purchase' ? 'Purchase' : 'Bid';
+      var typeCls = entry.type === 'purchase' ? 'acct-shop-type--purchase' : 'acct-shop-type--bid';
+      var date = entry.ts ? new Date(entry.ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '';
+      var ep = entry.ep_spent != null ? (entry.ep_spent).toLocaleString() + ' EP' : '';
+      html += '<div class="acct-shop-activity-row">';
+      html += '<span class="acct-shop-type ' + typeCls + '">' + typeLabel + '</span>';
+      html += '<span class="acct-shop-item-name">' + (entry.item_name || '').replace(/</g, '&lt;') + '</span>';
+      html += '<span class="acct-shop-activity-meta">' + ep + (ep && date ? ' · ' : '') + date + '</span>';
+      html += '</div>';
+    });
+  }
+  html += '</div>';
+  // Creator placeholder
+  html += '<div id="accountShopCreatorSection"></div>';
+  container.innerHTML = html;
+  // kick off creator status fetch
+  _fetchCreatorStatus();
+}
+
+/* Creator Section inside Shop tab */
+var _creatorStatusData = null;
+
+function _fetchCreatorStatus() {
+  var section = document.getElementById('accountShopCreatorSection');
+  if (!section) return;
+  section.innerHTML = '<div class="creator-loading">Loading\u2026</div>';
+  fetch('/api/shop/creator-apply/status', { credentials: 'same-origin' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      _creatorStatusData = data;
+      _renderCreatorSection(data);
+    })
+    .catch(function () {
+      if (section) section.innerHTML = '';
+    });
+}
+
+function _renderCreatorSection(data) {
+  var section = document.getElementById('accountShopCreatorSection');
+  if (!section) return;
+  if (!data) { section.innerHTML = ''; return; }
+
+  // Shop admins (Chief+) cannot be creators
+  if (hasShopAdmin()) {
+    section.innerHTML =
+      '<div class="creator-card creator-card--approved">' +
+        '<div class="creator-card-body">' +
+          '<div class="creator-card-title">Shop Admin</div>' +
+          '<div class="creator-card-desc">You are already a shop admin. Shop admins cannot apply for Creator status.</div>' +
+        '</div>' +
+      '</div>';
+    return;
+  }
+
+  // Already a Creator (approved)
+  if (data.is_creator) {
+    section.innerHTML =
+      '<div class="creator-card creator-card--approved">' +
+        '<div class="creator-card-icon">\u2713</div>' +
+        '<div class="creator-card-body">' +
+          '<div class="creator-card-title">You are a Creator</div>' +
+          '<div class="creator-card-desc">You can submit and manage your own shop listings.</div>' +
+        '</div>' +
+        '<button class="creator-studio-btn" id="creatorStudioBtn">Go to My Creator Studio</button>' +
+      '</div>';
+    var studioBtn = document.getElementById('creatorStudioBtn');
+    if (studioBtn) {
+      studioBtn.addEventListener('click', function () {
+        var backdrop = document.getElementById('accountModalBackdrop');
+        if (backdrop && window.Popup) window.Popup.close(backdrop);
+        if (window.switchToPanel) window.switchToPanel('creator-studio');
+      });
+    }
+    return;
+  }
+
+  var app = data.application;
+
+  // Pending application
+  if (app && app.status === 'pending') {
+    var subDate = app.submitted_at
+      ? new Date(app.submitted_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+      : '';
+    section.innerHTML =
+      '<div class="creator-card creator-card--pending">' +
+        '<div class="creator-card-body">' +
+          '<div class="creator-card-title">Your application is under review</div>' +
+          '<div class="creator-card-desc">Submitted ' + subDate + '. Parliament will review it soon.</div>' +
+        '</div>' +
+      '</div>';
+    return;
+  }
+
+  // Rejected (with cooldown)
+  if (app && app.status === 'rejected' && data.cooldown_ends_at) {
+    var reason = app.rejection_reason ? app.rejection_reason.replace(/</g, '&lt;') : '';
+    var cooldownEnd = new Date(data.cooldown_ends_at);
+    var _renderCooldown = function () {
+      var now = new Date();
+      var diff = cooldownEnd - now;
+      if (diff <= 0) {
+        // cooldown expired: show the eligible state
+        _renderCreatorEligible(section);
+        return;
+      }
+      var days = Math.floor(diff / 86400000);
+      var hours = Math.floor((diff % 86400000) / 3600000);
+      var cdText = days > 0 ? (days + 'd ' + hours + 'h') : (hours + 'h');
+      var cdEl = document.getElementById('creatorCooldownTimer');
+      if (cdEl) cdEl.textContent = cdText;
+    };
+    section.innerHTML =
+      '<div class="creator-card creator-card--rejected">' +
+        '<div class="creator-card-icon">\u2717</div>' +
+        '<div class="creator-card-body">' +
+          '<div class="creator-card-title">Application rejected</div>' +
+          (reason ? '<div class="creator-card-reason">' + reason + '</div>' : '') +
+          '<div class="creator-card-desc">You can reapply in <strong id="creatorCooldownTimer"></strong></div>' +
+        '</div>' +
+      '</div>';
+    _renderCooldown();
+    var _cdInterval = setInterval(function () {
+      if (!document.getElementById('creatorCooldownTimer')) {
+        clearInterval(_cdInterval);
+        return;
+      }
+      _renderCooldown();
+    }, 60000);
+    return;
+  }
+
+  // Not applied / eligible (also covers rejected-with-expired-cooldown via can_reapply)
+  _renderCreatorEligible(section);
+}
+
+function _renderCreatorEligible(section) {
+  section.innerHTML =
+    '<div class="creator-card creator-card--eligible">' +
+      '<div class="creator-card-body">' +
+        '<div class="creator-card-title">Become a Creator</div>' +
+        '<div class="creator-card-desc">' +
+          'Creators can submit items for the shop and manage their own listings. ' +
+          'Your items will be reviewed by Parliament before going live.' +
+        '</div>' +
+        '<button class="creator-apply-btn" id="creatorApplyBtn">Apply to become a Creator</button>' +
+      '</div>' +
+    '</div>';
+  var applyBtn = document.getElementById('creatorApplyBtn');
+  if (applyBtn) {
+    applyBtn.addEventListener('click', function () {
+      _showCreatorApplyForm(section);
+    });
+  }
+}
+
+function _showCreatorApplyForm(section) {
+  section.innerHTML =
+    '<div class="creator-card creator-card--form">' +
+      '<div class="creator-card-title">Creator Application</div>' +
+      '<div class="creator-form-field">' +
+        '<label class="creator-form-label" for="creatorQ1">Why do you want to be a Creator?</label>' +
+        '<textarea class="creator-form-input" id="creatorQ1" rows="3" maxlength="500" placeholder="Your answer\u2026"></textarea>' +
+        '<div class="creator-form-counter"><span id="creatorQ1Count">0</span>/500</div>' +
+      '</div>' +
+      '<div class="creator-form-field">' +
+        '<label class="creator-form-label" for="creatorQ2">What kind of items do you plan to list?</label>' +
+        '<textarea class="creator-form-input" id="creatorQ2" rows="2" maxlength="300" placeholder="Your answer\u2026"></textarea>' +
+        '<div class="creator-form-counter"><span id="creatorQ2Count">0</span>/300</div>' +
+      '</div>' +
+      '<div class="creator-form-actions">' +
+        '<button class="creator-form-cancel" id="creatorFormCancel">Cancel</button>' +
+        '<button class="creator-form-submit" id="creatorFormSubmit">Submit Application</button>' +
+      '</div>' +
+      '<div class="creator-form-msg" id="creatorFormMsg" style="display:none"></div>' +
+    '</div>';
+
+  // char counters
+  var q1 = document.getElementById('creatorQ1');
+  var q2 = document.getElementById('creatorQ2');
+  var q1c = document.getElementById('creatorQ1Count');
+  var q2c = document.getElementById('creatorQ2Count');
+  if (q1 && q1c) q1.addEventListener('input', function () { q1c.textContent = q1.value.length; });
+  if (q2 && q2c) q2.addEventListener('input', function () { q2c.textContent = q2.value.length; });
+
+  // cancel
+  document.getElementById('creatorFormCancel').addEventListener('click', function () {
+    _renderCreatorSection(_creatorStatusData);
+  });
+
+  // submit
+  document.getElementById('creatorFormSubmit').addEventListener('click', function () {
+    var a1 = (q1 ? q1.value.trim() : '');
+    var a2 = (q2 ? q2.value.trim() : '');
+    if (!a1) { _creatorFormMsg('Please answer the first question.', 'warn'); return; }
+    if (!a2) { _creatorFormMsg('Please answer the second question.', 'warn'); return; }
+    var submitBtn = document.getElementById('creatorFormSubmit');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submitting\u2026';
+    _creatorFormMsg('', '');
+
+    fetch('/api/shop/creator-apply', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answers: [a1, a2] }),
+    })
+    .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
+    .then(function (result) {
+      if (result.ok && result.data.ok) {
+        // re-render as pending without full reload
+        _creatorStatusData = {
+          is_creator: false,
+          has_application: true,
+          application: {
+            status: 'pending',
+            submitted_at: result.data.submitted_at || new Date().toISOString(),
+          },
+        };
+        _renderCreatorSection(_creatorStatusData);
+        if (window.showToast) showToast('\u2713 Application submitted!', 'success');
+      } else {
+        _creatorFormMsg(result.data.error || 'Failed to submit.', 'warn');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit Application';
+      }
+    })
+    .catch(function () {
+      _creatorFormMsg('Network error. Please try again.', 'warn');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit Application';
+    });
+  });
+}
+
+function _creatorFormMsg(text, type) {
+  var el = document.getElementById('creatorFormMsg');
+  if (!el) return;
+  if (!text) { el.style.display = 'none'; return; }
+  el.textContent = text;
+  el.className = 'creator-form-msg' + (type === 'warn' ? ' creator-form-msg--warn' : '');
+  el.style.display = '';
 }
 
 function _fetchBadgeProgress() {
@@ -761,6 +1105,9 @@ function applyLogin(user) {
     // wait for config to load before applying role-dependent UI
     _configPromise.then(function () {
       applyPermissions();
+      // eagerly preload queue badges on sidebar nav items
+      if (hasShopAdmin() && window.preloadShopAdminBadge) window.preloadShopAdminBadge();
+      if (hasCreatorAccess() && window.preloadCreatorStudioBadge) window.preloadCreatorStudioBadge();
       renderProfile(user);
       _renderAccountModal(user.roles || []);
       // re-route to the correct panel based on URL (handles multi-segment paths like /shop/admin)
@@ -769,6 +1116,7 @@ function applyLogin(user) {
       var wantedPanel = _first;
       if (_first === 'events' && _parts[1] === 'manage') wantedPanel = 'events-manage';
       if (_first === 'shop'   && _parts[1] === 'admin')  wantedPanel = 'shop-admin';
+      if (_first === 'shop'   && _parts[1] === 'studio') wantedPanel = 'creator-studio';
       var activePanel = document.querySelector('.panel.active');
       if (wantedPanel && activePanel && activePanel.id !== 'panel-' + wantedPanel) {
         switchToPanel(wantedPanel);
@@ -967,6 +1315,12 @@ fetch('/auth/session', { credentials: 'same-origin' })
     return (isChiefPlus() || hasParliamentPlus()) && !isAdminBanned();
   }
 
+  // true if the user is an approved Creator (flag set by server in session)
+  function hasCreatorAccess() {
+    if (!state.loggedIn || !state.user) return false;
+    return !!state.user.is_creator;
+  }
+
   // true if the user holds any guild rank
   function isGuildMember() {
     if (!state.loggedIn || !state.user) return false;
@@ -995,6 +1349,10 @@ fetch('/auth/session', { credentials: 'same-origin' })
     const shopNavItem = document.getElementById('shopNavItem');
     if (shopNavItem) shopNavItem.style.display = canShop ? '' : 'none';
 
+    const canCreatorStudio = hasCreatorAccess();
+    const creatorStudioNav = document.getElementById('creatorStudioNavItem');
+    if (creatorStudioNav) creatorStudioNav.style.display = canCreatorStudio ? '' : 'none';
+
     const canShopAdmin = hasShopAdmin();
     const shopAdminNav = document.getElementById('shopAdminNavItem');
     if (shopAdminNav) shopAdminNav.style.display = canShopAdmin ? '' : 'none';
@@ -1015,6 +1373,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
       var panelId = activePanel.id.replace('panel-', '');
       var blocked =
         (activePanel.id === 'panel-shop'          && !canShop) ||
+        (activePanel.id === 'panel-creator-studio' && !canCreatorStudio) ||
         (activePanel.id === 'panel-shop-admin'    && !canShopAdmin) ||
         (activePanel.id === 'panel-inactivity'    && !canInactivity) ||
         (activePanel.id === 'panel-promotions'    && !canPromotions) ||
@@ -1586,10 +1945,10 @@ fetch('/auth/session', { credentials: 'same-origin' })
   var showToast = window.showToast;
 
   /* panel switching */
-  var _LOGIN_REQUIRED_PANELS = ['shop', 'shop-admin', 'inactivity', 'promotions', 'events-manage'];
+  var _LOGIN_REQUIRED_PANELS = ['shop', 'creator-studio', 'shop-admin', 'inactivity', 'promotions', 'events-manage'];
 
   function switchToPanel(panel) {
-    const validPanels = ['player', 'guild', 'bot', 'events', 'shop', 'shop-admin', 'profile', 'inactivity', 'promotions', 'events-manage'];
+    const validPanels = ['player', 'guild', 'bot', 'events', 'shop', 'creator-studio', 'shop-admin', 'profile', 'inactivity', 'promotions', 'events-manage'];
     let target = validPanels.includes(panel) ? panel : 'player';
 
     // If the panel requires login and user isn't logged in, show auth gate
@@ -1605,8 +1964,9 @@ fetch('/auth/session', { credentials: 'same-origin' })
     }
 
     // quietly fall back if they can't access the panel
-    if (target === 'shop'          && !isGuildMember())     target = 'player';
-    if (target === 'shop-admin'    && !hasShopAdmin())      target = 'player';
+    if (target === 'shop'            && !isGuildMember())     target = 'player';
+    if (target === 'creator-studio'  && !hasCreatorAccess())  target = 'player';
+    if (target === 'shop-admin'      && !hasShopAdmin())      target = 'player';
     if (target === 'inactivity'    && !hasParliamentPlus()) target = 'player';
     if (target === 'promotions'    && !hasJurorPlus())      target = 'player';
     if (target === 'events-manage' && !hasEventsAccess())   target = 'player';
@@ -1636,6 +1996,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
   window.hasEventsManageAny   = hasEventsManageAny;
   window.isChiefPlus          = isChiefPlus;
   window.hasShopAdmin         = hasShopAdmin;
+  window.hasCreatorAccess     = hasCreatorAccess;
   window.renderMarkdown       = renderMarkdown;
   applyPermissions();
 

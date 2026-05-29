@@ -2276,8 +2276,9 @@
   /* Path routing */
   // Map a data-panel identifier to its URL path.
   function panelToPath(panel) {
-    if (panel === 'events-manage') return '/events/manage';
-    if (panel === 'shop-admin')    return '/shop/admin';
+    if (panel === 'events-manage')  return '/events/manage';
+    if (panel === 'shop-admin')     return '/shop/admin';
+    if (panel === 'creator-studio') return '/shop/studio';
     return '/' + panel;
   }
 
@@ -2286,6 +2287,7 @@
     var panel = parts[0] || 'player';
     if (panel === 'events' && parts[1] === 'manage') return 'events-manage';
     if (panel === 'shop'   && parts[1] === 'admin')  return 'shop-admin';
+    if (panel === 'shop'   && parts[1] === 'studio') return 'creator-studio';
     return panel;
   }
 

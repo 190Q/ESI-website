@@ -14,6 +14,7 @@ import '../../css/promotions.css'
 import '../../css/events.css'
 import '../../css/shop.css'
 import '../../css/shop-admin.css'
+import '../../css/creator-studio.css'
 import '../../css/auth-gate.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />)

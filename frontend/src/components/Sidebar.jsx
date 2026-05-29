@@ -1,4 +1,4 @@
-import { UserIcon, GroupIcon, BotIcon, ClockIcon, TrendIcon, EventIcon, CalendarIcon, ShopIcon, SidebarToggleIcon, SettingsIcon } from './Icons'
+import { UserIcon, GroupIcon, BotIcon, ClockIcon, TrendIcon, EventIcon, CalendarIcon, ShopIcon, TagIcon, SidebarToggleIcon, SettingsIcon } from './Icons'
 
 export default function Sidebar() {
   return (
@@ -41,6 +41,12 @@ export default function Sidebar() {
               <a href="#" className="nav-item" data-panel="shop">
                 <span className="nav-icon"><ShopIcon /></span>
                 <span className="nav-label">Shop</span>
+              </a>
+            </li>
+            <li id="creatorStudioNavItem" style={{ display: 'none' }}>
+              <a href="#" className="nav-item" data-panel="creator-studio">
+                <span className="nav-icon"><TagIcon /></span>
+                <span className="nav-label">Creator Studio</span>
               </a>
             </li>
           </ul>

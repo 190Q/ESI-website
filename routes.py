@@ -714,13 +714,17 @@ def auth_callback():
 def auth_session():
     user = session.get("user")
     if user:
-        return jsonify({"loggedIn": True, "user": user})
+        user_out = dict(user)
+        user_out["is_creator"] = _is_creator(user.get("id", ""))
+        return jsonify({"loggedIn": True, "user": user_out})
     token = request.cookies.get(_REMEMBER_COOKIE)
     cached_user = _remember_restore(token)
     if cached_user:
         session.permanent = True
         session["user"] = cached_user
-        resp = jsonify({"loggedIn": True, "user": cached_user})
+        user_out = dict(cached_user)
+        user_out["is_creator"] = _is_creator(cached_user.get("id", ""))
+        resp = jsonify({"loggedIn": True, "user": user_out})
         _set_remember_cookie(resp, token)
         return resp
     return jsonify({"loggedIn": False})
@@ -785,7 +789,9 @@ def auth_refresh():
         }
         session["user"] = updated
         _remember_update(user_id, updated)
-        return jsonify({"loggedIn": True, "user": updated})
+        updated_out = dict(updated)
+        updated_out["is_creator"] = _is_creator(user_id)
+        return jsonify({"loggedIn": True, "user": updated_out})
     except Exception:
         return jsonify({"loggedIn": True, "user": user})
 
@@ -1069,6 +1075,28 @@ from shop.admin import (
     set_user_limits,
     admin_refund_purchase, admin_reject_refund,
 )
+from shop.creator import (
+    is_creator as _is_creator,
+    submit_application as _creator_submit_application,
+    get_application_status as _creator_get_application_status,
+    list_applications as _creator_list_applications,
+    approve_application as _creator_approve_application,
+    reject_application as _creator_reject_application,
+    get_creator_items as _creator_get_items,
+    submit_item_request as _creator_submit_item_request,
+    list_item_requests as _creator_list_item_requests,
+    approve_item_request as _creator_approve_item_request,
+    reject_item_request as _creator_reject_item_request,
+    update_own_item_stock as _creator_update_stock,
+    update_own_item_active as _creator_update_active,
+    get_creator_orders as _creator_get_orders,
+    fulfill_own_order as _creator_fulfill_order,
+    reject_own_order as _creator_reject_order,
+    get_all_creator_ids as _get_all_creator_ids,
+    grant_creator_flag_standalone as _creator_grant_flag,
+    revoke_creator_flag as _creator_revoke_flag,
+    list_creators_with_usernames as _list_creators_with_usernames,
+)
 
 
 # Guild-member gate for all shop endpoints
@@ -1197,8 +1225,85 @@ def me_ep_balance():
     })
 
 
-# Shop bin endpoints
+# Shop stats (account modal)
+@app.route("/api/me/shop-stats")
+@rate_limit(30)
+def me_shop_stats():
+    """Return the calling user's shop activity summary for the account modal."""
+    user, err = _require_guild_member(require_shop_enabled=False)
+    if err:
+        return err
+    discord_id = user.get("id", "")
+    mc_uuid, mc_username = resolve_uuid_for_user(discord_id)
+    if not mc_uuid:
+        return jsonify({"linked": False})
+    balance = fetch_ep_balance(mc_uuid)
+    total_orders = 0
+    total_bids = 0
+    auctions_won = 0
+    recent = []
+    if os.path.isfile(_SHOP_DB):
+        try:
+            conn = _sqlite3.connect(_SHOP_DB, timeout=5)
+            conn.row_factory = _sqlite3.Row
+            # counts
+            row = conn.execute(
+                "SELECT COUNT(*) FROM bin_purchases WHERE uuid = ?", (mc_uuid,)
+            ).fetchone()
+            if row:
+                total_orders = int(row[0])
+            row = conn.execute(
+                "SELECT COUNT(*) FROM bids WHERE uuid = ?", (mc_uuid,)
+            ).fetchone()
+            if row:
+                total_bids = int(row[0])
+            row = conn.execute(
+                "SELECT COUNT(*) FROM bids WHERE uuid = ? AND is_winning = 1", (mc_uuid,)
+            ).fetchone()
+            if row:
+                auctions_won = int(row[0])
+            # recent activity: last 10 purchases + bids merged by date
+            purchases = conn.execute(
+                "SELECT purchase_id AS id, item_id, 'purchase' AS type, "
+                "       ep_spent, purchased_at AS ts "
+                "FROM bin_purchases WHERE uuid = ? "
+                "ORDER BY purchased_at DESC LIMIT 10",
+                (mc_uuid,),
+            ).fetchall()
+            bids_rows = conn.execute(
+                "SELECT b.bid_id AS id, a.item_id, 'bid' AS type, "
+                "       b.amount AS ep_spent, b.placed_at AS ts "
+                "FROM bids b LEFT JOIN auctions a ON a.auction_id = b.auction_id "
+                "WHERE b.uuid = ? "
+                "ORDER BY b.placed_at DESC LIMIT 10",
+                (mc_uuid,),
+            ).fetchall()
+            conn.close()
+            merged = [dict(r) for r in purchases] + [dict(r) for r in bids_rows]
+            merged.sort(key=lambda x: x.get("ts") or "", reverse=True)
+            # resolve item names
+            from shop.items import get_item_unfiltered as _get_item
+            for entry in merged[:10]:
+                item = _get_item(entry.get("item_id") or "")
+                entry["item_name"] = item.get("name", entry.get("item_id", "")) if item else entry.get("item_id", "")
+            recent = merged[:10]
+        except _sqlite3.Error:
+            pass
+    return jsonify({
+        "linked": True,
+        "uuid": mc_uuid,
+        "username": mc_username,
+        "total_ep": balance.get("total_ep", 0),
+        "clean_ep": balance.get("clean_ep", 0),
+        "dirty_ep": balance.get("dirty_ep", 0),
+        "reserved_ep": balance.get("reserved_clean", 0) + balance.get("reserved_dirty", 0),
+        "total_orders": total_orders,
+        "total_bids": total_bids,
+        "auctions_won": auctions_won,
+        "recent": recent,
+    })
 
+# Shop bin endpoints
 @app.route("/api/shop/bin")
 @rate_limit(60)
 def shop_bin_list():
@@ -2008,10 +2113,12 @@ def admin_shop_users():
     users = admin_get_users()
     admin_map = _get_shop_admin_map()
     admin_banned_ids = _get_admin_banned_ids()
+    creator_ids = _get_all_creator_ids()
     for u in users:
         did = u.get("discord_id")
         u["rank_level"] = admin_map.get(did, 0) if did else 0
         u["admin_banned"] = bool(did and did in admin_banned_ids)
+        u["is_creator"] = bool(did and did in creator_ids)
     is_owner = _is_owner_user(user)
     actor_level = 3 if is_owner else _rank_level(set(user.get("roles") or []))
     return jsonify({"users": users, "actor_rank_level": actor_level})
@@ -2051,6 +2158,32 @@ def _fetch_target_roles(target_uuid: str) -> set | None:
     except Exception:
         pass
     return None
+
+@app.route("/api/admin/shop/users/<discord_id>/creator", methods=["POST"])
+@rate_limit(10)
+def admin_shop_toggle_creator(discord_id):
+    """Grant or revoke creator status for a user (Parliament+ only)."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    # Cannot grant creator to shop admins (Chief+)
+    admin_map = _get_shop_admin_map()
+    if admin_map.get(discord_id, 0) > 0:
+        return jsonify({"error": "Shop admins cannot be given Creator status"}), 400
+    body = request.get_json(silent=True) or {}
+    grant = body.get("grant")
+    if grant is None:
+        return jsonify({"error": "'grant' (true/false) is required"}), 400
+    actor = user.get("nick") or user.get("username", "")
+    target_username = (body.get("username") or "").strip()
+    if grant:
+        result = _creator_grant_flag(discord_id, actor, target_username)
+    else:
+        result = _creator_revoke_flag(discord_id, actor, target_username)
+    return jsonify(result), 200 if result.get("ok") else 400
+
 
 @app.route("/api/admin/shop/users/<uuid>/ban", methods=["POST"])
 @rate_limit(10)
@@ -2279,6 +2412,309 @@ def admin_shop_config():
     if err:
         return err
     return jsonify(admin_get_raw_config())
+
+
+# Creator system endpoints
+def _require_creator():
+    """Middleware: checks user is logged in, has creator flag, and is not shop-banned.
+
+    Returns (user, err) like _require_guild_member.
+    """
+    user, err = _require_login()
+    if err:
+        return None, err
+    discord_id = user.get("id", "")
+    if not _is_creator(discord_id):
+        return None, (jsonify({"error": "Creator status required"}), 403)
+    mc_uuid, _ = resolve_uuid_for_user(discord_id)
+    if mc_uuid and is_shop_banned(mc_uuid):
+        return None, (jsonify({"error": "You have been banned from the shop"}), 403)
+    return user, None
+
+
+@app.route("/api/shop/creator-apply", methods=["POST"])
+@rate_limit(3, 600)
+def shop_creator_apply():
+    """Submit a creator application."""
+    user, err = _require_guild_member(require_shop_enabled=False)
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    answers_raw = body.get("answers")
+    answers = None
+    if isinstance(answers_raw, list):
+        answers = [str(a or "").strip()[:500] for a in answers_raw[:10]]
+    result = _creator_submit_application(
+        user.get("id", ""), user.get("roles") or [], answers=answers,
+    )
+    status = 200 if result.get("ok") else 400
+    if result.get("error") == "You already have a pending application":
+        status = 409
+    return jsonify(result), status
+
+
+@app.route("/api/shop/creator-apply/status")
+@rate_limit(30)
+def shop_creator_apply_status():
+    """Return the user's own application status + cooldown."""
+    user, err = _require_login()
+    if err:
+        return err
+    return jsonify(_creator_get_application_status(user.get("id", "")))
+
+
+@app.route("/api/shop/creator/my-items")
+@rate_limit(30)
+def shop_creator_my_items():
+    """Return the calling creator's own items and pending requests."""
+    user, err = _require_creator()
+    if err:
+        return err
+    return jsonify(_creator_get_items(user.get("id", "")))
+
+
+@app.route("/api/shop/creator/my-requests")
+@rate_limit(30)
+def shop_creator_my_requests():
+    """Return the calling creator's own item requests (read-only history)."""
+    user, err = _require_creator()
+    if err:
+        return err
+    data = _creator_get_items(user.get("id", ""))
+    return jsonify({"requests": data.get("requests", [])})
+
+
+@app.route("/api/shop/creator/my-orders")
+@rate_limit(30)
+def shop_creator_my_orders():
+    """Return purchases made on the creator's items."""
+    user, err = _require_creator()
+    if err:
+        return err
+    return jsonify(_creator_get_orders(user.get("id", "")))
+
+
+@app.route("/api/shop/creator/orders/<purchase_id>/fulfill", methods=["POST"])
+@rate_limit(20)
+def shop_creator_fulfill_order(purchase_id):
+    """Creator marks a purchase on their own item as fulfilled."""
+    user, err = _require_creator()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    note = (body.get("note") or "").strip()[:50] or None
+    actor = user.get("nick") or user.get("username", "")
+    result = _creator_fulfill_order(user.get("id", ""), purchase_id, note, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/shop/creator/orders/<purchase_id>/reject", methods=["POST"])
+@rate_limit(20)
+def shop_creator_reject_order(purchase_id):
+    """Creator rejects a purchase on their own item (refunds EP, restores stock)."""
+    user, err = _require_creator()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    reason = (body.get("reason") or "").strip()[:50]
+    if not reason:
+        return jsonify({"error": "Reason is required"}), 400
+    actor = user.get("nick") or user.get("username", "")
+    result = _creator_reject_order(user.get("id", ""), purchase_id, reason, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/shop/creator/upload-image", methods=["POST"])
+@rate_limit(10)
+def shop_creator_upload_image():
+    """Upload an image for a creator item request. Returns the served URL."""
+    user, err = _require_creator()
+    if err:
+        return err
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files["file"]
+    if not f or not f.filename:
+        return jsonify({"error": "No file selected"}), 400
+    _ALLOWED_EXT  = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+    _ALLOWED_FMT  = {"PNG", "JPEG", "GIF", "WEBP"}
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in _ALLOWED_EXT:
+        return jsonify({"error": "Unsupported type. Use PNG, JPG, GIF or WebP."}), 400
+    f.seek(0, 2); size = f.tell(); f.seek(0)
+    if size > 2 * 1024 * 1024:
+        return jsonify({"error": "Image must be smaller than 2 MB"}), 400
+    try:
+        from PIL import Image as _PIL_Image
+        img = _PIL_Image.open(f)
+        img.verify()
+        if img.format not in _ALLOWED_FMT:
+            return jsonify({"error": f"File content is {img.format}, not a supported image type."}), 400
+    except Exception:
+        return jsonify({"error": "File does not appear to be a valid image."}), 400
+    finally:
+        f.seek(0)
+    import uuid as _uid_local
+    filename = _uid_local.uuid4().hex + ext
+    save_dir = os.path.join(_BASE_DIR, "images", "shop")
+    os.makedirs(save_dir, exist_ok=True)
+    f.save(os.path.join(save_dir, filename))
+    return jsonify({"ok": True, "url": "/images/shop/" + filename})
+
+
+@app.route("/api/shop/creator/request-item", methods=["POST"])
+@rate_limit(5, 60)
+def shop_creator_request_item():
+    """Submit a new-item or edit-item request."""
+    user, err = _require_creator()
+    if err:
+        return err
+    body = request.get_json(silent=True)
+    if not body or not isinstance(body, dict):
+        return jsonify({"error": "Invalid request body"}), 400
+    item_id = (body.get("item_id") or "").strip() or None
+    changes = body.get("changes")
+    if not isinstance(changes, dict) or not changes:
+        return jsonify({"error": "changes must be a non-empty object"}), 400
+    note = (body.get("note") or "").strip()[:200] or None
+    result = _creator_submit_item_request(user.get("id", ""), item_id, changes, note=note)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/shop/creator/items/<item_id>/stock", methods=["PATCH"])
+@rate_limit(20)
+def shop_creator_update_stock(item_id):
+    """Directly update stock on the creator's own item."""
+    user, err = _require_creator()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    stock_raw = body.get("stock")
+    if stock_raw is not None:
+        try:
+            stock = int(stock_raw)
+        except (TypeError, ValueError):
+            return jsonify({"error": "stock must be an integer or null"}), 400
+    else:
+        stock = None
+    actor = user.get("nick") or user.get("username", "")
+    result = _creator_update_stock(user.get("id", ""), item_id, stock, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/shop/creator/items/<item_id>/active", methods=["PATCH"])
+@rate_limit(20)
+def shop_creator_update_active(item_id):
+    """Directly toggle active state on the creator's own item."""
+    user, err = _require_creator()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    active = body.get("active")
+    if active is None:
+        return jsonify({"error": "active is required"}), 400
+    actor = user.get("nick") or user.get("username", "")
+    result = _creator_update_active(user.get("id", ""), item_id, bool(active), actor)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+# Creator admin endpoints (Parliament only)
+@app.route("/api/admin/shop/creators")
+@rate_limit(30)
+def admin_creators_list():
+    """Return all creators with usernames (for assignment dropdown)."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    return jsonify({"creators": _list_creators_with_usernames()})
+
+
+@app.route("/api/admin/shop/creator-applications")
+@rate_limit(30)
+def admin_creator_applications():
+    """List all creator applications, filterable by status."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    status_filter = request.args.get("status")
+    return jsonify({"applications": _creator_list_applications(status_filter)})
+
+
+@app.route("/api/admin/shop/creator-applications/<app_id>/approve", methods=["POST"])
+@rate_limit(10)
+def admin_creator_application_approve(app_id):
+    """Approve a creator application."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    reviewer = user.get("nick") or user.get("username", "")
+    result = _creator_approve_application(app_id, reviewer)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/creator-applications/<app_id>/reject", methods=["POST"])
+@rate_limit(10)
+def admin_creator_application_reject(app_id):
+    """Reject a creator application with optional reason."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    body = request.get_json(silent=True) or {}
+    reason = (body.get("reason") or "").strip()[:200] or None
+    reviewer = user.get("nick") or user.get("username", "")
+    result = _creator_reject_application(app_id, reviewer, reason)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/creator-requests")
+@rate_limit(30)
+def admin_creator_requests():
+    """List all creator item requests, filterable by status."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    status_filter = request.args.get("status")
+    return jsonify({"requests": _creator_list_item_requests(status_filter)})
+
+
+@app.route("/api/admin/shop/creator-requests/<req_id>/approve", methods=["POST"])
+@rate_limit(10)
+def admin_creator_request_approve(req_id):
+    """Approve a creator item request: applies changes to the catalogue."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    reviewer = user.get("nick") or user.get("username", "")
+    result = _creator_approve_item_request(req_id, reviewer)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/creator-requests/<req_id>/reject", methods=["POST"])
+@rate_limit(10)
+def admin_creator_request_reject(req_id):
+    """Reject a creator item request with optional reason."""
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    if err:
+        return err
+    if not is_parliament:
+        return jsonify({"error": "Parliament rank required"}), 403
+    body = request.get_json(silent=True) or {}
+    reason = (body.get("reason") or "").strip()[:200] or None
+    reviewer = user.get("nick") or user.get("username", "")
+    result = _creator_reject_item_request(req_id, reviewer, reason)
+    return jsonify(result), 200 if result.get("ok") else 400
 
 
 _APPLICATIONS_LOCK = _threading.Lock()

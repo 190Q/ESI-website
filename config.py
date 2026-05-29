@@ -547,6 +547,7 @@ _CLIENT_CONFIG = {
         "chiefPlus":       list(_CHIEF_PLUS),
         "eventsAccess":    list(_EVENTS_ACCESS),
         "eventsManageAny": list(_EVENTS_MANAGE_ANY),
+        "creatorApplyRoles": [_ROLE_CITIZEN],
     },
     "staffRoles": [],
     "rankRoles": [

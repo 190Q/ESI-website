@@ -31,6 +31,9 @@ export default function AccountModal() {
           <div className="account-tab-panel" id="accountTabBadges">
             <div className="account-badges" id="accountBadges" />
           </div>
+          <div className="account-tab-panel" id="accountTabShop" style={{ display: 'none' }}>
+            <div id="accountShopContent" />
+          </div>
 
           {/* Application form */}
           <div className="account-apply-form" id="accountApplyForm" style={{ display: 'none' }}>

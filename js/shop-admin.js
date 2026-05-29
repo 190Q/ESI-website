@@ -14,6 +14,8 @@
   var _shopDisabledMessage = 'Coming soon';
   var _canToggleShopState = false;
   var _isParliamentFromState = false;
+  var _applicationsData = null;
+  var _creatorRequestsData = null;
 
   var _svg = {
     check:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
@@ -217,12 +219,17 @@
               }
               _items = null; _auctions = null; _queueData = null; _logsData = null; _logsFeed = null;
               _changesData = null; _users = null; _usersOpenUuid = null;
+              _applicationsData = null; _creatorRequestsData = null;
               renderShopStateBanner();
               if (_shopEnabled) {
                 fetchQueue(function () { updateQueueBadge(); renderTab(); });
               } else {
                 _clearQueueBadges();
                 renderTab();
+              }
+              if (_isParliament || _isOwnerShopAdmin()) {
+                _applicationsData = null;
+                _creatorRequestsData = null;
               }
               _notifyShopUpdated();
               showToast('\u2713 Shop turned ' + (_shopEnabled ? 'on' : 'off') + '.', 'success');
@@ -969,6 +976,7 @@
   var _ieVariants = [];       // [{id, label}] – variant (sub-item) tabs
   var _ieActiveVariant = -1;  // -1 = General tab
   var _IE_MAX_TABS = 11;      // includes the permanent General tab
+  var _creatorsCache = null;  // lazy-loaded [{discord_id, username}]
 
   function _ieSaveVariantData(modal) {
     if (_ieActiveVariant < 0 || _ieActiveVariant >= _ieVariants.length) return;
@@ -1188,6 +1196,31 @@
     bd.classList.add('open');
     _ieTypeToggle(modal);
     _bindItemEditorEvents(modal, item, isNew);
+    _iePopulateCreators(modal, item);
+  }
+
+  function _iePopulateCreators(modal, item) {
+    var sel = modal.querySelector('#ieCreator');
+    if (!sel) return;
+    var curVal = (item && item.creator_discord_id) || '';
+    function _fill(creators) {
+      sel.innerHTML = '<option value="">None</option>';
+      creators.forEach(function (c) {
+        var opt = document.createElement('option');
+        opt.value = c.discord_id;
+        opt.textContent = c.username;
+        if (c.discord_id === curVal) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+    if (_creatorsCache) { _fill(_creatorsCache); return; }
+    fetch('/api/admin/shop/creators', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        _creatorsCache = (d && d.creators) || [];
+        _fill(_creatorsCache);
+      })
+      .catch(function () { /* leave just None */ });
   }
 
   function _v(val, def) {
@@ -1395,6 +1428,13 @@
     h += '</div>';
     h += '</div>'; // visibility section
 
+    // Assigned Creator (hidden for donate)
+    h += '<div class="ie-section" data-ie-creator><div class="ie-section-title">Assigned Creator</div>';
+    h += '<div class="ie-field ie-field--full"><label class="ie-label">Creator</label>';
+    h += '<select id="ieCreator" class="ie-input"><option value="">None</option></select>';
+    h += '<div class="ie-hint">Assign this item to a creator. It will appear in their Creator Studio.</div>';
+    h += '</div></div>';
+
     h += '</div>'; // General panel
 
     // Variant tab panels
@@ -1480,6 +1520,7 @@
     modal.querySelectorAll('[data-ie-auction]').forEach(function (el) { el.style.display = t === 'auction' ? '' : 'none'; });
     modal.querySelectorAll('[data-ie-pricing]').forEach(function (el) { el.style.display = isDonate ? 'none' : ''; });
     modal.querySelectorAll('[data-ie-ep]').forEach(function (el) { el.style.display = isDonate ? 'none' : ''; });
+    modal.querySelectorAll('[data-ie-creator]').forEach(function (el) { el.style.display = isDonate ? 'none' : ''; });
   }
 
   function _ieCollect(modal) {
@@ -1556,6 +1597,7 @@
       accepts_dirty_ep:      _hasVariants ? (_firstV.accepts_dirty_ep || 'true') : gv('ieDirtyEP'),
       spend_order:           _hasVariants ? (_firstV.spend_order || 'clean_first') : gv('ieSpendOrder'),
       cooldown:              _hasVariants ? _fvCdVal : cooldownVal,
+      creator_discord_id:    gv('ieCreator') || null,
       visible_to_ranks:      rankResult.length ? rankResult : null,
       visible_to_top_n:      topN,
       activate_at:           _hasVariants ? _fvActAt : activateAt,
@@ -1592,7 +1634,7 @@
       function _gv(id) { var el = modal.querySelector('#' + id); return el ? el.value : null; }
       var s = {
         name: _gv('ieName'), id: _gv('ieId'), type: _gv('ieType'), active: _gv('ieActive'),
-        desc: _gv('ieDesc'), topN: _gv('ieTopN'),
+        desc: _gv('ieDesc'), topN: _gv('ieTopN'), creator: _gv('ieCreator'),
         price: _gv('iePrice'), stock: _gv('ieStock'), maxQty: _gv('ieMaxQty'),
         startBid: _gv('ieStartBid'), minInc: _gv('ieMinInc'),
         durType: _gv('ieDurType'), durHrs: _gv('ieDurHrs'),
@@ -1616,6 +1658,7 @@
       _sv('ieDirtyEP', s.dirtyEP); _sv('ieSpendOrder', s.spendOrder);
       _sv('ieCooldownType', s.cdType); _sv('ieCooldownNum', s.cdNum);
       _sv('ieActivateAt', s.actAt); _sv('ieDeactivateAt', s.deactAt);
+      _sv('ieCreator', s.creator);
       // Rank chips
       modal.querySelectorAll('.ie-rank-chip').forEach(function (c) {
         if (s.ranks[c.dataset.rank] != null) c.dataset.state = s.ranks[c.dataset.rank];
@@ -2180,17 +2223,25 @@
   }
 
   function renderQueue(c) {
-    if (!_queueData) {
-      c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading queue\u2026</div>';
-      fetchQueue(function (d) {
-        if (_activeTab !== 'queue') return;
-        if (!d) { c.innerHTML = '<div class="shop-empty">Could not load queue.</div>'; return; }
-        renderQueueContent(c);
-        updateQueueBadge();
-      });
-      return;
+    c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading queue\u2026</div>';
+    var _need = 1;
+    var _isP = _isParliament || _isOwnerShopAdmin();
+    if (_isP) _need = 3;
+    var _done = 0;
+    function _check() {
+      if (++_done < _need) return;
+      if (_activeTab !== 'queue') return;
+      if (!_queueData) { c.innerHTML = '<div class="shop-empty">Could not load queue.</div>'; return; }
+      renderQueueContent(c);
+      updateQueueBadge();
     }
-    renderQueueContent(c);
+    if (!_queueData) {
+      fetchQueue(function (d) { _check(); });
+    } else { _done++; _check(); }
+    if (_isP) {
+      if (!_applicationsData) { fetchApplications(function () { _check(); }); } else { _done++; _check(); }
+      if (!_creatorRequestsData) { fetchCreatorRequests(function () { _check(); }); } else { _done++; _check(); }
+    }
   }
 
   function updateQueueBadge() {
@@ -2198,6 +2249,10 @@
     if (!_shopEnabled) { _clearQueueBadges(); return; }
     if (!_queueData) return;
     var count = (_queueData.purchases || []).length + (_queueData.refund_requests || []).length + (_queueData.donations || []).length;
+    if (_isParliament || _isOwnerShopAdmin()) {
+      count += (_applicationsData || []).filter(function (a) { return a.status === 'pending'; }).length;
+      count += (_creatorRequestsData || []).filter(function (r) { return r.status === 'pending'; }).length;
+    }
 
     // badge on the Queue tab inside the panel
     if (btn) {
@@ -2245,6 +2300,14 @@
     ((_queueData && _queueData.donations) || []).forEach(function (d) {
       merged.push({ type: 'donation', date: d.submitted_at, id: d.ticket_id, data: d });
     });
+    if (_isParliament || _isOwnerShopAdmin()) {
+      (_applicationsData || []).forEach(function (a) {
+        if (a.status === 'pending') merged.push({ type: 'application', date: a.submitted_at, id: a.id, data: a });
+      });
+      (_creatorRequestsData || []).forEach(function (r) {
+        if (r.status === 'pending') merged.push({ type: 'creator_request', date: r.submitted_at, id: r.id, data: r });
+      });
+    }
     merged.sort(function (a, b) {
       var cmp = (a.date || '').localeCompare(b.date || '');
       return _queueSort === 'newest' ? -cmp : cmp;
@@ -2256,13 +2319,18 @@
     var pCount = ((_queueData && _queueData.purchases) || []).length;
     var dCount = ((_queueData && _queueData.donations) || []).length;
     var rCount = ((_queueData && _queueData.refund_requests) || []).length;
-    var total  = pCount + rCount + dCount;
+    var _isP = _isParliament || _isOwnerShopAdmin();
+    var aCount = _isP ? (_applicationsData || []).filter(function (a) { return a.status === 'pending'; }).length : 0;
+    var crCount = _isP ? (_creatorRequestsData || []).filter(function (r) { return r.status === 'pending'; }).length : 0;
+    var total  = pCount + rCount + dCount + aCount + crCount;
     var html = '';
     html += '<div class="sa-q-filters">' +
       '<button class="sa-q-pill' + (_queueFilter === 'all' ? ' active' : '') + '" data-qf="all">All <span class="sa-q-count">' + total + '</span></button>' +
       '<button class="sa-q-pill' + (_queueFilter === 'purchases' ? ' active' : '') + '" data-qf="purchases">Pending <span class="sa-q-count">' + pCount + '</span></button>' +
       '<button class="sa-q-pill' + (_queueFilter === 'refunds' ? ' active' : '') + '" data-qf="refunds">Refund Requests <span class="sa-q-count">' + rCount + '</span></button>' +
       '<button class="sa-q-pill' + (_queueFilter === 'donations' ? ' active' : '') + '" data-qf="donations">Donations <span class="sa-q-count">' + dCount + '</span></button>' +
+      (_isP ? '<button class="sa-q-pill' + (_queueFilter === 'applications' ? ' active' : '') + '" data-qf="applications">Applications <span class="sa-q-count">' + aCount + '</span></button>' +
+      '<button class="sa-q-pill' + (_queueFilter === 'creator_requests' ? ' active' : '') + '" data-qf="creator_requests">Creator Requests <span class="sa-q-count">' + crCount + '</span></button>' : '') +
       '<span class="sa-q-sort" id="saQueueSort">' + (_queueSort === 'oldest' ? 'Oldest first' : 'Newest first') + '</span>' +
     '</div>';
 
@@ -2273,7 +2341,7 @@
       html += '<div class=\"shop-empty sa-q-empty\">No items in queue</div>';
     } else {
       merged.forEach(function (item) {
-        var filterMap = { purchase: 'purchases', refund: 'refunds', donation: 'donations' };
+        var filterMap = { purchase: 'purchases', refund: 'refunds', donation: 'donations', application: 'applications', creator_request: 'creator_requests' };
         var hidden = _queueFilter !== 'all' && _queueFilter !== filterMap[item.type];
         html += _buildQueueCard(item, hidden);
       });
@@ -2307,6 +2375,8 @@
     var d = item.data;
     var isPurchase = item.type === 'purchase';
     var isRefund = item.type === 'refund';
+    var isApp = item.type === 'application';
+    var isCreq = item.type === 'creator_request';
 
     var html = '<div class="sa-q-card' + (hidden ? ' sa-q-hidden' : '') +
       '" data-qtype="' + item.type +
@@ -2315,7 +2385,7 @@
 
     /* Header */
     html += '<div class="sa-q-header"><div class="sa-q-header-left">';
-    html += '<span class="sa-q-user">' + esc(d.username) + '</span>';
+    html += '<span class="sa-q-user">' + esc(d.username || d.discord_id || '') + '</span>';
     html += '<div class="sa-q-tags">';
     if (isPurchase || isRefund) {
       html += isRefund
@@ -2324,6 +2394,13 @@
       var slugText = esc(d.item_id);
       try { if (d.quantity && d.quantity > 1) slugText += ' \u00d7' + d.quantity; } catch (ignore) {}
       html += '<span class="sa-q-slug">' + slugText + '</span>';
+    } else if (isApp) {
+      html += '<span class="sa-q-type sa-q-type--application">Creator Application</span>';
+    } else if (isCreq) {
+      var _isNewItem = !d.item_id;
+      html += '<span class="sa-q-type sa-q-type--creator-request">' + (_isNewItem ? 'New Item' : 'Edit Item') + '</span>';
+      var _crItemLabel = _isNewItem ? (d.changes && d.changes.name ? esc(d.changes.name) : 'New') : esc(d.item_id);
+      html += '<span class="sa-q-slug">' + _crItemLabel + '</span>';
     } else {
       html += '<span class="sa-q-type sa-q-type--donation">Donation</span>';
       html += '<span class="sa-q-slug">' + num(d.le_amount) + ' LE declared</span>';
@@ -2332,24 +2409,50 @@
     html += '<span class="sa-q-date">' + fmtDate(item.date) + '</span>';
     html += '</div>';
 
-    /* Metrics */
-    html += '<div class="sa-q-metrics">';
-    if (isPurchase || isRefund) {
-      html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Total</span>' +
-        '<span class="sa-q-metric-value sa-q-val--total">' + num(d.ep_spent) + ' EP</span></div>';
-      html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Clean</span>' +
-        '<span class="sa-q-metric-value sa-q-val--clean">' + num(d.clean_ep_spent) + ' EP</span></div>';
-      html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Dirty</span>' +
-        '<span class="sa-q-metric-value sa-q-val--dirty">' + num(d.dirty_ep_spent) + ' EP</span></div>';
+    /* Body: metrics for purchases/donations, answers for apps, changes summary for creqs */
+    if (isApp) {
+      if (d.answers && d.answers.length) {
+        html += '<div class="sa-q-app-answers">';
+        d.answers.forEach(function (ans, i) {
+          var q = _APP_QUESTIONS[i] || ('Question ' + (i + 1));
+          html += '<div class="sa-q-app-qa"><span class="sa-q-app-q">' + esc(q) + '</span>' +
+            '<span class="sa-q-app-a">' + esc(ans) + '</span></div>';
+        });
+        html += '</div>';
+      }
+    } else if (isCreq) {
+      var _cch = d.changes || {};
+      var _crBits = [];
+      if (_cch.name) _crBits.push('Name: ' + _cch.name);
+      if (_cch.type) _crBits.push('Type: ' + _cch.type);
+      if (_cch.price != null) _crBits.push('Price: ' + _cch.price + ' EP');
+      if (_cch.stock != null) _crBits.push('Stock: ' + _cch.stock);
+      if (_cch.category) _crBits.push('Cat: ' + (Array.isArray(_cch.category) ? _cch.category.join(', ') : _cch.category));
+      if (_crBits.length) {
+        html += '<div class="sa-q-note">' + esc(_crBits.join(' \u00b7 ')) + '</div>';
+      }
+      if (d.note) {
+        html += '<div class="sa-q-creator-note">' + esc(d.note) + '</div>';
+      }
     } else {
-      html += '<div class="sa-q-metric"><span class="sa-q-metric-label">EP to grant</span>' +
-        '<span class="sa-q-metric-value sa-q-val--dirty">' + num(d.dirty_ep_to_grant) + ' EP</span></div>';
-      html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Type</span>' +
-        '<span class="sa-q-metric-value sa-q-val--dirty">Dirty</span></div>';
-      html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Declared</span>' +
-        '<span class="sa-q-metric-value">' + num(d.le_amount) + ' LE</span></div>';
+      html += '<div class="sa-q-metrics">';
+      if (isPurchase || isRefund) {
+        html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Total</span>' +
+          '<span class="sa-q-metric-value sa-q-val--total">' + num(d.ep_spent) + ' EP</span></div>';
+        html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Clean</span>' +
+          '<span class="sa-q-metric-value sa-q-val--clean">' + num(d.clean_ep_spent) + ' EP</span></div>';
+        html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Dirty</span>' +
+          '<span class="sa-q-metric-value sa-q-val--dirty">' + num(d.dirty_ep_spent) + ' EP</span></div>';
+      } else {
+        html += '<div class="sa-q-metric"><span class="sa-q-metric-label">EP to grant</span>' +
+          '<span class="sa-q-metric-value sa-q-val--dirty">' + num(d.dirty_ep_to_grant) + ' EP</span></div>';
+        html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Type</span>' +
+          '<span class="sa-q-metric-value sa-q-val--dirty">Dirty</span></div>';
+        html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Declared</span>' +
+          '<span class="sa-q-metric-value">' + num(d.le_amount) + ' LE</span></div>';
+      }
+      html += '</div>';
     }
-    html += '</div>';
 
     /* Fulfillment note */
     if ((isPurchase || isRefund) && d.fulfillment_note) {
@@ -2360,7 +2463,16 @@
     }
 
     /* Actions */
-    if (_canChiefEditShopAdmin()) {
+    if (isApp && _canParliamentEditShopAdmin()) {
+      html += '<div class="sa-q-actions">';
+      html += '<button class="sa-q-btn sa-q-btn--primary" data-action="approve-app" data-id="' + esc(d.id) + '">Approve</button>';
+      html += '<button class="sa-q-btn sa-q-btn--reject" data-action="reject-app" data-id="' + esc(d.id) + '">Reject</button>';
+      html += '</div>';
+    } else if (isCreq && _canParliamentEditShopAdmin()) {
+      html += '<div class="sa-q-actions">';
+      html += '<button class="sa-q-btn sa-q-btn--primary" data-action="review-creq" data-id="' + esc(d.id) + '">Review</button>';
+      html += '</div>';
+    } else if (_canChiefEditShopAdmin() && !isApp && !isCreq) {
       html += '<div class="sa-q-actions">';
       if (isPurchase) {
         html += '<button class="sa-q-btn sa-q-btn--primary" data-action="fulfill" data-type="purchase" data-id="' + esc(d.purchase_id) + '">Mark fulfilled</button>';
@@ -2382,10 +2494,12 @@
   function _applyQueueFilter() {
     document.querySelectorAll('.sa-q-card').forEach(function (card) {
       var t = card.dataset.qtype;
-    var match = _queueFilter === 'all' ||
+      var match = _queueFilter === 'all' ||
         (_queueFilter === 'purchases' && t === 'purchase') ||
         (_queueFilter === 'refunds' && t === 'refund') ||
-        (_queueFilter === 'donations' && t === 'donation');
+        (_queueFilter === 'donations' && t === 'donation') ||
+        (_queueFilter === 'applications' && t === 'application') ||
+        (_queueFilter === 'creator_requests' && t === 'creator_request');
       card.classList.toggle('sa-q-hidden', !match);
     });
     _checkQueueEmpty();
@@ -2406,14 +2520,19 @@
     var pCount = ((_queueData && _queueData.purchases) || []).length;
     var rCount = ((_queueData && _queueData.refund_requests) || []).length;
     var dCount = ((_queueData && _queueData.donations) || []).length;
+    var _isP = _isParliament || _isOwnerShopAdmin();
+    var aCount = _isP ? (_applicationsData || []).filter(function (a) { return a.status === 'pending'; }).length : 0;
+    var crCount = _isP ? (_creatorRequestsData || []).filter(function (r) { return r.status === 'pending'; }).length : 0;
     document.querySelectorAll('.sa-q-pill').forEach(function (p) {
       var cnt = p.querySelector('.sa-q-count');
       if (!cnt) return;
       var f = p.dataset.qf;
-      if (f === 'all') cnt.textContent = pCount + rCount + dCount;
+      if (f === 'all') cnt.textContent = pCount + rCount + dCount + aCount + crCount;
       else if (f === 'purchases') cnt.textContent = pCount;
       else if (f === 'refunds') cnt.textContent = rCount;
       else if (f === 'donations') cnt.textContent = dCount;
+      else if (f === 'applications') cnt.textContent = aCount;
+      else if (f === 'creator_requests') cnt.textContent = crCount;
     });
   }
 
@@ -2444,8 +2563,31 @@
         else if (action === 'reject') openRejectModal(type, id, btn);
         else if (action === 'approve-refund') openRefundModal(id, btn);
         else if (action === 'reject-refund') _rejectRefund(id, btn);
+        else if (action === 'approve-app') _approveAppFromQueue(id, btn);
+        else if (action === 'reject-app') _openAppRejectModal(id, document.getElementById('saContent'));
+        else if (action === 'review-creq') _openCreatorRequestOverlay(id, document.getElementById('saContent'));
       });
     });
+  }
+
+  function _approveAppFromQueue(appId, triggerBtn) {
+    triggerBtn.disabled = true; triggerBtn.textContent = 'Approving\u2026';
+    apiPost('/api/admin/shop/creator-applications/' + encodeURIComponent(appId) + '/approve', {})
+      .then(function (res) {
+        if (res.ok && res.data.ok) {
+          showToast('\u2713 Application approved.', 'success');
+          var card = triggerBtn.closest('.sa-q-card');
+          if (card) { card.style.opacity = '0.3'; card.style.pointerEvents = 'none'; }
+          _applicationsData = null;
+          _updateQueuePillCounts();
+          _checkQueueEmpty();
+          updateQueueBadge();
+        } else {
+          showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+          triggerBtn.disabled = false; triggerBtn.textContent = 'Approve';
+        }
+      })
+      .catch(function () { showToast('\u26a0 Network error', 'warn'); triggerBtn.disabled = false; triggerBtn.textContent = 'Approve'; });
   }
 
   function openRefundModal(purchaseId, triggerBtn) {
@@ -2627,6 +2769,11 @@
     ep_adjusted:        'EP Adjusted',
     purchase_rejected:  'Purchase Rejected',
     user_limits_changed:'User Limits Changed',
+    creator_application_approved:  'Creator App Approved',
+    creator_application_rejected:  'Creator App Rejected',
+    creator_item_request_submitted:'Creator Request Submitted',
+    creator_item_request_approved: 'Creator Request Approved',
+    creator_item_request_rejected: 'Creator Request Rejected',
   };
 
   var _ACTION_TYPES = Object.keys(_ACTION_LABELS);
@@ -2647,6 +2794,8 @@
   function _fmtChangesTarget(row) {
     var d = row.details || {};
     var a = row.action;
+    if (a === 'creator_application_approved' || a === 'creator_application_rejected') return esc(d.username || d.discord_id || row.target_id || '\u2014');
+    if (a === 'creator_item_request_submitted' || a === 'creator_item_request_approved' || a === 'creator_item_request_rejected') return esc(d.item_id || d.item_name || row.target_id || '\u2014');
     if (d.item_id) return esc(d.item_id);
     if (d.username) return esc(d.username);
     if (a === 'items_reordered') return (d.count || '?') + ' items';
@@ -2677,6 +2826,7 @@
     max_quantity: 'Max Qty', accepts_dirty_ep: 'Dirty EP', spend_order: 'Spend Order',
     visible_to_ranks: 'Ranks', visible_to_top_n: 'Top N', auto_start: 'Auto Start',
     activate_at: 'Activate', deactivate_at: 'Deactivate', images: 'Images',
+    creator_discord_id: 'Assigned Creator',
   };
 
   function _fmtItemDiff(changes) {
@@ -2787,6 +2937,33 @@
       var ep = sign + num(d.amount) + ' ' + esc((d.ep_type || '').charAt(0).toUpperCase() + (d.ep_type || '').slice(1)) + ' EP';
       return d.reason ? ep + ' \u00b7 ' + esc(d.reason) : ep;
     }
+    if (a === 'creator_application_approved' || a === 'creator_application_rejected') {
+      return d.reason ? esc(d.reason) : '\u2014';
+    }
+    if (a === 'creator_item_request_submitted' || a === 'creator_item_request_approved') {
+      var p = [];
+      if (d.username) p.push('By: ' + esc(d.username));
+      p.push(d.request_type === 'new' ? 'New item' : 'Edit');
+      if (d.changes) {
+        var _crChg = d.changes;
+        var _crBits = [];
+        if (_crChg.name) _crBits.push('Name: ' + esc(_crChg.name));
+        if (_crChg.type) _crBits.push('Type: ' + esc(_crChg.type));
+        if (_crChg.price != null) _crBits.push('Price: ' + num(_crChg.price));
+        if (_crChg.description) _crBits.push('Desc: ' + esc(String(_crChg.description).slice(0, 40)));
+        if (_crChg.category) _crBits.push('Cat: ' + esc(Array.isArray(_crChg.category) ? _crChg.category.join(', ') : _crChg.category));
+        if (_crBits.length) p.push(_crBits.join(', '));
+      }
+      return p.join(' \u00b7 ') || '\u2014';
+    }
+    if (a === 'creator_item_request_rejected') {
+      var p = [];
+      if (d.username) p.push('By: ' + esc(d.username));
+      p.push(d.request_type === 'new' ? 'New item' : 'Edit');
+      if (d.item_name) p.push(esc(d.item_name));
+      if (d.reason) p.push(esc(d.reason));
+      return p.join(' \u00b7 ') || '\u2014';
+    }
     return '\u2014';
   }
 
@@ -2839,7 +3016,7 @@
 
     c.innerHTML = html;
 
-    // log type switcher — immediate, no Search needed
+    // log type switcher
     document.getElementById('saLogTypeView').addEventListener('change', function () {
       _logsFilters.log_type = this.value;
       _logsPage = 1; _logsData = null;
@@ -3021,7 +3198,7 @@
 
     c.innerHTML = html;
 
-    // log type switcher — immediate, no Search needed
+    // log type switcher
     document.getElementById('saLogTypeView').addEventListener('change', function () {
       _logsFilters.log_type = this.value;
       _logsPage = 1; _logsData = null; _logsFeed = null;
@@ -3088,6 +3265,7 @@
     if (act === 'purchases') list = list.filter(function (u) { return (u.orders  || 0) > 0; });
     else if (act === 'bids')      list = list.filter(function (u) { return (u.bids     || 0) > 0; });
     else if (act === 'donations') list = list.filter(function (u) { return (u.donations|| 0) > 0; });
+    else if (act === 'creators')  list = list.filter(function (u) { return !!u.is_creator; });
     var sort = _usersFilters.sort;
     list.sort(function (a, b) {
       if (sort === 'ep_desc') return (((b.balance || {}).total) || 0) - (((a.balance || {}).total) || 0);
@@ -3149,6 +3327,7 @@
       '<option value="purchases"' + (_usersFilters.activity === 'purchases' ? ' selected' : '') + '>Has purchases</option>' +
       '<option value="bids"'      + (_usersFilters.activity === 'bids'      ? ' selected' : '') + '>Has bids</option>' +
       '<option value="donations"' + (_usersFilters.activity === 'donations' ? ' selected' : '') + '>Has donations</option>' +
+      '<option value="creators"'  + (_usersFilters.activity === 'creators'  ? ' selected' : '') + '>Creators</option>' +
       '</select>';
     html += '<select class="sa-filter-input" id="suSort">' +
       [['az','A\u2192Z'],['ep_desc','Highest EP balance'],['ep_asc','Lowest EP balance'],['orders','Most orders'],['donated','Most donated'],['recent','Most recent']]
@@ -3190,6 +3369,7 @@
       html += '<span>' + (u.donations || 0) + '</span>';
       html += '<span class="su-date">' + fmtDate(u.last_activity) + '</span>';
       html += '<span>' +
+        (u.is_creator ? '<span class="su-status su-status--creator">Creator</span>' : '') +
         (u.shop_banned ? '<span class="su-status su-status--banned">Shop Ban</span>' : '') +
         (u.admin_banned ? '<span class="su-status su-status--banned">Admin Ban</span>' : '') +
         '<span class="su-status su-status--' + (active ? 'active' : 'inactive') + '">' + (active ? 'Active' : 'Inactive') + '</span>' +
@@ -3654,10 +3834,20 @@
       num(user.orders || 0) + ' purchases, ' + num(user.ep_total || 0) + ' EP spent.</div>';
     html += '</div>';
 
-    /* Ban actions */
+    /* Creator toggle + Ban actions */
     if (_canBan) {
       html += '<div class="su-manage-section">';
       html += '<div class="su-manage-section-title">Access Control</div>';
+      /* Creator toggle (Parliament+ only, not for shop admins) */
+      if (user.discord_id && (_isParliament || _isOwnerShopAdmin()) && (user.rank_level || 0) === 0) {
+        html += '<div class="su-manage-row" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+        html += '<span style="font-size:0.82rem;color:var(--text-dim)">Creator status</span>';
+        html += '<label class="settings-toggle" id="suMgCreatorToggle">' +
+          '<input type="checkbox"' + (user.is_creator ? ' checked' : '') + ' />' +
+          '<span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>' +
+          '</label>';
+        html += '</div>';
+      }
       html += '<div class="su-manage-actions">';
       /* Shop ban / unban */
       if (user.shop_banned) {
@@ -3869,6 +4059,28 @@
       });
     });
 
+    /* Wire creator toggle */
+    var creatorToggle = document.getElementById('suMgCreatorToggle');
+    if (creatorToggle) {
+      var _ctCb = creatorToggle.querySelector('input[type="checkbox"]');
+      _ctCb.addEventListener('change', function () {
+        var grant = _ctCb.checked;
+        _ctCb.disabled = true;
+        apiPost('/api/admin/shop/users/' + encodeURIComponent(user.discord_id) + '/creator', { grant: grant, username: user.username || '' })
+          .then(function (res) {
+            if (res.ok && res.data.ok) {
+              user.is_creator = grant;
+              showToast('\u2713 Creator ' + (grant ? 'granted' : 'revoked') + '.', 'success');
+              _renderUsersContent(contentEl);
+            } else {
+              showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+              _ctCb.checked = !grant;
+            }
+          })
+          .catch(function () { showToast('\u26a0 Network error', 'warn'); _ctCb.checked = !grant; })
+          .finally(function () { _ctCb.disabled = false; });
+      });
+    }
     /* Wire ban actions */
     var banBtn = document.getElementById('suMgBan');
     if (banBtn) banBtn.addEventListener('click', function () {
@@ -3959,6 +4171,463 @@
     if (adminNav) adminNav.style.display = 'none';
   }
 
+  /* Applications Tab (Parliament only) */
+  function fetchApplications(cb) {
+    fetch('/api/admin/shop/creator-applications', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && d.applications) _applicationsData = d.applications; if (cb) cb(d); })
+      .catch(function () { if (cb) cb(null); });
+  }
+
+  function updateApplicationsBadge() {
+    var btn = document.querySelector('#saTabs [data-tab="applications"]');
+    if (!btn || !_applicationsData) return;
+    var count = _applicationsData.filter(function (a) { return a.status === 'pending'; }).length;
+    var badge = btn.querySelector('.sa-badge');
+    if (count > 0) {
+      if (!badge) { badge = document.createElement('span'); badge.className = 'sa-badge'; btn.appendChild(badge); }
+      badge.textContent = count;
+    } else if (badge) { badge.remove(); }
+  }
+
+  function renderApplications(c) {
+    if (!_applicationsData) {
+      c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading applications\u2026</div>';
+      fetchApplications(function (d) {
+        if (_activeTab !== 'applications') return;
+        if (!d) { c.innerHTML = '<div class="shop-empty">Could not load applications.</div>'; return; }
+        _renderApplicationsContent(c);
+        updateApplicationsBadge();
+      });
+      return;
+    }
+    _renderApplicationsContent(c);
+  }
+
+  var _APP_QUESTIONS = [
+    'Why do you want to be a Creator?',
+    'What kind of items do you plan to list?',
+  ];
+
+  function _renderApplicationsContent(c) {
+    var apps = _applicationsData || [];
+    var html = '<div class="sa-table">';
+    html += '<div class="sa-row sa-header sa-app-row"><span>Username</span><span>Submitted</span><span>Status</span><span>Actions</span></div>';
+    if (!apps.length) {
+      html += '<div class="sa-row sa-app-row" style="justify-content:center;color:var(--text-faint);grid-column:1/-1;">No applications found.</div>';
+    }
+    apps.forEach(function (app) {
+      html += '<div class="sa-row sa-app-row sa-app-clickable" data-app-id="' + esc(app.id) + '">';
+      html += '<span>' + esc(app.username || app.discord_id) + '</span>';
+      html += '<span>' + fmtDate(app.submitted_at) + '</span>';
+      var sCls = app.status === 'pending' ? 'sa-pill--pending' : app.status === 'approved' ? 'sa-pill--approved' : 'sa-pill--rejected';
+      html += '<span><span class="sa-pill ' + sCls + '">' + esc(app.status.charAt(0).toUpperCase() + app.status.slice(1)) + '</span></span>';
+      if (app.status === 'pending') {
+        html += '<span class="sa-app-actions">';
+        html += '<button class="sa-q-btn sa-q-btn--primary" data-app-approve="' + esc(app.id) + '">Approve</button>';
+        html += '<button class="sa-q-btn sa-q-btn--reject" data-app-reject="' + esc(app.id) + '">Reject</button>';
+        html += '</span>';
+      } else {
+        html += '<span class="sa-app-meta">';
+        if (app.reviewer) html += '<span class="sa-app-reviewer">' + esc(app.reviewer) + '</span>';
+        if (app.reviewed_at) html += '<span class="sa-app-date">' + fmtDate(app.reviewed_at) + '</span>';
+        html += '</span>';
+      }
+      html += '</div>';
+      // Expandable answers panel (hidden by default)
+      if (app.answers && app.answers.length) {
+        html += '<div class="sa-app-answers" id="saAppAnswers_' + esc(app.id) + '" style="display:none">';
+        app.answers.forEach(function (ans, i) {
+          var q = _APP_QUESTIONS[i] || ('Question ' + (i + 1));
+          html += '<div class="sa-app-answer">';
+          html += '<div class="sa-app-answer-q">' + esc(q) + '</div>';
+          html += '<div class="sa-app-answer-a">' + esc(ans) + '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+    });
+    html += '</div>';
+    c.innerHTML = html;
+
+    // Bind row clicks to toggle answers
+    c.querySelectorAll('.sa-app-clickable').forEach(function (row) {
+      row.addEventListener('click', function (e) {
+        if (e.target.closest('.sa-q-btn')) return;
+        var panel = document.getElementById('saAppAnswers_' + row.dataset.appId);
+        if (panel) panel.style.display = panel.style.display === 'none' ? '' : 'none';
+      });
+      row.style.cursor = 'pointer';
+    });
+
+    // Bind approve
+    c.querySelectorAll('[data-app-approve]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var appId = btn.dataset.appApprove;
+        btn.disabled = true; btn.textContent = 'Approving\u2026';
+        apiPost('/api/admin/shop/creator-applications/' + encodeURIComponent(appId) + '/approve', {})
+          .then(function (res) {
+            if (res.ok && res.data.ok) {
+              showToast('\u2713 Application approved.', 'success');
+              _applicationsData = null; renderApplications(c); updateApplicationsBadge();
+            } else {
+              showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+              btn.disabled = false; btn.textContent = 'Approve';
+            }
+          })
+          .catch(function () { showToast('\u26a0 Network error', 'warn'); btn.disabled = false; btn.textContent = 'Approve'; });
+      });
+    });
+
+    // Bind reject
+    c.querySelectorAll('[data-app-reject]').forEach(function (btn) {
+      btn.addEventListener('click', function () { _openAppRejectModal(btn.dataset.appReject, c); });
+    });
+  }
+
+  function _openAppRejectModal(appId, contentEl) {
+    var modal = document.getElementById('saModal');
+    modal.innerHTML =
+      '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
+      '<div class="shop-modal-title">Reject Application</div>' +
+      '<div class="shop-modal-body">' +
+        '<label class="shop-modal-input-label">Reason (optional)</label>' +
+        '<textarea class="shop-modal-input" id="saAppRejectReason" placeholder="Reason for rejection\u2026" maxlength="200" rows="2"></textarea>' +
+      '</div>' +
+      '<div class="shop-modal-actions">' +
+        '<button class="shop-modal-btn shop-modal-btn--cancel" id="saAppRejectConfirm" style="color:var(--danger);border-color:var(--danger)">Reject</button>' +
+      '</div>';
+    document.getElementById('saModalBackdrop').classList.add('open');
+    document.getElementById('saAppRejectConfirm').addEventListener('click', function () {
+      var reason = document.getElementById('saAppRejectReason').value.trim();
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Rejecting\u2026';
+      apiPost('/api/admin/shop/creator-applications/' + encodeURIComponent(appId) + '/reject', { reason: reason || null })
+        .then(function (res) {
+          if (res.ok && res.data.ok) {
+            showToast('\u2713 Application rejected.', 'success');
+            closeModal();
+            _applicationsData = null; renderQueue(contentEl);
+          } else {
+            showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+            btn.disabled = false; btn.textContent = 'Reject';
+          }
+        })
+        .catch(function () { showToast('\u26a0 Network error', 'warn'); btn.disabled = false; btn.textContent = 'Reject'; });
+    });
+  }
+
+  /* Creator Requests Tab (Parliament only) */
+  function fetchCreatorRequests(cb) {
+    fetch('/api/admin/shop/creator-requests', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && d.requests) _creatorRequestsData = d.requests; if (cb) cb(d); })
+      .catch(function () { if (cb) cb(null); });
+  }
+
+  function updateCreatorRequestsBadge() {
+    var btn = document.querySelector('#saTabs [data-tab="creator-requests"]');
+    if (!btn || !_creatorRequestsData) return;
+    var count = _creatorRequestsData.filter(function (r) { return r.status === 'pending'; }).length;
+    var badge = btn.querySelector('.sa-badge');
+    if (count > 0) {
+      if (!badge) { badge = document.createElement('span'); badge.className = 'sa-badge'; btn.appendChild(badge); }
+      badge.textContent = count;
+    } else if (badge) { badge.remove(); }
+  }
+
+  function renderCreatorRequests(c) {
+    if (!_creatorRequestsData) {
+      c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading creator requests\u2026</div>';
+      fetchCreatorRequests(function (d) {
+        if (_activeTab !== 'creator-requests') return;
+        if (!d) { c.innerHTML = '<div class="shop-empty">Could not load creator requests.</div>'; return; }
+        _renderCreatorRequestsContent(c);
+        updateCreatorRequestsBadge();
+      });
+      return;
+    }
+    _renderCreatorRequestsContent(c);
+  }
+
+  function _fmtCreatorFieldVal(field, val) {
+    if (val === null || val === undefined || val === '') return 'none';
+    if (field === 'active' || field === 'accepts_dirty_ep') return val ? 'Yes' : 'No';
+    if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+    if (field === 'images' && Array.isArray(val)) {
+      return val.length ? val.map(function(u) { return String(u).split('/').pop(); }).join(', ') : 'none';
+    }
+    if (Array.isArray(val)) return val.length ? val.join(', ') : 'none';
+    return String(val);
+  }
+
+  function _crSameVal(a, b) {
+    var ae = (a == null || a === ''), be = (b == null || b === '');
+    if (ae && be) return true;
+    if (ae !== be) return false;
+    if (typeof a === 'boolean' || typeof b === 'boolean') return a === b;
+    if (Array.isArray(a) || Array.isArray(b)) return JSON.stringify(a) === JSON.stringify(b);
+    if (typeof a === 'object' || typeof b === 'object') return JSON.stringify(a) === JSON.stringify(b);
+    return String(a) === String(b);
+  }
+
+  var _CR_FIELD_LABELS = {
+    name: 'Name', type: 'Type', description: 'Description', price: 'Price',
+    stock: 'Stock', category: 'Category', active: 'Active',
+    max_quantity: 'Max Quantity', accepts_dirty_ep: 'Accepts Dirty EP',
+    spend_order: 'Spend Order', visible_to_ranks: 'Visible to Ranks',
+    visible_to_top_n: 'Top N from Prev Cycle',
+    images: 'Images', cooldown: 'Cooldown',
+    starting_bid: 'Starting Bid', min_increment: 'Min Increment',
+    duration_hours: 'Duration (hours)', duration_type: 'Duration Type',
+  };
+
+  function _renderCreatorRequestsContent(c) {
+    var reqs = _creatorRequestsData || [];
+    var html = '<div class="sa-table">';
+    html += '<div class="sa-row sa-header sa-cr-row"><span>Creator</span><span>Type</span><span>Item</span><span>Submitted</span><span>Status</span><span>Actions</span></div>';
+    if (!reqs.length) {
+      html += '<div class="sa-row sa-cr-row" style="justify-content:center;color:var(--text-faint);grid-column:1/-1;">No creator requests found.</div>';
+    }
+    reqs.forEach(function (req) {
+      var isNew = !req.item_id;
+      var reqType = isNew ? 'New Item' : 'Edit Item';
+      var itemName = isNew ? (req.changes && req.changes.name ? esc(req.changes.name) : 'New') : esc(req.item_id);
+      html += '<div class="sa-row sa-cr-row sa-cr-clickable" data-req-id="' + esc(req.id) + '">';
+      html += '<span>' + esc(req.username || req.discord_id) + '</span>';
+      html += '<span><span class="sa-pill ' + (isNew ? 'sa-pill--new' : 'sa-pill--edit') + '">' + reqType + '</span></span>';
+      html += '<span>' + itemName + '</span>';
+      html += '<span>' + fmtDate(req.submitted_at) + '</span>';
+      var sCls = req.status === 'pending' ? 'sa-pill--pending' : req.status === 'approved' ? 'sa-pill--approved' : 'sa-pill--rejected';
+      html += '<span><span class="sa-pill ' + sCls + '">' + esc(req.status.charAt(0).toUpperCase() + req.status.slice(1)) + '</span></span>';
+      if (req.status === 'pending') {
+        html += '<span><button class="sa-q-btn sa-q-btn--primary" data-req-review="' + esc(req.id) + '">Review</button></span>';
+      } else {
+        html += '<span class="sa-app-meta">';
+        if (req.reviewer) html += '<span class="sa-app-reviewer">' + esc(req.reviewer) + '</span>';
+        if (req.reviewed_at) html += '<span class="sa-app-date">' + fmtDate(req.reviewed_at) + '</span>';
+        html += '</span>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    c.innerHTML = html;
+
+    // Bind row clicks and review buttons
+    c.querySelectorAll('.sa-cr-clickable').forEach(function (row) {
+      row.addEventListener('click', function (e) {
+        if (e.target.closest('.sa-q-btn')) return;
+        _openCreatorRequestOverlay(row.dataset.reqId, c);
+      });
+    });
+    c.querySelectorAll('[data-req-review]').forEach(function (btn) {
+      btn.addEventListener('click', function () { _openCreatorRequestOverlay(btn.dataset.reqReview, c); });
+    });
+  }
+
+  function _openCreatorRequestOverlay(reqId, contentEl) {
+    var req = (_creatorRequestsData || []).find(function (r) { return r.id === reqId; });
+    if (!req) return;
+    var overlay = document.getElementById('saOverlay');
+    var overlayBd = document.getElementById('saOverlayBackdrop');
+    var isNew = !req.item_id;
+    var changes = req.changes || {};
+    var itemName = changes.name || req.item_id || 'Unnamed';
+
+    var html = '<button class="modal-close" id="saOverlayClose">' + _svg.close + '</button>';
+    html += '<div class="shop-modal-title">' + (isNew ? 'New Item Request' : 'Edit Request: ' + esc(req.item_id)) + '</div>';
+    html += '<div class="shop-modal-body">';
+
+    // Meta
+    html += '<div class="sa-cr-meta">';
+    html += '<span>By: <strong>' + esc(req.username || req.discord_id) + '</strong></span>';
+    html += '<span>Submitted: ' + fmtDate(req.submitted_at) + '</span>';
+    var sCls = req.status === 'pending' ? 'sa-pill--pending' : req.status === 'approved' ? 'sa-pill--approved' : 'sa-pill--rejected';
+    html += '<span><span class="sa-pill ' + sCls + '">' + esc(req.status.charAt(0).toUpperCase() + req.status.slice(1)) + '</span></span>';
+    html += '</div>';
+    if (req.note) {
+      html += '<div class="sa-q-note" style="margin-top:8px">' + _svg.pin + ' <strong>Creator note:</strong> ' + esc(req.note) + '</div>';
+    }
+
+    if (isNew) {
+      // Preview
+      html += '<div class="sa-cr-preview"><div class="sa-cr-section-title">Proposed Item Fields</div>';
+      Object.keys(changes).forEach(function (field) {
+        if (field === 'variants') return;
+        var label = _CR_FIELD_LABELS[field] || field;
+        html += '<div class="sa-cr-field"><span class="sa-cr-field-label">' + esc(label) + '</span>' +
+          '<span class="sa-cr-field-value">' + esc(_fmtCreatorFieldVal(field, changes[field])) + '</span></div>';
+      });
+      html += '</div>';
+      if (changes.variants && changes.variants.length) {
+        html += '<div class="sa-cr-preview"><div class="sa-cr-section-title">Variants</div>';
+        changes.variants.forEach(function (v, idx) {
+          var vLabel = v.label || v.name || ('Variant ' + (idx + 1));
+          html += '<div class="sa-cr-variant-block"><div class="sa-cr-variant-title">' + esc(vLabel) + '</div>';
+          ['name','price','stock','max_quantity','accepts_dirty_ep','spend_order','cooldown','active'].forEach(function (f) {
+            if (v[f] != null && v[f] !== '') {
+              html += '<div class="sa-cr-field"><span class="sa-cr-field-label">' + esc(_CR_FIELD_LABELS[f] || f) + '</span>' +
+                '<span class="sa-cr-field-value">' + esc(_fmtCreatorFieldVal(f, v[f])) + '</span></div>';
+            }
+          });
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+    } else {
+      // Diff view
+      var existingItem = (_items || []).find(function (it) { return it.id === req.item_id; });
+      var diffFields = Object.keys(changes).filter(function (field) {
+        if (field === 'variants') return false;
+        if (!existingItem) return true;
+        return !_crSameVal(existingItem[field], changes[field]);
+      });
+      html += '<div class="sa-cr-diff"><div class="sa-cr-section-title">Proposed Changes</div>';
+      if (!diffFields.length && !changes.variants) {
+        html += '<div style="color:var(--text-faint);padding:8px 0">No field changes detected.</div>';
+      }
+      diffFields.forEach(function (field) {
+        var label = _CR_FIELD_LABELS[field] || field;
+        var oldVal = existingItem ? existingItem[field] : undefined;
+        var newVal = changes[field];
+        html += '<div class="sa-cr-diff-row">';
+        html += '<span class="sa-cr-diff-label">' + esc(label) + '</span>';
+        html += '<span class="sa-cr-diff-old">' + esc(_fmtCreatorFieldVal(field, oldVal)) + '</span>';
+        html += '<span class="sa-cr-diff-arrow">\u2192</span>';
+        html += '<span class="sa-cr-diff-new">' + esc(_fmtCreatorFieldVal(field, newVal)) + '</span>';
+        html += '</div>';
+      });
+      html += '</div>';
+      // Variant changes
+      if (changes.variants) {
+        var origV = existingItem && Array.isArray(existingItem.variants) ? existingItem.variants : [];
+        html += '<div class="sa-cr-diff"><div class="sa-cr-section-title">Variant Changes</div>';
+        if (origV.length !== changes.variants.length) {
+          html += '<div class="sa-cr-diff-row"><span class="sa-cr-diff-label">Count</span>' +
+            '<span class="sa-cr-diff-old">' + origV.length + '</span>' +
+            '<span class="sa-cr-diff-arrow">\u2192</span>' +
+            '<span class="sa-cr-diff-new">' + changes.variants.length + '</span></div>';
+        }
+        var _vrFields = ['name','price','stock','max_quantity','accepts_dirty_ep','spend_order','cooldown','active'];
+        changes.variants.forEach(function (cv, idx) {
+          var ov = origV[idx] || {};
+          var vLabel = cv.label || cv.name || ('Variant ' + (idx + 1));
+          var vDiffs = _vrFields.filter(function (f) { return !_crSameVal(cv[f], ov[f]); });
+          if (!vDiffs.length && idx < origV.length) return; // unchanged variant, skip
+          html += '<div class="sa-cr-variant-block"><div class="sa-cr-variant-title">' + esc(vLabel) + '</div>';
+          if (idx >= origV.length) {
+            // New variant
+            _vrFields.forEach(function (f) {
+              if (cv[f] != null && cv[f] !== '') {
+                html += '<div class="sa-cr-field"><span class="sa-cr-field-label">' + esc(_CR_FIELD_LABELS[f] || f) + '</span>' +
+                  '<span class="sa-cr-field-value">' + esc(_fmtCreatorFieldVal(f, cv[f])) + '</span></div>';
+              }
+            });
+          } else {
+            vDiffs.forEach(function (f) {
+              html += '<div class="sa-cr-diff-row">';
+              html += '<span class="sa-cr-diff-label">' + esc(_CR_FIELD_LABELS[f] || f) + '</span>';
+              html += '<span class="sa-cr-diff-old">' + esc(_fmtCreatorFieldVal(f, ov[f])) + '</span>';
+              html += '<span class="sa-cr-diff-arrow">\u2192</span>';
+              html += '<span class="sa-cr-diff-new">' + esc(_fmtCreatorFieldVal(f, cv[f])) + '</span>';
+              html += '</div>';
+            });
+          }
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+    }
+
+    // Rejection reason if rejected
+    if (req.status === 'rejected' && req.rejection_reason) {
+      html += '<div class="sa-cr-rejection"><strong>Rejection reason:</strong> ' + esc(req.rejection_reason) + '</div>';
+    }
+
+    html += '</div>'; // shop-modal-body
+
+    // Approve/Reject for pending
+    if (req.status === 'pending') {
+      html += '<div class="shop-modal-actions">';
+      html += '<button class="shop-modal-btn shop-modal-btn--confirm" id="saCreqApprove">Approve</button>';
+      html += '<button class="shop-modal-btn shop-modal-btn--cancel" id="saCreqReject" style="color:var(--danger);border-color:var(--danger)">Reject</button>';
+      html += '</div>';
+    }
+
+    overlay.innerHTML = html;
+    overlayBd.classList.add('open');
+
+    // Close
+    document.getElementById('saOverlayClose').addEventListener('click', function () { overlayBd.classList.remove('open'); });
+    overlayBd.addEventListener('click', function (e) { if (e.target === overlayBd) overlayBd.classList.remove('open'); });
+
+    // Approve
+    var approveBtn = document.getElementById('saCreqApprove');
+    if (approveBtn) {
+      approveBtn.addEventListener('click', function () {
+        approveBtn.disabled = true; approveBtn.textContent = 'Approving\u2026';
+        apiPost('/api/admin/shop/creator-requests/' + encodeURIComponent(reqId) + '/approve', {})
+          .then(function (res) {
+            if (res.ok && res.data.ok) {
+              var msg = isNew ? '\u2713 Item created: ' + itemName : '\u2713 Changes applied to ' + itemName;
+              showToast(msg, 'success');
+              overlayBd.classList.remove('open');
+              _creatorRequestsData = null; _items = null;
+              renderQueue(contentEl); _notifyShopUpdated();
+            } else {
+              showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+              approveBtn.disabled = false; approveBtn.textContent = 'Approve';
+            }
+          })
+          .catch(function () { showToast('\u26a0 Network error', 'warn'); approveBtn.disabled = false; approveBtn.textContent = 'Approve'; });
+      });
+    }
+
+    // Reject
+    var rejectBtn = document.getElementById('saCreqReject');
+    if (rejectBtn) {
+      rejectBtn.addEventListener('click', function () { _openCreqRejectModal(reqId, contentEl, overlayBd); });
+    }
+  }
+
+  function _openCreqRejectModal(reqId, contentEl, overlayBd) {
+    var modal = document.getElementById('saModal');
+    var backdrop = document.getElementById('saModalBackdrop');
+    modal.innerHTML =
+      '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
+      '<div class="shop-modal-title">Reject Creator Request</div>' +
+      '<div class="shop-modal-body">' +
+        '<label class="shop-modal-input-label">Reason (optional)</label>' +
+        '<textarea class="shop-modal-input" id="saCreqRejectReason" placeholder="Reason for rejection\u2026" maxlength="200" rows="2"></textarea>' +
+      '</div>' +
+      '<div class="shop-modal-actions">' +
+        '<button class="shop-modal-btn shop-modal-btn--cancel" id="saCreqRejectConfirm" style="color:var(--danger);border-color:var(--danger)">Reject</button>' +
+      '</div>';
+    backdrop.style.zIndex = '220';
+    backdrop.classList.add('open');
+    document.getElementById('saCreqRejectConfirm').addEventListener('click', function () {
+      var reason = document.getElementById('saCreqRejectReason').value.trim();
+      var btn = this;
+      btn.disabled = true; btn.textContent = 'Rejecting\u2026';
+      apiPost('/api/admin/shop/creator-requests/' + encodeURIComponent(reqId) + '/reject', { reason: reason || null })
+        .then(function (res) {
+          if (res.ok && res.data.ok) {
+            showToast('\u2713 Creator request rejected.', 'success');
+            backdrop.style.zIndex = '';
+            closeModal(); overlayBd.classList.remove('open');
+            _creatorRequestsData = null; renderQueue(contentEl);
+          } else {
+            showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+            btn.disabled = false; btn.textContent = 'Reject';
+          }
+        })
+            .catch(function () { showToast('\u26a0 Network error', 'warn'); btn.disabled = false; btn.textContent = 'Reject'; });
+    });
+    // Reset z-index when closing without submitting
+    backdrop.querySelector('.modal-close').addEventListener('click', function () { backdrop.style.zIndex = ''; });
+    backdrop.addEventListener('click', function (e) { if (e.target === backdrop) backdrop.style.zIndex = ''; });
+  }
+
   /* Init */
   var _initDone = false;
   function initAdmin() {
@@ -3986,9 +4655,35 @@
       } else {
         _clearQueueBadges();
       }
+      if (_isParliament || _isOwnerShopAdmin()) {
+        fetchApplications(function () { updateQueueBadge(); });
+        fetchCreatorRequests(function () { updateQueueBadge(); });
+      }
       renderTab();
     });
   }
+
+  // Preload badge counts for the sidebar nav item (called before panel is active)
+  window.preloadShopAdminBadge = function () {
+    _isChief      = window.hasShopAdmin      ? window.hasShopAdmin()      : false;
+    _isParliament = window.hasParliamentPlus ? window.hasParliamentPlus() : false;
+    fetchShopState(function () {
+      if (_adminBannedDetected || !_shopEnabled) return;
+      var _done = 0;
+      var _need = 1;
+      var _isP = _isParliament || _isOwnerShopAdmin();
+      if (_isP) _need = 3;
+      function _check() {
+        if (++_done < _need) return;
+        updateQueueBadge();
+      }
+      fetchQueue(function () { _check(); });
+      if (_isP) {
+        fetchApplications(function () { _check(); });
+        fetchCreatorRequests(function () { _check(); });
+      }
+    });
+  };
 
   var observer = new MutationObserver(function () {
     if (panel.classList.contains('active')) initAdmin();

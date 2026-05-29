@@ -41,6 +41,7 @@ export default function useScriptLoader() {
       await loadScript('/js/events-public.js')
       await loadScript('/js/shop.js')
       await loadScript('/js/shop-admin.js')
+      await loadScript('/js/creator-studio.js')
       await loadScript('/js/pinned-banner.js')
       await loadScript('/js/legal.js')
     })()
