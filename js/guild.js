@@ -1380,13 +1380,12 @@
     if (snipesTotal) snipesTotal.textContent = snipes.length + ' snipe' + (snipes.length === 1 ? '' : 's');
     if (snipesList) {
       const snipesHtml = snipes.map(function (s) {
-        const guildPlayers = guildMembers.size > 0
-          ? (s.players || []).filter(function (pl) { return guildMembers.has(pl.username); })
-          : (s.players || []);
-        const participants = guildPlayers.map(function (pl) {
+        const allPlayers = s.players || [];
+        const participants = allPlayers.map(function (pl) {
+          var plLeftGuild = guildMembers.size > 0 && !guildMembers.has(pl.username);
           return '<div class="snipe-participant">'
             + snipeRoleBadge(pl.role)
-            + '<span class="snipe-participant-name guild-log-name-link" data-username="' + escAttr(pl.username) + '">'
+            + '<span class="snipe-participant-name guild-log-name-link' + (plLeftGuild ? ' snipe-left-guild' : '') + '" data-username="' + escAttr(pl.username) + '">'
             + escHtml(pl.username || 'Unknown') + '</span>'
             + '</div>';
         }).join('');
@@ -1397,7 +1396,7 @@
           + '<div class="guild-snipe-meta">'
           +   '<span class="guild-snipe-stat"><span class="guild-snipe-stat-label">Damage</span> <strong>' + fmt(Math.round(s.base_damage || 0)) + '</strong></span>'
           +   '<span class="guild-snipe-stat"><span class="guild-snipe-stat-label">Speed</span> <strong>' + (s.base_speed != null ? Number(s.base_speed).toFixed(2) : 'N/A') + '</strong></span>'
-          +   '<span class="guild-snipe-stat"><span class="guild-snipe-stat-label">Players</span> <strong>' + fmt(guildPlayers.length) + '</strong></span>'
+          +   '<span class="guild-snipe-stat"><span class="guild-snipe-stat-label">Players</span> <strong>' + fmt(allPlayers.length) + '</strong></span>'
           + '</div>'
           + '<div class="guild-snipe-participants">' + participants + '</div>'
           + '</div>';
