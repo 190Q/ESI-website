@@ -1324,12 +1324,17 @@
       });
     }
 
+    // Exclude players no longer in the guild
+    const filteredPlayers = guildMembers.size > 0
+      ? players.filter(function (p) { return guildMembers.has(p.username); })
+      : players;
+
     // Overall stats
     const statsGrid = document.getElementById('guildSnipesStatsGrid');
     if (statsGrid) {
       const rows = [
         { label: 'Total Snipes',             val: fmt(stats.total_snipes) },
-        { label: 'Unique Snipers',           val: fmt(stats.unique_players) },
+        { label: 'Unique Snipers',           val: fmt(filteredPlayers.length) },
         { label: 'Avg Tower Damage',         val: fmt(Math.round(stats.avg_damage || 0)) },
         { label: 'Avg Tower Attack Speed',   val: (stats.avg_speed != null ? Number(stats.avg_speed).toFixed(2) : 'N/A') },
       ];
@@ -1344,18 +1349,17 @@
     // Snipers leaderboard
     const playersTotal = document.getElementById('guildSnipesPlayersTotal');
     const playersList = document.getElementById('guildSnipesPlayersList');
-    if (playersTotal) playersTotal.textContent = players.length + ' sniper' + (players.length === 1 ? '' : 's');
+    if (playersTotal) playersTotal.textContent = filteredPlayers.length + ' sniper' + (filteredPlayers.length === 1 ? '' : 's');
     if (playersList) {
-      const playersHtml = players.map(function (p, i) {
+      const playersHtml = filteredPlayers.map(function (p, i) {
         const rankClass = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
         const rolesHtml = Object.entries(p.roles || {})
           .sort((a, b) => b[1] - a[1])
           .map(([r, n]) => snipeRoleBadge(r) + '<span class="snipe-role-count">\u00D7' + fmt(n) + '</span>')
           .join('');
-        var leftGuild = guildMembers.size > 0 && !guildMembers.has(p.username);
         return '<div class="snipe-player-row">'
           + '<span class="guild-member-rank-num ' + rankClass + '">#' + (i + 1) + '</span>'
-          + '<span class="guild-member-name guild-log-name-link' + (leftGuild ? ' snipe-left-guild' : '') + '" data-username="' + escAttr(p.username) + '">' + escHtml(p.username || 'Unknown') + '</span>'
+          + '<span class="guild-member-name guild-log-name-link" data-username="' + escAttr(p.username) + '">' + escHtml(p.username || 'Unknown') + '</span>'
           + '<span class="snipe-player-roles">' + rolesHtml + '</span>'
           + '<span class="snipe-player-count" title="Snipes participated in">\u25C9 ' + fmt(p.snipe_count) + '</span>'
           + '</div>';
@@ -1376,11 +1380,13 @@
     if (snipesTotal) snipesTotal.textContent = snipes.length + ' snipe' + (snipes.length === 1 ? '' : 's');
     if (snipesList) {
       const snipesHtml = snipes.map(function (s) {
-        const participants = (s.players || []).map(function (pl) {
-          var plLeftGuild = guildMembers.size > 0 && !guildMembers.has(pl.username);
+        const guildPlayers = guildMembers.size > 0
+          ? (s.players || []).filter(function (pl) { return guildMembers.has(pl.username); })
+          : (s.players || []);
+        const participants = guildPlayers.map(function (pl) {
           return '<div class="snipe-participant">'
             + snipeRoleBadge(pl.role)
-            + '<span class="snipe-participant-name guild-log-name-link' + (plLeftGuild ? ' snipe-left-guild' : '') + '" data-username="' + escAttr(pl.username) + '">'
+            + '<span class="snipe-participant-name guild-log-name-link" data-username="' + escAttr(pl.username) + '">'
             + escHtml(pl.username || 'Unknown') + '</span>'
             + '</div>';
         }).join('');
@@ -1391,7 +1397,7 @@
           + '<div class="guild-snipe-meta">'
           +   '<span class="guild-snipe-stat"><span class="guild-snipe-stat-label">Damage</span> <strong>' + fmt(Math.round(s.base_damage || 0)) + '</strong></span>'
           +   '<span class="guild-snipe-stat"><span class="guild-snipe-stat-label">Speed</span> <strong>' + (s.base_speed != null ? Number(s.base_speed).toFixed(2) : 'N/A') + '</strong></span>'
-          +   '<span class="guild-snipe-stat"><span class="guild-snipe-stat-label">Players</span> <strong>' + fmt((s.players || []).length) + '</strong></span>'
+          +   '<span class="guild-snipe-stat"><span class="guild-snipe-stat-label">Players</span> <strong>' + fmt(guildPlayers.length) + '</strong></span>'
           + '</div>'
           + '<div class="guild-snipe-participants">' + participants + '</div>'
           + '</div>';
