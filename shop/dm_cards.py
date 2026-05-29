@@ -55,6 +55,24 @@ _ICONS = {
         '<circle cx="12" cy="12" r="10"/>'
         '<polyline points="12 6 12 12 16 14"/></svg>'
     ),
+    "star": (
+        '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" '
+        'stroke-linecap="round" stroke-linejoin="round">'
+        '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 '
+        '12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>'
+    ),
+    "pencil": (
+        '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" '
+        'stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M12 20h9"/>'
+        '<path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>'
+    ),
+    "send": (
+        '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" '
+        'stroke-linecap="round" stroke-linejoin="round">'
+        '<line x1="22" y1="2" x2="11" y2="13"/>'
+        '<polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>'
+    ),
 }
 
 _TYPES = {
@@ -198,6 +216,62 @@ _TYPES = {
         "action": "EP DEDUCTED", "action_bg": "#3a2a10",
         "amount_color": "#c98a30",
     },
+    "creator_application_submitted": {
+        "badge": "SUBMITTED", "badge_color": "#5b8dd9",
+        "icon": "send", "icon_color": "#5b8dd9",
+        "title": "Application Received",
+        "action": "APPLICATION SUBMITTED", "action_bg": "#1a2a4a",
+        "amount_color": "#5b8dd9",
+    },
+    "creator_application_approved": {
+        "badge": "APPROVED", "badge_color": "#4a9a5a",
+        "icon": "star", "icon_color": "#c9a227",
+        "title": "Welcome, Creator!",
+        "action": "CREATOR STATUS GRANTED", "action_bg": "#1a4a3a",
+        "amount_color": "#4a9a5a",
+    },
+    "creator_application_rejected": {
+        "badge": "REJECTED", "badge_color": "#a04040",
+        "icon": "x", "icon_color": "#a04040",
+        "title": "Application Rejected",
+        "action": "APPLICATION REJECTED", "action_bg": "#4a1515",
+        "amount_color": "#a04040",
+    },
+    "creator_granted": {
+        "badge": "GRANTED", "badge_color": "#c9a227",
+        "icon": "star", "icon_color": "#c9a227",
+        "title": "Creator Status Granted",
+        "action": "CREATOR STATUS GRANTED", "action_bg": "#3a3010",
+        "amount_color": "#c9a227",
+    },
+    "creator_revoked": {
+        "badge": "REVOKED", "badge_color": "#a04040",
+        "icon": "x", "icon_color": "#a04040",
+        "title": "Creator Status Revoked",
+        "action": "CREATOR STATUS REVOKED", "action_bg": "#4a1515",
+        "amount_color": "#a04040",
+    },
+    "creator_request_submitted": {
+        "badge": "SUBMITTED", "badge_color": "#5b8dd9",
+        "icon": "pencil", "icon_color": "#5b8dd9",
+        "title": "Request Received",
+        "action": "ITEM REQUEST SUBMITTED", "action_bg": "#1a2a4a",
+        "amount_color": "#5b8dd9",
+    },
+    "creator_request_approved": {
+        "badge": "APPROVED", "badge_color": "#4a9a5a",
+        "icon": "check", "icon_color": "#4a9a5a",
+        "title": "Request Approved",
+        "action": "ITEM REQUEST APPROVED", "action_bg": "#1a4a3a",
+        "amount_color": "#4a9a5a",
+    },
+    "creator_request_rejected": {
+        "badge": "REJECTED", "badge_color": "#a04040",
+        "icon": "x", "icon_color": "#a04040",
+        "title": "Request Rejected",
+        "action": "ITEM REQUEST REJECTED", "action_bg": "#4a1515",
+        "amount_color": "#a04040",
+    },
 }
 
 # Uses $PLACEHOLDER markers replaced via str.replace to avoid CSS {} conflicts.
@@ -284,7 +358,13 @@ $STATS_HTML
 </div>
 </body></html>'''
 
-_HIDE_AMOUNT_TYPES = {"shop_banned", "shop_unbanned", "ep_granted", "ep_deducted"}
+_HIDE_AMOUNT_TYPES = {
+    "shop_banned", "shop_unbanned", "ep_granted", "ep_deducted",
+    "creator_application_submitted", "creator_application_approved",
+    "creator_application_rejected", "creator_granted", "creator_revoked",
+    "creator_request_submitted", "creator_request_approved",
+    "creator_request_rejected",
+}
 
 def _build_html(
     cfg: dict,

@@ -160,6 +160,16 @@ def revoke_creator_flag(discord_id: str, revoked_by: str, target_username: str =
         revoked_by, "creator_flag_revoked", target,
         {"discord_id": discord_id},
     )
+    # DM the user that their creator status has been revoked
+    _dm_card_in_background(
+        discord_id, "creator_revoked",
+        "Creator Status",
+        fields=[
+            ("STATUS", "Revoked"),
+            ("REVOKED BY", revoked_by),
+        ],
+        fallback_text=f"Your Creator status has been revoked by {revoked_by}.",
+    )
     return {"ok": True}
 
 def grant_creator_flag_standalone(discord_id: str, granted_by: str, target_username: str = "") -> dict:
@@ -182,6 +192,16 @@ def grant_creator_flag_standalone(discord_id: str, granted_by: str, target_usern
     _log_admin_action(
         granted_by, "creator_flag_granted", target,
         {"discord_id": discord_id},
+    )
+    # DM the user that they've been granted creator status
+    _dm_card_in_background(
+        discord_id, "creator_granted",
+        "Creator Status",
+        fields=[
+            ("STATUS", "Granted"),
+            ("GRANTED BY", granted_by),
+        ],
+        fallback_text=f"You have been granted Creator status by {granted_by}. You can now submit items for the shop.",
     )
     return {"ok": True}
 
@@ -293,6 +313,16 @@ def submit_application(discord_id: str, user_roles: list, answers: list | None =
     _log_admin_action(
         mc_username or discord_id, "creator_application_submitted", app_id,
         {"discord_id": discord_id, "uuid": mc_uuid},
+    )
+    # DM the applicant confirming submission
+    _dm_card_in_background(
+        discord_id, "creator_application_submitted",
+        "Creator Application",
+        fields=[
+            ("STATUS", "Under Review"),
+            ("APPLICANT", mc_username or discord_id),
+        ],
+        fallback_text="Your Creator application has been submitted and is under review by Parliament.",
     )
     return {"ok": True, "id": app_id, "submitted_at": now_iso}
 
@@ -447,6 +477,16 @@ def approve_application(app_id: str, reviewer: str) -> dict:
         reviewer, "creator_application_approved", app_id,
         {"app_id": app_id, "discord_id": discord_id},
     )
+    # DM the applicant that they've been approved
+    _dm_card_in_background(
+        discord_id, "creator_application_approved",
+        "Creator Application",
+        fields=[
+            ("STATUS", "Approved"),
+            ("REVIEWED BY", reviewer),
+        ],
+        fallback_text="Congratulations! Your Creator application has been approved. You can now submit items for the shop.",
+    )
     return {"ok": True, "id": app_id, "status": "approved", "reviewed_at": now_iso}
 
 def reject_application(app_id: str, reviewer: str, reason: str | None = None) -> dict:
@@ -485,6 +525,20 @@ def reject_application(app_id: str, reviewer: str, reason: str | None = None) ->
     _log_admin_action(
         reviewer, "creator_application_rejected", app_id,
         {"app_id": app_id, "discord_id": row["discord_id"], "reason": reason},
+    )
+    # DM the applicant that they've been rejected
+    _dm_card_in_background(
+        row["discord_id"], "creator_application_rejected",
+        "Creator Application",
+        fields=[
+            ("STATUS", "Rejected"),
+            ("REVIEWED BY", reviewer),
+            ("COOLDOWN", f"{CREATOR_REAPPLY_COOLDOWN_DAYS} days"),
+        ],
+        fallback_text=f"Your Creator application has been rejected."
+        + (f" Reason: {reason}" if reason else "")
+        + f" You may reapply in {CREATOR_REAPPLY_COOLDOWN_DAYS} days.",
+        comment=reason or "",
     )
     return {"ok": True, "id": app_id, "status": "rejected", "reviewed_at": now_iso}
 
@@ -642,6 +696,19 @@ def submit_item_request(
             "request_type": "edit" if item_id else "new",
             "changes": changes,
         },
+    )
+    # DM the creator confirming request submission
+    _req_type = "Edit" if item_id else "New Item"
+    _req_name = changes.get("name") or item_id or "Item"
+    _dm_card_in_background(
+        discord_id, "creator_request_submitted",
+        _req_name,
+        fields=[
+            ("TYPE", _req_type),
+            ("STATUS", "Under Review"),
+        ],
+        fallback_text=f"Your {_req_type.lower()} request for '{_req_name}' has been submitted and is under review.",
+        comment=note or "",
     )
     return {"ok": True, "id": req_id, "submitted_at": now_iso}
 
@@ -866,6 +933,18 @@ def approve_item_request(req_id: str, reviewer: str) -> dict:
             "changes": changes,
         },
     )
+    # DM the creator that their request was approved
+    _appr_name = changes.get("name") or item_id or "Item"
+    _dm_card_in_background(
+        discord_id, "creator_request_approved",
+        _appr_name,
+        fields=[
+            ("TYPE", "New Item" if _is_new else "Edit"),
+            ("REVIEWED BY", reviewer),
+            ("ITEM ID", item_id or "N/A"),
+        ],
+        fallback_text=f"Your {'new item' if _is_new else 'edit'} request for '{_appr_name}' has been approved.",
+    )
     return {"ok": True, "id": req_id, "item_id": item_id, "status": "approved", "reviewed_at": now_iso}
 
 def reject_item_request(req_id: str, reviewer: str, reason: str | None = None) -> dict:
@@ -943,6 +1022,19 @@ def reject_item_request(req_id: str, reviewer: str, reason: str | None = None) -
             "request_type": "new" if _rej_is_new else "edit",
             "reason": reason,
         },
+    )
+    # DM the creator that their request was rejected
+    _rej_name = _rej_changes.get("name") or _rej_item_id or "Item"
+    _dm_card_in_background(
+        row["discord_id"], "creator_request_rejected",
+        _rej_name,
+        fields=[
+            ("TYPE", "New Item" if _rej_is_new else "Edit"),
+            ("REVIEWED BY", reviewer),
+        ],
+        fallback_text=f"Your {'new item' if _rej_is_new else 'edit'} request for '{_rej_name}' has been rejected."
+        + (f" Reason: {reason}" if reason else ""),
+        comment=reason or "",
     )
     return {"ok": True, "id": req_id, "status": "rejected", "reviewed_at": now_iso}
 
