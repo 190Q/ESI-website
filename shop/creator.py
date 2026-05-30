@@ -27,12 +27,80 @@ from shop.admin import (
 from shop.auction import _resolve_discord_id_for_uuid, _dm_card_in_background
 
 CREATOR_REAPPLY_COOLDOWN_DAYS = 30
+CREATOR_COMMISSION_PCT = 35  # % of ep_spent granted to the creator as dirty EP on fulfillment
 
 _CITIZEN_PLUS = {_ROLE_CITIZEN}
 _SHOP_ADMIN = _CHIEF_PLUS | _PARLIAMENT_PLUS
 
 _now = lambda: _dt.now(_tz.utc)
 _now_iso = lambda: _now().isoformat()
+
+def _grant_creator_commission(
+    creator_discord_id: str,
+    item_id: str,
+    ep_spent: int,
+    purchase_id: str,
+    actor: str = "system",
+) -> int:
+    """Grant the creator CREATOR_COMMISSION_PCT% of ep_spent as dirty EP.
+
+    Called on purchase fulfillment (both admin and self-fulfillment paths).
+    Silently no-ops if the creator has no linked MC account.
+    Returns the amount granted (0 on failure or skip).
+    """
+    if not creator_discord_id or not ep_spent or ep_spent <= 0:
+        return 0
+
+    amount = int(ep_spent * CREATOR_COMMISSION_PCT / 100)  # floor via int()
+    if amount <= 0:
+        return 0
+
+    mc_uuid, _mc_uname = resolve_uuid_for_user(creator_discord_id)
+    if not mc_uuid:
+        return 0  # No linked MC account – skip silently
+
+    now_iso = _now_iso()
+    adj_id = str(_uuid_mod.uuid4())
+    reason = f"Creator commission: {item_id} (purchase {purchase_id[:8]})"
+
+    try:
+        conn = _get_conn(timeout=10)
+        from shop.ep_balance import _ensure_ep_adjustments_table
+        _ensure_ep_adjustments_table(conn)
+        conn.execute(
+            "INSERT INTO ep_adjustments (id, uuid, amount, ep_type, reason, actor, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (adj_id, mc_uuid, amount, "dirty", reason, actor, now_iso),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"[CREATOR] Commission grant failed for {creator_discord_id}: {exc}", file=sys.stderr)
+        return 0
+
+    _log_admin_action(
+        actor, "creator_commission_granted", purchase_id,
+        {"discord_id": creator_discord_id, "uuid": mc_uuid,
+         "item_id": item_id, "ep_spent": ep_spent, "commission": amount},
+    )
+    _invalidate_users_cache()
+
+    # DM the creator
+    _dm_card_in_background(
+        creator_discord_id, "ep_granted",
+        "Creator Commission",
+        amount,
+        fields=[
+            ("ITEM", item_id[:30]),
+            ("SALE", f"{ep_spent:,} EP"),
+            ("COMMISSION", f"+{amount:,} Dirty EP"),
+        ],
+        fallback_text=(
+            f"You earned {amount} dirty EP commission from a "
+            f"{ep_spent} EP sale of {item_id}."
+        ),
+    )
+    return amount
 
 # Table helpers (lazy creation, idempotent)
 def _ensure_creator_applications_table(conn: sqlite3.Connection) -> None:
@@ -224,7 +292,6 @@ def submit_application(discord_id: str, user_roles: list, answers: list | None =
 
     Enforces:
     - Must be a Citizen (has _ROLE_CITIZEN).
-    - Must NOT already have shop-admin access (Chief+/Parliament+).
     - No pending application.
     - 30-day cooldown after rejection.
     - Not already a creator.
@@ -237,10 +304,6 @@ def submit_application(discord_id: str, user_roles: list, answers: list | None =
     # Must be a Citizen
     if not (role_set & _CITIZEN_PLUS):
         return {"error": "Only Citizens can apply to become a Creator"}
-
-    # Must NOT be a shop admin already
-    if role_set & _SHOP_ADMIN:
-        return {"error": "Shop admins cannot apply for Creator status"}
 
     # Already a creator
     if is_creator(discord_id):
@@ -1235,7 +1298,14 @@ def fulfill_own_order(discord_id: str, purchase_id: str, note: str | None, actor
          "note": note},
     )
     _invalidate_users_cache()
-    return {"ok": True, "purchase_id": purchase_id, "status": "fulfilled", "resolved_at": now_iso}
+
+    # Grant creator commission (self-fulfillment path)
+    commission = _grant_creator_commission(
+        discord_id, row["item_id"], row["ep_spent"],
+        purchase_id, actor or _resolve_creator_username(discord_id),
+    )
+    return {"ok": True, "purchase_id": purchase_id, "status": "fulfilled",
+            "resolved_at": now_iso, "commission": commission}
 
 
 def reject_own_order(discord_id: str, purchase_id: str, reason: str, actor: str = "") -> dict:

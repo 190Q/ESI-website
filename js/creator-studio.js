@@ -1155,7 +1155,7 @@
     /* Bind fulfill buttons on order cards */
     c.querySelectorAll('[data-cs-fulfill]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        _openCsFulfillModal(btn.dataset.csFulfill, btn, c);
+        _openCsFulfillModal(btn.dataset.csFulfill, btn, c, parseInt(btn.dataset.csEpSpent || '0', 10));
       });
     });
 
@@ -1167,7 +1167,7 @@
     });
   }
 
-  function _openCsFulfillModal(pid, triggerBtn, queueContainer) {
+  function _openCsFulfillModal(pid, triggerBtn, queueContainer, epSpent) {
     var modal = document.getElementById('csModal');
     var bd    = document.getElementById('csModalBackdrop');
     modal.classList.remove('ie-modal');
@@ -1189,7 +1189,9 @@
       apiPost('/api/shop/creator/orders/' + encodeURIComponent(pid) + '/fulfill', { note: note || null })
         .then(function (r) {
           if (r.ok) {
-            window.showToast('\u2713 Order fulfilled.', 'success');
+            var _comm = r.data && r.data.commission != null ? r.data.commission : Math.floor((epSpent || 0) * 0.35);
+            var _commMsg = _comm > 0 ? ' You earned +' + num(_comm) + ' dirty EP.' : '';
+            window.showToast('\u2713 Order fulfilled.' + _commMsg, 'success');
             _closeModal();
             var card = triggerBtn.closest('.sa-q-card');
             if (card) { card.style.opacity = '0.3'; card.style.pointerEvents = 'none'; }
@@ -1294,11 +1296,13 @@
         '<span class="sa-q-metric-value sa-q-val--clean">' + num(d.clean_ep_spent) + ' EP</span></div>';
       html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Dirty</span>' +
         '<span class="sa-q-metric-value sa-q-val--dirty">' + num(d.dirty_ep_spent) + ' EP</span></div>';
+      html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Your commission</span>' +
+        '<span class="sa-q-metric-value sa-q-val--dirty">+' + num(Math.floor((d.ep_spent || 0) * 0.35)) + ' dirty EP</span></div>';
       html += '</div>';
       /* Action buttons for pending orders */
       if ((d.status || 'pending') === 'pending') {
         html += '<div class="sa-q-actions">';
-        html += '<button class="sa-q-btn sa-q-btn--primary" data-cs-fulfill="' + esc(d.purchase_id) + '">Mark fulfilled</button>';
+        html += '<button class="sa-q-btn sa-q-btn--primary" data-cs-fulfill="' + esc(d.purchase_id) + '" data-cs-ep-spent="' + (d.ep_spent || 0) + '">Mark fulfilled</button>';
         html += '<button class="sa-q-btn sa-q-btn--reject" data-cs-reject="' + esc(d.purchase_id) + '">Reject</button>';
         html += '</div>';
       } else {

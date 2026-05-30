@@ -2453,6 +2453,10 @@
           '<span class="sa-q-metric-value">' + num(d.le_amount) + ' LE</span></div>';
       }
       html += '</div>';
+      if (isPurchase && d.creator_username) {
+        var _saComm = Math.floor((d.ep_spent || 0) * 0.35);
+        html += '<div class="sa-q-note">' + _svg.gift + ' Creator <strong>' + esc(d.creator_username) + '</strong> earns +' + num(_saComm) + ' dirty EP on fulfillment</div>';
+      }
     }
 
     /* Fulfillment note */
@@ -3890,8 +3894,8 @@
     if (_canBan) {
       html += '<div class="su-manage-section">';
       html += '<div class="su-manage-section-title">Access Control</div>';
-      /* Creator toggle (Parliament+ only, not for shop admins) */
-      if (user.discord_id && (_isParliament || _isOwnerShopAdmin()) && (user.rank_level || 0) === 0) {
+      /* Creator toggle (Parliament+ only) */
+      if (user.discord_id && (_isParliament || _isOwnerShopAdmin())) {
         html += '<div class="su-manage-row" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
         html += '<span style="font-size:0.82rem;color:var(--text-dim)">Creator status</span>';
         html += '<label class="settings-toggle" id="suMgCreatorToggle">' +

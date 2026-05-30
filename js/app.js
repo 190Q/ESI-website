@@ -412,20 +412,10 @@ function _renderCreatorSection(data) {
   if (!section) return;
   if (!data) { section.innerHTML = ''; return; }
 
-  // Shop admins (Chief+) cannot be creators
-  if (hasShopAdmin()) {
-    section.innerHTML =
-      '<div class="creator-card creator-card--approved">' +
-        '<div class="creator-card-body">' +
-          '<div class="creator-card-title">Shop Admin</div>' +
-          '<div class="creator-card-desc">You are already a shop admin. Shop admins cannot apply for Creator status.</div>' +
-        '</div>' +
-      '</div>';
-    return;
-  }
-
   // Already a Creator (approved)
   if (data.is_creator) {
+    // Parliament+ have the full Manage Shop panel instead of Creator Studio
+    var _showStudioBtn = !hasParliamentPlus();
     section.innerHTML =
       '<div class="creator-card creator-card--approved">' +
         '<div class="creator-card-icon">\u2713</div>' +
@@ -433,15 +423,17 @@ function _renderCreatorSection(data) {
           '<div class="creator-card-title">You are a Creator</div>' +
           '<div class="creator-card-desc">You can submit and manage your own shop listings.</div>' +
         '</div>' +
-        '<button class="creator-studio-btn" id="creatorStudioBtn">Go to My Creator Studio</button>' +
+        (_showStudioBtn ? '<button class="creator-studio-btn" id="creatorStudioBtn">Go to My Creator Studio</button>' : '') +
       '</div>';
-    var studioBtn = document.getElementById('creatorStudioBtn');
-    if (studioBtn) {
-      studioBtn.addEventListener('click', function () {
-        var backdrop = document.getElementById('accountModalBackdrop');
-        if (backdrop && window.Popup) window.Popup.close(backdrop);
-        if (window.switchToPanel) window.switchToPanel('creator-studio');
-      });
+    if (_showStudioBtn) {
+      var studioBtn = document.getElementById('creatorStudioBtn');
+      if (studioBtn) {
+        studioBtn.addEventListener('click', function () {
+          var backdrop = document.getElementById('accountModalBackdrop');
+          if (backdrop && window.Popup) window.Popup.close(backdrop);
+          if (window.switchToPanel) window.switchToPanel('creator-studio');
+        });
+      }
     }
     return;
   }
@@ -512,7 +504,8 @@ function _renderCreatorEligible(section) {
         '<div class="creator-card-title">Become a Creator</div>' +
         '<div class="creator-card-desc">' +
           'Creators can submit items for the shop and manage their own listings. ' +
-          'Your items will be reviewed by Parliament before going live.' +
+          'Your items will be reviewed by Parliament before going live. ' +
+          'When one of your items is sold and fulfilled, you earn 35% of the sale price as Dirty EP.' +
         '</div>' +
         '<button class="creator-apply-btn" id="creatorApplyBtn">Apply to become a Creator</button>' +
       '</div>' +
@@ -1316,9 +1309,10 @@ fetch('/auth/session', { credentials: 'same-origin' })
   }
 
   // true if the user is an approved Creator (flag set by server in session)
+  // Parliament+ users are excluded: they already have the full Manage Shop panel
   function hasCreatorAccess() {
     if (!state.loggedIn || !state.user) return false;
-    return !!state.user.is_creator;
+    return !!state.user.is_creator && !hasParliamentPlus();
   }
 
   // true if the user holds any guild rank

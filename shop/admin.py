@@ -864,6 +864,23 @@ def admin_get_queue() -> dict:
         ).fetchall()
         pending_purchases = [dict(r) for r in rows]
 
+        # Enrich each pending purchase with the assigned creator's username
+        if pending_purchases:
+            from shop.items import get_item_unfiltered as _get_item_unf
+            _matches = _cfg_load_json(_USERNAME_MATCHES_JSON) or {}
+            for _p in pending_purchases:
+                _item_obj = _get_item_unf(_p.get("item_id", ""))
+                _creator_did = _item_obj.get("creator_discord_id") if _item_obj else None
+                if _creator_did:
+                    _entry = _matches.get(str(_creator_did))
+                    _creator_uname = (
+                        _entry.get("username") if isinstance(_entry, dict)
+                        else (_entry if isinstance(_entry, str) else None)
+                    ) or _creator_did
+                    _p["creator_username"] = _creator_uname
+                else:
+                    _p["creator_username"] = None
+
         rows = conn.execute(
             "SELECT * FROM bin_purchases "
             "WHERE status = 'refund_pending' "
@@ -969,6 +986,21 @@ def admin_fulfill(ticket_type: str, ticket_id: str, chief_note: str | None,
              "username": row_data["username"], "note": chief_note},
         )
     _invalidate_users_cache()
+
+    # Creator commission: grant 35% of ep_spent as dirty EP when fulfilling a purchase
+    if ticket_type == "purchase" and row_data:
+        from shop.creator import _grant_creator_commission
+        from shop.items import get_item_unfiltered as _get_item_unfiltered
+        _item_obj = _get_item_unfiltered(row_data["item_id"])
+        if _item_obj and _item_obj.get("creator_discord_id"):
+            _grant_creator_commission(
+                _item_obj["creator_discord_id"],
+                row_data["item_id"],
+                row_data["ep_spent"],
+                ticket_id,
+                chief_name,
+            )
+
     return {"ok": True, "ticket_id": ticket_id, "status": "fulfilled", "resolved_at": now_iso}
 
 def admin_reject(ticket_type: str, ticket_id: str, reason: str,

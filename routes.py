@@ -2168,10 +2168,6 @@ def admin_shop_toggle_creator(discord_id):
         return err
     if not is_parliament:
         return jsonify({"error": "Parliament rank required"}), 403
-    # Cannot grant creator to shop admins (Chief+)
-    admin_map = _get_shop_admin_map()
-    if admin_map.get(discord_id, 0) > 0:
-        return jsonify({"error": "Shop admins cannot be given Creator status"}), 400
     body = request.get_json(silent=True) or {}
     grant = body.get("grant")
     if grant is None:
