@@ -4489,10 +4489,13 @@
     var isNew = !req.item_id;
     var changes = req.changes || {};
     var itemName = changes.name || req.item_id || 'Unnamed';
+    var hasVariants = !!(changes.variants && changes.variants.length);
+    var _vrFields = ['name','price','stock','max_quantity','accepts_dirty_ep','spend_order','cooldown','active'];
+
+    overlay.classList.add('sa-overlay-modal--creq');
 
     var html = '<button class="modal-close" id="saOverlayClose">' + _svg.close + '</button>';
     html += '<div class="shop-modal-title">' + (isNew ? 'New Item Request' : 'Edit Request: ' + esc(req.item_id)) + '</div>';
-    html += '<div class="shop-modal-body">';
 
     // Meta
     html += '<div class="sa-cr-meta">';
@@ -4502,11 +4505,23 @@
     html += '<span><span class="sa-pill ' + sCls + '">' + esc(req.status.charAt(0).toUpperCase() + req.status.slice(1)) + '</span></span>';
     html += '</div>';
     if (req.note) {
-      html += '<div class="sa-q-note" style="margin-top:8px">' + _svg.pin + ' <strong>Creator note:</strong> ' + esc(req.note) + '</div>';
+      html += '<div class="sa-q-note" style="margin-bottom:10px">' + _svg.pin + ' <strong>Creator note:</strong> ' + esc(req.note) + '</div>';
     }
 
+    // Tab bar (only when there are variants)
+    if (hasVariants) {
+      html += '<div class="sa-creq-tabs">';
+      html += '<button class="sa-creq-tab active" data-creq-tab="general">General</button>';
+      html += '<button class="sa-creq-tab" data-creq-tab="variants">Variants (' + changes.variants.length + ')</button>';
+      html += '</div>';
+    }
+
+    // Scrollable body
+    html += '<div class="sa-creq-body">';
+
     if (isNew) {
-      // Preview
+      // General panel
+      html += hasVariants ? '<div class="sa-creq-panel active" data-creq-panel="general">' : '';
       html += '<div class="sa-cr-preview"><div class="sa-cr-section-title">Proposed Item Fields</div>';
       Object.keys(changes).forEach(function (field) {
         if (field === 'variants') return;
@@ -4514,13 +4529,16 @@
         html += '<div class="sa-cr-field"><span class="sa-cr-field-label">' + esc(label) + '</span>' +
           '<span class="sa-cr-field-value">' + esc(_fmtCreatorFieldVal(field, changes[field])) + '</span></div>';
       });
-      html += '</div>';
-      if (changes.variants && changes.variants.length) {
-        html += '<div class="sa-cr-preview"><div class="sa-cr-section-title">Variants</div>';
+      html += '</div>'; // sa-cr-preview
+      html += hasVariants ? '</div>' : ''; // sa-creq-panel
+
+      // Variants panel
+      if (hasVariants) {
+        html += '<div class="sa-creq-panel" data-creq-panel="variants">';
         changes.variants.forEach(function (v, idx) {
           var vLabel = v.label || v.name || ('Variant ' + (idx + 1));
           html += '<div class="sa-cr-variant-block"><div class="sa-cr-variant-title">' + esc(vLabel) + '</div>';
-          ['name','price','stock','max_quantity','accepts_dirty_ep','spend_order','cooldown','active'].forEach(function (f) {
+          _vrFields.forEach(function (f) {
             if (v[f] != null && v[f] !== '') {
               html += '<div class="sa-cr-field"><span class="sa-cr-field-label">' + esc(_CR_FIELD_LABELS[f] || f) + '</span>' +
                 '<span class="sa-cr-field-value">' + esc(_fmtCreatorFieldVal(f, v[f])) + '</span></div>';
@@ -4528,7 +4546,7 @@
           });
           html += '</div>';
         });
-        html += '</div>';
+        html += '</div>'; // sa-creq-panel
       }
     } else {
       // Diff view
@@ -4538,8 +4556,11 @@
         if (!existingItem) return true;
         return !_crSameVal(existingItem[field], changes[field]);
       });
+
+      // General panel
+      html += hasVariants ? '<div class="sa-creq-panel active" data-creq-panel="general">' : '';
       html += '<div class="sa-cr-diff"><div class="sa-cr-section-title">Proposed Changes</div>';
-      if (!diffFields.length && !changes.variants) {
+      if (!diffFields.length) {
         html += '<div style="color:var(--text-faint);padding:8px 0">No field changes detected.</div>';
       }
       diffFields.forEach(function (field) {
@@ -4553,10 +4574,13 @@
         html += '<span class="sa-cr-diff-new">' + esc(_fmtCreatorFieldVal(field, newVal)) + '</span>';
         html += '</div>';
       });
-      html += '</div>';
-      // Variant changes
-      if (changes.variants) {
+      html += '</div>'; // sa-cr-diff
+      html += hasVariants ? '</div>' : ''; // sa-creq-panel
+
+      // Variants panel
+      if (hasVariants) {
         var origV = existingItem && Array.isArray(existingItem.variants) ? existingItem.variants : [];
+        html += '<div class="sa-creq-panel" data-creq-panel="variants">';
         html += '<div class="sa-cr-diff"><div class="sa-cr-section-title">Variant Changes</div>';
         if (origV.length !== changes.variants.length) {
           html += '<div class="sa-cr-diff-row"><span class="sa-cr-diff-label">Count</span>' +
@@ -4564,15 +4588,13 @@
             '<span class="sa-cr-diff-arrow">\u2192</span>' +
             '<span class="sa-cr-diff-new">' + changes.variants.length + '</span></div>';
         }
-        var _vrFields = ['name','price','stock','max_quantity','accepts_dirty_ep','spend_order','cooldown','active'];
         changes.variants.forEach(function (cv, idx) {
           var ov = origV[idx] || {};
           var vLabel = cv.label || cv.name || ('Variant ' + (idx + 1));
           var vDiffs = _vrFields.filter(function (f) { return !_crSameVal(cv[f], ov[f]); });
-          if (!vDiffs.length && idx < origV.length) return; // unchanged variant, skip
+          if (!vDiffs.length && idx < origV.length) return;
           html += '<div class="sa-cr-variant-block"><div class="sa-cr-variant-title">' + esc(vLabel) + '</div>';
           if (idx >= origV.length) {
-            // New variant
             _vrFields.forEach(function (f) {
               if (cv[f] != null && cv[f] !== '') {
                 html += '<div class="sa-cr-field"><span class="sa-cr-field-label">' + esc(_CR_FIELD_LABELS[f] || f) + '</span>' +
@@ -4591,16 +4613,16 @@
           }
           html += '</div>';
         });
-        html += '</div>';
+        html += '</div></div>'; // sa-cr-diff + sa-creq-panel
       }
     }
 
-    // Rejection reason if rejected
+    // Rejection reason (inside scrollable body)
     if (req.status === 'rejected' && req.rejection_reason) {
       html += '<div class="sa-cr-rejection"><strong>Rejection reason:</strong> ' + esc(req.rejection_reason) + '</div>';
     }
 
-    html += '</div>'; // shop-modal-body
+    html += '</div>'; // sa-creq-body
 
     // Approve/Reject for pending
     if (req.status === 'pending') {
@@ -4613,9 +4635,22 @@
     overlay.innerHTML = html;
     overlayBd.classList.add('open');
 
-    // Close
-    document.getElementById('saOverlayClose').addEventListener('click', function () { overlayBd.classList.remove('open'); });
-    overlayBd.addEventListener('click', function (e) { if (e.target === overlayBd) overlayBd.classList.remove('open'); });
+    // Tab switching
+    overlay.querySelectorAll('.sa-creq-tab').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        var target = tab.dataset.creqTab;
+        overlay.querySelectorAll('.sa-creq-tab').forEach(function (t) { t.classList.remove('active'); });
+        overlay.querySelectorAll('.sa-creq-panel').forEach(function (p) { p.classList.remove('active'); });
+        tab.classList.add('active');
+        var panel = overlay.querySelector('[data-creq-panel="' + target + '"]');
+        if (panel) panel.classList.add('active');
+      });
+    });
+
+    // Close (also remove wider class)
+    function _closeCreqOverlay() { overlayBd.classList.remove('open'); overlay.classList.remove('sa-overlay-modal--creq'); }
+    document.getElementById('saOverlayClose').addEventListener('click', _closeCreqOverlay);
+    overlayBd.addEventListener('click', function (e) { if (e.target === overlayBd) _closeCreqOverlay(); });
 
     // Approve
     var approveBtn = document.getElementById('saCreqApprove');
