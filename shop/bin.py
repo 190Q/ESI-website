@@ -160,6 +160,14 @@ def _ensure_quantity_column(conn: sqlite3.Connection) -> None:
         pass  # already exists
 
 
+def _ensure_variant_name_column(conn: sqlite3.Connection) -> None:
+    """Add variant_name column to bin_purchases if it doesn't exist (idempotent)."""
+    try:
+        conn.execute("ALTER TABLE bin_purchases ADD COLUMN variant_name TEXT NOT NULL DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass  # already exists
+
+
 class PurchaseError(Exception):
     """Non-fatal purchase rejection with an HTTP status code."""
     def __init__(self, message: str, status: int = 400):
@@ -341,6 +349,7 @@ def execute_cart_checkout(
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         _ensure_quantity_column(conn)
+        _ensure_variant_name_column(conn)
         conn.execute("BEGIN IMMEDIATE")
 
         # EP balance check (inside write lock to prevent TOCTOU double-spend)
@@ -470,17 +479,20 @@ def execute_cart_checkout(
                 )
 
             # insert purchase row
+            v_name = ""
+            if variant is not None:
+                v_name = (variant.get("name") or variant.get("label") or "").strip()
             conn.execute(
                 "INSERT INTO bin_purchases "
                 "(purchase_id, item_id, uuid, username, ep_spent, clean_ep_spent, "
-                " dirty_ep_spent, status, fulfillment_note, purchased_at, resolved_at, quantity) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " dirty_ep_spent, status, fulfillment_note, purchased_at, resolved_at, quantity, variant_name) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     purchase_id, item_id, mc_uuid, mc_username or "",
                     ln["line_total"], ln["line_clean"], ln["line_dirty"],
                     status, item.get("fulfillment_note"),
                     now_iso, None,
-                    qty,
+                    qty, v_name,
                 ),
             )
 

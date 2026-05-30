@@ -1166,7 +1166,8 @@ def get_creator_orders(discord_id: str) -> dict:
         rows = conn.execute(
             f"SELECT purchase_id, item_id, uuid, username, quantity, "
             f"ep_spent, clean_ep_spent, dirty_ep_spent, status, "
-            f"fulfillment_note, chief_note, purchased_at, resolved_at "
+            f"fulfillment_note, chief_note, purchased_at, resolved_at, "
+            f"COALESCE(variant_name, '') AS variant_name "
             f"FROM bin_purchases WHERE item_id IN ({placeholders}) "
             f"ORDER BY purchased_at DESC",
             own_ids,

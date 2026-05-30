@@ -2392,6 +2392,7 @@
         ? '<span class="sa-q-type sa-q-type--refund">Refund Request</span>'
         : '<span class="sa-q-type sa-q-type--purchase">Shop item</span>';
       var slugText = esc(d.item_id);
+      if (d.variant_name) slugText += ' \u00b7 ' + esc(d.variant_name);
       try { if (d.quantity && d.quantity > 1) slugText += ' \u00d7' + d.quantity; } catch (ignore) {}
       html += '<span class="sa-q-slug">' + slugText + '</span>';
     } else if (isApp) {
