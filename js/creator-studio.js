@@ -307,6 +307,36 @@
     container.innerHTML = h;
     var addBtn = container.parentNode.querySelector('#csImgAdd');
     if (addBtn) addBtn.style.display = _csImages.length >= 3 ? 'none' : '';
+    // Bind drag-to-reorder on each row
+    container.querySelectorAll('.ie-img-row').forEach(function(row) {
+      row.setAttribute('draggable', 'true');
+      row.addEventListener('dragstart', function(e) {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', row.dataset.idx);
+        row.classList.add('ie-img-row--dragging');
+      });
+      row.addEventListener('dragend', function() {
+        row.classList.remove('ie-img-row--dragging');
+        container.querySelectorAll('.ie-img-row--over').forEach(function(r) { r.classList.remove('ie-img-row--over'); });
+      });
+      row.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        container.querySelectorAll('.ie-img-row--over').forEach(function(r) { r.classList.remove('ie-img-row--over'); });
+        row.classList.add('ie-img-row--over');
+      });
+      row.addEventListener('dragleave', function() { row.classList.remove('ie-img-row--over'); });
+      row.addEventListener('drop', function(e) {
+        e.preventDefault();
+        row.classList.remove('ie-img-row--over');
+        var fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+        var toIdx   = parseInt(row.dataset.idx);
+        if (fromIdx === toIdx || isNaN(fromIdx) || isNaN(toIdx)) return;
+        var moved = _csImages.splice(fromIdx, 1)[0];
+        _csImages.splice(toIdx, 0, moved);
+        _csRenderImageList(container);
+      });
+    });
   }
 
   function _csUploadImage(file, listEl) {
