@@ -808,12 +808,21 @@ def list_item_requests(status_filter: str | None = None) -> list:
     except sqlite3.Error:
         return []
 
+    _matches = _cfg_load_json(_USERNAME_MATCHES_JSON) or {}
+
     result = []
     for r in rows:
         try:
             changes_parsed = json.loads(r["changes"]) if r["changes"] else {}
         except (json.JSONDecodeError, TypeError):
             changes_parsed = {}
+        username = r["username"]
+        if not username:
+            _entry = _matches.get(str(r["discord_id"]))
+            username = (
+                _entry.get("username") if isinstance(_entry, dict)
+                else (_entry if isinstance(_entry, str) else None)
+            )
         result.append({
             "id": r["id"],
             "discord_id": r["discord_id"],
@@ -825,7 +834,7 @@ def list_item_requests(status_filter: str | None = None) -> list:
             "reviewer": r["reviewer"],
             "rejection_reason": r["rejection_reason"],
             "note": r["note"],
-            "username": r["username"],
+            "username": username,
         })
     return result
 
