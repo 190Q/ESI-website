@@ -1365,15 +1365,15 @@
 
   /* My Requests tab */
   function renderRequestsTab(c) {
-    c.innerHTML = '<div class="sa-empty">Loading\u2026</div>';
+    c.innerHTML = '<div class="shop-empty">Loading\u2026</div>';
 
     fetch('/api/shop/creator/my-requests', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
-        if (!d) { c.innerHTML = '<div class="sa-empty">Failed to load requests.</div>'; return; }
+        if (!d) { c.innerHTML = '<div class="shop-empty">Failed to load requests.</div>'; return; }
         var reqs = d.requests || [];
         if (reqs.length === 0) {
-          c.innerHTML = '<div class="sa-empty">No requests yet.</div>';
+          c.innerHTML = '<div class="shop-empty">No requests yet.</div>';
           return;
         }
 
@@ -1408,7 +1408,7 @@
         c.innerHTML = html;
       })
       .catch(function () {
-        c.innerHTML = '<div class="sa-empty">Failed to load requests.</div>';
+        c.innerHTML = '<div class="shop-empty">Failed to load requests.</div>';
       });
   }
 
