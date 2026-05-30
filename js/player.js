@@ -743,7 +743,7 @@
     /* skin */
     const skinEl = document.getElementById('playerSkin');
     skinEl.style.visibility = '';
-    skinEl.src = `https://crafatar.com/avatars/${p.uuid}?size=80&overlay`;
+    skinEl.src = `/api/proxy/avatar/${p.uuid}?size=80&overlay`;
     skinEl.onerror = () => { skinEl.src = `https://mc-heads.net/avatar/${p.username}/80`; };
 
     /* name */

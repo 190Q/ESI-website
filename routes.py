@@ -20,7 +20,7 @@ import sqlite3 as _sqlite3
 import requests
 from time import time
 from datetime import timedelta
-from flask import Flask, jsonify, abort, send_from_directory, redirect, request, session
+from flask import Flask, jsonify, abort, send_from_directory, redirect, request, session, Response as _Response
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import (
@@ -985,6 +985,91 @@ def player_decorations(username: str):
             for k in stale:
                 del _DECORATIONS_CACHE[k]
     return jsonify(payload)
+
+
+# Minecraft avatar proxy: serves crafatar images from the same origin to
+# avoid cross-origin issues (ORB, third-party cookies) in Firefox.
+_AVATAR_UUID_RE = _re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    _re.IGNORECASE,
+)
+_AVATAR_PROXY_CACHE: dict = {}
+_avatar_proxy_lock = _threading.Lock()
+_AVATAR_PROXY_TTL = 300  # 5 min
+_AVATAR_PROXY_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; ESI-Dashboard-Avatar-Proxy/1.0)",
+    "Accept": "image/webp,image/png,image/*,*/*;q=0.8",
+}
+
+
+@app.route("/api/proxy/avatar/<uuid>")
+@rate_limit(120)
+def proxy_avatar(uuid: str):
+    """Proxy a Minecraft player skin from crafatar.com.
+
+    Caches responses server-side for 5 minutes so repeated lookups of the
+    same player don't hammer crafatar.
+    """
+    if not _AVATAR_UUID_RE.match(uuid):
+        abort(400)
+    size = request.args.get("size", "80")
+    try:
+        size = str(max(8, min(512, int(size))))
+    except (ValueError, TypeError):
+        size = "80"
+    has_overlay = "overlay" in request.args
+
+    cache_key = f"{uuid}:{size}:{'1' if has_overlay else '0'}"
+    now = time()
+    with _avatar_proxy_lock:
+        entry = _AVATAR_PROXY_CACHE.get(cache_key)
+    if entry and now - entry[0] < _AVATAR_PROXY_TTL:
+        return _Response(entry[1], status=200, headers={
+            "Content-Type": entry[2],
+            "Cache-Control": f"public, max-age={int(_AVATAR_PROXY_TTL)}",
+        })
+
+    url = f"https://crafatar.com/avatars/{uuid}?size={size}"
+    if has_overlay:
+        url += "&overlay"
+    body = None
+    ct = "image/png"
+    try:
+        r = requests.get(url, timeout=8, headers=_AVATAR_PROXY_HEADERS)
+        if r.ok:
+            _ct = r.headers.get("Content-Type", "image/png")
+            if _ct.startswith("image/"):
+                body, ct = r.content, _ct
+    except requests.RequestException:
+        pass
+    if body is None:
+        # Fallback: mc-heads.net (no overlay, but still a valid avatar)
+        try:
+            fb = requests.get(
+                f"https://mc-heads.net/avatar/{uuid}/{size}",
+                timeout=8,
+                headers=_AVATAR_PROXY_HEADERS,
+            )
+            if fb.ok:
+                _ct = fb.headers.get("Content-Type", "image/png")
+                if _ct.startswith("image/"):
+                    body, ct = fb.content, _ct
+        except requests.RequestException:
+            pass
+    if body is None:
+        abort(502)
+    with _avatar_proxy_lock:
+        _AVATAR_PROXY_CACHE[cache_key] = (now, body, ct)
+        # evict stale entries if the cache grows large
+        if len(_AVATAR_PROXY_CACHE) > 500:
+            cutoff = now - _AVATAR_PROXY_TTL * 2
+            stale = [k for k, v in _AVATAR_PROXY_CACHE.items() if v[0] < cutoff]
+            for k in stale:
+                del _AVATAR_PROXY_CACHE[k]
+    return _Response(body, status=200, headers={
+        "Content-Type": ct,
+        "Cache-Control": f"public, max-age={int(_AVATAR_PROXY_TTL)}",
+    })
 
 
 @app.route("/api/me/badge-progress")
