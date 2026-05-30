@@ -14,7 +14,7 @@
   var _filterMinPrice = null;  // null = no lower limit
   var _filterMaxPrice = null;  // null = no upper limit
   var _filterCooldown = null;  // null | 'has' | 'none'
-  var _filterStock    = null;  // null | 'instock' | 'outstock' | 'unlimited'
+  var _filterStock    = null;  // null | 'instock' | 'outstock'
   var _sortBy         = '';    // '' = default order | 'price_desc' | 'price_asc' | 'stock_desc' | 'stock_asc'
   var _priceAbsMin    = 0;
   var _priceAbsMax    = 1000;
@@ -509,7 +509,6 @@
             '<option value="">All</option>' +
             '<option value="instock"' + (_filterStock === 'instock' ? ' selected' : '') + '>In Stock</option>' +
             '<option value="outstock"' + (_filterStock === 'outstock' ? ' selected' : '') + '>Out of Stock</option>' +
-            '<option value="unlimited"' + (_filterStock === 'unlimited' ? ' selected' : '') + '>Unlimited</option>' +
           '</select>' +
         '</div>' +
         '<div class="sf-section" data-bin-field>' +
@@ -676,9 +675,8 @@
       else if (_filterEP === 'any') fBin = fBin.filter(function (it) { return it.accepts_dirty_ep && it.spend_order !== 'clean_only'; });
       if (_filterAvail === 'available') fBin = fBin.filter(function (it) { return it.active && !it.on_cooldown && (it.stock == null || it.stock > 0); });
       else if (_filterAvail === 'unavailable') fBin = fBin.filter(function (it) { return !it.active || it.on_cooldown || (it.stock != null && it.stock <= 0); });
-      if (_filterStock === 'instock') fBin = fBin.filter(function (it) { return it.stock != null && it.stock > 0; });
+      if (_filterStock === 'instock') fBin = fBin.filter(function (it) { return it.stock == null || it.stock > 0; });
       else if (_filterStock === 'outstock') fBin = fBin.filter(function (it) { return it.stock != null && it.stock <= 0; });
-      else if (_filterStock === 'unlimited') fBin = fBin.filter(function (it) { return it.stock == null; });
       if (_filterCooldown === 'has') fBin = fBin.filter(function (it) { return !!it.cooldown; });
       else if (_filterCooldown === 'none') fBin = fBin.filter(function (it) { return !it.cooldown; });
     }
