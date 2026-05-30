@@ -52,13 +52,29 @@ def _compute_inline_script_hashes():
         return ""
     parts = []
     for match in _INLINE_SCRIPT_RE.finditer(html):
-        digest = hashlib.sha256(match.group(1)).digest()
+        content = match.group(1).replace(b"\r\n", b"\n")
+        digest = hashlib.sha256(content).digest()
         b64 = base64.b64encode(digest).decode("ascii")
         parts.append(f"'sha256-{b64}'")
     return " ".join(parts)
 
 
 _INLINE_SCRIPT_HASHES = _compute_inline_script_hashes()
+_inline_script_cache = {"hashes": _INLINE_SCRIPT_HASHES, "mtime": 0}
+
+
+def _get_inline_script_hashes():
+    """Return CSP hashes, recomputing if index.html changed on disk."""
+    path = os.path.join(_BASE_DIR, "index.html")
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        return _inline_script_cache["hashes"]
+    if mt != _inline_script_cache["mtime"]:
+        _inline_script_cache["hashes"] = _compute_inline_script_hashes()
+        _inline_script_cache["mtime"] = mt
+    return _inline_script_cache["hashes"]
+
 
 # access logger
 try:
@@ -481,7 +497,7 @@ def _after_request(response):
         )
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        f"script-src 'self' {_INLINE_SCRIPT_HASHES}; "
+        f"script-src 'self' {_get_inline_script_hashes()}; "
         "style-src 'self' 'unsafe-inline'; "
         "font-src 'self'; "
         "img-src 'self' https://cdn.discordapp.com https://visage.surgeplay.com https://crafatar.com https://mc-heads.net data:; "

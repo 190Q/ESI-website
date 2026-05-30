@@ -506,7 +506,8 @@ def _compute_inline_script_hashes():
         return ""
     parts = []
     for match in _INLINE_SCRIPT_RE.finditer(html):
-        digest = _hashlib.sha256(match.group(1)).digest()
+        content = match.group(1).replace(b"\r\n", b"\n")
+        digest = _hashlib.sha256(content).digest()
         b64 = _base64.b64encode(digest).decode("ascii")
         parts.append(f"'sha256-{b64}'")
     return " ".join(parts)
