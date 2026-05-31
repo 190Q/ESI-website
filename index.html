@@ -18,6 +18,85 @@
     if (localStorage.getItem('sidebarCollapsed') === 'true') {
       document.documentElement.classList.add('sidebar-pre-collapsed');
     }
+    // Pre-paint: inject CSS overrides so React defaults don't flash
+    (function() {
+      // Always show the login button immediately (React sets opacity:0)
+      var btnS = document.createElement('style');
+      btnS.id = 'esi-preload-btn';
+      btnS.textContent = '#loginBtn{opacity:1!important}';
+      document.head.appendChild(btnS);
+      // Panel: always match the URL so the player page doesn't flash
+      var css = '';
+      var p = location.pathname.replace(/^\//, '').split('/');
+      var f = p[0] || 'player';
+      var panel = f;
+      if (f === 'events' && p[1] === 'manage') panel = 'events-manage';
+      if (f === 'shop' && p[1] === 'admin') panel = 'shop-admin';
+      if (f === 'shop' && p[1] === 'studio') panel = 'creator-studio';
+      if (panel !== 'player') {
+        css += '#panel-player.panel.active{display:none!important}';
+        css += '#panel-' + panel + '.panel{display:block!important;flex:1!important}';
+        css += '[data-panel="player"].nav-item.active{color:var(--text-dim,#8faa90)!important;background:transparent!important;border-color:transparent!important}';
+        css += '[data-panel="player"].nav-item.active::before{display:none!important}';
+        css += '[data-panel="' + panel + '"].nav-item{color:var(--gold-light,#F0C040)!important;background:rgba(var(--gold-rgb,212,160,23),0.12)!important;border-color:rgba(var(--gold-rgb,212,160,23),0.35)!important}';
+      }
+      // Auth-specific overrides (logged-in button + nav items)
+      var u = localStorage.getItem('esi_user');
+      if (u) {
+        var cached;
+        try { cached = JSON.parse(u); } catch(e) { cached = null; }
+        if (cached) {
+          // Upgrade button CSS: collapse content until MutationObserver fills it
+          btnS.textContent = '#loginBtn{opacity:1!important;background:var(--online,#3BA55C)!important;box-shadow:0 2px 12px rgba(var(--online-rgb,59,165,92),0.35)!important;font-size:0!important;line-height:0!important}#loginBtn svg{display:none!important}';
+          // Fill login button the instant React mounts it (before first paint)
+          var avatarUrl = cached.avatar
+            ? 'https://cdn.discordapp.com/avatars/' + cached.id + '/' + cached.avatar + '.png?size=64'
+            : 'https://cdn.discordapp.com/embed/avatars/0.png';
+          var displayName = cached.nick || cached.username || '';
+          var obs = new MutationObserver(function() {
+            var btn = document.getElementById('loginBtn');
+            if (!btn) return;
+            obs.disconnect();
+            var el = document.getElementById('esi-preload-btn');
+            if (el) el.remove();
+            btn.textContent = '';
+            var img = document.createElement('img');
+            img.src = avatarUrl;
+            img.alt = '';
+            img.style.cssText = 'width:20px;height:20px;border-radius:50%;object-fit:cover;flex-shrink:0;';
+            btn.appendChild(img);
+            btn.appendChild(document.createTextNode(' ' + displayName));
+            btn.style.opacity = '1';
+            btn.style.background = 'var(--online,#3BA55C)';
+            btn.style.boxShadow = '0 2px 12px rgba(var(--online-rgb,59,165,92),0.35)';
+            btn.classList.add('btn-discord--account');
+          });
+          obs.observe(document.documentElement, { childList: true, subtree: true });
+          // Nav visibility from last-known state
+          var nc = localStorage.getItem('esi_nav_cache');
+          if (nc) {
+            try {
+              var n = JSON.parse(nc);
+              if (n.shop) css += '#shopNavItem{display:list-item!important}';
+              if (n.creatorStudio) css += '#creatorStudioNavItem{display:list-item!important}';
+              if (n.shopAdmin) css += '#shopAdminNavItem{display:list-item!important}';
+              if (n.manage) {
+                css += '#manageSection{display:block!important}';
+                if (!n.inactivity) css += '#manageSection li:has([data-panel="inactivity"]){display:none!important}';
+                if (!n.promotions) css += '#manageSection li:has([data-panel="promotions"]){display:none!important}';
+                if (!n.eventsManage) css += '#manageSection li:has([data-panel="events-manage"]){display:none!important}';
+              }
+            } catch(e) {}
+          }
+        }
+      }
+      if (css) {
+        var s = document.createElement('style');
+        s.id = 'esi-preload-css';
+        s.textContent = css;
+        document.head.appendChild(s);
+      }
+    })();
   </script>
   <div id="root"></div>
 </body>

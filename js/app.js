@@ -1091,10 +1091,12 @@ function _renderBadges(userRoles, counts) {
 // strip sensitive data before caching to localStorage
 function _userForCache(user) {
   return {
-    id:       user.id,
-    username: user.username,
-    nick:     user.nick,
-    avatar:   user.avatar,
+    id:         user.id,
+    username:   user.username,
+    nick:       user.nick,
+    avatar:     user.avatar,
+    roles:      user.roles || [],
+    is_creator: !!user.is_creator,
   };
 }
 
@@ -1149,16 +1151,67 @@ function applyLogin(user) {
     }
 }
 
-// restore name/avatar from localStorage instantly, but don't grant any roles yet
-// (roles get applied once the server confirms the session below)
+// restore cached user instantly so the UI doesn't flash between
+// logged-out and logged-in states on refresh
+var _cachedLoginApplied = false;
 var savedUser = localStorage.getItem('esi_user');
 if (savedUser) {
     try {
         var _cachedUser = JSON.parse(savedUser);
         state.loggedIn = true;
-        state.user = Object.assign({}, _cachedUser, { roles: [] });
+        state.user = _cachedUser;
         updateLoginButton();
+        _cachedLoginApplied = true;
+        console.log('[auth-cache] restored cached user:', _cachedUser.username, 'roles:', (_cachedUser.roles || []).length);
+
+        // immediately restore nav visibility from the last known state
+        var _cachedNav = localStorage.getItem('esi_nav_cache');
+        if (_cachedNav) {
+            try {
+                var _nav = JSON.parse(_cachedNav);
+                console.log('[auth-cache] restoring nav cache:', _nav);
+                if (_nav.shop)           { var _e = document.getElementById('shopNavItem');           if (_e) _e.style.display = ''; }
+                if (_nav.creatorStudio)   { var _e = document.getElementById('creatorStudioNavItem');  if (_e) _e.style.display = ''; }
+                if (_nav.shopAdmin)       { var _e = document.getElementById('shopAdminNavItem');      if (_e) _e.style.display = ''; }
+                if (_nav.manage)          { var _e = document.getElementById('manageSection');         if (_e) _e.style.display = 'block'; }
+                if (_nav.inactivity)      { var _e = document.querySelector('[data-panel="inactivity"]');    if (_e) _e.parentElement.style.display = ''; }
+                if (_nav.promotions)      { var _e = document.querySelector('[data-panel="promotions"]');    if (_e) _e.parentElement.style.display = ''; }
+                if (_nav.eventsManage)    { var _e = document.querySelector('[data-panel="events-manage"]'); if (_e) _e.parentElement.style.display = ''; }
+            } catch (e) { console.warn('[auth-cache] nav cache parse error', e); }
+        } else {
+            console.log('[auth-cache] no esi_nav_cache found (first login on this browser)');
+        }
+
+        // immediately activate the correct panel based on URL
+        var _urlParts = window.location.pathname.replace(/^\//, '').split('/');
+        var _urlFirst = _urlParts[0] || 'player';
+        var _wantPanel = _urlFirst;
+        if (_urlFirst === 'events' && _urlParts[1] === 'manage') _wantPanel = 'events-manage';
+        if (_urlFirst === 'shop'   && _urlParts[1] === 'admin')  _wantPanel = 'shop-admin';
+        if (_urlFirst === 'shop'   && _urlParts[1] === 'studio') _wantPanel = 'creator-studio';
+        var _wantPanelEl = document.getElementById('panel-' + _wantPanel);
+        if (_wantPanelEl && _wantPanel !== 'player') {
+            console.log('[auth-cache] switching active panel to', _wantPanel);
+            document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
+            _wantPanelEl.classList.add('active');
+            document.querySelectorAll('.nav-item').forEach(function (n) { n.classList.remove('active'); });
+            var _wantNav = document.querySelector('[data-panel="' + _wantPanel + '"]');
+            if (_wantNav) _wantNav.classList.add('active');
+        } else {
+            console.log('[auth-cache] staying on player panel (url panel:', _wantPanel, 'found:', !!_wantPanelEl, ')');
+        }
+
+        // pre-paint CSS overrides are no longer needed; JS has set inline styles
+        var _preloadCSS = document.getElementById('esi-preload-css');
+        if (_preloadCSS) { _preloadCSS.remove(); console.log('[auth-cache] removed pre-paint CSS overrides'); }
+
+        // apply cached permissions once config loads (confirms/adjusts nav state)
+        _configPromise.then(function () {
+            console.log('[auth-cache] config loaded, applying permissions with cached roles');
+            if (state.user === _cachedUser) applyPermissions();
+        });
     } catch (e) {
+        console.warn('[auth-cache] failed to parse cached user', e);
         localStorage.removeItem('esi_user');
     }
 }
@@ -1396,6 +1449,17 @@ fetch('/auth/session', { credentials: 'same-origin' })
           document.querySelector('[data-panel="player"]').classList.add('active');
         }
       }
+    }
+
+    // persist nav visibility so the next page load can restore it instantly
+    if (state.loggedIn) {
+      localStorage.setItem('esi_nav_cache', JSON.stringify({
+        shop: canShop, creatorStudio: canCreatorStudio, shopAdmin: canShopAdmin,
+        manage: !!(canInactivity || canPromotions || canEvents || canShopAdmin),
+        inactivity: canInactivity, promotions: canPromotions, eventsManage: canEvents,
+      }));
+    } else {
+      localStorage.removeItem('esi_nav_cache');
     }
   }
 
@@ -1972,12 +2036,18 @@ fetch('/auth/session', { credentials: 'same-origin' })
     }
 
     // quietly fall back if they can't access the panel
-    if (target === 'shop'            && !isGuildMember())     target = 'player';
-    if (target === 'creator-studio'  && !hasCreatorAccess())  target = 'player';
-    if (target === 'shop-admin'      && !hasShopAdmin())      target = 'player';
-    if (target === 'inactivity'    && !hasParliamentPlus()) target = 'player';
-    if (target === 'promotions'    && !hasJurorPlus())      target = 'player';
-    if (target === 'events-manage' && !hasEventsAccess())   target = 'player';
+    if (!_cachedLoginApplied || _configLoaded) {
+      var _before = target;
+      if (target === 'shop'            && !isGuildMember())     target = 'player';
+      if (target === 'creator-studio'  && !hasCreatorAccess())  target = 'player';
+      if (target === 'shop-admin'      && !hasShopAdmin())      target = 'player';
+      if (target === 'inactivity'      && !hasParliamentPlus()) target = 'player';
+      if (target === 'promotions'      && !hasJurorPlus())      target = 'player';
+      if (target === 'events-manage'   && !hasEventsAccess())   target = 'player';
+      if (_before !== target) console.log('[switchToPanel] bounced', _before, '-> player (configLoaded:', _configLoaded, ')');
+    } else {
+      console.log('[switchToPanel] skipping role checks for', target, '(cached auth, config not loaded yet)');
+    }
     navItems.forEach(n => n.classList.remove('active'));
     const navItem = document.querySelector(`[data-panel="${target}"]`);
     if (navItem) navItem.classList.add('active');
@@ -2006,8 +2076,29 @@ fetch('/auth/session', { credentials: 'same-origin' })
   window.hasShopAdmin         = hasShopAdmin;
   window.hasCreatorAccess     = hasCreatorAccess;
   window.renderMarkdown       = renderMarkdown;
-  applyPermissions();
 
+  if (!_cachedLoginApplied) {
+    // switch to the correct panel based on URL (mirrors what the cached path does)
+    var _urlP = window.location.pathname.replace(/^\//, '').split('/');
+    var _urlF = _urlP[0] || 'player';
+    var _wp = _urlF;
+    if (_urlF === 'events' && _urlP[1] === 'manage') _wp = 'events-manage';
+    if (_urlF === 'shop'   && _urlP[1] === 'admin')  _wp = 'shop-admin';
+    if (_urlF === 'shop'   && _urlP[1] === 'studio') _wp = 'creator-studio';
+    var _wpEl = document.getElementById('panel-' + _wp);
+    if (_wpEl && _wp !== 'player') {
+      document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
+      _wpEl.classList.add('active');
+      document.querySelectorAll('.nav-item').forEach(function (n) { n.classList.remove('active'); });
+      var _wpNav = document.querySelector('[data-panel="' + _wp + '"]');
+      if (_wpNav) _wpNav.classList.add('active');
+    }
+    applyPermissions();
+  }
+
+  // always remove pre-paint panel/nav CSS now that JS has set the real active classes
+  var _preloadCSS2 = document.getElementById('esi-preload-css');
+  if (_preloadCSS2) { _preloadCSS2.remove(); }
   /* settings infrastructure */
   var SETTINGS_KEY = 'esi_settings';
   var SETTINGS_DEFAULTS = {
