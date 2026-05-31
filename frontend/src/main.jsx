@@ -24,13 +24,18 @@ if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
 
 window.setTheme = (name) => {
   const prev = document.documentElement.getAttribute('data-theme');
-  if (!name) return `Current theme: ${prev || 'default'}`;
-  document.documentElement.setAttribute('data-theme', name);
-  localStorage.setItem('theme', name);
+  if (name === undefined || name === null) return `Current theme: ${prev || 'default'}`;
+  if (name) {
+    document.documentElement.setAttribute('data-theme', name);
+    localStorage.setItem('theme', name);
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.removeItem('theme');
+  }
   if (window.ThemeColors && window.ThemeColors.invalidateCache) window.ThemeColors.invalidateCache();
   window.dispatchEvent(new Event('themechange'));
-  if (name === prev) return `Theme already set to '${name}'`;
-  return `Theme changed: '${prev || 'default'}' → '${name}'`;
+  if (name === prev) return `Theme already set to '${name || 'default'}'`;
+  return `Theme changed: '${prev || 'default'}' → '${name || 'default'}'`;
 };
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />)

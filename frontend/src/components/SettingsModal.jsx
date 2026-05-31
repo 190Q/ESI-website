@@ -8,6 +8,28 @@ export default function SettingsModal() {
 
         <div className="settings-body">
 
+          {/* Theme */}
+          <div className="settings-section">
+            <div className="settings-section-label">Theme</div>
+
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <div className="settings-row-title">Color theme</div>
+                <div className="settings-row-desc">
+                  Switch the dashboard color scheme
+                </div>
+              </div>
+              <div className="settings-row-control">
+                <select className="settings-select" id="settingTheme" aria-label="Color theme">
+                  <option value="">Empire of Sindria</option>
+                  <option value="purple">Purple</option>
+                  <option value="dark">Dark</option>
+                  <option value="blue">Blue</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
           {/* Search & Lookup */}
           <div className="settings-section" id="settingsSearchSection">
             <div className="settings-section-label">Search &amp; Lookup</div>

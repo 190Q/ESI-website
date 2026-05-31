@@ -2100,6 +2100,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
   settingsBtn.addEventListener('click', openSettings);
 
   /* settings form elements */
+  var _sTheme       = document.getElementById('settingTheme');
   var _sMetric      = document.getElementById('settingDefaultMetric');
   var _sRange       = document.getElementById('settingDefaultRange');
   var _sRangeVal    = document.getElementById('settingDefaultRangeVal');
@@ -2127,6 +2128,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   function _populateSettingsForm() {
     var s = _readAllSettings();
+    _sTheme.value    = localStorage.getItem('theme') || '';
     _sMetric.value   = s.defaultGraphMetric || 'playtime';
     _sRange.value    = s.defaultGraphRange  || 30;
     _sRangeVal.textContent = _sRange.value;
@@ -2232,6 +2234,11 @@ fetch('/auth/session', { credentials: 'same-origin' })
     if (!el) return;
     el.addEventListener('change', _updateSaveBtn);
     el.addEventListener('input', _updateSaveBtn);
+  });
+
+  // Apply theme instantly on change
+  _sTheme.addEventListener('change', function () {
+    window.setTheme(_sTheme.value || '');
   });
 
   // Live-hide the toast customization row when toasts are disabled
