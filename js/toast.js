@@ -113,10 +113,8 @@
       if (!_queueBadge) {
         _queueBadge = document.createElement('div');
         _queueBadge.className = 'esi-toast-queue-badge';
-        var qBg = _getVar('--surface-2') || '#1C2E1C';
-        var qBorder = _getVar('--border') || 'rgba(232,216,160,0.25)';
         _queueBadge.style.cssText =
-          'background:' + qBg + ';border:1px solid ' + qBorder + ';' +
+          'background:var(--surface-2, #1C2E1C);border:1px solid var(--border, rgba(232,216,160,0.25));' +
           'color:#999;padding:6px 14px;border-radius:6px;' +
           "font-family:'Cinzel',serif;font-size:0.72rem;letter-spacing:0.05em;" +
           'text-align:center;pointer-events:auto;';
@@ -150,9 +148,10 @@
     var container = _ensureToastContainer();
     var varMap = { success: '--online', info: '--discord', warn: '--warn', error: '--danger' };
     var fallbacks = { success: '#3BA55C', info: '#5865F2', warn: '#FAA61A', error: '#ED4245' };
-    var color  = _getVar(varMap[type] || varMap.info) || fallbacks[type] || fallbacks.info;
-    var bg     = _getVar('--surface-2') || '#1C2E1C';
-    var fg     = _getVar('--text-main') || '#E8D8A0';
+    var colorVar = varMap[type] || varMap.info;
+    var color  = 'var(' + colorVar + ', ' + (fallbacks[type] || fallbacks.info) + ')';
+    var bg     = 'var(--surface-2, #1C2E1C)';
+    var fg     = 'var(--text-main, #E8D8A0)';
     var toast  = document.createElement('div');
     toast.className = 'esi-toast';
     toast.style.cssText =
@@ -229,13 +228,13 @@
     if (!_toastsEnabled()) return _noopProgressCtrl();
     var container = _ensureToastContainer();
     var COLORS = {
-      info:    _getVar('--discord') || '#5865F2',
-      success: _getVar('--online')  || '#3BA55C',
-      warn:    _getVar('--warn')    || '#FAA61A',
-      error:   _getVar('--danger')  || '#ED4245'
+      info:    'var(--discord, #5865F2)',
+      success: 'var(--online, #3BA55C)',
+      warn:    'var(--warn, #FAA61A)',
+      error:   'var(--danger, #ED4245)'
     };
-    var bg = _getVar('--surface-2') || '#1C2E1C';
-    var fg = _getVar('--text-main') || '#E8D8A0';
+    var bg = 'var(--surface-2, #1C2E1C)';
+    var fg = 'var(--text-main, #E8D8A0)';
     var items = {};
     var expanded = false;
     var finished = false;
@@ -260,7 +259,7 @@
     toast.appendChild(hdr);
 
     var detailsEl = document.createElement('div');
-    var borderC = _getVar('--border') || 'rgba(232,216,160,0.12)';
+    var borderC = 'var(--border, rgba(232,216,160,0.12))';
     detailsEl.style.cssText = 'display:none;margin-top:8px;padding-top:8px;border-top:1px solid ' + borderC + ';';
     toast.appendChild(detailsEl);
 
