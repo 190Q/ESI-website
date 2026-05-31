@@ -27,16 +27,11 @@
   ];
   const GUILD_OVERFLOW_KEY = 'overflowMembers';
   const GUILD_QUEUE_METRIC = { key: 'queueMembers', label: 'Queue', decimals: 0 };
-  const GUILD_OVERFLOW_COLOR = { line: '#E05252', fill: 'rgba(224,82,82,0.08)', point: '#F37A7A' };
+  var GUILD_OVERFLOW_COLOR = null;
   const METRICS_DEBUG_ENABLED = /^(1|true|yes|on)$/i.test(
     (new URLSearchParams(window.location.search).get('metricsDebug') || '').trim()
   );
 
-  const GUILD_SERIES_COLORS = [
-    { line: '#D4A017', fill: 'rgba(212,160,23,0.08)', point: '#F0C040' },
-    { line: '#3BA55C', fill: 'rgba(59,165,92,0.08)',  point: '#5FD87A' },
-    { line: '#5865F2', fill: 'rgba(88,101,242,0.08)', point: '#8A94F7' },
-  ];
   const MAX_METRICS = 3;
 
   /* apply settings defaults */
@@ -642,7 +637,7 @@
     }
 
     function owedColor(n) {
-      return n >= 105 ? '#e74c3c' : n >= 60 ? '#e67e22' : n >= 30 ? '#f1c40f' : 'var(--online)';
+      return n >= 105 ? 'var(--danger-mid)' : n >= 60 ? 'var(--orange)' : n >= 30 ? 'var(--gold-light)' : 'var(--online)';
     }
 
     const popup = document.createElement('div');
@@ -889,7 +884,7 @@
           ${history.length
             ? history.map(e => {
                 const isCapture = e.type === 'Territory Captured';
-                const color     = isCapture ? 'var(--online)' : '#e74c3c';
+                const color     = isCapture ? 'var(--online)' : 'var(--danger-mid)';
                 const arrow     = isCapture ? '▲' : '▼';
                 return `
                 <div class="owed-aspects-row">
@@ -1503,7 +1498,7 @@
 
     const dot = document.createElement('span');
     dot.className        = 'metric-color-dot';
-    dot.style.background = GUILD_SERIES_COLORS[index].line;
+    dot.style.background = GraphShared.getSeriesColors()[index].line;
     row.appendChild(dot);
 
     const sel = document.createElement('select');
@@ -1851,7 +1846,7 @@
       rawSeries.push({
         key,
         data:   guildGraphState.data[key] ? guildGraphState.data[key].slice(60 - guildGraph.days) : [],
-        color:  GUILD_SERIES_COLORS[i],
+        color:  GraphShared.getSeriesColors()[i],
         player: 'Guild',
         dashed: false,
       });
@@ -1872,7 +1867,7 @@
           rawSeries.push({
             key: GUILD_QUEUE_METRIC.key,
             data: queueLineData,
-            color: GUILD_OVERFLOW_COLOR,
+            color: GraphShared.getOverflowColor(),
             player: 'Guild',
             dashed: false,
             disableFill: true,
@@ -1886,7 +1881,7 @@
         rawSeries.push({
           key,
           data:   guildGraphState.compareData[key] ? guildGraphState.compareData[key].slice(60 - guildGraph.days) : [],
-          color:  GUILD_SERIES_COLORS[i],
+          color:  GraphShared.getSeriesColors()[i],
           player: guildGraphState.compareUsername,
           dashed: true,
         });
@@ -2234,13 +2229,13 @@
 
   function statsRankColor(rank) {
     switch (rank) {
-      case 'owner':      return '#e0c558';
-      case 'chief':      return '#d44d4d';
-      case 'strategist': return '#cb6dde';
-      case 'captain':    return '#4caf50';
-      case 'recruiter':  return '#3a9bd0';
-      case 'recruit':    return '#8a93a4';
-      default:           return '#5b6275';
+      case 'owner':      return 'var(--guild-owner)';
+      case 'chief':      return 'var(--guild-chief)';
+      case 'strategist': return 'var(--guild-strategist)';
+      case 'captain':    return 'var(--guild-captain)';
+      case 'recruiter':  return 'var(--guild-recruiter)';
+      case 'recruit':    return 'var(--guild-recruit)';
+      default:           return 'var(--text-faint)';
     }
   }
 
@@ -2434,7 +2429,7 @@
         statsCell('Sample size',   list.length.toLocaleString()) +
       '</div>';
     buckets.forEach(function (b, i) {
-      html += statsBuildBar(b.label, counts[i], list.length, '#3a9bd0', counts[i].toLocaleString());
+      html += statsBuildBar(b.label, counts[i], list.length, 'var(--stats-bar)', counts[i].toLocaleString());
     });
     wrap.innerHTML = html;
   }

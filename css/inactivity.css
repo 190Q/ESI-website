@@ -448,12 +448,12 @@
 .inac-btn-primary:hover { background: rgba(var(--discord-rgb), 0.22); }
 
 .inac-btn-approve {
-  background: rgba(var(--online-rgb), 0.1);
-  border-color: rgba(var(--online-rgb), 0.38);
-  color: var(--online-light);
+  background: rgba(var(--gold-rgb), 0.1);
+  border-color: rgba(var(--gold-rgb), 0.38);
+  color: var(--gold-light);
 }
 
-.inac-btn-approve:hover { background: rgba(var(--online-rgb), 0.2); }
+.inac-btn-approve:hover { background: rgba(var(--gold-rgb), 0.2); }
 
 .inac-btn-deny {
   background: rgba(var(--danger-rgb), 0.1);

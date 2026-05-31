@@ -963,7 +963,7 @@
       }
 
       function owedColor(n) {
-        return n >= 105 ? '#e74c3c' : n >= 60 ? '#e67e22' : n >= 30 ? '#f1c40f' : 'var(--online)';
+        return n >= 105 ? 'var(--danger-mid)' : n >= 60 ? 'var(--orange)' : n >= 30 ? 'var(--gold-light)' : 'var(--online)';
       }
 
       owedEl.innerHTML = `
@@ -1642,11 +1642,6 @@
 
 
   /* activity graph */
-  const SERIES_COLORS = [
-    { line: '#D4A017', fill: 'rgba(212,160,23,0.08)', point: '#F0C040', name: 'Gold'  },
-    { line: '#3BA55C', fill: 'rgba(59,165,92,0.08)',  point: '#5FD87A', name: 'Green' },
-    { line: '#5865F2', fill: 'rgba(88,101,242,0.08)', point: '#8A94F7', name: 'Blue'  },
-  ];
   const MAX_METRICS = 3;
 
   /* apply settings defaults */
@@ -1711,7 +1706,7 @@
 
     const dot = document.createElement('span');
     dot.className        = 'metric-color-dot';
-    dot.style.background = SERIES_COLORS[index].line;
+    dot.style.background = GraphShared.getSeriesColors()[index].line;
     row.appendChild(dot);
 
     const available = getAvailableMetrics();
@@ -2148,7 +2143,7 @@
       rawSeries.push({
         key,
         data:   mainArr,
-        color:  SERIES_COLORS[i],
+        color:  GraphShared.getSeriesColors()[i],
         player: mainName,
         dashed: false,
       });
@@ -2160,9 +2155,9 @@
         rawSeries.push({
           key,
           data:   cmpArr,
-          color:  SERIES_COLORS[i],
-          player: graphState.compareUsername,
-          dashed: true,
+        color:  GraphShared.getSeriesColors()[i],
+        player: graphState.compareUsername,
+        dashed: true,
         });
       }
     });

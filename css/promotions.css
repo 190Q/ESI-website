@@ -139,11 +139,11 @@
 }
 
 .prom-row-eligible {
-  background: rgba(var(--online-rgb), 0.04);
+  background: rgba(var(--gold-rgb), 0.04);
 }
 
 .prom-row-eligible:hover {
-  background: rgba(var(--online-rgb), 0.08);
+  background: rgba(var(--gold-rgb), 0.08);
 }
 
 .prom-td {

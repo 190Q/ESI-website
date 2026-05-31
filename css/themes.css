@@ -35,6 +35,7 @@
   --surface-3:       #243624;
   --navbar-bg-mid:   #112211;
   --graph-bg:        #111e11;
+  --graph-axis:      #4A5A3A;
   --tooltip-bg-rgb:  13, 21, 13;
 
   /* Text */
@@ -142,6 +143,12 @@
   --rank-champion-bg-rgb:   0, 78, 78;
 
   /* Guild Ranks */
+  --guild-owner:            #e0c558;
+  --guild-owner-light:      #f0d878;
+  --guild-owner-rgb:        224, 197, 88;
+  --guild-chief:            #d44d4d;
+  --guild-chief-light:      #e87070;
+  --guild-chief-rgb:        212, 77, 77;
   --guild-strategist:       #9B59B6;
   --guild-strategist-light: #C39BD3;
   --guild-strategist-rgb:   155, 89, 182;
@@ -154,6 +161,9 @@
   --guild-recruit:          #7F8C8D;
   --guild-recruit-light:    #AAB7B8;
   --guild-recruit-rgb:      127, 140, 141;
+
+  /* Statistics charts */
+  --stats-bar:              #3a9bd0;
 
   /* Ironman badge */
   --ironman:          #8888ff;
@@ -174,9 +184,101 @@
   --online-muted:      #8fd9a0;
   --online-light-rgb:  95, 216, 122;
 
+  /* Graph series (theme-dependent second line) */
+  --graph-series-2:       #3BA55C;
+  --graph-series-2-rgb:   59, 165, 92;
+  --graph-series-2-point: #5FD87A;
+
   /* Banner */
   --banner-bg-rgb: 20, 32, 20;
 
   /* Misc */
   --maintenance-text: #0f1d0f;
+}
+
+/* Purple Theme */
+[data-theme="purple"] {
+  --green-dark:      #221A3A;
+  --green-mid:       #3A2A5A;
+  --green-deep:      #0F0D18;
+  --green-mid-rgb:   58, 42, 90;
+  --green-deep-rgb:  15, 13, 24;
+
+  --parchment:       #110D1A;
+  --parchment-rgb:   17, 13, 26;
+  --surface:         #161221;
+  --surface-2:       #1E1A2E;
+  --surface-3:       #282436;
+  --navbar-bg-mid:   #131022;
+  --graph-bg:        #12101e;
+  --tooltip-bg-rgb:  14, 12, 22;
+
+  --text-dim:        #9990aa;
+  --text-faint:      #7e749b;
+
+  --graph-axis:           #5A4A6A;
+  --graph-series-2:       #9b6db5;
+  --graph-series-2-rgb:   155, 109, 181;
+  --graph-series-2-point: #c084e0;
+
+  --maintenance-text: #0f0d18;
+  --banner-bg-rgb:   22, 18, 32;
+}
+
+/* Dark Theme */
+[data-theme="dark"] {
+  --green-dark:      #1A1A1A;
+  --green-mid:       #2A2A2A;
+  --green-deep:      #080808;
+  --green-mid-rgb:   42, 42, 42;
+  --green-deep-rgb:  8, 8, 8;
+
+  --parchment:       #080808;
+  --parchment-rgb:   8, 8, 8;
+  --surface:         #101010;
+  --surface-2:       #181818;
+  --surface-3:       #222222;
+  --navbar-bg-mid:   #0C0C0C;
+  --graph-bg:        #0E0E0E;
+  --tooltip-bg-rgb:  10, 10, 10;
+
+  --text-dim:        #909090;
+  --text-faint:      #707070;
+
+  --graph-axis:           #4A4A4A;
+  --graph-series-2:       #8a8a8a;
+  --graph-series-2-rgb:   138, 138, 138;
+  --graph-series-2-point: #aaaaaa;
+
+  --maintenance-text: #0A0A0A;
+  --banner-bg-rgb:   16, 16, 16;
+}
+
+/* Blue Theme */
+[data-theme="blue"] {
+  --green-dark:      #1A2240;
+  --green-mid:       #2A3A5A;
+  --green-deep:      #0D0F18;
+  --green-mid-rgb:   42, 58, 90;
+  --green-deep-rgb:  13, 15, 24;
+
+  --parchment:       #0D0F1A;
+  --parchment-rgb:   13, 15, 26;
+  --surface:         #111621;
+  --surface-2:       #1A1F2E;
+  --surface-3:       #232A36;
+  --navbar-bg-mid:   #0E1222;
+  --graph-bg:        #0F121e;
+  --tooltip-bg-rgb:  12, 14, 22;
+
+  --text-dim:        #8f99aa;
+  --text-faint:      #6e7e9b;
+
+  --graph-axis:           #3A4A5A;
+  --graph-series-2:       #14b8a6;
+  --graph-series-2-rgb:   20, 184, 166;
+  --graph-series-2-point: #2dd4bf;
+
+  --maintenance-text: #0D0F18;
+  --banner-bg-rgb:   18, 22, 32;
 }

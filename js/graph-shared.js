@@ -1,6 +1,11 @@
 (function () {
   'use strict';
 
+
+  var _themeColors   = window.ThemeColors.get;
+  var getSeriesColors  = window.ThemeColors.getSeriesColors;
+  var getOverflowColor = window.ThemeColors.getOverflowColor;
+
   function ensureTooltip(canvas) {
     const wrap = canvas && canvas.parentElement;
     if (!wrap) return null;
@@ -17,10 +22,11 @@
     const wrap = canvas && canvas.parentElement;
     if (!wrap) return null;
     const styles = styleOptions || {};
-    const hoverLineColor = styles.hoverLineColor || 'rgba(212,160,23,0.25)';
-    const selectedLineColor = styles.selectedLineColor || 'rgba(212,160,23,0.6)';
-    const hoverBadgeColor = styles.hoverBadgeColor || '#4A5A3A';
-    const selectedBadgeColor = styles.selectedBadgeColor || 'rgba(212,160,23,0.95)';
+    var tc = _themeColors();
+    const hoverLineColor = styles.hoverLineColor || 'rgba(' + tc.goldRgb + ',0.25)';
+    const selectedLineColor = styles.selectedLineColor || 'rgba(' + tc.goldRgb + ',0.6)';
+    const hoverBadgeColor = styles.hoverBadgeColor || tc.graphAxis;
+    const selectedBadgeColor = styles.selectedBadgeColor || 'rgba(' + tc.goldRgb + ',0.95)';
 
     let line = wrap.querySelector('.graph-hover-vline');
     if (!line) {
@@ -194,7 +200,8 @@
     if (!ctx) return null;
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = opts.backgroundColor || '#111e11';
+    var tc = _themeColors();
+    ctx.fillStyle = opts.backgroundColor || tc.graphBg;
     ctx.fillRect(0, 0, W, H);
     if (!Array.isArray(seriesList) || !seriesList.length) return null;
 
@@ -227,7 +234,7 @@
     }
 
     const formatYAxisLabel = typeof opts.formatYAxisLabel === 'function' ? opts.formatYAxisLabel : defaultFormatYAxisLabel;
-    ctx.strokeStyle = 'rgba(212,160,23,0.1)';
+    ctx.strokeStyle = 'rgba(' + tc.goldRgb + ',0.1)';
     ctx.lineWidth = 0.5;
     for (let i = 0; i <= 4; i++) {
       const y = pad.top + (plotH / 4) * i;
@@ -236,7 +243,7 @@
       ctx.moveTo(pad.left, y);
       ctx.lineTo(pad.left + plotW, y);
       ctx.stroke();
-      ctx.fillStyle = '#4A5A3A';
+      ctx.fillStyle = tc.graphAxis;
       ctx.font = '10px sans-serif';
       ctx.textAlign = 'right';
       ctx.fillText(formatYAxisLabel(val), pad.left - 6, y + 3);
@@ -436,7 +443,7 @@
       });
     });
 
-    ctx.fillStyle = '#4A5A3A';
+    ctx.fillStyle = tc.graphAxis;
     ctx.font = '9px sans-serif';
     ctx.textAlign = 'center';
     const xLabelY = pad.top + plotH + 16;
@@ -447,8 +454,8 @@
     const selectedDayOffset = selectedIndex == null ? null : Math.max(0, (maxLen - 1) - selectedIndex);
     const selectedDayText = selectedDayOffset == null ? null : (selectedDayOffset === 0 ? 'now' : '-' + selectedDayOffset + 'd');
     const selectedX = selectedIndex == null ? null : xPos(selectedIndex);
-    const axisLabelColor = opts.axisLabelColor || '#4A5A3A';
-    const selectedAxisLabelColor = opts.selectedAxisLabelColor || ((opts.guideStyles && opts.guideStyles.selectedBadgeColor) || 'rgba(212,160,23,0.95)');
+    const axisLabelColor = opts.axisLabelColor || tc.graphAxis;
+    const selectedAxisLabelColor = opts.selectedAxisLabelColor || ((opts.guideStyles && opts.guideStyles.selectedBadgeColor) || 'rgba(' + tc.goldRgb + ',0.95)');
     function fillAxisLabel(text, x, align) {
       if (align) ctx.textAlign = align;
       const isSelectedLabel = !!(selectedDayText && text === selectedDayText && (selectedX == null || Math.abs(selectedX - x) <= 16));
@@ -776,7 +783,7 @@
 
         if (clone && typeof html2canvas !== 'undefined') {
           // scale matches the canvas's forced min-2x dpr so graph pixels are 1:1
-          html2canvas(clone, { backgroundColor: '#0D1A0D', scale: 2, useCORS: true, allowTaint: true, logging: false })
+          html2canvas(clone, { backgroundColor: _themeColors().parchment, scale: 2, useCORS: true, allowTaint: true, logging: false })
             .then(function (c) { _copyOrDownload(c); })
             .catch(function () { _copyOrDownload(srcCanvas); });
         } else {
@@ -834,5 +841,7 @@
     initShareButtons: initShareButtons,
     ensureSharePanel: ensureSharePanel,
     syncSharePanel: syncSharePanel,
+    getSeriesColors: getSeriesColors,
+    getOverflowColor: getOverflowColor,
   });
 })();
