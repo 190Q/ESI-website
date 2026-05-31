@@ -16,6 +16,7 @@
   var _isParliamentFromState = false;
   var _applicationsData = null;
   var _creatorRequestsData = null;
+  var _privilegeApprovalsData = null;
 
   var _svg = {
     check:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
@@ -219,7 +220,7 @@
               }
               _items = null; _auctions = null; _queueData = null; _logsData = null; _logsFeed = null;
               _changesData = null; _users = null; _usersOpenUuid = null;
-              _applicationsData = null; _creatorRequestsData = null;
+              _applicationsData = null; _creatorRequestsData = null; _privilegeApprovalsData = null;
               renderShopStateBanner();
               if (_shopEnabled) {
                 fetchQueue(function () { updateQueueBadge(); renderTab(); });
@@ -2218,7 +2219,14 @@
   function fetchQueue(cb) {
     fetch('/api/admin/shop/queue', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) { if (d) _queueData = d; if (cb) cb(d); })
+      .then(function (d) {
+        if (d) {
+          _queueData = d;
+          // Owner gets privilege_approvals embedded in the queue response
+          if (d.privilege_approvals) _privilegeApprovalsData = d.privilege_approvals;
+        }
+        if (cb) cb(d);
+      })
       .catch(function () { if (cb) cb(null); });
   }
 
@@ -2252,6 +2260,9 @@
     if (_isParliament || _isOwnerShopAdmin()) {
       count += (_applicationsData || []).filter(function (a) { return a.status === 'pending'; }).length;
       count += (_creatorRequestsData || []).filter(function (r) { return r.status === 'pending'; }).length;
+    }
+    if (_isOwnerShopAdmin()) {
+      count += (_privilegeApprovalsData || []).length;
     }
 
     // badge on the Queue tab inside the panel
@@ -2308,6 +2319,11 @@
         if (r.status === 'pending') merged.push({ type: 'creator_request', date: r.submitted_at, id: r.id, data: r });
       });
     }
+    if (_isOwnerShopAdmin()) {
+      (_privilegeApprovalsData || []).forEach(function (pa) {
+        merged.push({ type: 'privilege_approval', date: pa.created_at, id: pa.id, data: pa });
+      });
+    }
     merged.sort(function (a, b) {
       var cmp = (a.date || '').localeCompare(b.date || '');
       return _queueSort === 'newest' ? -cmp : cmp;
@@ -2322,7 +2338,8 @@
     var _isP = _isParliament || _isOwnerShopAdmin();
     var aCount = _isP ? (_applicationsData || []).filter(function (a) { return a.status === 'pending'; }).length : 0;
     var crCount = _isP ? (_creatorRequestsData || []).filter(function (r) { return r.status === 'pending'; }).length : 0;
-    var total  = pCount + rCount + dCount + aCount + crCount;
+    var paCount = _isOwnerShopAdmin() ? (_privilegeApprovalsData || []).length : 0;
+    var total  = pCount + rCount + dCount + aCount + crCount + paCount;
     var html = '';
     html += '<div class="sa-q-filters">' +
       '<button class="sa-q-pill' + (_queueFilter === 'all' ? ' active' : '') + '" data-qf="all">All <span class="sa-q-count">' + total + '</span></button>' +
@@ -2331,6 +2348,7 @@
       '<button class="sa-q-pill' + (_queueFilter === 'donations' ? ' active' : '') + '" data-qf="donations">Donations <span class="sa-q-count">' + dCount + '</span></button>' +
       (_isP ? '<button class="sa-q-pill' + (_queueFilter === 'applications' ? ' active' : '') + '" data-qf="applications">Applications <span class="sa-q-count">' + aCount + '</span></button>' +
       '<button class="sa-q-pill' + (_queueFilter === 'creator_requests' ? ' active' : '') + '" data-qf="creator_requests">Creator Requests <span class="sa-q-count">' + crCount + '</span></button>' : '') +
+      (_isOwnerShopAdmin() ? '<button class="sa-q-pill' + (_queueFilter === 'privilege_approvals' ? ' active' : '') + '" data-qf="privilege_approvals">Privilege Approvals <span class="sa-q-count">' + paCount + '</span></button>' : '') +
       '<span class="sa-q-sort" id="saQueueSort">' + (_queueSort === 'oldest' ? 'Oldest first' : 'Newest first') + '</span>' +
     '</div>';
 
@@ -2341,7 +2359,7 @@
       html += '<div class=\"shop-empty sa-q-empty\">No items in queue</div>';
     } else {
       merged.forEach(function (item) {
-        var filterMap = { purchase: 'purchases', refund: 'refunds', donation: 'donations', application: 'applications', creator_request: 'creator_requests' };
+        var filterMap = { purchase: 'purchases', refund: 'refunds', donation: 'donations', application: 'applications', creator_request: 'creator_requests', privilege_approval: 'privilege_approvals' };
         var hidden = _queueFilter !== 'all' && _queueFilter !== filterMap[item.type];
         html += _buildQueueCard(item, hidden);
       });
@@ -2377,6 +2395,7 @@
     var isRefund = item.type === 'refund';
     var isApp = item.type === 'application';
     var isCreq = item.type === 'creator_request';
+    var isPrivApproval = item.type === 'privilege_approval';
 
     var html = '<div class="sa-q-card' + (hidden ? ' sa-q-hidden' : '') +
       '" data-qtype="' + item.type +
@@ -2387,7 +2406,11 @@
     html += '<div class="sa-q-header"><div class="sa-q-header-left">';
     html += '<span class="sa-q-user">' + esc(d.username || d.discord_id || '') + '</span>';
     html += '<div class="sa-q-tags">';
-    if (isPurchase || isRefund) {
+    if (isPrivApproval) {
+      var _levelName = d.requested_level >= 2 ? 'Parliament' : 'Chief';
+      html += '<span class="sa-q-type sa-q-type--privilege">Privilege Approval</span>';
+      html += '<span class="sa-q-slug">' + esc(_levelName) + ' access requested</span>';
+    } else if (isPurchase || isRefund) {
       html += isRefund
         ? '<span class="sa-q-type sa-q-type--refund">Refund Request</span>'
         : '<span class="sa-q-type sa-q-type--purchase">Shop item</span>';
@@ -2410,8 +2433,17 @@
     html += '<span class="sa-q-date">' + fmtDate(item.date) + '</span>';
     html += '</div>';
 
-    /* Body: metrics for purchases/donations, answers for apps, changes summary for creqs */
-    if (isApp) {
+    /* Body: metrics for purchases/donations, answers for apps, changes summary for creqs, privilege details */
+    if (isPrivApproval) {
+      var _reqLevel = d.requested_level >= 2 ? 'Parliament' : 'Chief';
+      var _prevLevel = d.previous_level >= 2 ? 'Parliament' : (d.previous_level >= 1 ? 'Chief' : 'None');
+      html += '<div class="sa-q-metrics">';
+      html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Current</span>' +
+        '<span class="sa-q-metric-value">' + esc(_prevLevel) + '</span></div>';
+      html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Requested</span>' +
+        '<span class="sa-q-metric-value sa-q-val--total">' + esc(_reqLevel) + '</span></div>';
+      html += '</div>';
+    } else if (isApp) {
       if (d.answers && d.answers.length) {
         html += '<div class="sa-q-app-answers">';
         d.answers.forEach(function (ans, i) {
@@ -2468,7 +2500,12 @@
     }
 
     /* Actions */
-    if (isApp && _canParliamentEditShopAdmin()) {
+    if (isPrivApproval && _isOwnerShopAdmin()) {
+      html += '<div class="sa-q-actions">';
+      html += '<button class="sa-q-btn sa-q-btn--primary" data-action="approve-privilege" data-id="' + esc(d.id) + '">Approve</button>';
+      html += '<button class="sa-q-btn sa-q-btn--reject" data-action="reject-privilege" data-id="' + esc(d.id) + '">Reject</button>';
+      html += '</div>';
+    } else if (isApp && _canParliamentEditShopAdmin()) {
       html += '<div class="sa-q-actions">';
       html += '<button class="sa-q-btn sa-q-btn--primary" data-action="approve-app" data-id="' + esc(d.id) + '">Approve</button>';
       html += '<button class="sa-q-btn sa-q-btn--reject" data-action="reject-app" data-id="' + esc(d.id) + '">Reject</button>';
@@ -2504,7 +2541,8 @@
         (_queueFilter === 'refunds' && t === 'refund') ||
         (_queueFilter === 'donations' && t === 'donation') ||
         (_queueFilter === 'applications' && t === 'application') ||
-        (_queueFilter === 'creator_requests' && t === 'creator_request');
+        (_queueFilter === 'creator_requests' && t === 'creator_request') ||
+        (_queueFilter === 'privilege_approvals' && t === 'privilege_approval');
       card.classList.toggle('sa-q-hidden', !match);
     });
     _checkQueueEmpty();
@@ -2528,16 +2566,18 @@
     var _isP = _isParliament || _isOwnerShopAdmin();
     var aCount = _isP ? (_applicationsData || []).filter(function (a) { return a.status === 'pending'; }).length : 0;
     var crCount = _isP ? (_creatorRequestsData || []).filter(function (r) { return r.status === 'pending'; }).length : 0;
+    var paCount = _isOwnerShopAdmin() ? (_privilegeApprovalsData || []).length : 0;
     document.querySelectorAll('.sa-q-pill').forEach(function (p) {
       var cnt = p.querySelector('.sa-q-count');
       if (!cnt) return;
       var f = p.dataset.qf;
-      if (f === 'all') cnt.textContent = pCount + rCount + dCount + aCount + crCount;
+      if (f === 'all') cnt.textContent = pCount + rCount + dCount + aCount + crCount + paCount;
       else if (f === 'purchases') cnt.textContent = pCount;
       else if (f === 'refunds') cnt.textContent = rCount;
       else if (f === 'donations') cnt.textContent = dCount;
       else if (f === 'applications') cnt.textContent = aCount;
       else if (f === 'creator_requests') cnt.textContent = crCount;
+      else if (f === 'privilege_approvals') cnt.textContent = paCount;
     });
   }
 
@@ -2571,6 +2611,8 @@
         else if (action === 'approve-app') _approveAppFromQueue(id, btn);
         else if (action === 'reject-app') _openAppRejectModal(id, document.getElementById('saContent'));
         else if (action === 'review-creq') _openCreatorRequestOverlay(id, document.getElementById('saContent'));
+        else if (action === 'approve-privilege') _approvePrivilegeFromQueue(id, btn);
+        else if (action === 'reject-privilege') _rejectPrivilegeFromQueue(id, btn);
       });
     });
   }
@@ -4717,6 +4759,47 @@
     // Reset z-index when closing without submitting
     backdrop.querySelector('.modal-close').addEventListener('click', function () { backdrop.style.zIndex = ''; });
     backdrop.addEventListener('click', function (e) { if (e.target === backdrop) backdrop.style.zIndex = ''; });
+  }
+
+  /* Privilege approval actions (OWNER only) */
+  function _approvePrivilegeFromQueue(approvalId, triggerBtn) {
+    triggerBtn.disabled = true; triggerBtn.textContent = 'Approving\u2026';
+    apiPost('/api/admin/shop/privilege-approvals/' + encodeURIComponent(approvalId) + '/approve', {})
+      .then(function (res) {
+        if (res.ok && res.data.ok) {
+          showToast('\u2713 ' + (res.data.level_name || 'Privilege') + ' access approved.', 'success');
+          var card = triggerBtn.closest('.sa-q-card');
+          if (card) { card.style.opacity = '0.3'; card.style.pointerEvents = 'none'; }
+          _privilegeApprovalsData = (_privilegeApprovalsData || []).filter(function (pa) { return pa.id !== approvalId; });
+          _updateQueuePillCounts();
+          _checkQueueEmpty();
+          updateQueueBadge();
+        } else {
+          showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+          triggerBtn.disabled = false; triggerBtn.textContent = 'Approve';
+        }
+      })
+      .catch(function () { showToast('\u26a0 Network error', 'warn'); triggerBtn.disabled = false; triggerBtn.textContent = 'Approve'; });
+  }
+
+  function _rejectPrivilegeFromQueue(approvalId, triggerBtn) {
+    triggerBtn.disabled = true; triggerBtn.textContent = 'Rejecting\u2026';
+    apiPost('/api/admin/shop/privilege-approvals/' + encodeURIComponent(approvalId) + '/reject', {})
+      .then(function (res) {
+        if (res.ok && res.data.ok) {
+          showToast('\u2713 Privilege escalation rejected.', 'success');
+          var card = triggerBtn.closest('.sa-q-card');
+          if (card) { card.style.opacity = '0.3'; card.style.pointerEvents = 'none'; }
+          _privilegeApprovalsData = (_privilegeApprovalsData || []).filter(function (pa) { return pa.id !== approvalId; });
+          _updateQueuePillCounts();
+          _checkQueueEmpty();
+          updateQueueBadge();
+        } else {
+          showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
+          triggerBtn.disabled = false; triggerBtn.textContent = 'Reject';
+        }
+      })
+      .catch(function () { showToast('\u26a0 Network error', 'warn'); triggerBtn.disabled = false; triggerBtn.textContent = 'Reject'; });
   }
 
   /* Init */

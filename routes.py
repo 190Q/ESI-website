@@ -1160,6 +1160,8 @@ from shop.admin import (
     get_user_notes, add_user_note, delete_user_note,
     set_user_limits,
     admin_refund_purchase, admin_reject_refund,
+    get_approved_privilege_level, ensure_privilege_approval,
+    get_pending_privilege_approvals, approve_privilege, reject_privilege,
 )
 from shop.creator import (
     is_creator as _is_creator,
@@ -1737,6 +1739,10 @@ def _require_shop_admin(require_shop_enabled: bool = True):
                             cancel/extend auctions, remove bids).
     is_parliament=False -> Chief+ only : limited write (stock, toggle, start
                             auction, open manage modal, queue fulfill/reject).
+
+    Privilege escalations (nothing→chief, chief→parliament) require owner
+    approval before taking effect.  Until approved, the user's effective
+    privilege is capped at their previously approved level.
     """
     user, err = _require_login()
     if err:
@@ -1750,7 +1756,24 @@ def _require_shop_admin(require_shop_enabled: bool = True):
     # Admin-panel ban check
     if is_admin_banned(user.get("id")):
         return None, False, (jsonify({"error": "You have been banned from the manage shop"}), 403)
-    is_parliament = bool(user_roles & _PARLIAMENT_PLUS)
+
+    # Determine the user's actual role-based level
+    actual_level = 2 if (user_roles & _PARLIAMENT_PLUS) else 1  # 1=chief, 2=parliament
+    discord_id = user.get("id", "")
+    approved_level = get_approved_privilege_level(discord_id)
+
+    # If their actual level exceeds approved, auto-create an approval request
+    if actual_level > approved_level:
+        username = user.get("nick") or user.get("username", "")
+        ensure_privilege_approval(discord_id, username, actual_level, approved_level)
+
+    # Cap effective level at what the owner has approved
+    effective_level = min(actual_level, approved_level)
+
+    if effective_level <= 0:
+        return None, False, (jsonify({"error": "Your shop admin privileges are pending owner approval"}), 403)
+
+    is_parliament = effective_level >= 2
     if require_shop_enabled and not _is_shop_enabled():
         return None, False, _shop_disabled_response()
     return user, is_parliament, None
@@ -1758,20 +1781,44 @@ def _require_shop_admin(require_shop_enabled: bool = True):
 @app.route("/api/admin/shop/state")
 @rate_limit(30)
 def admin_shop_state():
-    user, _, err = _require_shop_admin(require_shop_enabled=False)
+    # Use _require_login instead of _require_shop_admin
+    user, err = _require_login()
     if err:
         return err
+    is_owner = _is_owner_user(user)
+    user_roles = set(user.get("roles") or [])
+    has_admin_roles = bool(user_roles & _SHOP_ADMIN) or is_owner
+    if not has_admin_roles:
+        return jsonify({"error": "Insufficient permissions"}), 403
+    if not is_owner and is_admin_banned(user.get("id")):
+        return jsonify({"error": "You have been banned from the manage shop"}), 403
+
+    # Compute effective privilege level (capped by owner approval)
+    discord_id = user.get("id", "")
+    if is_owner:
+        effective_parliament = True
+        privilege_pending = False
+    else:
+        actual_level = 2 if (user_roles & _PARLIAMENT_PLUS) else (1 if (user_roles & _CHIEF_PLUS) else 0)
+        approved_level = get_approved_privilege_level(discord_id)
+        if actual_level > approved_level:
+            username = user.get("nick") or user.get("username", "")
+            ensure_privilege_approval(discord_id, username, actual_level, approved_level)
+        effective_level = min(actual_level, approved_level)
+        effective_parliament = effective_level >= 2
+        privilege_pending = actual_level > approved_level
+
     state = _shop_get_state() or {}
     enabled = bool(state.get("shop_enabled"))
     message = None if enabled else (state.get("message") or _shop_get_disabled_message())
-    user_roles = set(user.get("roles") or [])
     return jsonify({
         **state,
         "shop_enabled": enabled,
         "coming_soon": False if enabled else bool(state.get("coming_soon", message == "Coming soon")),
         "message": message,
-        "can_toggle": _is_owner_user(user),
-        "is_parliament": _is_owner_user(user) or bool(user_roles & _PARLIAMENT_PLUS),
+        "can_toggle": is_owner,
+        "is_parliament": effective_parliament,
+        "privilege_pending": privilege_pending,
     })
 
 @app.route("/api/admin/shop/state", methods=["POST"])
@@ -2075,7 +2122,11 @@ def admin_shop_queue():
     user, _, err = _require_shop_admin(require_shop_enabled=False)
     if err:
         return err
-    return jsonify(admin_get_queue())
+    result = admin_get_queue()
+    # Include privilege approvals only for the owner
+    if _is_owner_user(user):
+        result["privilege_approvals"] = get_pending_privilege_approvals()
+    return jsonify(result)
 
 
 @app.route("/api/admin/shop/queue/fulfill", methods=["POST"])
@@ -2494,6 +2545,34 @@ def admin_shop_config():
     if err:
         return err
     return jsonify(admin_get_raw_config())
+
+
+@app.route("/api/admin/shop/privilege-approvals/<approval_id>/approve", methods=["POST"])
+@rate_limit(10)
+def admin_shop_approve_privilege(approval_id):
+    """Approve a privilege escalation request (OWNER only)."""
+    user, err = _require_login()
+    if err:
+        return err
+    if not _is_owner_user(user):
+        return jsonify({"error": "Only the owner can approve privilege escalations"}), 403
+    actor = user.get("nick") or user.get("username", "")
+    result = approve_privilege(approval_id, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/privilege-approvals/<approval_id>/reject", methods=["POST"])
+@rate_limit(10)
+def admin_shop_reject_privilege(approval_id):
+    """Reject a privilege escalation request (OWNER only)."""
+    user, err = _require_login()
+    if err:
+        return err
+    if not _is_owner_user(user):
+        return jsonify({"error": "Only the owner can reject privilege escalations"}), 403
+    actor = user.get("nick") or user.get("username", "")
+    result = reject_privilege(approval_id, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
 
 
 # Creator system endpoints

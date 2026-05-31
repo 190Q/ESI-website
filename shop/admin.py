@@ -2809,3 +2809,217 @@ def admin_get_raw_config() -> list | dict:
             return json.load(fh)
     except (json.JSONDecodeError, OSError):
         return []
+
+# Privilege escalation approval system
+
+def _ensure_privilege_tables(conn: sqlite3.Connection) -> None:
+    """Create privilege approval tables (idempotent)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS approved_privilege_levels (
+            discord_id     TEXT PRIMARY KEY,
+            approved_level INTEGER NOT NULL DEFAULT 0,
+            updated_at     TEXT NOT NULL,
+            updated_by     TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS privilege_approvals (
+            id              TEXT PRIMARY KEY,
+            discord_id      TEXT NOT NULL,
+            username        TEXT NOT NULL DEFAULT '',
+            requested_level INTEGER NOT NULL,
+            previous_level  INTEGER NOT NULL DEFAULT 0,
+            status          TEXT NOT NULL DEFAULT 'pending',
+            created_at      TEXT NOT NULL,
+            resolved_at     TEXT,
+            resolved_by     TEXT
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pa_discord ON privilege_approvals (discord_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pa_status ON privilege_approvals (status)"
+    )
+
+
+def get_approved_privilege_level(discord_id: str) -> int:
+    """Return the owner-approved privilege level for a user.
+
+    0 = not approved, 1 = chief, 2 = parliament.
+    """
+    if not discord_id or not os.path.isfile(_SHOP_DB):
+        return 0
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_privilege_tables(conn)
+        row = conn.execute(
+            "SELECT approved_level FROM approved_privilege_levels WHERE discord_id = ?",
+            (discord_id,),
+        ).fetchone()
+        conn.close()
+        return int(row[0]) if row else 0
+    except sqlite3.Error:
+        return 0
+
+
+def ensure_privilege_approval(
+    discord_id: str, username: str,
+    requested_level: int, previous_level: int,
+) -> dict | None:
+    """Create a pending privilege approval if one doesn't already exist.
+
+    Returns the approval dict, or None if a pending one already exists.
+    """
+    if not discord_id or not os.path.isfile(_SHOP_DB):
+        return None
+    now_iso = _now_iso()
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_privilege_tables(conn)
+        # Check for an existing pending approval at this level or higher
+        existing = conn.execute(
+            "SELECT id FROM privilege_approvals "
+            "WHERE discord_id = ? AND status = 'pending' AND requested_level >= ?",
+            (discord_id, requested_level),
+        ).fetchone()
+        if existing:
+            conn.close()
+            return None  # already pending
+        # Cancel any lower pending approval (e.g. chief pending but now needs parliament)
+        conn.execute(
+            "UPDATE privilege_approvals SET status = 'superseded', resolved_at = ? "
+            "WHERE discord_id = ? AND status = 'pending' AND requested_level < ?",
+            (now_iso, discord_id, requested_level),
+        )
+        approval_id = str(_uuid_mod.uuid4())
+        conn.execute(
+            "INSERT INTO privilege_approvals "
+            "(id, discord_id, username, requested_level, previous_level, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, 'pending', ?)",
+            (approval_id, discord_id, username, requested_level, previous_level, now_iso),
+        )
+        conn.commit()
+        conn.close()
+        _log_admin_action(
+            "system", "privilege_approval_created", discord_id,
+            {"discord_id": discord_id, "username": username,
+             "requested_level": requested_level, "previous_level": previous_level},
+        )
+        return {
+            "id": approval_id, "discord_id": discord_id,
+            "username": username, "requested_level": requested_level,
+            "previous_level": previous_level, "status": "pending",
+            "created_at": now_iso,
+        }
+    except sqlite3.Error:
+        return None
+
+
+def get_pending_privilege_approvals() -> list:
+    """Return all pending privilege approvals (for the owner's queue view)."""
+    if not os.path.isfile(_SHOP_DB):
+        return []
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_privilege_tables(conn)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, discord_id, username, requested_level, previous_level, "
+            "       status, created_at "
+            "FROM privilege_approvals WHERE status = 'pending' "
+            "ORDER BY created_at ASC"
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except sqlite3.Error:
+        return []
+
+
+def approve_privilege(approval_id: str, actor: str) -> dict:
+    """Approve a privilege escalation request."""
+    if not approval_id or not os.path.isfile(_SHOP_DB):
+        return {"error": "Approval not found"}
+    now_iso = _now_iso()
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_privilege_tables(conn)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM privilege_approvals WHERE id = ? AND status = 'pending'",
+            (approval_id,),
+        ).fetchone()
+        if not row:
+            conn.close()
+            return {"error": "Approval not found or already resolved"}
+        discord_id = row["discord_id"]
+        requested_level = row["requested_level"]
+        username = row["username"]
+        conn.execute(
+            "UPDATE privilege_approvals SET status = 'approved', "
+            "resolved_at = ?, resolved_by = ? WHERE id = ?",
+            (now_iso, actor, approval_id),
+        )
+        conn.execute(
+            "INSERT INTO approved_privilege_levels (discord_id, approved_level, updated_at, updated_by) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(discord_id) DO UPDATE SET "
+            "  approved_level = excluded.approved_level, "
+            "  updated_at = excluded.updated_at, "
+            "  updated_by = excluded.updated_by",
+            (discord_id, requested_level, now_iso, actor),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"error": f"Database error: {exc}"}
+    level_name = "Parliament" if requested_level >= 2 else "Chief"
+    _log_admin_action(
+        actor, "privilege_approved", discord_id,
+        {"discord_id": discord_id, "username": username,
+         "level": requested_level, "level_name": level_name},
+    )
+    return {"ok": True, "approval_id": approval_id, "discord_id": discord_id,
+            "level": requested_level, "level_name": level_name}
+
+
+def reject_privilege(approval_id: str, actor: str) -> dict:
+    """Reject a privilege escalation request."""
+    if not approval_id or not os.path.isfile(_SHOP_DB):
+        return {"error": "Approval not found"}
+    now_iso = _now_iso()
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_privilege_tables(conn)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM privilege_approvals WHERE id = ? AND status = 'pending'",
+            (approval_id,),
+        ).fetchone()
+        if not row:
+            conn.close()
+            return {"error": "Approval not found or already resolved"}
+        discord_id = row["discord_id"]
+        username = row["username"]
+        requested_level = row["requested_level"]
+        conn.execute(
+            "UPDATE privilege_approvals SET status = 'rejected', "
+            "resolved_at = ?, resolved_by = ? WHERE id = ?",
+            (now_iso, actor, approval_id),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"error": f"Database error: {exc}"}
+    level_name = "Parliament" if requested_level >= 2 else "Chief"
+    _log_admin_action(
+        actor, "privilege_rejected", discord_id,
+        {"discord_id": discord_id, "username": username,
+         "level": requested_level, "level_name": level_name},
+    )
+    return {"ok": True, "approval_id": approval_id, "discord_id": discord_id}
