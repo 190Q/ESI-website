@@ -2418,6 +2418,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
       var rawName = nameMatch ? nameMatch[1] : file.name.replace(/\.css$/i, '');
       var displayName = rawName
         .replace(/[^a-zA-Z0-9 \-_.]/g, '')
+        .replace(/[-_]/g, ' ')
         .trim()
         .replace(/\b\w/g, function (ch) { return ch.toUpperCase(); })
         || 'Custom';
