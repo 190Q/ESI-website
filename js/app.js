@@ -2432,8 +2432,12 @@ fetch('/auth/session', { credentials: 'same-origin' })
       _syncCustomOption(type);
       var select = type === 'theme' ? _sTheme : _sFont;
       select.value = 'custom';
-      if (type === 'theme') window.setTheme('custom');
-      else window.setFont('custom');
+      if (type === 'theme') {
+        window.setTheme('custom');
+        if (state.loggedIn && state.user) updateLoginButton();
+      } else {
+        window.setFont('custom');
+      }
     };
     reader.readAsText(file);
   }
@@ -2443,8 +2447,12 @@ fetch('/auth/session', { credentials: 'same-origin' })
     localStorage.removeItem('esi_custom_' + type + '_css');
     localStorage.removeItem('esi_custom_' + type + '_name');
     var select = type === 'theme' ? _sTheme : _sFont;
-    if (type === 'theme') window.setTheme('');
-    else window.setFont('');
+    if (type === 'theme') {
+      window.setTheme('');
+      if (state.loggedIn && state.user) updateLoginButton();
+    } else {
+      window.setFont('');
+    }
     _syncCustomOption(type);
     select.value = '';
     if (!select.value) select.selectedIndex = 0;
