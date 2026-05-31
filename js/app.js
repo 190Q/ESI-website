@@ -2377,6 +2377,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
   // Apply theme instantly on change
   _sTheme.addEventListener('change', function () {
     window.setTheme(_sTheme.value || '');
+    if (state.loggedIn && state.user) updateLoginButton();
   });
 
   // Apply font instantly on change
