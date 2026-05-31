@@ -643,6 +643,7 @@
   background: rgba(var(--discord-rgb), 0.18);
   color: var(--discord-muted);
   border: 1px solid rgba(var(--discord-rgb), 0.3);
+  display: none;
 }
 .shop-item-type-badge--auction {
   background: rgba(var(--gold-rgb), 0.15);
