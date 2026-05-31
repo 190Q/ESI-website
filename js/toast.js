@@ -116,7 +116,7 @@
         _queueBadge.style.cssText =
           'background:var(--surface-2, #1C2E1C);border:1px solid var(--border, rgba(232,216,160,0.25));' +
           'color:#999;padding:6px 14px;border-radius:6px;' +
-          "font-family:'Cinzel',serif;font-size:0.72rem;letter-spacing:0.05em;" +
+          "font-family:var(--font-heading, 'Cinzel', serif);font-size:0.72rem;letter-spacing:0.05em;" +
           'text-align:center;pointer-events:auto;';
       }
       _queueBadge.textContent = '+' + _toastQueue.length + ' more notification' + (_toastQueue.length > 1 ? 's' : '');
@@ -157,7 +157,7 @@
     toast.style.cssText =
       'background:' + bg + ';border:1px solid ' + color + ';border-left:4px solid ' + color + ';' +
       'color:' + fg + ';padding:14px 36px 14px 22px;border-radius:6px;' +
-      "font-family:'Cinzel',serif;font-size:0.82rem;letter-spacing:0.05em;" +
+      "font-family:var(--font-heading, 'Cinzel', serif);font-size:0.82rem;letter-spacing:0.05em;" +
       'box-shadow:0 8px 32px rgba(0,0,0,0.5);animation:toastIn 0.35s ease;' +
       'max-width:340px;pointer-events:auto;position:relative;overflow:hidden;';
 
@@ -244,7 +244,7 @@
     toast.style.cssText =
       'background:' + bg + ';border:1px solid ' + COLORS.info + ';border-left:4px solid ' + COLORS.info + ';' +
       'color:' + fg + ';padding:14px 36px 14px 22px;border-radius:6px;' +
-      "font-family:'Cinzel',serif;font-size:0.82rem;letter-spacing:0.05em;" +
+      "font-family:var(--font-heading, 'Cinzel', serif);font-size:0.82rem;letter-spacing:0.05em;" +
       'box-shadow:0 8px 32px rgba(0,0,0,0.5);animation:toastIn 0.35s ease;max-width:340px;pointer-events:auto;position:relative;overflow:hidden;';
 
     var finishBar = document.createElement('div');
