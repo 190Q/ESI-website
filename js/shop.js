@@ -636,6 +636,21 @@
     }
   }
 
+  /* Check if a filtered entry is unavailable / unbuyable */
+  function _isItemUnavailable(entry) {
+    if (entry.kind === 'bin') {
+      var it = entry.data;
+      if (!it.active) return true;
+      if (it.visibility_blocked) return true;
+      if (it.type !== 'donate' && it.on_cooldown) return true;
+      if (it.stock != null && it.stock <= 0) return true;
+      return false;
+    }
+    // auction
+    var a = entry.data;
+    return a.status !== 'active' || a.active === false || !!a.visibility_blocked;
+  }
+
   /* Unified content renderer */
   function renderContent() {
     var container = document.getElementById('shopContent');
@@ -716,20 +731,22 @@
     Object.keys(binById).forEach(function (id) { filtered.push({ kind: 'bin', data: binById[id] }); });
     Object.keys(aucById).forEach(function (id) { filtered.push({ kind: 'auction', data: aucById[id] }); });
 
-    // Sort
-    if (_sortBy) {
-      filtered.sort(function (a, b) {
-        var pA = a.kind === 'bin' ? (a.data.price || 0) : (a.data.current_highest_bid || a.data.starting_bid || 0);
-        var pB = b.kind === 'bin' ? (b.data.price || 0) : (b.data.current_highest_bid || b.data.starting_bid || 0);
-        var sA = a.kind === 'bin' ? (a.data.stock != null ? a.data.stock : Infinity) : Infinity;
-        var sB = b.kind === 'bin' ? (b.data.stock != null ? b.data.stock : Infinity) : Infinity;
-        if (_sortBy === 'price_desc') return pB - pA;
-        if (_sortBy === 'price_asc')  return pA - pB;
-        if (_sortBy === 'stock_desc') return (sB === Infinity && sA === Infinity) ? 0 : sA === Infinity ? -1 : sB === Infinity ? 1 : sB - sA;
-        if (_sortBy === 'stock_asc')  return (sA === Infinity && sB === Infinity) ? 0 : sB === Infinity ? 1 : sA === Infinity ? -1 : sA - sB;
-        return 0;
-      });
-    }
+    // Sort: always push unavailable items to the end, then apply user sort
+    filtered.sort(function (a, b) {
+      var uA = _isItemUnavailable(a) ? 1 : 0;
+      var uB = _isItemUnavailable(b) ? 1 : 0;
+      if (uA !== uB) return uA - uB;
+      if (!_sortBy) return 0;
+      var pA = a.kind === 'bin' ? (a.data.price || 0) : (a.data.current_highest_bid || a.data.starting_bid || 0);
+      var pB = b.kind === 'bin' ? (b.data.price || 0) : (b.data.current_highest_bid || b.data.starting_bid || 0);
+      var sA = a.kind === 'bin' ? (a.data.stock != null ? a.data.stock : Infinity) : Infinity;
+      var sB = b.kind === 'bin' ? (b.data.stock != null ? b.data.stock : Infinity) : Infinity;
+      if (_sortBy === 'price_desc') return pB - pA;
+      if (_sortBy === 'price_asc')  return pA - pB;
+      if (_sortBy === 'stock_desc') return (sB === Infinity && sA === Infinity) ? 0 : sA === Infinity ? -1 : sB === Infinity ? 1 : sB - sA;
+      if (_sortBy === 'stock_asc')  return (sA === Infinity && sB === Infinity) ? 0 : sB === Infinity ? 1 : sA === Infinity ? -1 : sA - sB;
+      return 0;
+    });
 
     if (!filtered.length) {
       stopAuctionTimers();
