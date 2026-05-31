@@ -97,7 +97,7 @@
   background: var(--surface-2);
   border: 1px solid var(--border-mid);
   border-radius: var(--radius);
-  box-shadow: 0 10px 24px rgba(0,0,0,0.45);
+  box-shadow: 0 10px 24px rgba(var(--black-rgb), 0.45);
   z-index: 30;
 }
 
@@ -188,12 +188,12 @@
   margin-left: 5px;
   margin-right: 5px;
 }
-.guild-rank-owner      { border-color: #F0C040; color: #F0C040; background: rgba(240,192,64,0.12); }
-.guild-rank-chief      { border-color: #D4A017; color: #D4A017; background: rgba(212,160,23,0.10); }
-.guild-rank-strategist { border-color: #9B59B6; color: #C39BD3; background: rgba(155,89,182,0.10); }
-.guild-rank-captain    { border-color: #3498DB; color: #7FB3D3; background: rgba(52,152,219,0.10); }
-.guild-rank-recruiter  { border-color: #2ECC71; color: #7DCEA0; background: rgba(46,204,113,0.10); }
-.guild-rank-recruit    { border-color: #7F8C8D; color: #AAB7B8; background: rgba(127,140,141,0.10); }
+.guild-rank-owner      { border-color: var(--gold-light); color: var(--gold-light); background: rgba(var(--gold-light-rgb), 0.12); }
+.guild-rank-chief      { border-color: var(--gold); color: var(--gold); background: rgba(var(--gold-rgb), 0.10); }
+.guild-rank-strategist { border-color: var(--guild-strategist); color: var(--guild-strategist-light); background: rgba(var(--guild-strategist-rgb), 0.10); }
+.guild-rank-captain    { border-color: var(--guild-captain); color: var(--guild-captain-light); background: rgba(var(--guild-captain-rgb), 0.10); }
+.guild-rank-recruiter  { border-color: var(--guild-recruiter); color: var(--guild-recruiter-light); background: rgba(var(--guild-recruiter-rgb), 0.10); }
+.guild-rank-recruit    { border-color: var(--guild-recruit); color: var(--guild-recruit-light); background: rgba(var(--guild-recruit-rgb), 0.10); }
 
 /* Members list */
 .guild-member-row {
@@ -201,12 +201,12 @@
   align-items: center;
   gap: 12px;
   padding: 10px 20px;
-  border-bottom: 1px solid rgba(212,160,23,0.06);
+  border-bottom: 1px solid rgba(var(--gold-rgb), 0.06);
   transition: background var(--transition);
   flex-wrap: wrap;
 }
 .guild-member-row:last-child { border-bottom: none; }
-.guild-member-row:hover { background: rgba(212,160,23,0.04); }
+.guild-member-row:hover { background: rgba(var(--gold-rgb), 0.04); }
 
 .guild-member-rank-num {
   font-family: 'Cinzel', serif;
@@ -217,9 +217,9 @@
   text-align: center;
   flex-shrink: 0;
 }
-.guild-member-rank-num.top1 { color: #FFD700; text-shadow: 0 0 8px rgba(255,215,0,0.4); }
-.guild-member-rank-num.top2 { color: #C0C0C0; }
-.guild-member-rank-num.top3 { color: #CD7F32; }
+.guild-member-rank-num.top1 { color: var(--top1); text-shadow: 0 0 8px rgba(var(--top1-rgb), 0.4); }
+.guild-member-rank-num.top2 { color: var(--top2); }
+.guild-member-rank-num.top3 { color: var(--top3); }
 
 .guild-member-name {
   flex: 1;
@@ -250,11 +250,11 @@
   align-items: flex-start;
   gap: 14px;
   padding: 12px 20px;
-  border-bottom: 1px solid rgba(212,160,23,0.06);
+  border-bottom: 1px solid rgba(var(--gold-rgb), 0.06);
   transition: background var(--transition);
 }
 .guild-log-entry:last-child { border-bottom: none; }
-.guild-log-entry:hover { background: rgba(212,160,23,0.04); }
+.guild-log-entry:hover { background: rgba(var(--gold-rgb), 0.04); }
 
 .guild-log-icon {
   font-size: 1rem;
@@ -287,7 +287,7 @@
 .guild-log-entry.log-leave   .guild-log-icon { color: var(--danger); }
 .guild-log-entry.log-promote .guild-log-icon { color: var(--gold-light); }
 .guild-log-entry.log-demote  .guild-log-icon { color: var(--warn); }
-.guild-log-entry.log-levelup .guild-log-icon { color: #a78bfa; }
+.guild-log-entry.log-levelup .guild-log-icon { color: var(--purple-light); }
 
 .guild-log-name-link {
   cursor: pointer;
@@ -296,7 +296,7 @@
 .guild-log-name-link:hover {
   color: var(--gold-light);
   text-decoration: underline;
-  text-decoration-color: rgba(212,160,23,0.4);
+  text-decoration-color: rgba(var(--gold-rgb), 0.4);
 }
 
 .guild-online-tooltip-item {
@@ -305,7 +305,7 @@
 .guild-online-tooltip-item:hover {
   color: var(--gold-light);
   text-decoration: underline;
-  text-decoration-color: rgba(212,160,23,0.4);
+  text-decoration-color: rgba(var(--gold-rgb), 0.4);
 }
 
 /* Aspects owed popup */
@@ -319,7 +319,7 @@
   position: fixed;
   inset: 0;
   z-index: 997;
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(var(--black-rgb), 0.72);
   backdrop-filter: blur(2px);
 }
 .owed-aspects-overlay.open {
@@ -385,7 +385,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 20px;
-  border-bottom: 1px solid rgba(212, 160, 23, 0.06);
+  border-bottom: 1px solid rgba(var(--gold-rgb), 0.06);
   transition: background var(--transition);
   gap: 12px;
 }
@@ -393,7 +393,7 @@
   border-bottom: none;
 }
 .owed-aspects-row:hover {
-  background: rgba(212, 160, 23, 0.04);
+  background: rgba(var(--gold-rgb), 0.04);
 }
 
 .owed-aspects-player-name {
@@ -409,7 +409,7 @@
 }
 .owed-aspects-player-name:hover {
   text-decoration: underline;
-  text-decoration-color: rgba(212, 160, 23, 0.4);
+  text-decoration-color: rgba(var(--gold-rgb), 0.4);
 }
 
 .owed-aspects-player-count {
@@ -448,7 +448,7 @@
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
 .owed-aspects-clear-btn:hover:not(:disabled) {
-  background: rgba(212, 160, 23, 0.12);
+  background: rgba(var(--gold-rgb), 0.12);
   color: var(--gold-light);
   border-color: var(--gold-light);
 }
@@ -457,8 +457,8 @@
   cursor: not-allowed;
 }
 .owed-aspects-clear-btn--error {
-  border-color: #e74c3c;
-  color: #e74c3c;
+  border-color: var(--danger-mid);
+  color: var(--danger-mid);
 }
 
 .territory-name {
@@ -549,9 +549,9 @@
   flex-shrink: 0;
   text-align: right;
 }
-.esi-points-position.top1 { color: #FFD700; text-shadow: 0 0 8px rgba(255,215,0,0.4); }
-.esi-points-position.top2 { color: #C0C0C0; }
-.esi-points-position.top3 { color: #CD7F32; }
+.esi-points-position.top1 { color: var(--top1); text-shadow: 0 0 8px rgba(var(--top1-rgb), 0.4); }
+.esi-points-position.top2 { color: var(--top2); }
+.esi-points-position.top3 { color: var(--top3); }
 
 .esi-points-popup .owed-aspects-row {
   gap: 0;
@@ -594,7 +594,7 @@
 
 .xp-bar-tooltip {
   position: fixed;
-  background: rgba(13, 21, 13, 0.96);
+  background: rgba(var(--tooltip-bg-rgb), 0.96);
   border: 1px solid var(--border-mid);
   border-radius: var(--radius);
   padding: 8px 10px;
@@ -604,7 +604,7 @@
   color: var(--text-dim);
   white-space: nowrap;
   pointer-events: none;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+  box-shadow: 0 4px 16px rgba(var(--black-rgb), 0.45);
   z-index: 999;
   display: none;
 }
@@ -624,11 +624,11 @@
   white-space: nowrap;
 }
 .snipe-role-badge .snipe-role-emoji { font-size: 0.8rem; }
-.snipe-role-dps     { border-color: #E74C3C; color: #F5A9A0; background: rgba(231,76,60,0.10); }
-.snipe-role-tank    { border-color: #3498DB; color: #7FB3D3; background: rgba(52,152,219,0.10); }
-.snipe-role-healer  { border-color: #2ECC71; color: #7DCEA0; background: rgba(46,204,113,0.10); }
-.snipe-role-solo    { border-color: #9B59B6; color: #C39BD3; background: rgba(155,89,182,0.10); }
-.snipe-role-unknown { border-color: #7F8C8D; color: #AAB7B8; background: rgba(127,140,141,0.10); }
+.snipe-role-dps     { border-color: var(--danger-mid); color: var(--danger-light); background: rgba(var(--danger-mid-rgb), 0.10); }
+.snipe-role-tank    { border-color: var(--guild-captain); color: var(--guild-captain-light); background: rgba(var(--guild-captain-rgb), 0.10); }
+.snipe-role-healer  { border-color: var(--guild-recruiter); color: var(--guild-recruiter-light); background: rgba(var(--guild-recruiter-rgb), 0.10); }
+.snipe-role-solo    { border-color: var(--guild-strategist); color: var(--guild-strategist-light); background: rgba(var(--guild-strategist-rgb), 0.10); }
+.snipe-role-unknown { border-color: var(--guild-recruit); color: var(--guild-recruit-light); background: rgba(var(--guild-recruit-rgb), 0.10); }
 
 .snipe-role-count {
   font-family: 'Cinzel', serif;
@@ -642,12 +642,12 @@
   align-items: center;
   gap: 10px;
   padding: 10px 20px;
-  border-bottom: 1px solid rgba(212,160,23,0.06);
+  border-bottom: 1px solid rgba(var(--gold-rgb), 0.06);
   transition: background var(--transition);
   flex-wrap: wrap;
 }
 .snipe-player-row:last-child { border-bottom: none; }
-.snipe-player-row:hover { background: rgba(212,160,23,0.04); }
+.snipe-player-row:hover { background: rgba(var(--gold-rgb), 0.04); }
 
 .snipe-player-roles {
   display: flex;
@@ -677,14 +677,14 @@
 
 .guild-snipe-entry {
   padding: 12px 20px;
-  border-bottom: 1px solid rgba(212,160,23,0.06);
+  border-bottom: 1px solid rgba(var(--gold-rgb), 0.06);
   transition: background var(--transition);
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 .guild-snipe-entry:last-child { border-bottom: none; }
-.guild-snipe-entry:hover { background: rgba(212,160,23,0.04); }
+.guild-snipe-entry:hover { background: rgba(var(--gold-rgb), 0.04); }
 
 .guild-snipe-header {
   display: flex;
@@ -746,7 +746,7 @@
 }
 .snipe-participant-me {
   border-color: var(--gold-dim);
-  background: rgba(212,160,23,0.12);
+  background: rgba(var(--gold-rgb), 0.12);
 }
 .snipe-participant-me .snipe-participant-name {
   font-weight: 700;
@@ -755,7 +755,7 @@
 /* Ex-guild-member strikethrough in snipes */
 .snipe-left-guild {
   text-decoration: line-through;
-  text-decoration-color: #C5A946;
+  text-decoration-color: var(--gold-muted);
 }
 
 /* Guild Statistics view */
@@ -806,7 +806,7 @@
   border-color: var(--gold-dim);
 }
 .guild-stats-rank-chip.active {
-  background: rgba(212,160,23,0.18);
+  background: rgba(var(--gold-rgb), 0.18);
   color: var(--gold-light);
   border-color: var(--gold-dim);
   box-shadow: 0 0 0 1px var(--gold-dim) inset;
@@ -984,11 +984,11 @@
   align-items: center;
   gap: 10px;
   padding: 10px 20px;
-  border-bottom: 1px solid rgba(212,160,23,0.06);
+  border-bottom: 1px solid rgba(var(--gold-rgb), 0.06);
   transition: background var(--transition);
 }
 .guild-stats-leaderboard-row:last-child { border-bottom: none; }
-.guild-stats-leaderboard-row:hover { background: rgba(212,160,23,0.04); }
+.guild-stats-leaderboard-row:hover { background: rgba(var(--gold-rgb), 0.04); }
 .guild-stats-leaderboard-row .guild-member-name {
   flex: 1;
   min-width: 0;
@@ -1010,7 +1010,7 @@
   align-items: center;
   gap: 12px;
   padding: 10px 20px;
-  border-bottom: 1px solid rgba(212,160,23,0.06);
+  border-bottom: 1px solid rgba(var(--gold-rgb), 0.06);
 }
 .guild-stats-snipe-rank-row:last-child { border-bottom: none; }
 .guild-stats-snipe-rank-row > .guild-rank-badge {

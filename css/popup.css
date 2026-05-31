@@ -16,7 +16,7 @@
 :root {
   --popup-radius:                8px;
   --popup-border:                1px solid var(--border-mid);
-  --popup-shadow:                0 24px 60px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border);
+  --popup-shadow:                0 24px 60px rgba(var(--black-rgb), 0.7), 0 0 0 1px var(--border);
   --popup-scrollbar-width:       6px;
   --popup-scrollbar-track:       var(--green-deep);
   --popup-scrollbar-thumb:       var(--gold-dim);

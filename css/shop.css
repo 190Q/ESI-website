@@ -362,7 +362,7 @@
   border-radius: 50%;
   background: var(--gold);
   border: 2px solid var(--surface-2);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  box-shadow: 0 1px 4px rgba(var(--black-rgb), 0.4);
   cursor: grab;
 }
 .sf-range::-webkit-slider-thumb:active { cursor: grabbing; }
@@ -372,7 +372,7 @@
   border-radius: 50%;
   background: var(--gold);
   border: 2px solid var(--surface-2);
-  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  box-shadow: 0 1px 4px rgba(var(--black-rgb), 0.4);
   cursor: grab;
 }
 .sf-range-min { z-index: 3; }
@@ -440,7 +440,7 @@
 }
 .card-action { cursor: default; }
 .card-action > * { cursor: pointer; }
-.shop-card:hover { border-color: var(--gold-dim); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+.shop-card:hover { border-color: var(--gold-dim); box-shadow: 0 4px 20px rgba(var(--black-rgb), 0.3); }
 
 .shop-card-img {
   width: 100%;
@@ -497,7 +497,7 @@
   font-family: 'Crimson Pro', Georgia, serif;
   font-style: italic;
   font-size: 0.88rem;
-  color: #c8bfa0;
+  color: var(--text-muted-warm);
   margin-bottom: 10px;
   line-height: 1.5;
   display: -webkit-box;
@@ -534,19 +534,19 @@
   letter-spacing: 0.04em;
 }
 .shop-card-badge--clean {
-  background: rgba(59,165,92,0.15);
-  color: #3BA55C;
-  border: 1px solid rgba(59,165,92,0.3);
+  background: rgba(var(--online-rgb), 0.15);
+  color: var(--online);
+  border: 1px solid rgba(var(--online-rgb), 0.3);
 }
 .shop-card-badge--any {
-  background: rgba(88,101,242,0.15);
-  color: #7289da;
-  border: 1px solid rgba(88,101,242,0.3);
+  background: rgba(var(--discord-rgb), 0.15);
+  color: var(--discord-muted);
+  border: 1px solid rgba(var(--discord-rgb), 0.3);
 }
 .shop-card-badge--cat {
-  background: rgba(212,160,23,0.10);
+  background: rgba(var(--gold-rgb), 0.10);
   color: var(--gold-dim);
-  border: 1px solid rgba(212,160,23,0.22);
+  border: 1px solid rgba(var(--gold-rgb), 0.22);
   text-transform: capitalize;
   display: inline-flex;
   align-items: center;
@@ -597,31 +597,31 @@
 }
 .shop-card-ribbon--outstock {
   background: var(--danger);
-  color: #fff;
+  color: var(--white);
 }
 .shop-card-ribbon--winning {
   background: var(--online);
-  color: #fff;
+  color: var(--white);
 }
 .shop-card-ribbon--outbid {
   background: var(--warn);
   color: var(--green-deep);
 }
 .shop-card-ribbon--maintenance {
-  background: rgba(212,160,23,0.92);
-  color: #0f1d0f;
+  background: rgba(var(--gold-rgb), 0.92);
+  color: var(--maintenance-text);
 }
 .shop-card-ribbon--sched-days {
-  background: #e67e22;
-  color: #fff;
+  background: var(--orange);
+  color: var(--white);
 }
 .shop-card-ribbon--sched-hours {
   background: var(--danger);
-  color: #fff;
+  color: var(--white);
 }
 .shop-card-ribbon--sched-pending {
-  background: rgba(88,101,242,0.85);
-  color: #fff;
+  background: rgba(var(--discord-rgb), 0.85);
+  color: var(--white);
 }
 
 /* Item type badge (Bin / Auction label on cards) */
@@ -640,19 +640,19 @@
   z-index: 1;
 }
 .shop-item-type-badge--bin {
-  background: rgba(88,101,242,0.18);
-  color: #7289da;
-  border: 1px solid rgba(88,101,242,0.3);
+  background: rgba(var(--discord-rgb), 0.18);
+  color: var(--discord-muted);
+  border: 1px solid rgba(var(--discord-rgb), 0.3);
 }
 .shop-item-type-badge--auction {
-  background: rgba(250,166,26,0.15);
+  background: rgba(var(--warn-rgb), 0.15);
   color: var(--gold);
-  border: 1px solid rgba(250,166,26,0.3);
+  border: 1px solid rgba(var(--warn-rgb), 0.3);
 }
 .shop-item-type-badge--donate {
-  background: rgba(59,165,92,0.15);
-  color: #3BA55C;
-  border: 1px solid rgba(59,165,92,0.3);
+  background: rgba(var(--online-rgb), 0.15);
+  color: var(--online);
+  border: 1px solid rgba(var(--online-rgb), 0.3);
 }
 
 /* Single-qty in-cart indicator */
@@ -765,14 +765,14 @@ input.cart-qty:focus {
 /* In-cart highlight on card */
 .shop-card--in-cart {
   border-color: var(--gold-dim);
-  box-shadow: 0 0 0 2px var(--gold-dim), 0 4px 16px rgba(212,160,23,0.15);
+  box-shadow: 0 0 0 2px var(--gold-dim), 0 4px 16px rgba(var(--gold-rgb), 0.15);
 }
 
 /* Cooldown button state */
 .shop-buy-btn--cooldown {
   background: var(--surface-3);
   color: var(--warn);
-  border: 1px solid rgba(250,166,26,0.3);
+  border: 1px solid rgba(var(--warn-rgb), 0.3);
   font-size: 0.78rem;
   letter-spacing: 0.04em;
 }
@@ -813,7 +813,7 @@ input.cart-qty:focus {
   position: absolute;
   inset: -10px;
   border-radius: 50%;
-  background: radial-gradient(ellipse at center, rgba(212,160,23,0.18) 0%, transparent 70%);
+  background: radial-gradient(ellipse at center, rgba(var(--gold-rgb), 0.18) 0%, transparent 70%);
   pointer-events: none;
 }
 .detail-img {
@@ -860,9 +860,9 @@ input.cart-qty:focus {
   letter-spacing: 0.04em;
   padding: 2px 8px;
   border-radius: 10px;
-  background: rgba(250,166,26,0.12);
+  background: rgba(var(--warn-rgb), 0.12);
   color: var(--warn);
-  border: 1px solid rgba(250,166,26,0.25);
+  border: 1px solid rgba(var(--warn-rgb), 0.25);
 }
 .detail-cooldown-info--none {
   background: var(--surface);
@@ -929,7 +929,7 @@ input.cart-qty:focus {
   font-family: 'Crimson Pro', Georgia, serif;
   font-style: italic;
   font-size: 0.92rem;
-  color: #c8bfa0;
+  color: var(--text-muted-warm);
   line-height: 1.6;
   margin-bottom: 14px;
   white-space: pre-wrap;
@@ -972,24 +972,24 @@ input.cart-qty:focus {
   margin-right: 4px;
 }
 .detail-pill--timer {
-  background: rgba(212,160,23,0.12);
+  background: rgba(var(--gold-rgb), 0.12);
   color: var(--gold-light);
-  border: 1px solid rgba(212,160,23,0.25);
+  border: 1px solid rgba(var(--gold-rgb), 0.25);
 }
 .detail-pill--success {
-  background: rgba(59,165,92,0.12);
-  color: #3BA55C;
-  border: 1px solid rgba(59,165,92,0.25);
+  background: rgba(var(--online-rgb), 0.12);
+  color: var(--online);
+  border: 1px solid rgba(var(--online-rgb), 0.25);
 }
 .detail-pill--warn {
-  background: rgba(250,166,26,0.12);
+  background: rgba(var(--warn-rgb), 0.12);
   color: var(--warn);
-  border: 1px solid rgba(250,166,26,0.25);
+  border: 1px solid rgba(var(--warn-rgb), 0.25);
 }
 .detail-pill--danger {
-  background: rgba(237,66,69,0.12);
+  background: rgba(var(--danger-rgb), 0.12);
   color: var(--danger);
-  border: 1px solid rgba(237,66,69,0.25);
+  border: 1px solid rgba(var(--danger-rgb), 0.25);
 }
 .detail-pill--muted {
   background: var(--surface);
@@ -1108,7 +1108,7 @@ input.cart-qty:focus {
   color: var(--text-faint);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  background: rgba(13,26,13,0.85);
+  background: rgba(var(--parchment-rgb), 0.85);
   padding: 8px 20px;
   border-radius: var(--radius);
   pointer-events: none;
@@ -1130,7 +1130,7 @@ input.cart-qty:focus {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.65);
+  background: rgba(var(--black-rgb), 0.65);
   z-index: 200;
   justify-content: center;
   align-items: center;
@@ -1146,7 +1146,7 @@ input.cart-qty:focus {
   padding: 40px 28px 24px;
   max-width: 420px;
   width: 90vw;
-  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+  box-shadow: 0 8px 40px rgba(var(--black-rgb), 0.6);
 }
 .shop-modal-title {
   font-family: 'Cinzel', serif;
@@ -1351,7 +1351,7 @@ input.cart-qty:focus {
   text-transform: uppercase;
   padding: 8px 14px;
 }
-.order-row:not(.order-header):hover { background: rgba(212,160,23,0.04); }
+.order-row:not(.order-header):hover { background: rgba(var(--gold-rgb), 0.04); }
 .order-item-cell {
   display: flex;
   flex-direction: column;
@@ -1382,19 +1382,19 @@ input.cart-qty:focus {
   white-space: nowrap;
 }
 .order-type-pill--purchase {
-  background: rgba(88,101,242,0.15);
-  color: #7289da;
-  border: 1px solid rgba(88,101,242,0.25);
+  background: rgba(var(--discord-rgb), 0.15);
+  color: var(--discord-muted);
+  border: 1px solid rgba(var(--discord-rgb), 0.25);
 }
 .order-type-pill--bid {
-  background: rgba(250,166,26,0.12);
+  background: rgba(var(--warn-rgb), 0.12);
   color: var(--gold);
-  border: 1px solid rgba(250,166,26,0.25);
+  border: 1px solid rgba(var(--warn-rgb), 0.25);
 }
 .order-type-pill--donation {
-  background: rgba(59,165,92,0.12);
-  color: #3BA55C;
-  border: 1px solid rgba(59,165,92,0.25);
+  background: rgba(var(--online-rgb), 0.12);
+  color: var(--online);
+  border: 1px solid rgba(var(--online-rgb), 0.25);
 }
 .order-outcome {
   text-transform: capitalize;
@@ -1409,7 +1409,7 @@ input.cart-qty:focus {
 }
 .order-refund-btn {
   background: none;
-  border: 1px solid rgba(237,66,69,0.3);
+  border: 1px solid rgba(var(--danger-rgb), 0.3);
   border-radius: 8px;
   color: var(--danger);
   font-family: 'Cinzel', serif;
@@ -1420,7 +1420,7 @@ input.cart-qty:focus {
   cursor: pointer;
   transition: background var(--transition), border-color var(--transition);
 }
-.order-refund-btn:hover { background: rgba(237,66,69,0.1); border-color: var(--danger); }
+.order-refund-btn:hover { background: rgba(var(--danger-rgb), 0.1); border-color: var(--danger); }
 .order-refund-btn:disabled { opacity: 0.5; cursor: wait; }
 .order-note {
   font-size: 0.72rem;
@@ -1567,19 +1567,19 @@ input.cart-qty:focus {
   letter-spacing: 0.03em;
 }
 .cart-ep-badge--clean {
-  background: rgba(59,165,92,0.12);
-  color: #3BA55C;
-  border: 1px solid rgba(59,165,92,0.25);
+  background: rgba(var(--online-rgb), 0.12);
+  color: var(--online);
+  border: 1px solid rgba(var(--online-rgb), 0.25);
 }
 .cart-ep-badge--dirty {
-  background: rgba(250,166,26,0.12);
+  background: rgba(var(--warn-rgb), 0.12);
   color: var(--gold);
-  border: 1px solid rgba(250,166,26,0.25);
+  border: 1px solid rgba(var(--warn-rgb), 0.25);
 }
 .cart-ep-badge--any {
-  background: rgba(88,101,242,0.12);
-  color: #7289da;
-  border: 1px solid rgba(88,101,242,0.25);
+  background: rgba(var(--discord-rgb), 0.12);
+  color: var(--discord-muted);
+  border: 1px solid rgba(var(--discord-rgb), 0.25);
 }
 
 /* Row stepper */
@@ -1661,7 +1661,7 @@ input.cart-qty:focus {
   color: var(--text-dim);
   padding: 3px 0;
 }
-.cart-summary-row--clean span:last-child { color: #3BA55C; }
+.cart-summary-row--clean span:last-child { color: var(--online); }
 .cart-summary-row--dirty span:last-child { color: var(--gold); }
 .cart-summary-row--danger { color: var(--danger); }
 .cart-summary-row--total {
@@ -1759,9 +1759,9 @@ textarea.shop-modal-input {
   position: absolute;
   top: 90px;
   transform: translateY(-50%);
-  background: rgba(0,0,0,0.3);
+  background: rgba(var(--black-rgb), 0.3);
   border: none;
-  color: #fff;
+  color: var(--white);
   width: 30px;
   height: 30px;
   border-radius: 50%;
@@ -1782,7 +1782,7 @@ textarea.shop-modal-input {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.carousel-arrow:hover { background: rgba(0,0,0,0.55); }
+.carousel-arrow:hover { background: rgba(var(--black-rgb), 0.55); }
 .carousel-arrow--prev { left: 8px; }
 .carousel-arrow--next { right: 8px; }
 .carousel-footer {

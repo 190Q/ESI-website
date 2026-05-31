@@ -17,12 +17,12 @@
   font-weight: 600;
   text-transform: capitalize;
 }
-.cs-pill--pending        { background: #f59e0b22; color: #f59e0b; border: 1px solid #f59e0b55; }
-.cs-pill--approved       { background: #22c55e22; color: #22c55e; border: 1px solid #22c55e55; }
-.cs-pill--rejected       { background: #ef444422; color: #ef4444; border: 1px solid #ef444455; }
-.cs-pill--fulfilled      { background: #22c55e22; color: #22c55e; border: 1px solid #22c55e55; }
-.cs-pill--refunded       { background: #8b5cf622; color: #8b5cf6; border: 1px solid #8b5cf655; }
-.cs-pill--refund_pending { background: #ef444422; color: #ef4444; border: 1px solid #ef444455; }
+.cs-pill--pending        { background: rgba(var(--amber-rgb), 0.13); color: var(--amber); border: 1px solid rgba(var(--amber-rgb), 0.33); }
+.cs-pill--approved       { background: rgba(var(--success-rgb), 0.13); color: var(--success); border: 1px solid rgba(var(--success-rgb), 0.33); }
+.cs-pill--rejected       { background: rgba(var(--red-rgb), 0.13); color: var(--red); border: 1px solid rgba(var(--red-rgb), 0.33); }
+.cs-pill--fulfilled      { background: rgba(var(--success-rgb), 0.13); color: var(--success); border: 1px solid rgba(var(--success-rgb), 0.33); }
+.cs-pill--refunded       { background: rgba(var(--violet-rgb), 0.13); color: var(--violet); border: 1px solid rgba(var(--violet-rgb), 0.33); }
+.cs-pill--refund_pending { background: rgba(var(--red-rgb), 0.13); color: var(--red); border: 1px solid rgba(var(--red-rgb), 0.33); }
 
 /* Queue tab status hint */
 .cs-q-status {
@@ -93,5 +93,5 @@
   color: var(--text-faint);
 }
 .cs-form-msg--warn {
-  color: #f59e0b;
+  color: var(--amber);
 }

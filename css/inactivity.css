@@ -64,7 +64,7 @@
 
 .inac-input:focus,
 .inac-select:focus {
-  border-color: rgba(212,160,23,0.5);
+  border-color: rgba(var(--gold-rgb), 0.5);
 }
 
 .inac-input::placeholder {
@@ -83,7 +83,7 @@
 }
 
 .inac-row:last-child { border-bottom: none; }
-.inac-row:hover { background: rgba(212,160,23,0.03); }
+.inac-row:hover { background: rgba(var(--gold-rgb), 0.03); }
 
 .inac-row-main {
   flex: 1;
@@ -130,20 +130,20 @@
   letter-spacing: 0.06em;
   padding: 2px 8px;
   border-radius: 3px;
-  border: 1px solid rgba(250,166,26,0.4);
-  background: rgba(250,166,26,0.08);
-  color: #FAA61A;
+  border: 1px solid rgba(var(--warn-rgb), 0.4);
+  background: rgba(var(--warn-rgb), 0.08);
+  color: var(--warn);
   white-space: nowrap;
 }
 
 .inac-badge.perm {
-  border-color: rgba(88,101,242,0.4);
-  background: rgba(88,101,242,0.08);
-  color: #8A94F7;
+  border-color: rgba(var(--discord-rgb), 0.4);
+  background: rgba(var(--discord-rgb), 0.08);
+  color: var(--discord-lavender);
 }
 
 .inac-badge.expired {
-  border-color: rgba(255,255,255,0.1);
+  border-color: rgba(var(--white-rgb), 0.1);
   background: transparent;
   color: var(--text-faint);
 }
@@ -176,12 +176,12 @@
 
 .inac-edit-btn:hover {
   color: var(--gold-light);
-  background: rgba(212,160,23,0.1);
+  background: rgba(var(--gold-rgb), 0.1);
 }
 
 .inac-remove-btn:hover {
-  color: #ED4245;
-  background: rgba(237,66,69,0.1);
+  color: var(--danger);
+  background: rgba(var(--danger-rgb), 0.1);
 }
 
 /* ── Week chips ── */
@@ -209,25 +209,25 @@
 .inac-week-opt input[type="checkbox"] { display: none; }
 
 .inac-week-opt:hover {
-  border-color: rgba(59,165,92,0.4);
-  color: #5FD87A;
+  border-color: rgba(var(--online-rgb), 0.4);
+  color: var(--online-light);
 }
 
 .inac-week-opt.selected {
-  border-color: rgba(59,165,92,0.55);
-  background: rgba(59,165,92,0.1);
-  color: #5FD87A;
+  border-color: rgba(var(--online-rgb), 0.55);
+  background: rgba(var(--online-rgb), 0.1);
+  color: var(--online-light);
 }
 
 .inac-week-opt.inac-week-perm:hover {
-  border-color: rgba(88,101,242,0.4);
-  color: #8A94F7;
+  border-color: rgba(var(--discord-rgb), 0.4);
+  color: var(--discord-lavender);
 }
 
 .inac-week-opt.inac-week-perm.selected {
-  border-color: rgba(88,101,242,0.55);
-  background: rgba(88,101,242,0.1);
-  color: #8A94F7;
+  border-color: rgba(var(--discord-rgb), 0.55);
+  background: rgba(var(--discord-rgb), 0.1);
+  color: var(--discord-lavender);
 }
 
 /* ── Inactivity Checker ── */
@@ -258,12 +258,12 @@
 }
 
 .inac-checker-btn:hover {
-  border-color: rgba(212,160,23,0.4);
+  border-color: rgba(var(--gold-rgb), 0.4);
   color: var(--gold-light);
 }
 
 .inac-checker-btn.active {
-  background: rgba(212,160,23,0.12);
+  background: rgba(var(--gold-rgb), 0.12);
   border-color: var(--gold-light);
   color: var(--gold-light);
 }
@@ -289,10 +289,10 @@
   white-space: nowrap;
 }
 
-.inac-checker-tab:hover { color: var(--text-dim); border-color: rgba(212,160,23,0.3); }
+.inac-checker-tab:hover { color: var(--text-dim); border-color: rgba(var(--gold-rgb), 0.3); }
 
 .inac-checker-tab.active {
-  background: rgba(212,160,23,0.1);
+  background: rgba(var(--gold-rgb), 0.1);
   border-color: var(--gold-light);
   color: var(--gold-light);
 }
@@ -311,12 +311,12 @@
 }
 
 .inac-checker-week:hover {
-  border-color: rgba(212,160,23,0.4);
+  border-color: rgba(var(--gold-rgb), 0.4);
   color: var(--gold-light);
 }
 
 .inac-checker-week.selected {
-  background: rgba(212,160,23,0.1);
+  background: rgba(var(--gold-rgb), 0.1);
   border-color: var(--gold-light);
   color: var(--gold-light);
 }
@@ -357,8 +357,8 @@
 
 .inac-checker-member:last-child { border-bottom: none; }
 
-.inac-checker-member.inactive { border-left: 2px solid rgba(237,66,69,0.5); padding-left: 8px; }
-.inac-checker-member.excused  { border-left: 2px solid rgba(59,165,92,0.4);  padding-left: 8px; opacity: 0.75; }
+.inac-checker-member.inactive { border-left: 2px solid rgba(var(--danger-rgb), 0.5); padding-left: 8px; }
+.inac-checker-member.excused  { border-left: 2px solid rgba(var(--online-rgb), 0.4);  padding-left: 8px; opacity: 0.75; }
 
 .inac-checker-member-top {
   display: flex;
@@ -394,7 +394,7 @@
 
 .inac-kick-btn:hover {
   color: var(--gold-light);
-  background: rgba(212,160,23,0.1);
+  background: rgba(var(--gold-rgb), 0.1);
 }
 
 .inac-checker-ex-info {
@@ -435,33 +435,33 @@
 }
 
 .inac-btn-secondary:hover {
-  border-color: rgba(212,160,23,0.4);
+  border-color: rgba(var(--gold-rgb), 0.4);
   color: var(--gold-light);
 }
 
 .inac-btn-primary {
-  background: rgba(88,101,242,0.12);
-  border-color: rgba(88,101,242,0.45);
-  color: #8A94F7;
+  background: rgba(var(--discord-rgb), 0.12);
+  border-color: rgba(var(--discord-rgb), 0.45);
+  color: var(--discord-lavender);
 }
 
-.inac-btn-primary:hover { background: rgba(88,101,242,0.22); }
+.inac-btn-primary:hover { background: rgba(var(--discord-rgb), 0.22); }
 
 .inac-btn-approve {
-  background: rgba(59,165,92,0.1);
-  border-color: rgba(59,165,92,0.38);
-  color: #5FD87A;
+  background: rgba(var(--online-rgb), 0.1);
+  border-color: rgba(var(--online-rgb), 0.38);
+  color: var(--online-light);
 }
 
-.inac-btn-approve:hover { background: rgba(59,165,92,0.2); }
+.inac-btn-approve:hover { background: rgba(var(--online-rgb), 0.2); }
 
 .inac-btn-deny {
-  background: rgba(237,66,69,0.1);
-  border-color: rgba(237,66,69,0.38);
-  color: #F47373;
+  background: rgba(var(--danger-rgb), 0.1);
+  border-color: rgba(var(--danger-rgb), 0.38);
+  color: var(--danger-light);
 }
 
-.inac-btn-deny:hover { background: rgba(237,66,69,0.2); }
+.inac-btn-deny:hover { background: rgba(var(--danger-rgb), 0.2); }
 
 .inac-username-link {
   cursor: pointer;
@@ -470,5 +470,5 @@
 .inac-username-link:hover {
   color: var(--gold-light);
   text-decoration: underline;
-  text-decoration-color: rgba(212,160,23,0.4);
+  text-decoration-color: rgba(var(--gold-rgb), 0.4);
 }

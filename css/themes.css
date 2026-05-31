@@ -1,0 +1,182 @@
+/* 
+   Every colour definition lives here.
+   To switch themes at runtime, run in the DevTools console:
+
+       setTheme('empire-of-sindria')   // current default
+
+   To add a new theme, create a [data-theme="name"] block
+   below and override any variables you want to change.
+*/
+
+/* Default Theme: Empire of Sindria */
+:root {
+
+  /* Core Gold Palette */
+  --gold:            #D4A017;
+  --gold-light:      #F0C040;
+  --gold-dim:        #c28e16;
+  --gold-muted:      #C5A946;
+  --gold-rgb:        212, 160, 23;
+  --gold-light-rgb:  240, 192, 64;
+  --gold-glow:       rgba(var(--gold-rgb), 0.25);
+
+  /* Core Green Palette */
+  --green-dark:      #1A3A1A;
+  --green-mid:       #2A5A2A;
+  --green-deep:      #0F2210;
+  --green-mid-rgb:   42, 90, 42;
+  --green-deep-rgb:  15, 34, 16;
+
+  /* Surfaces */
+  --parchment:       #0D1A0D;
+  --parchment-rgb:   13, 26, 13;
+  --surface:         #142114;
+  --surface-2:       #1C2E1C;
+  --surface-3:       #243624;
+  --navbar-bg-mid:   #112211;
+  --graph-bg:        #111e11;
+  --tooltip-bg-rgb:  13, 21, 13;
+
+  /* Text */
+  --text-main:       #E8D8A0;
+  --text-dim:        #8faa90;
+  --text-faint:      #849b6e;
+  --text-muted-warm: #c8bfa0;
+  --white:           #fff;
+  --white-rgb:       255, 255, 255;
+  --black-rgb:       0, 0, 0;
+
+  /* Borders */
+  --border:          rgba(var(--gold-rgb), 0.18);
+  --border-mid:      rgba(var(--gold-rgb), 0.35);
+
+  /* Discord */
+  --discord:          #5865F2;
+  --discord-hover:    #4752c4;
+  --discord-light:    #6875f5;
+  --discord-muted:    #7289da;
+  --discord-lavender: #8a94f7;
+  --discord-pale:     #c7cdfb;
+  --discord-rgb:      88, 101, 242;
+
+  /* Status: Online / Success */
+  --online:           #3BA55C;
+  --online-light:     #5FD87A;
+  --online-rgb:       59, 165, 92;
+  --success:          #22c55e;
+  --success-rgb:      34, 197, 94;
+
+  /* Status: Warning */
+  --warn:             #FAA61A;
+  --warn-rgb:         250, 166, 26;
+  --amber:            #f59e0b;
+  --amber-rgb:        245, 158, 11;
+  --orange:           #e67e22;
+
+  /* Status: Danger */
+  --danger:           #ED4245;
+  --danger-dark:      #c0392b;
+  --danger-mid:       #e74c3c;
+  --danger-light:     #F47373;
+  --danger-rgb:       237, 66, 69;
+  --danger-mid-rgb:   231, 76, 60;
+  --red:              #ef4444;
+  --red-rgb:          239, 68, 68;
+  --red-dark:         #8b0000;
+  --red-dark-rgb:     139, 0, 0;
+
+  /* Blue */
+  --blue:             #3b82f6;
+  --blue-rgb:         59, 130, 246;
+
+  /* Purple / Violet */
+  --violet:           #8b5cf6;
+  --violet-rgb:       139, 92, 246;
+  --purple:           #a370ff;
+  --purple-rgb:       163, 112, 255;
+  --purple-light:     #a78bfa;
+  --purple-muted:     #b07cc6;
+  --purple-dim:       #9b6db5;
+  --purple-bright:    #c084e0;
+  --purple-dim-rgb:   106, 74, 122;
+
+  /* Markdown Alerts */
+  --alert-note:       #539bf5;
+  --alert-tip:        #57ab5a;
+  --alert-important:  #986ee2;
+  --alert-warning:    #c69026;
+  --alert-caution:    #e5534b;
+
+  /* GitHub */
+  --github-light:     #f0f6fc;
+  --github-border:    #30363d;
+
+  /* Graph */
+  --graph-avg:        #8a6510;
+
+  /* Offline */
+  --offline-border:   #555;
+  --offline-text:     #888;
+  --offline-rgb:      100, 100, 100;
+
+  /* Leaderboard Podium */
+  --top1:             #FFD700;
+  --top1-rgb:         255, 215, 0;
+  --top2:             #C0C0C0;
+  --top3:             #CD7F32;
+
+  /* Player Ranks */
+  --rank-hero:              #AA00AA;
+  --rank-hero-light:        #FF55FF;
+  --rank-hero-rgb:          170, 0, 170;
+  --rank-heroplus:          #bc3c7c;
+  --rank-heroplus-light:    #c571a5;
+  --rank-heroplus-bg-rgb:   202, 1, 202;
+  --rank-vip:               #00AA00;
+  --rank-vip-light:         #55FF55;
+  --rank-vip-rgb:           0, 170, 0;
+  --rank-vipplus:           #55ffff;
+  --rank-vipplus-dark:      #00aaaa;
+  --rank-champion:          #FFAA00;
+  --rank-champion-light:    #FFD700;
+  --rank-champion-bg-rgb:   0, 78, 78;
+
+  /* Guild Ranks */
+  --guild-strategist:       #9B59B6;
+  --guild-strategist-light: #C39BD3;
+  --guild-strategist-rgb:   155, 89, 182;
+  --guild-captain:          #3498DB;
+  --guild-captain-light:    #7FB3D3;
+  --guild-captain-rgb:      52, 152, 219;
+  --guild-recruiter:        #2ECC71;
+  --guild-recruiter-light:  #7DCEA0;
+  --guild-recruiter-rgb:    46, 204, 113;
+  --guild-recruit:          #7F8C8D;
+  --guild-recruit-light:    #AAB7B8;
+  --guild-recruit-rgb:      127, 140, 141;
+
+  /* Ironman badge */
+  --ironman:          #8888ff;
+  --ironman-light:    #aaaaff;
+  --ironman-rgb:      100, 100, 255;
+
+  /* Voice Channel */
+  --vc-text:          #e8b2cc;
+  --vc-text-light:    #f5d4e4;
+  --vc-rgb:           131, 54, 95;
+  --vc-border-rgb:    186, 94, 167;
+  --vc-text-light-rgb:245, 212, 228;
+  --vc-focus-rgb:     232, 178, 204;
+
+  /* Online extended */
+  --online-pale:       #74e08a;
+  --online-very-light: #b9f0c4;
+  --online-muted:      #8fd9a0;
+  --online-light-rgb:  95, 216, 122;
+
+  /* Banner */
+  --banner-bg-rgb: 20, 32, 20;
+
+  /* Misc */
+  --maintenance-text: #0f1d0f;
+}

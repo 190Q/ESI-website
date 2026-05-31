@@ -89,12 +89,12 @@
 }
 
 .prom-tab:hover {
-  border-color: rgba(212,160,23,0.4);
+  border-color: rgba(var(--gold-rgb), 0.4);
   color: var(--gold-light);
 }
 
 .prom-tab.active {
-  background: rgba(212,160,23,0.1);
+  background: rgba(var(--gold-rgb), 0.1);
   border-color: var(--gold-light);
   color: var(--gold-light);
 }
@@ -135,20 +135,20 @@
 }
 
 .prom-row:hover {
-  background: rgba(212,160,23,0.04);
+  background: rgba(var(--gold-rgb), 0.04);
 }
 
 .prom-row-eligible {
-  background: rgba(59,165,92,0.04);
+  background: rgba(var(--online-rgb), 0.04);
 }
 
 .prom-row-eligible:hover {
-  background: rgba(59,165,92,0.08);
+  background: rgba(var(--online-rgb), 0.08);
 }
 
 .prom-td {
   padding: 10px 16px;
-  border-bottom: 1px solid rgba(212,160,23,0.06);
+  border-bottom: 1px solid rgba(var(--gold-rgb), 0.06);
   vertical-align: middle;
 }
 
@@ -180,7 +180,7 @@
 .prom-name-link:hover {
   color: var(--gold-light);
   text-decoration: underline;
-  text-decoration-color: rgba(212,160,23,0.4);
+  text-decoration-color: rgba(var(--gold-rgb), 0.4);
 }
 
 /* Stat value (raids / wars) */
@@ -194,7 +194,7 @@
 }
 
 .prom-stat.met {
-  color: #3BA55C;
+  color: var(--online);
   font-weight: 700;
 }
 
@@ -205,7 +205,7 @@
 .prom-stat-link:hover {
   color: var(--gold-light) !important;
   text-decoration: underline;
-  text-decoration-color: rgba(212,160,23,0.4);
+  text-decoration-color: rgba(var(--gold-rgb), 0.4);
 }
 
 /* Status badge */
@@ -217,12 +217,12 @@
 }
 
 .prom-status.eligible {
-  color: #3BA55C;
+  color: var(--online);
   font-weight: 700;
 }
 
 .prom-status.soon {
-  color: #FAA61A;
+  color: var(--warn);
   font-weight: 600;
 }
 
