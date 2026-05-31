@@ -14,9 +14,18 @@ The dashboard is split into a few main sections, accessible from a collapsible s
 - **Bot Panel**: shows the status and health of the four background trackers (API, Playtime, Guild, Claim), along with their last-run times and database info.
 - **Inactivity** *(Parliament and above)*: track which members have declared inactivity, with start/end dates and reasons. Add, edit, or remove entries.
 - **Promotions** *(Juror and above)*: promotion tracking tools.
-- **Settings**: persistent preferences for graph defaults, player lookup, and toast notifications... Stored in `localStorage` and accessible from the sidebar.
+- **Settings**: persistent preferences for graph defaults, player lookup, and toast notifications... Stored in `localStorage` and accessible from the sidebar. Users can also upload custom colour themes and fonts from the settings modal.
 
 Authentication is done through Discord OAuth2. The management sections are gated by guild role, regular members only see the public stats panels.
+
+### Custom Themes & Fonts
+
+Users can upload their own `.css` files via Settings to override the default colour theme or font. Example files are included in `public/examples/` to use as a starting point:
+
+- **`public/examples/themes/dark.css`** - a dark colour theme. Override any of the CSS custom properties defined in `css/themes.css` inside a `[data-theme="your-name"]` selector. You only need to include the variables you want to change; the rest fall through to the defaults.
+- **`public/examples/fonts/cormorant-font/`** - a custom font. Include `@font-face` declarations for your font files, then map the three font variables (`--font-display`, `--font-heading`, `--font-body`) inside a `[data-font="your-name"]` selector.
+
+The `data-theme` / `data-font` attribute value in the CSS is used as the display name in the settings dropdown. If the file doesn't contain one, the filename is used instead.
 
 ---
 

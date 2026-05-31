@@ -1,0 +1,28 @@
+/* Dark Theme */
+[data-theme="dark"] {
+    --green-dark:      #1A1A1A;
+    --green-mid:       #2A2A2A;
+    --green-deep:      #080808;
+    --green-mid-rgb:   42, 42, 42;
+    --green-deep-rgb:  8, 8, 8;
+  
+    --parchment:       #080808;
+    --parchment-rgb:   8, 8, 8;
+    --surface:         #101010;
+    --surface-2:       #181818;
+    --surface-3:       #222222;
+    --navbar-bg-mid:   #0C0C0C;
+    --graph-bg:        #0E0E0E;
+    --tooltip-bg-rgb:  10, 10, 10;
+  
+    --text-dim:        #909090;
+    --text-faint:      #707070;
+  
+    --graph-axis:           #4A4A4A;
+    --graph-series-2:       #8a8a8a;
+    --graph-series-2-rgb:   138, 138, 138;
+    --graph-series-2-point: #aaaaaa;
+  
+    --maintenance-text: #0A0A0A;
+    --banner-bg-rgb:   16, 16, 16;
+  }
