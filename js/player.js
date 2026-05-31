@@ -2267,7 +2267,7 @@
   }
 
   window.addEventListener('resize', () => { if (graphState.data) refreshCompareGraph(); });
-  window.addEventListener('themechange', () => { if (graphState.data) refreshCompareGraph(); });
+  window.addEventListener('themechange', () => { if (graphState.data) { renderMetricRows(); refreshCompareGraph(); } });
 
   /* Path routing */
   // Map a data-panel identifier to its URL path.
