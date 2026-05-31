@@ -32,7 +32,7 @@
   padding-top: 8px;
 }
 .cs-q-status-hint {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.8rem;
   color: var(--text-faint);
   font-style: italic;
@@ -44,7 +44,7 @@
   padding: 16px 0;
 }
 .cs-form-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 1.1rem;
   color: var(--gold-light);
   margin: 0 0 16px;

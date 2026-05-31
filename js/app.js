@@ -2101,6 +2101,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   /* settings form elements */
   var _sTheme       = document.getElementById('settingTheme');
+  var _sFont        = document.getElementById('settingFont');
   var _sMetric      = document.getElementById('settingDefaultMetric');
   var _sRange       = document.getElementById('settingDefaultRange');
   var _sRangeVal    = document.getElementById('settingDefaultRangeVal');
@@ -2120,6 +2121,14 @@ fetch('/auth/session', { credentials: 'same-origin' })
   var _sToastRow       = document.getElementById('settingToastRow');
   var _sAuctionDmOpt   = document.getElementById('settingShopAuctionDmOptOut');
 
+  // Custom theme/font add-custom buttons
+  var _addCustomThemeBtn   = document.getElementById('addCustomThemeBtn');
+  var _removeCustomThemeBtn = document.getElementById('removeCustomThemeBtn');
+  var _customThemeFile     = document.getElementById('customThemeFileInput');
+  var _addCustomFontBtn    = document.getElementById('addCustomFontBtn');
+  var _removeCustomFontBtn = document.getElementById('removeCustomFontBtn');
+  var _customFontFile      = document.getElementById('customFontFileInput');
+
   function _applyToastRowVisibility() {
     if (_sToastRow) {
       _sToastRow.style.display = (_sToastsEnabled && _sToastsEnabled.checked) ? '' : 'none';
@@ -2128,7 +2137,12 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   function _populateSettingsForm() {
     var s = _readAllSettings();
+    _syncCustomOption('theme');
+    _syncCustomOption('font');
     _sTheme.value    = localStorage.getItem('theme') || '';
+    if (!_sTheme.value) _sTheme.selectedIndex = 0;
+    _sFont.value     = localStorage.getItem('font') || '';
+    if (!_sFont.value) _sFont.selectedIndex = 0;
     _sMetric.value   = s.defaultGraphMetric || 'playtime';
     _sRange.value    = s.defaultGraphRange  || 30;
     _sRangeVal.textContent = _sRange.value;
@@ -2236,9 +2250,124 @@ fetch('/auth/session', { credentials: 'same-origin' })
     el.addEventListener('input', _updateSaveBtn);
   });
 
+  // Sync custom option into select + update button label
+  function _syncCustomOption(type) {
+    var isTheme = type === 'theme';
+    var select   = isTheme ? _sTheme : _sFont;
+    var btn      = isTheme ? _addCustomThemeBtn : _addCustomFontBtn;
+    var xBtn     = isTheme ? _removeCustomThemeBtn : _removeCustomFontBtn;
+    var css  = localStorage.getItem('esi_custom_' + type + '_css');
+    var name = localStorage.getItem('esi_custom_' + type + '_name');
+    var existing = select.querySelector('option[value="custom"]');
+
+    if (css && name) {
+      if (!existing) {
+        existing = document.createElement('option');
+        existing.value = 'custom';
+        select.appendChild(existing);
+      }
+      existing.textContent = name;
+      btn.textContent = name;
+      xBtn.style.display = '';
+    } else {
+      if (existing) existing.remove();
+      btn.textContent = '+ Add Custom';
+      xBtn.style.display = 'none';
+    }
+  }
+
+  // Handle file upload for custom theme/font
+  function _handleCustomFile(type, file) {
+    if (!file) return;
+    if (!file.name.endsWith('.css')) {
+      showToast('\u26a0 Please select a .css file.', 'warn');
+      return;
+    }
+    if (file.size > 512 * 1024) {
+      showToast('\u26a0 File too large (max 512 KB).', 'warn');
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      var cssText = e.target.result;
+      // Validate the file looks like the expected type
+      if (type === 'theme') {
+        var hasThemeAttr = /\[data-theme=/.test(cssText);
+        var customProps  = cssText.match(/--[\w-]+\s*:/g);
+        if (!hasThemeAttr && (!customProps || customProps.length < 3)) {
+          showToast('\u26a0 This doesn\u2019t look like a colour theme. Expected CSS custom properties (--variable: value) or a [data-theme] selector.', 'warn');
+          return;
+        }
+      } else {
+        var hasFontAttr   = /\[data-font=/.test(cssText);
+        var hasFontFace   = /@font-face/i.test(cssText);
+        var hasFontFamily = /font-family\s*:/i.test(cssText);
+        if (!hasFontAttr && !hasFontFace && !hasFontFamily) {
+          showToast('\u26a0 This doesn\u2019t look like a font file. Expected @font-face rules, font-family declarations, or a [data-font] selector.', 'warn');
+          return;
+        }
+      }
+      // Extract display name before rewriting selectors
+      var attrRe = type === 'theme' ? /data-theme="([^"]+)"/ : /data-font="([^"]+)"/;
+      var nameMatch = cssText.match(attrRe);
+      var rawName = nameMatch ? nameMatch[1] : file.name.replace(/\.css$/i, '');
+      var displayName = rawName
+        .replace(/[^a-zA-Z0-9 \-_.]/g, '')
+        .trim()
+        .replace(/\b\w/g, function (ch) { return ch.toUpperCase(); })
+        || 'Custom';
+      // Rewrite data-theme/data-font selectors so they match the "custom" attribute value
+      var selectorRe = type === 'theme'
+        ? /\[data-theme="[^"]*"\]/g
+        : /\[data-font="[^"]*"\]/g;
+      var customSel = type === 'theme' ? '[data-theme="custom"]' : '[data-font="custom"]';
+      cssText = cssText.replace(selectorRe, customSel);
+      localStorage.setItem('esi_custom_' + type + '_css', cssText);
+      localStorage.setItem('esi_custom_' + type + '_name', displayName);
+      _syncCustomOption(type);
+      var select = type === 'theme' ? _sTheme : _sFont;
+      select.value = 'custom';
+      if (type === 'theme') window.setTheme('custom');
+      else window.setFont('custom');
+    };
+    reader.readAsText(file);
+  }
+
+  // Remove custom file
+  function _removeCustomFile(type) {
+    localStorage.removeItem('esi_custom_' + type + '_css');
+    localStorage.removeItem('esi_custom_' + type + '_name');
+    var select = type === 'theme' ? _sTheme : _sFont;
+    if (type === 'theme') window.setTheme('');
+    else window.setFont('');
+    _syncCustomOption(type);
+    select.value = '';
+    if (!select.value) select.selectedIndex = 0;
+  }
+
+  // Wire up add-custom buttons
+  _addCustomThemeBtn.addEventListener('click', function () { _customThemeFile.click(); });
+  _customThemeFile.addEventListener('change', function () {
+    _handleCustomFile('theme', this.files[0]);
+    this.value = '';
+  });
+  _removeCustomThemeBtn.addEventListener('click', function () { _removeCustomFile('theme'); });
+
+  _addCustomFontBtn.addEventListener('click', function () { _customFontFile.click(); });
+  _customFontFile.addEventListener('change', function () {
+    _handleCustomFile('font', this.files[0]);
+    this.value = '';
+  });
+  _removeCustomFontBtn.addEventListener('click', function () { _removeCustomFile('font'); });
+
   // Apply theme instantly on change
   _sTheme.addEventListener('change', function () {
     window.setTheme(_sTheme.value || '');
+  });
+
+  // Apply font instantly on change
+  _sFont.addEventListener('change', function () {
+    window.setFont(_sFont.value || '');
   });
 
   // Live-hide the toast customization row when toasts are disabled

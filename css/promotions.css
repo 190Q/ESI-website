@@ -32,7 +32,7 @@
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.92rem;
   color: var(--text-dim);
   line-height: 1.5;
@@ -52,7 +52,7 @@
 }
 
 .prom-criteria-or {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.7rem;
   font-weight: 500;
   letter-spacing: 0.1em;
@@ -76,7 +76,7 @@
 }
 
 .prom-tab {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   letter-spacing: 0.07em;
   padding: 5px 14px;
@@ -106,7 +106,7 @@
 }
 
 .prom-th {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.8rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -122,7 +122,7 @@
 }
 
 .prom-th-req {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.78rem;
   color: var(--text-faint);
   text-transform: none;
@@ -157,13 +157,13 @@
 }
 
 .prom-name {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--text-main);
 }
 
 .prom-meta {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   color: var(--text-dim);
   text-align: left;
@@ -185,7 +185,7 @@
 
 /* Stat value (raids / wars) */
 .prom-stat {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--text-dim);
   display: inline-block;
@@ -210,7 +210,7 @@
 
 /* Status badge */
 .prom-status {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   letter-spacing: 0.06em;
   color: var(--text-faint);

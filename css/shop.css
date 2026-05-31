@@ -27,7 +27,7 @@
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--text-dim);
   cursor: pointer;
@@ -46,7 +46,7 @@
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--text-dim);
   cursor: pointer;
@@ -58,7 +58,7 @@
 .cart-badge {
   background: var(--gold);
   color: var(--green-deep);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.68rem;
   font-weight: 700;
   padding: 1px 6px;
@@ -96,13 +96,13 @@
   align-items: center;
   justify-content: center;
   color: var(--text-faint);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.8rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 .shop-empty--coming-soon {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -117,7 +117,7 @@
 .bal-block:first-child { padding-left: 0; }
 .bal-block:last-child { border-right: none; }
 .bal-block-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -125,7 +125,7 @@
   margin-bottom: 2px;
 }
 .bal-block-value {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -135,7 +135,7 @@
   font-size: 0.68rem;
   color: var(--text-faint);
   margin-top: 2px;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-style: italic;
 }
 
@@ -147,7 +147,7 @@
   flex-shrink: 0;
 }
 .bal-cycle-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -155,7 +155,7 @@
   margin-bottom: 2px;
 }
 .bal-cycle-value {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.88rem;
   color: var(--gold-dim);
   font-weight: 600;
@@ -181,7 +181,7 @@
   padding: 10px 24px;
   background: none;
   border: none;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.88rem;
   color: var(--text-dim);
   cursor: pointer;
@@ -250,7 +250,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-main);
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.88rem;
   outline: none;
   box-sizing: border-box;
@@ -272,7 +272,7 @@
   margin-bottom: 12px;
 }
 .sf-section-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.64rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -291,7 +291,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-faint);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -309,7 +309,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-main);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.76rem;
   outline: none;
   cursor: pointer;
@@ -378,7 +378,7 @@
 .sf-range-min { z-index: 3; }
 .sf-range-max { z-index: 4; }
 .sf-price-vals {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   color: var(--gold-dim);
   display: flex;
@@ -405,7 +405,7 @@
   border-radius: 20px;
   border: 1px solid var(--border);
   background: var(--surface);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   letter-spacing: 0.05em;
   color: var(--text-dim);
@@ -454,7 +454,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   letter-spacing: 0.06em;
   color: var(--text-faint);
@@ -468,7 +468,7 @@
   flex: 1;
 }
 .shop-card-name {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.92rem;
   color: var(--gold-light);
   margin-bottom: 6px;
@@ -494,7 +494,7 @@
   line-height: 1;
 }
 .shop-card-desc {
-  font-family: 'Crimson Pro', Georgia, serif;
+  font-family: var(--font-body);
   font-style: italic;
   font-size: 0.88rem;
   color: var(--text-muted-warm);
@@ -521,7 +521,7 @@
   margin-bottom: 0;
 }
 .shop-card-price {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.95rem;
   font-weight: 700;
   color: var(--gold);
@@ -530,7 +530,7 @@
   padding: 2px 8px;
   border-radius: 10px;
   font-size: 0.68rem;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   letter-spacing: 0.04em;
 }
 .shop-card-badge--clean {
@@ -578,7 +578,7 @@
   right: -60px;
   width: 200px;
   padding: 6px 0;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.76rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -629,7 +629,7 @@
   position: absolute;
   top: 8px;
   left: 8px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.6rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -668,13 +668,13 @@
   margin-top: auto;
 }
 .cart-in-cart-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   color: var(--gold-light);
   font-weight: 600;
 }
 .cart-remove-single {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.68rem;
   color: var(--text-faint);
   background: none;
@@ -741,7 +741,7 @@
 .cart-qty {
   flex: 1;
   text-align: center;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.88rem;
   font-weight: 700;
   color: var(--text-main);
@@ -786,7 +786,7 @@ input.cart-qty:focus {
   color: var(--green-deep);
   border: none;
   border-radius: var(--radius);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -827,7 +827,7 @@ input.cart-qty:focus {
 .detail-img-wrap--empty {
   height: 180px;
   align-items: center;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   letter-spacing: 0.06em;
   color: var(--text-faint);
@@ -844,7 +844,7 @@ input.cart-qty:focus {
   margin-bottom: 12px;
 }
 .detail-meta-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -855,7 +855,7 @@ input.cart-qty:focus {
   color: var(--text-faint);
 }
 .detail-cooldown-info {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   letter-spacing: 0.04em;
   padding: 2px 8px;
@@ -879,7 +879,7 @@ input.cart-qty:focus {
 }
 .detail-variant-label {
   display: block;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.64rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -894,7 +894,7 @@ input.cart-qty:focus {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-main);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   outline: none;
   cursor: pointer;
@@ -918,7 +918,7 @@ input.cart-qty:focus {
 
 /* Variant label in cart rows */
 .cart-variant-label {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.78rem;
   font-weight: 400;
   color: var(--text-faint);
@@ -926,7 +926,7 @@ input.cart-qty:focus {
 }
 
 .detail-full-desc {
-  font-family: 'Crimson Pro', Georgia, serif;
+  font-family: var(--font-body);
   font-style: italic;
   font-size: 0.92rem;
   color: var(--text-muted-warm);
@@ -964,7 +964,7 @@ input.cart-qty:focus {
   gap: 5px;
   padding: 4px 12px;
   border-radius: 20px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1017,7 +1017,7 @@ input.cart-qty:focus {
 .detail-notice--muted   { color: var(--text-faint); font-style: italic; }
 
 .detail-cart-status {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--gold-light);
   align-self: center;
@@ -1068,7 +1068,7 @@ input.cart-qty:focus {
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
   color: var(--text-main);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.92rem;
   font-weight: 700;
   padding: 8px 4px;
@@ -1081,7 +1081,7 @@ input.cart-qty:focus {
 
 /* Donate modal EP preview */
 .donate-ep-preview {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.88rem;
   font-weight: 700;
   color: var(--gold);
@@ -1103,7 +1103,7 @@ input.cart-qty:focus {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--text-faint);
   letter-spacing: 0.08em;
@@ -1149,7 +1149,7 @@ input.cart-qty:focus {
   box-shadow: 0 8px 40px rgba(var(--black-rgb), 0.6);
 }
 .shop-modal-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 1rem;
   color: var(--gold-light);
   margin-bottom: 12px;
@@ -1165,7 +1165,7 @@ input.cart-qty:focus {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--text-main);
   margin-bottom: 18px;
@@ -1182,7 +1182,7 @@ input.cart-qty:focus {
   padding: 8px 20px;
   border: none;
   border-radius: var(--radius);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.8rem;
   cursor: pointer;
   letter-spacing: 0.04em;
@@ -1220,7 +1220,7 @@ input.cart-qty:focus {
   text-align: center;
   padding: 48px 20px;
   color: var(--text-faint);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.9rem;
   letter-spacing: 0.05em;
 }
@@ -1230,7 +1230,7 @@ input.cart-qty:focus {
   text-align: center;
   padding: 60px 20px;
   color: var(--text-dim);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.95rem;
 }
 
@@ -1245,7 +1245,7 @@ input.cart-qty:focus {
 }
 .shop-banned-icon { margin-bottom: 18px; opacity: 0.7; }
 .shop-banned-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 1.2rem;
   font-weight: 700;
   color: var(--danger);
@@ -1268,7 +1268,7 @@ input.cart-qty:focus {
   gap: 14px;
   padding: 60px 20px;
   color: var(--text-faint);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   letter-spacing: 0.08em;
 }
@@ -1289,7 +1289,7 @@ input.cart-qty:focus {
   margin-bottom: 12px;
 }
 .orders-count {
-  font-family: 'Crimson Pro', Georgia, serif;
+  font-family: var(--font-body);
   font-size: 0.82rem;
   color: var(--text-faint);
 }
@@ -1304,7 +1304,7 @@ input.cart-qty:focus {
   border-radius: 20px;
   border: 1px solid var(--border);
   background: var(--surface);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.68rem;
   letter-spacing: 0.04em;
   color: var(--text-dim);
@@ -1344,7 +1344,7 @@ input.cart-qty:focus {
 .order-row:last-child { border-bottom: none; }
 .order-header {
   background: var(--surface);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.68rem;
   color: var(--text-faint);
   letter-spacing: 0.06em;
@@ -1359,7 +1359,7 @@ input.cart-qty:focus {
   min-width: 0;
 }
 .order-item-name {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--text-main);
   font-weight: 600;
@@ -1375,7 +1375,7 @@ input.cart-qty:focus {
   display: inline-block;
   padding: 2px 8px;
   border-radius: 10px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -1412,7 +1412,7 @@ input.cart-qty:focus {
   border: 1px solid rgba(var(--danger-rgb), 0.3);
   border-radius: 8px;
   color: var(--danger);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.6rem;
   font-weight: 600;
   letter-spacing: 0.03em;
@@ -1446,7 +1446,7 @@ input.cart-qty:focus {
 
 /* Auction-specific */
 .auction-timer {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--gold-dim);
   padding: 4px 0;
@@ -1490,13 +1490,13 @@ input.cart-qty:focus {
   gap: 10px;
 }
 .cart-header-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--gold-light);
 }
 .cart-header-count {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   color: var(--text-faint);
   background: var(--surface);
@@ -1511,7 +1511,7 @@ input.cart-qty:focus {
   padding: 40px 0;
   text-align: center;
   color: var(--text-faint);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.88rem;
 }
 
@@ -1540,7 +1540,7 @@ input.cart-qty:focus {
   gap: 3px;
 }
 .cart-row-name {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   font-weight: 600;
   color: var(--gold-light);
@@ -1561,7 +1561,7 @@ input.cart-qty:focus {
   display: inline-block;
   padding: 1px 6px;
   border-radius: 8px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.6rem;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -1595,7 +1595,7 @@ input.cart-qty:focus {
   border: none;
   justify-content: center;
   min-width: 0;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   font-weight: 700;
   color: var(--text-main);
@@ -1622,7 +1622,7 @@ input.cart-qty:focus {
   gap: 8px;
 }
 .cart-row-subtotal {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   font-weight: 700;
   color: var(--gold);
@@ -1656,7 +1656,7 @@ input.cart-qty:focus {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   color: var(--text-dim);
   padding: 3px 0;
@@ -1682,7 +1682,7 @@ input.cart-qty:focus {
   color: var(--green-deep);
   border: none;
   border-radius: var(--radius);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.88rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -1704,7 +1704,7 @@ input.cart-qty:focus {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-main);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.88rem;
   margin-bottom: 10px;
   outline: none;

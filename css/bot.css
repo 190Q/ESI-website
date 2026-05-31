@@ -48,7 +48,7 @@
   flex-wrap: wrap;
 }
 .bot-username {
-  font-family: 'Cinzel Decorative', serif;
+  font-family: var(--font-display);
   font-size: 1.3rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -127,7 +127,7 @@
   font-size: 0.68rem;
   color: var(--text-faint);
   font-style: italic;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
 }
 .tracker-item {
   padding: 14px 20px;
@@ -144,14 +144,14 @@
   margin-bottom: 8px;
 }
 .tracker-name {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
 .tracker-time {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -187,14 +187,14 @@
   border-bottom: 1px solid rgba(var(--gold-rgb), 0.07);
 }
 .db-total-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-faint);
 }
 .db-total-value {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 1rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -216,13 +216,13 @@
 .db-subfolder-header:hover { background: var(--surface-2); }
 
 .db-folder-name {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   letter-spacing: 0.06em;
   color: var(--text-dim);
 }
 .db-folder-size {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -240,7 +240,7 @@
 }
 
 .db-folder-span {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.7rem;
   color: var(--text-faint);
   padding: 0 20px 10px;
@@ -268,7 +268,7 @@
 }
 .db-file-size {
   color: var(--text-faint);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
 }
 
@@ -292,7 +292,7 @@
 .bot-health-item:nth-last-child(-n+2) { border-bottom: none; }
 
 .bot-health-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.8rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -300,7 +300,7 @@
 }
 
 .bot-health-value {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.88rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -343,7 +343,7 @@
 }
 
 .cuck-item-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -354,7 +354,7 @@
 }
 
 .cuck-item-count {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -404,7 +404,7 @@
   background: transparent;
   border: none;
   color: var(--text-faint);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.76rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -423,7 +423,7 @@
   border-bottom-color: var(--gold);
 }
 .cuck-tab-count {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.68rem;
   font-weight: 700;
   color: var(--text-dim);
@@ -502,7 +502,7 @@
 }
 
 .cuck-entry-pill {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.66rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;

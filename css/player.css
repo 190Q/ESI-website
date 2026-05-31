@@ -12,7 +12,7 @@
   border: 1px solid var(--border-mid);
   border-radius: var(--radius);
   color: var(--text-main);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.88rem;
   padding: 10px 14px;
   outline: none;
@@ -28,7 +28,7 @@
   color: var(--green-deep);
   padding: 10px 20px;
   border-radius: var(--radius);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -54,7 +54,7 @@
   gap: 14px;
   padding: 32px 0;
   color: var(--text-dim);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.85rem;
   letter-spacing: 0.08em;
 }
@@ -71,7 +71,7 @@
   border: 1px solid var(--danger);
   border-radius: var(--radius);
   color: var(--danger);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   background: rgba(var(--danger-rgb), 0.06);
 }
@@ -174,7 +174,7 @@
   flex-wrap: wrap;
 }
 .profile-username {
-  font-family: 'Cinzel Decorative', serif;
+  font-family: var(--font-display);
   font-size: 1.3rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -182,7 +182,7 @@
   line-height: 1.3;
 }
 .profile-rank-badge {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   letter-spacing: 0.08em;
   padding: 3px 10px;
@@ -207,7 +207,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -235,12 +235,12 @@
   margin-bottom: 6px;
 }
 .profile-guild-tag {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--gold-light);
 }
 .profile-guild-rank {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   color: var(--gold-dim);
   background: var(--gold-glow);
@@ -299,7 +299,7 @@
   color: var(--text-dim);
   padding: 8px 20px;
   border-radius: var(--radius);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   letter-spacing: 0.06em;
   transition: all var(--transition);
@@ -352,7 +352,7 @@
   margin-bottom: 8px;
 }
 .owed-value {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 1.6rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -360,7 +360,7 @@
   margin-bottom: 6px;
 }
 .owed-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -384,14 +384,14 @@
 }
 .raid-cell:hover { background: var(--surface-2); }
 .raid-name {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   letter-spacing: 0.04em;
   color: var(--text-dim);
   text-transform: uppercase;
 }
 .raid-count {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -400,7 +400,7 @@
   padding: 10px 16px;
   background: var(--surface-2);
   border-top: 1px solid var(--border);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   color: var(--gold-dim);
   letter-spacing: 0.08em;
@@ -414,7 +414,7 @@
   margin-bottom: 20px;
 }
 .char-selector-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.8rem;
   color: var(--text-dim);
   letter-spacing: 0.08em;
@@ -424,7 +424,7 @@
   border: 1px solid var(--border-mid);
   border-radius: var(--radius);
   color: var(--text-main);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   padding: 8px 14px;
   outline: none;
@@ -460,12 +460,12 @@
   flex-wrap: wrap;
 }
 .char-class-name {
-  font-family: 'Cinzel Decorative', serif;
+  font-family: var(--font-display);
   font-size: 1.1rem;
   color: var(--gold-light);
 }
 .char-badge {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.8rem;
   letter-spacing: 0.06em;
   padding: 2px 8px;
@@ -496,7 +496,7 @@
   background: var(--surface-3);
 }
 .char-stat-val {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -504,7 +504,7 @@
   margin-bottom: 3px;
 }
 .char-stat-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.66rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -521,7 +521,7 @@
   padding: 12px 20px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -547,7 +547,7 @@
   color: var(--text-main);
 }
 .prof-table td:first-child {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.75rem;
   letter-spacing: 0.06em;
   color: var(--text-dim);
@@ -577,7 +577,7 @@
   border-radius: 2px;
 }
 .prof-level-num {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.8rem;
   color: var(--gold-light);
   min-width: 26px;
@@ -591,7 +591,7 @@
   gap: 8px;
 }
 .compare-trigger {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.8rem;
   letter-spacing: 0.06em;
   color: var(--text-faint);
@@ -610,7 +610,7 @@
   border: 1px solid var(--border);
   border-radius: 3px;
   color: var(--text-main);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.7rem;
   padding: 3px 8px;
   outline: none;
@@ -620,7 +620,7 @@
 .compare-inline-input::placeholder { color: var(--text-faint); font-size: 0.65rem; }
 .compare-inline-input:focus { border-color: var(--gold-dim); }
 .compare-status {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.6rem;
   letter-spacing: 0.04em;
   color: var(--text-faint);
@@ -632,7 +632,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.8rem;
   letter-spacing: 0.04em;
   color: var(--gold-dim);
@@ -679,7 +679,7 @@
 /* Summary player header */
 .graph-summary-player-header {
   padding: 10px 20px 2px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -781,7 +781,7 @@
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
   padding: 12px 20px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.86rem;
   font-weight: 700;
   letter-spacing: 0.14em;
@@ -802,7 +802,7 @@
   gap: 10px;
 }
 .graph-ctrl-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.74rem;
   font-weight: 600;
   letter-spacing: 0.12em;
@@ -817,7 +817,7 @@
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-main);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   padding: 6px 10px;
   outline: none;
@@ -855,7 +855,7 @@
   border: 2px solid var(--green-deep);
 }
 .graph-days-val {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   color: var(--gold-light);
   min-width: 30px;
@@ -905,14 +905,14 @@
 }
 .graph-hover-label {
   flex: 1;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.66rem;
   letter-spacing: 0.05em;
   color: var(--text-dim);
   text-transform: uppercase;
 }
 .graph-hover-value {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.75rem;
   color: var(--gold-light);
   font-weight: 700;
@@ -933,7 +933,7 @@
 }
 .graph-metric-label {
   flex: 1;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.8rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -947,7 +947,7 @@
   color: var(--text-dim);
   padding: 6px 14px;
   border-radius: var(--radius);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -994,7 +994,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   letter-spacing: 0.06em;
   color: var(--text-faint);
@@ -1019,7 +1019,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 20px 0;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.1em;
@@ -1041,7 +1041,7 @@
   gap: 3px;
 }
 .graph-stat-val {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.95rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -1049,7 +1049,7 @@
 .graph-stat-val.positive { color: var(--online); }
 .graph-stat-val.negative { color: var(--danger); }
 .graph-stat-lbl {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.7rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1086,7 +1086,7 @@
 
 .stat-list-label {
   flex: 1;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1094,7 +1094,7 @@
 }
 
 .stat-list-value {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.95rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -1117,7 +1117,7 @@
 .raid-list-row:last-child { border-bottom: none; }
 .raid-list-row:hover { background: rgba(var(--gold-rgb), 0.04); }
 .raid-list-name {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   letter-spacing: 0.04em;
   color: var(--text-dim);
@@ -1130,7 +1130,7 @@
   flex-shrink: 0;
 }
 .raid-list-count {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.95rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -1138,7 +1138,7 @@
   text-align: right;
 }
 .raid-list-guild {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   letter-spacing: 0.04em;
   color: var(--gold-dim);
@@ -1171,13 +1171,13 @@
   flex-shrink: 0;
 }
 .rank-history-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.85rem;
   color: var(--text-main);
 }
 .rank-history-date {
   margin-left: auto;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.82rem;
   color: var(--text-faint);
   font-style: italic;

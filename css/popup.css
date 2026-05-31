@@ -103,7 +103,7 @@
 .cuck-modal-empty,
 .owed-aspects-empty,
 .ticket-preview-empty {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size:   0.82rem;
   font-weight: 500;
   font-style:  italic;

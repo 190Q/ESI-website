@@ -56,7 +56,7 @@
 .ev-discord-import-input {
   width: 100%;
   padding-right: 36px;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.88rem;
 }
 
@@ -150,7 +150,7 @@
 .ev-textarea {
   resize: none;
   min-height: 70px;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   line-height: 1.4;
 }
 
@@ -189,7 +189,7 @@
   box-sizing: border-box;
   padding: 10px 12px;
   line-height: 1.5;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.92rem;
   color: var(--text-dim);
   min-height: 90px;
@@ -326,7 +326,7 @@ input.inac-input[type="number"] {
 }
 
 .ev-name {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.95rem;
   color: var(--gold-light);
   font-weight: 600;
@@ -338,7 +338,7 @@ input.inac-input[type="number"] {
 }
 
 .ev-description {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.92rem;
   color: var(--text-dim);
   line-height: 1.5;
@@ -364,7 +364,7 @@ input.inac-input[type="number"] {
 }
 
 .ev-when {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.82rem;
   color: var(--text-faint);
   font-style: italic;
@@ -373,7 +373,7 @@ input.inac-input[type="number"] {
 }
 
 .ev-sub-meta {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.76rem;
   color: var(--text-faint);
   font-style: italic;
@@ -382,7 +382,7 @@ input.inac-input[type="number"] {
 }
 
 .ev-prize-desc {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.85rem;
   color: var(--text-dim);
   padding-left: 8px;
@@ -422,7 +422,7 @@ input.inac-input[type="number"] {
 
 /* Status badges */
 .ev-status {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.64rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -458,7 +458,7 @@ input.inac-input[type="number"] {
 }
 
 .ev-status-hint {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.78rem;
   color: var(--text-faint);
   font-style: italic;
@@ -471,7 +471,7 @@ input.inac-input[type="number"] {
 
 /* Prize badges */
 .ev-prize-badge {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   letter-spacing: 0.04em;
   padding: 3px 10px;
@@ -512,7 +512,7 @@ input.inac-input[type="number"] {
   gap: 4px;
   padding: 2px 9px 2px 7px;
   border-radius: 4px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.74rem;
   letter-spacing: 0.03em;
   font-weight: 600;
@@ -538,7 +538,7 @@ input.inac-input[type="number"] {
 
 .ev-vc-pill::before {
   content: '#';
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   opacity: 0.7;
   font-weight: 500;
   margin-right: 1px;
@@ -577,7 +577,7 @@ input.inac-input[type="number"] {
 
 .ev-prizes-hint {
   margin: 0;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.78rem;
   font-style: italic;
   color: var(--text-faint);
@@ -593,7 +593,7 @@ input.inac-input[type="number"] {
 .ev-prize-empty {
   margin: 0;
   padding: 10px 12px;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.85rem;
   font-weight: 500;
   font-style: italic;
@@ -641,7 +641,7 @@ input.inac-input[type="number"] {
 .ev-prize-description {
   resize: none;
   min-height: 36px;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   line-height: 1.4;
 }
 
@@ -675,7 +675,7 @@ input.inac-input[type="number"] {
 }
 
 .ev-prize-place {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.7rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -696,7 +696,7 @@ input.inac-input[type="number"] {
 
 .ev-prize-desc-label {
   display: block;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.66rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -743,7 +743,7 @@ input.inac-input[type="number"] {
 
 /* Audience badge in the event-card header */
 .ev-audience-badge {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -761,7 +761,7 @@ input.inac-input[type="number"] {
 
 /* Pinned-badge in the event-card header */
 .ev-pinned-badge {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -776,7 +776,7 @@ input.inac-input[type="number"] {
 
 /* Passive-badge in the event-card header */
 .ev-passive-badge {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -797,7 +797,7 @@ input.inac-input[type="number"] {
 .ev-passive-toggle {
   gap: 10px;
   color: var(--text-main);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   letter-spacing: 0.04em;
 }
@@ -808,7 +808,7 @@ input.inac-input[type="number"] {
 
 .ev-passive-hint {
   margin: 0;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.78rem;
   color: var(--text-faint);
   font-style: italic;
@@ -848,7 +848,7 @@ input.inac-input[type="number"] {
   height: 18px;
   padding: 0 6px;
   border-radius: 9px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   letter-spacing: 0.04em;
   background: rgba(var(--gold-rgb), 0.12);
@@ -928,7 +928,7 @@ input.inac-input[type="number"] {
 }
 
 .evp-section-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.18em;
@@ -996,7 +996,7 @@ input.inac-input[type="number"] {
   border-radius: 8px;
   background: linear-gradient(135deg, var(--gold-dim), var(--gold));
   color: var(--green-deep);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -1039,7 +1039,7 @@ input.inac-input[type="number"] {
   gap: 8px;
   padding: 6px 0;
   margin-bottom: 8px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.18em;
@@ -1078,7 +1078,7 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
 }
 
 .evm-section-count {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.66rem;
   font-weight: 500;
   letter-spacing: 0.04em;
@@ -1219,7 +1219,7 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
 }
 
 .pinned-banner-eyebrow {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1280,14 +1280,14 @@ details.evm-section[open] > summary.evm-section-head .evm-section-caret {
 }
 
 .pinned-banner-when {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.82rem;
   font-style: italic;
   color: var(--text-faint);
 }
 
 .pinned-banner-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--gold-light);
@@ -1318,13 +1318,13 @@ button.pinned-banner-title-link:focus-visible {
 }
 
 .pinned-banner-prize {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.9rem;
   color: var(--text-main);
 }
 
 .pinned-banner-desc {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.88rem;
   color: var(--text-dim);
   line-height: 1.45;
@@ -1422,7 +1422,7 @@ button.pinned-banner-title-link:focus-visible {
 
 /* Audience hint chip inside the banner head (e.g. 'Guild only') */
 .pinned-banner-audience {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;

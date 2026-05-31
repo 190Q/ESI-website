@@ -21,7 +21,7 @@
   align-items: center;
   padding: 3px 9px;
   border-radius: 999px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -57,7 +57,7 @@
   gap: 8px;
 }
 .sa-coming-soon-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -84,7 +84,7 @@
   margin-bottom: 18px;
 }
 .ie-section-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.7rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -110,7 +110,7 @@
 .ie-field--wide { flex: 2; min-width: 200px; }
 .ie-field--full { width: 100%; flex: unset; }
 .ie-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -122,7 +122,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-main);
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.88rem;
   outline: none;
   width: 100%;
@@ -134,14 +134,14 @@
 select.ie-input { cursor: pointer; }
 .ie-num {
   text-align: right;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.85rem;
   color: var(--gold-light);
 }
 .ie-textarea {
   min-height: 64px;
   resize: vertical;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   line-height: 1.4;
 }
 .ie-hint {
@@ -159,7 +159,7 @@ select.ie-input { cursor: pointer; }
 .ie-hint-inline {
   font-size: 0.68rem;
   color: var(--text-faint);
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   letter-spacing: 0;
   text-transform: none;
   margin-left: 4px;
@@ -215,7 +215,7 @@ select.ie-input { cursor: pointer; }
   border-bottom: 1px solid var(--border);
   border-top: 3px solid var(--gold-dim);
   background: var(--surface);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -240,7 +240,7 @@ select.ie-input { cursor: pointer; }
   font-size: 0.72rem;
   color: var(--text-faint);
   margin-top: 4px;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
 }
 .ie-id-slug { color: var(--gold-dim); font-family: monospace; font-size: 0.78rem; }
 
@@ -259,11 +259,11 @@ select.ie-input { cursor: pointer; }
   justify-content: center;
 }
 .ie-img-zone:hover, .ie-img-zone--drag { border-color: var(--gold-dim); background: var(--surface-2); }
-.ie-img-empty { color: var(--text-faint); font-family: 'Crimson Pro', serif; font-size: 0.85rem; padding: 20px; text-align: center; pointer-events: none; }
+.ie-img-empty { color: var(--text-faint); font-family: var(--font-body); font-size: 0.85rem; padding: 20px; text-align: center; pointer-events: none; }
 .ie-img-has-preview { position: relative; width: 100%; }
 .ie-img-thumb { width: 100%; max-height: 150px; object-fit: contain; display: block; background: var(--surface); }
 .ie-img-overlay { position: absolute; inset: 0; background: rgba(var(--black-rgb), 0); display: flex; align-items: center; justify-content: center; transition: background var(--transition); pointer-events: none; }
-.ie-img-overlay span { color: transparent; font-family: 'Cinzel', serif; font-size: 0.78rem; transition: color var(--transition); }
+.ie-img-overlay span { color: transparent; font-family: var(--font-heading); font-size: 0.78rem; transition: color var(--transition); }
 .ie-img-zone:hover .ie-img-overlay { background: rgba(var(--black-rgb), 0.5); }
 .ie-img-zone:hover .ie-img-overlay span { color: var(--text-main); }
 
@@ -295,7 +295,7 @@ select.ie-input { cursor: pointer; }
   background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: 14px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.74rem;
   color: var(--gold-light);
   white-space: nowrap;
@@ -320,7 +320,7 @@ select.ie-input { cursor: pointer; }
   background: transparent;
   outline: none;
   color: var(--text-main);
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.88rem;
   padding: 2px 0;
 }
@@ -334,7 +334,7 @@ select.ie-input { cursor: pointer; }
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-faint);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   font-weight: 600; /* fixed weight — prevents layout shift on state change */
   letter-spacing: 0.04em;
@@ -368,7 +368,7 @@ select.ie-input { cursor: pointer; }
 .sa-row:last-child { border-bottom: none; }
 .sa-header {
   background: var(--surface);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: .83rem;
   color: var(--text-faint);
   letter-spacing: 0.05em;
@@ -384,7 +384,7 @@ select.ie-input { cursor: pointer; }
   display: inline-block;
   padding: 2px 10px;
   border-radius: 10px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.65rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -444,7 +444,7 @@ select.ie-input { cursor: pointer; }
   border-radius: 12px;
   background: var(--surface);
   color: var(--text-faint);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.7rem;
   cursor: pointer;
   transition: all var(--transition);
@@ -470,7 +470,7 @@ select.ie-input { cursor: pointer; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-main);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: .83rem;
   outline: none;
   text-align: center;
@@ -517,7 +517,7 @@ select.ie-input { cursor: pointer; }
   padding: 8px 20px;
   background: none;
   border: none;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.8rem;
   color: var(--text-dim);
   cursor: pointer;
@@ -546,7 +546,7 @@ select.ie-input { cursor: pointer; }
   border: 1px solid var(--border);
   border-radius: 20px;
   color: var(--text-dim);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.75rem;
   cursor: pointer;
   transition: all var(--transition);
@@ -571,7 +571,7 @@ select.ie-input { cursor: pointer; }
 .sa-q-pill.active .sa-q-count { background: rgba(var(--gold-rgb), 0.2); }
 .sa-q-sort {
   margin-left: auto;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.78rem;
   color: var(--text-faint);
   cursor: pointer;
@@ -602,7 +602,7 @@ select.ie-input { cursor: pointer; }
 }
 .sa-q-header-left { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .sa-q-user {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.92rem;
   color: var(--gold-light);
   font-weight: 600;
@@ -611,7 +611,7 @@ select.ie-input { cursor: pointer; }
 .sa-q-type {
   padding: 2px 10px;
   border-radius: 12px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.65rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -665,14 +665,14 @@ select.ie-input { cursor: pointer; }
   border-radius: var(--radius);
 }
 .sa-q-app-q {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-faint);
 }
 .sa-q-app-a {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.85rem;
   color: var(--text-main);
   line-height: 1.4;
@@ -682,13 +682,13 @@ select.ie-input { cursor: pointer; }
   border-radius: 12px;
   background: var(--surface-3);
   border: 1px solid var(--border);
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.78rem;
   color: var(--text-dim);
   white-space: nowrap;
 }
 .sa-q-date {
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.78rem;
   color: var(--text-faint);
   white-space: nowrap;
@@ -712,14 +712,14 @@ select.ie-input { cursor: pointer; }
   gap: 4px;
 }
 .sa-q-metric-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.6rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-faint);
 }
 .sa-q-metric-value {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--text-main);
@@ -733,7 +733,7 @@ select.ie-input { cursor: pointer; }
   margin-bottom: 12px;
   padding: 8px 12px 8px 14px;
   border-left: 2px solid var(--gold-dim);
-  font-family: 'Crimson Pro', Georgia, serif;
+  font-family: var(--font-body);
   font-style: italic;
   font-size: 0.88rem;
   color: var(--text-muted-warm);
@@ -765,7 +765,7 @@ select.ie-input { cursor: pointer; }
 .sa-q-btn {
   padding: 7px 18px;
   border-radius: var(--radius);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   font-weight: 600;
   cursor: pointer;
@@ -806,13 +806,13 @@ select.ie-input { cursor: pointer; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-main);
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.8rem;
   outline: none;
   min-width: 0;
 }
 .sa-filter-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.7rem;
   color: var(--text-faint);
   letter-spacing: 0.04em;
@@ -831,7 +831,7 @@ select.sa-filter-input { cursor: pointer; }
   gap: 4px;
   padding: 2px 10px;
   border-radius: 12px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -861,7 +861,7 @@ select.sa-filter-input { cursor: pointer; }
   gap: 4px;
   padding: 2px 10px;
   border-radius: 12px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -922,7 +922,7 @@ select.sa-filter-input { cursor: pointer; }
   padding: 14px 0;
 }
 .sa-page-info {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   color: var(--text-dim);
 }
@@ -936,7 +936,7 @@ select.sa-filter-input { cursor: pointer; }
   border-radius: var(--radius);
   background: var(--surface);
   color: var(--text-dim);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.68rem;
   cursor: pointer;
   transition: all var(--transition);
@@ -975,7 +975,7 @@ select.sa-filter-input { cursor: pointer; }
   padding: 7px 18px;
   background: none;
   border: none;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.05em;
@@ -1003,7 +1003,7 @@ select.sa-filter-input { cursor: pointer; }
   color: var(--text-faint);
 }
 .am-status {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.65rem;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -1020,7 +1020,7 @@ select.sa-filter-input { cursor: pointer; }
 }
 .am-cancel-row { border-top: none; }
 .am-section-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1043,7 +1043,7 @@ select.sa-filter-input { cursor: pointer; }
   border-radius: var(--radius);
 }
 .am-metric-val {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 1.15rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -1083,7 +1083,7 @@ select.sa-filter-input { cursor: pointer; }
   gap: 6px;
 }
 .am-bid-status {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.65rem;
   font-weight: 700;
 }
@@ -1124,7 +1124,7 @@ select.sa-filter-input { cursor: pointer; }
   margin-bottom: 6px;
 }
 .am-tl-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.7rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1200,7 +1200,7 @@ select.sa-filter-input { cursor: pointer; }
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
   color: var(--text-main);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.85rem;
   font-weight: 700;
   outline: none;
@@ -1219,7 +1219,7 @@ select.sa-filter-input { cursor: pointer; }
   background: var(--surface);
   border: 1px solid rgba(var(--danger-rgb), 0.25);
   border-radius: var(--radius);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.85rem;
   color: var(--text-faint);
   cursor: pointer;
@@ -1235,7 +1235,7 @@ select.sa-filter-input { cursor: pointer; }
 /* Reservations collapsible */
 .sa-reservations-section { margin-top: 20px; }
 .sa-section-header {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.88rem;
   color: var(--gold-light);
   padding: 8px 0;
@@ -1294,7 +1294,7 @@ select.sa-filter-input { cursor: pointer; }
   background: var(--surface-2);
 }
 .ie-img-pos {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   color: var(--text-faint);
   width: 16px;
@@ -1319,7 +1319,7 @@ select.sa-filter-input { cursor: pointer; }
 .ie-img-row-name {
   flex: 1;
   min-width: 0;
-  font-family: 'Crimson Pro', serif;
+  font-family: var(--font-body);
   font-size: 0.82rem;
   color: var(--text-dim);
   overflow: hidden;
@@ -1349,7 +1349,7 @@ select.sa-filter-input { cursor: pointer; }
   border: 1px dashed var(--border);
   border-radius: var(--radius);
   color: var(--text-dim);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   cursor: pointer;
   transition: border-color var(--transition), color var(--transition);
@@ -1370,7 +1370,7 @@ select.sa-filter-input { cursor: pointer; }
   background: none;
   border: 1px solid transparent;
   border-radius: var(--radius) var(--radius) 0 0;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.05em;
@@ -1394,7 +1394,7 @@ select.sa-filter-input { cursor: pointer; }
 
 /* Users tab */
 .su-count {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   color: var(--gold-dim);
   letter-spacing: 0.06em;
@@ -1443,7 +1443,7 @@ select.sa-filter-input { cursor: pointer; }
 /* User cell */
 .su-user-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .su-username {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   font-weight: 600;
   color: var(--gold-light);
@@ -1473,7 +1473,7 @@ select.sa-filter-input { cursor: pointer; }
   align-items: center;
   padding: 2px 10px;
   border-radius: 12px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -1514,7 +1514,7 @@ select.sa-filter-input { cursor: pointer; }
   border-radius: var(--radius);
 }
 .su-metric-val {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -1541,7 +1541,7 @@ select.sa-filter-input { cursor: pointer; }
   padding: 12px 14px;
 }
 .su-card-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.65rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1580,7 +1580,7 @@ select.sa-filter-input { cursor: pointer; }
   border-bottom: 1px solid var(--border);
 }
 .su-bal-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.1em;
@@ -1593,13 +1593,13 @@ select.sa-filter-input { cursor: pointer; }
   align-items: baseline;
 }
 .su-bal-total {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.88rem;
   font-weight: 700;
   color: var(--text-main);
 }
 .su-bal-free-total {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--online);
@@ -1612,7 +1612,7 @@ select.sa-filter-input { cursor: pointer; }
 }
 .su-bal-col { }
 .su-bal-col-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1669,7 +1669,7 @@ select.sa-filter-input { cursor: pointer; }
 
 /* Recent activity */
 .su-recent-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.65rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1689,7 +1689,7 @@ select.sa-filter-input { cursor: pointer; }
 }
 .su-recent-row:last-child { border-bottom: none; }
 .su-recent-hdr {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.6rem;
   color: var(--text-faint);
   letter-spacing: 0.08em;
@@ -1727,7 +1727,7 @@ select.sa-filter-input { cursor: pointer; }
   display: flex;
   align-items: center;
   gap: 6px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -1740,7 +1740,7 @@ select.sa-filter-input { cursor: pointer; }
 }
 .su-cart-chev--open svg { transform: rotate(90deg); }
 .su-cart-summary {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.68rem;
   color: var(--text-dim);
   letter-spacing: 0.03em;
@@ -1759,7 +1759,7 @@ select.sa-filter-input { cursor: pointer; }
 }
 .su-cart-row:last-child { border-bottom: none; }
 .su-cart-hdr {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.6rem;
   color: var(--text-faint);
   letter-spacing: 0.08em;
@@ -1768,7 +1768,7 @@ select.sa-filter-input { cursor: pointer; }
 }
 .su-cart-total {
   text-align: right;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.75rem;
   color: var(--text-dim);
   padding-top: 6px;
@@ -1791,7 +1791,7 @@ select.sa-filter-input { cursor: pointer; }
   align-items: center;
   padding: 2px 8px;
   border-radius: 10px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.6rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1849,7 +1849,7 @@ select.sa-filter-input { cursor: pointer; }
   border-radius: var(--radius);
 }
 .su-manage-section-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.65rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1901,7 +1901,7 @@ select.sa-filter-input { cursor: pointer; }
   margin-bottom: 3px;
 }
 .su-note-actor {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.65rem;
   font-weight: 600;
   color: var(--gold-dim);
@@ -1987,7 +1987,7 @@ select.sa-filter-input { cursor: pointer; }
   background: var(--surface);
   background-clip: padding-box;
   color: var(--gold-dim);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.74rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -2078,7 +2078,7 @@ select.sa-filter-input { cursor: pointer; }
   border-radius: 3px;
   background: var(--surface);
   color: var(--text-main);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   outline: none;
 }
@@ -2115,7 +2115,7 @@ select.sa-filter-input { cursor: pointer; }
 }
 .sa-app-answer:last-child { margin-bottom: 0; }
 .sa-app-answer-q {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.74rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -2148,7 +2148,7 @@ select.sa-filter-input { cursor: pointer; }
   color: var(--text-dim);
 }
 .sa-cr-section-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -2215,7 +2215,7 @@ select.sa-filter-input { cursor: pointer; }
 }
 .sa-cr-variant-block:last-child { margin-bottom: 0; }
 .sa-cr-variant-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.76rem;
   font-weight: 700;
   color: var(--gold);

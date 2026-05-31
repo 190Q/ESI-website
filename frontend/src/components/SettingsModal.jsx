@@ -8,25 +8,50 @@ export default function SettingsModal() {
 
         <div className="settings-body">
 
-          {/* Theme */}
+          {/* Appearance */}
           <div className="settings-section">
-            <div className="settings-section-label">Theme</div>
+            <div className="settings-section-label">Appearance</div>
 
             <div className="settings-row">
               <div className="settings-row-info">
-                <div className="settings-row-title">Color theme</div>
+                <div className="settings-row-title">Colour theme</div>
                 <div className="settings-row-desc">
-                  Switch the dashboard color scheme
+                  Switch the dashboard colour scheme
                 </div>
               </div>
               <div className="settings-row-control">
-                <select className="settings-select" id="settingTheme" aria-label="Color theme">
+                <select className="settings-select" id="settingTheme" aria-label="Colour theme">
                   <option value="">Empire of Sindria</option>
                   <option value="purple">Purple</option>
-                  <option value="dark">Dark</option>
-                  <option value="blue">Blue</option>
                 </select>
               </div>
+            </div>
+
+            <div className="settings-add-custom-wrap">
+              <button type="button" className="settings-add-custom" id="addCustomThemeBtn">+ Add Custom</button>
+              <button type="button" className="settings-add-custom-x" id="removeCustomThemeBtn" style={{ display: 'none' }}>{"\u00d7"}</button>
+              <input type="file" id="customThemeFileInput" accept=".css" style={{ display: 'none' }} />
+            </div>
+
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <div className="settings-row-title">Font</div>
+                <div className="settings-row-desc">
+                  Change the typeface used across the dashboard
+                </div>
+              </div>
+              <div className="settings-row-control">
+                <select className="settings-select" id="settingFont" aria-label="Font">
+                  <option value="">Cinzel &amp; Crimson Pro</option>
+                  <option value="inter">Inter</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="settings-add-custom-wrap">
+              <button type="button" className="settings-add-custom" id="addCustomFontBtn">+ Add Custom</button>
+              <button type="button" className="settings-add-custom-x" id="removeCustomFontBtn" style={{ display: 'none' }}>{"\u00d7"}</button>
+              <input type="file" id="customFontFileInput" accept=".css" style={{ display: 'none' }} />
             </div>
           </div>
 

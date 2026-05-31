@@ -46,7 +46,7 @@
   flex-wrap: wrap;
 }
 .guild-profile-name {
-  font-family: 'Cinzel Decorative', serif;
+  font-family: var(--font-display);
   font-size: 1.3rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -54,7 +54,7 @@
   line-height: 1.3;
 }
 .guild-profile-prefix {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   letter-spacing: 0.08em;
   padding: 3px 10px;
@@ -72,7 +72,7 @@
   margin-bottom: 8px;
 }
 .guild-profile-meta-item {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--text-dim);
 }
@@ -107,7 +107,7 @@
 }
 
 .guild-online-tooltip-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.62rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -116,7 +116,7 @@
 }
 
 .guild-online-tooltip-item {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.75rem;
   color: var(--gold-light);
   line-height: 1.25;
@@ -150,7 +150,7 @@
   margin-top: 2px;
 }
 .guild-profile-owner {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   font-weight: 500;
   color: var(--text-dim);
@@ -177,7 +177,7 @@
 
 /* Guild rank badges */
 .guild-rank-badge {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.7rem;
   letter-spacing: 0.06em;
   padding: 2px 8px;
@@ -209,7 +209,7 @@
 .guild-member-row:hover { background: rgba(var(--gold-rgb), 0.04); }
 
 .guild-member-rank-num {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.75rem;
   font-weight: 700;
   color: var(--text-faint);
@@ -223,21 +223,21 @@
 
 .guild-member-name {
   flex: 1;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--text-main);
   min-width: 80px;
 }
 
 .guild-member-contrib {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.75rem;
   color: var(--text-dim);
   text-align: right;
 }
 
 .guild-member-raids {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   color: var(--gold-dim);
   min-width: 60px;
@@ -272,7 +272,7 @@
   line-height: 1.5;
 }
 .guild-log-name {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   color: var(--gold-light);
 }
 .guild-log-time {
@@ -352,7 +352,7 @@
 }
 
 .owed-aspects-popup-title {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.95rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -397,7 +397,7 @@
 }
 
 .owed-aspects-player-name {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--gold-light);
   cursor: pointer;
@@ -413,7 +413,7 @@
 }
 
 .owed-aspects-player-count {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.75rem;
   color: var(--text-dim);
 }
@@ -421,7 +421,7 @@
 
 
 .owed-aspects-popup-count {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   font-weight: 400;
   margin-left: 6px;
@@ -436,7 +436,7 @@
 }
 
 .owed-aspects-clear-btn {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.68rem;
   letter-spacing: 0.05em;
   padding: 3px 10px;
@@ -462,7 +462,7 @@
 }
 
 .territory-name {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--gold-light);
   flex: 1;
@@ -490,7 +490,7 @@
   color: var(--text-dim);
   padding: 6px 10px;
   border-radius: var(--radius);
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -509,7 +509,7 @@
 
 .esi-points-section-label {
   padding: 10px 20px 4px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.75rem;
   color: var(--text-dim);
   letter-spacing: 0.04em;
@@ -525,7 +525,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--gold-light);
 }
@@ -536,13 +536,13 @@
 
 .esi-points-rank-row {
   padding: 4px 20px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.75rem;
   color: var(--text-dim);
 }
 
 .esi-points-position {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   color: var(--gold-dim);
   min-width: 22px;
@@ -577,7 +577,7 @@
 
 /* Non-interactive reason label inside a points history row */
 .esi-points-reason {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--gold-light);
   flex: 1;
@@ -598,7 +598,7 @@
   border: 1px solid var(--border-mid);
   border-radius: var(--radius);
   padding: 8px 10px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.75rem;
   letter-spacing: 0.05em;
   color: var(--text-dim);
@@ -614,7 +614,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.68rem;
   letter-spacing: 0.05em;
   padding: 2px 8px;
@@ -631,7 +631,7 @@
 .snipe-role-unknown { border-color: var(--guild-recruit); color: var(--guild-recruit-light); background: rgba(var(--guild-recruit-rgb), 0.10); }
 
 .snipe-role-count {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.7rem;
   color: var(--text-faint);
   margin: 0 8px 0 2px;
@@ -659,7 +659,7 @@
 }
 
 .snipe-player-points {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -668,7 +668,7 @@
 }
 
 .snipe-player-count {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.72rem;
   color: var(--gold-dim);
   min-width: 50px;
@@ -698,7 +698,7 @@
   gap: 10px;
 }
 .guild-snipe-time {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   color: var(--text-dim);
   font-style: italic;
@@ -710,7 +710,7 @@
   gap: 18px;
 }
 .guild-snipe-stat {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.8rem;
   color: var(--text-dim);
 }
@@ -740,7 +740,7 @@
   border-radius: var(--radius);
 }
 .snipe-participant-name {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   color: var(--gold-light);
 }
@@ -760,7 +760,7 @@
 
 /* Guild Statistics view */
 .guild-stats-filters .info-card-header {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   letter-spacing: 0.08em;
 }
 .guild-stats-filters-body {
@@ -777,7 +777,7 @@
   min-width: 150px;
 }
 .guild-stats-filter-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.65rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -789,7 +789,7 @@
   gap: 6px;
 }
 .guild-stats-rank-chip {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.7rem;
   letter-spacing: 0.06em;
   padding: 4px 10px;
@@ -812,7 +812,7 @@
   box-shadow: 0 0 0 1px var(--gold-dim) inset;
 }
 .guild-stats-date-input {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   padding: 6px 8px;
   border-radius: var(--radius);
@@ -823,7 +823,7 @@
   color-scheme: dark;
 }
 .guild-stats-reset-btn {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.7rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -842,7 +842,7 @@
 }
 .guild-stats-filter-summary {
   padding: 0 20px 14px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.74rem;
   color: var(--text-dim);
 }
@@ -851,7 +851,7 @@
   padding: 14px 20px;
   color: var(--text-faint);
   font-style: italic;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
 }
 
@@ -870,7 +870,7 @@
   grid-template-columns: 130px 1fr 70px 56px;
   align-items: center;
   gap: 10px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   color: var(--text-dim);
 }
@@ -923,14 +923,14 @@
   text-align: center;
 }
 .guild-stats-cell-value {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--gold-light);
   line-height: 1.2;
 }
 .guild-stats-cell-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.65rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -953,14 +953,14 @@
   border-radius: var(--radius);
 }
 .guild-stats-avg-label {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.65rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-faint);
 }
 .guild-stats-avg-value {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 1.18rem;
   font-weight: 700;
   color: var(--gold-light);
@@ -970,7 +970,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.68rem;
   color: var(--text-dim);
 }
@@ -994,7 +994,7 @@
   min-width: 0;
 }
 .guild-stats-leaderboard-count {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   color: var(--gold-light);
   font-weight: 600;
@@ -1025,7 +1025,7 @@
   min-width: 120px;
 }
 .guild-stats-snipe-rank-total {
-  font-family: 'Cinzel', serif;
+  font-family: var(--font-heading);
   font-size: 0.78rem;
   color: var(--gold-light);
   font-weight: 700;
