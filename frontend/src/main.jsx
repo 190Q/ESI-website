@@ -28,6 +28,7 @@ window.setTheme = (name) => {
   document.documentElement.setAttribute('data-theme', name);
   localStorage.setItem('theme', name);
   if (window.ThemeColors && window.ThemeColors.invalidateCache) window.ThemeColors.invalidateCache();
+  window.dispatchEvent(new Event('themechange'));
   if (name === prev) return `Theme already set to '${name}'`;
   return `Theme changed: '${prev || 'default'}' → '${name}'`;
 };
