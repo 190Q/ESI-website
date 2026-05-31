@@ -448,9 +448,6 @@ button { cursor: pointer; border: none; font-family: inherit; }
   padding: 40px 48px 60px;
   transition: margin-left var(--transition);
   height: calc(100vh - var(--navbar-h) - var(--footer-bottom));
-  background:
-    radial-gradient(ellipse at 80% 0%, rgba(var(--green-mid-rgb), 0.12) 0%, transparent 50%),
-    radial-gradient(ellipse at 20% 80%, rgba(var(--gold-rgb), 0.04) 0%, transparent 40%);
 }
 
 /* Panels */
