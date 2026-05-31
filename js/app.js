@@ -1,6 +1,10 @@
 (function () {
   'use strict';
 
+  function _cssVar(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  }
+
   /* shared state */
   const state = window.state = {
     loggedIn: false,
@@ -89,7 +93,7 @@
       loginBtn.innerHTML =
         '<span class="loading-spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,0.3);border-top-color:#fff;"></span>' +
         ' Logging in\u2026';
-      loginBtn.style.background = '#4752c4';
+      loginBtn.style.background = _cssVar('--discord-hover', '#4752c4');
       loginBtn.style.boxShadow = 'none';
       sessionStorage.setItem('esi_auth_return', window.location.pathname || '/');
       window.location.href = '/auth/dev-login?user_id=' + encodeURIComponent(userId);
@@ -101,7 +105,7 @@
     loginBtn.innerHTML =
       '<span class="loading-spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,0.3);border-top-color:#fff;"></span>' +
       ' Logging in\u2026';
-    loginBtn.style.background = '#4752c4';
+    loginBtn.style.background = _cssVar('--discord-hover', '#4752c4');
     loginBtn.style.boxShadow = 'none';
     // save current page state so we can restore it after the OAuth redirect
     sessionStorage.setItem('esi_auth_return', window.location.pathname || '/');
@@ -135,7 +139,7 @@
         '<span class="loading-spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,0.3);border-top-color:#fff;"></span>' +
         ' Logging in\u2026';
       loginBtn.style.opacity = '1';
-      loginBtn.style.background = '#4752c4';
+      loginBtn.style.background = _cssVar('--discord-hover', '#4752c4');
       loginBtn.style.boxShadow = 'none';
     } else if (authResult === 'error') {
       _authFailed = true;
@@ -731,16 +735,19 @@ function _renderRankTree(userRoles) {
       container.appendChild(line);
     }
 
+    var rankKey = (r.name || '').toLowerCase().replace(/\s+/g, '-');
+    var rankColor = _cssVar('--rank-' + rankKey, r.color);
+
     var dot = document.createElement('div');
     dot.className = 'rank-tree-dot';
-    dot.style.borderColor = r.color;
-    if (idx <= userRankIdx) dot.style.background = r.color;
+    dot.style.borderColor = rankColor;
+    if (idx <= userRankIdx) dot.style.background = rankColor;
 
     var info = document.createElement('div');
     info.className = 'rank-tree-info';
     var nameRow = document.createElement('div');
     nameRow.className = 'rank-tree-name';
-    nameRow.style.color = r.color;
+    nameRow.style.color = rankColor;
     nameRow.textContent = (r.icon || '') + ' ' + r.name;
     var sub = document.createElement('div');
     sub.className = 'rank-tree-ingame';
@@ -801,9 +808,11 @@ function _renderEchelonGrid(userRoles) {
 
   (ESI_ECHELON_ROLES || []).forEach(function(role) {
     var has = userRoles.includes(role.id);
+    var ecKey = (role.name || '').toLowerCase().replace(/\s+/g, '-');
+    var ecColor = _cssVar('--echelon-' + ecKey, role.color);
     var card = document.createElement('div');
     card.className = 'echelon-card' + (has ? ' echelon-card--active' : '');
-    card.style.setProperty('--ec-color', role.color);
+    card.style.setProperty('--ec-color', ecColor);
 
     var icon = document.createElement('div');
     icon.className = 'echelon-card-icon';
@@ -833,7 +842,7 @@ function _renderEchelonGrid(userRoles) {
         var ecApply = document.createElement('button');
         ecApply.className = 'echelon-apply-btn';
         ecApply.textContent = 'Apply';
-        ecApply.style.setProperty('--ec-color', role.color);
+        ecApply.style.setProperty('--ec-color', ecColor);
         ecApply.addEventListener('click', function () { _openApplyForm(role.applyForm); });
         card.appendChild(ecApply);
       }
@@ -1028,7 +1037,7 @@ function _renderBadges(userRoles, counts) {
     tierText.className = 'badge-row-tier';
     if (ownedIdx >= 0) {
       tierText.textContent = tiers[ownedIdx].tier_name;
-      tierText.style.color = tiers[ownedIdx].colour || '#b68344';
+      tierText.style.color = _cssVar('--badge-tier-text', tiers[ownedIdx].colour || '#b68344');
     } else {
       tierText.textContent = 'No badge';
       tierText.style.color = 'var(--text-faint)';
@@ -1046,7 +1055,7 @@ function _renderBadges(userRoles, counts) {
     barWrap.className = 'badge-bar-wrap';
     var barFill = document.createElement('div');
     barFill.className = 'badge-bar-fill';
-    barFill.style.background = barColor;
+    barFill.style.background = _cssVar('--badge-bar', barColor);
 
     if (currentCount !== null && nextTier) {
       var range = nextThreshold - prevThreshold;
@@ -1065,7 +1074,7 @@ function _renderBadges(userRoles, counts) {
     info.className = 'badge-row-info';
     if (currentCount !== null && nextTier) {
       info.textContent = currentCount.toLocaleString() + ' / ' + nextThreshold.toLocaleString() + ' \u2192 ' + nextTier.tier_name;
-      info.style.color = nextTier.colour || 'var(--text-faint)';
+      info.style.color = _cssVar('--badge-info', nextTier.colour || 'var(--text-faint)');
     } else if (currentCount !== null && !nextTier && ownedIdx >= 0) {
       info.textContent = currentCount.toLocaleString() + ' - Max tier!';
       info.style.color = 'var(--gold-light)';
@@ -1246,13 +1255,16 @@ fetch('/auth/session', { credentials: 'same-origin' })
         <img src="${avatarSrc}" alt="" style="width:20px;height:20px;border-radius:50%;object-fit:cover;flex-shrink:0;" />
         ${u.nick || u.username}`;
       loginBtn.style.opacity = '1';
-      loginBtn.style.background = '#3BA55C';
-      loginBtn.style.boxShadow = '0 2px 12px rgba(59,165,92,0.35)';
+      var _onC = _cssVar('--online', '#3BA55C');
+      var _onRgb = _cssVar('--online-rgb', '59, 165, 92');
+      loginBtn.style.background = _onC;
+      loginBtn.style.boxShadow = '0 2px 12px rgba(' + _onRgb + ', 0.35)';
       // Populate account modal
       document.getElementById('accountModalAvatar').src = avatarSrc;
       var displayName = u.nick || u.username;
       var isCitizen = (u.roles || []).includes(ESI_CITIZEN_ROLE.id);
-      var citizenStyle = 'color:' + ESI_CITIZEN_ROLE.color + ';background:' + ESI_CITIZEN_ROLE.color + '22;border:1px solid ' + ESI_CITIZEN_ROLE.color + '66;border-radius:20px;font-family:\'Cinzel\',serif;font-size:0.6rem;letter-spacing:0.08em;padding:1px 8px;vertical-align:middle;margin-left:6px;white-space:nowrap;';
+      var _citizenC = _cssVar('--citizen-pill', ESI_CITIZEN_ROLE.color);
+      var citizenStyle = 'color:' + _citizenC + ';background:' + _citizenC + '22;border:1px solid ' + _citizenC + '66;border-radius:20px;font-family:\'Cinzel\',serif;font-size:0.6rem;letter-spacing:0.08em;padding:1px 8px;vertical-align:middle;margin-left:6px;white-space:nowrap;';
       document.getElementById('accountModalName').innerHTML =
         displayName + (isCitizen ? ' <span style="' + citizenStyle + '">Citizen</span>' : '');
       document.getElementById('accountModalSub').textContent = '@' + u.username + '  ·  ' + u.id;
@@ -1264,8 +1276,10 @@ fetch('/auth/session', { credentials: 'same-origin' })
         <svg width="20" height="20" viewBox="0 0 127.14 96.36" fill="currentColor"><path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/></svg>
         Login with Discord`;
       loginBtn.style.opacity = '1';
-      loginBtn.style.background = '#5865F2';
-      loginBtn.style.boxShadow = '0 2px 12px rgba(88,101,242,0.35)';
+      var _dcC = _cssVar('--discord', '#5865F2');
+      var _dcRgb = _cssVar('--discord-rgb', '88, 101, 242');
+      loginBtn.style.background = _dcC;
+      loginBtn.style.boxShadow = '0 2px 12px rgba(' + _dcRgb + ', 0.35)';
     }
   }
 

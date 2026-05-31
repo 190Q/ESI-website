@@ -645,9 +645,9 @@
   border: 1px solid rgba(var(--discord-rgb), 0.3);
 }
 .shop-item-type-badge--auction {
-  background: rgba(var(--warn-rgb), 0.15);
+  background: rgba(var(--gold-rgb), 0.15);
   color: var(--gold);
-  border: 1px solid rgba(var(--warn-rgb), 0.3);
+  border: 1px solid rgba(var(--gold-rgb), 0.3);
 }
 .shop-item-type-badge--donate {
   background: rgba(var(--online-rgb), 0.15);
@@ -1387,9 +1387,9 @@ input.cart-qty:focus {
   border: 1px solid rgba(var(--discord-rgb), 0.25);
 }
 .order-type-pill--bid {
-  background: rgba(var(--warn-rgb), 0.12);
+  background: rgba(var(--gold-rgb), 0.12);
   color: var(--gold);
-  border: 1px solid rgba(var(--warn-rgb), 0.25);
+  border: 1px solid rgba(var(--gold-rgb), 0.25);
 }
 .order-type-pill--donation {
   background: rgba(var(--online-rgb), 0.12);

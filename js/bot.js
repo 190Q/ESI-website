@@ -1,13 +1,17 @@
 (function () {
   'use strict';
 
+  function _cssVar(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  }
+
   /* Tracker definitions */
   var TRACKERS = [
-    { name: 'Activity Data Refresh',    interval: 600, color: '#eb7d34' },
-    { name: 'API Tracker',      interval: 300, color: '#5865F2' },
-    { name: 'Playtime Tracker', interval: 300, color: '#9B59B6' },
-    { name: 'Guild Tracker',    interval: 30,  color: '#D4A017' },
-    { name: 'Claim Tracker',    interval: 3,   color: '#3BA55C' },
+    { name: 'Activity Data Refresh',    interval: 600, cssVar: '--orange',  fallback: '#eb7d34' },
+    { name: 'API Tracker',      interval: 300, cssVar: '--discord', fallback: '#5865F2' },
+    { name: 'Playtime Tracker', interval: 300, cssVar: '--violet',  fallback: '#9B59B6' },
+    { name: 'Guild Tracker',    interval: 30,  cssVar: '--gold',    fallback: '#D4A017' },
+    { name: 'Claim Tracker',    interval: 3,   cssVar: '--online',  fallback: '#3BA55C' },
   ];
 
   var trackerTimers = {};
@@ -157,7 +161,7 @@
       '<div class="bot-health-grid">' +
         '<div class="bot-health-item"><span class="bot-health-label">Members</span><span class="bot-health-value">' + (snapshot.member_count || '—').toLocaleString() + '</span></div>' +
         '<div class="bot-health-item"><span class="bot-health-label">Online</span><span class="bot-health-value" style="color:var(--online)">● ' + (snapshot.online_count || '—').toLocaleString() + '</span></div>' +
-        '<div class="bot-health-item"><span class="bot-health-label">Boost Level</span><span class="bot-health-value" style="color:#f47fff">Level ' + snapshot.boost_level + boostStars + '</span></div>' +
+        '<div class="bot-health-item"><span class="bot-health-label">Boost Level</span><span class="bot-health-value" style="color:var(--purple-bright)">Level ' + snapshot.boost_level + boostStars + '</span></div>' +
         '<div class="bot-health-item"><span class="bot-health-label">Boosts</span><span class="bot-health-value">' + snapshot.boost_count + '</span></div>' +
       '</div>';
   }
@@ -363,12 +367,13 @@
       var initialPct = t.interval > 1
         ? Math.min(((t.interval - trackerTimers[i]) / (t.interval - 1)) * 100, 100)
         : 0;
+      var tColor = _cssVar(t.cssVar, t.fallback);
       html += '<div class="tracker-item">' +
         '<div class="tracker-header">' +
         '<span class="tracker-name">' + t.name + '</span>' +
         '<span class="tracker-time" id="trackerTime' + i + '">' + formatCountdown(trackerTimers[i]) + '</span></div>' +
         '<div class="tracker-bar-track">' +
-        '<div class="tracker-bar-fill" id="trackerBar' + i + '" style="width:' + initialPct + '%;background:linear-gradient(90deg,' + t.color + '88,' + t.color + ')"></div></div>' +
+        '<div class="tracker-bar-fill" id="trackerBar' + i + '" style="width:' + initialPct + '%;background:linear-gradient(90deg,' + tColor + '88,' + tColor + ')"></div></div>' +
         '<div class="tracker-interval">Every ' + formatInterval(t.interval) + '</div></div>';
     }
 

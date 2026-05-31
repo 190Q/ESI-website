@@ -1175,7 +1175,7 @@
                   const pts = r.points_gained || 0;
                   const sign = pts > 0 ? '+' : '';
                   const color = pts >= 0 ? 'var(--online)' : 'var(--danger)';
-                  const dirtyTag = r.is_dirty ? '<span style="font-size:0.65rem;color:#e67e22;margin-left:0.35rem;font-weight:600" title="Dirty EP (excluded from LE for HR)">DIRTY</span>' : '';
+                  const dirtyTag = r.is_dirty ? '<span style="font-size:0.65rem;color:var(--orange);margin-left:0.35rem;font-weight:600" title="Dirty EP (excluded from LE for HR)">DIRTY</span>' : '';
                   return `
                   <div class="owed-aspects-row">
                     <span style="font-family:'Cinzel',serif;font-size:0.75rem;color:var(--text-faint);min-width:85px">${escapeHtml(ts)}</span>
