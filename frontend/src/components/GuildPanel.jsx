@@ -1,7 +1,9 @@
 import LoadingState, { ErrorState } from './LoadingState'
 import CollapsibleCard from './CollapsibleCard'
+import { resolveThemeImageKey } from '../themeImages'
 
 export default function GuildPanel() {
+  const emblemSrc = resolveThemeImageKey('guild-emblem-guild', '/images/guild_emblem.avif')
   return (
     <section className="panel" id="panel-guild">
       <div className="panel-header">
@@ -17,7 +19,7 @@ export default function GuildPanel() {
         {/* Guild profile card */}
         <div className="guild-profile-card">
           <div className="guild-profile-emblem-wrap">
-            <img src="/images/guild_emblem.avif" data-theme-img-key="guild-emblem-guild" alt="Guild Emblem" className="guild-profile-emblem" />
+            <img src={emblemSrc} data-theme-img-key="guild-emblem-guild" alt="Guild Emblem" className="guild-profile-emblem" />
           </div>
           <div className="guild-profile-info">
             <div className="guild-profile-name-row">

@@ -1,6 +1,8 @@
 import { DiscordIcon, TicketIcon, GitHubIcon } from './Icons'
+import { resolveThemeImagePath } from '../themeImages'
 
 export default function SupportModal() {
+  const emblemSrc = resolveThemeImagePath('/images/guild_emblem.avif')
   return (
     <div className="modal-backdrop" id="modalBackdrop">
       <div className="modal" id="supportModal">
@@ -9,7 +11,7 @@ export default function SupportModal() {
         {/* Links view */}
         <div id="supportLinksView">
           <div className="modal-emblem">
-            <img src="/images/guild_emblem.avif" alt="ESI" />
+            <img src={emblemSrc} alt="ESI" />
           </div>
           <h2 className="modal-title">Contact Support</h2>
           <p className="modal-sub" style={{ fontWeight: 500 }}>

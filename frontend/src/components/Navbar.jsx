@@ -1,11 +1,13 @@
 import { DiscordIcon, HelpIcon } from './Icons'
+import { resolveThemeImageKey } from '../themeImages'
 
 export default function Navbar() {
+  const emblemSrc = resolveThemeImageKey('guild-emblem-navbar', '/images/guild_emblem.avif')
   return (
     <header className="navbar">
       <div className="navbar-left">
         <div className="guild-logo">
-          <img src="/images/guild_emblem.avif" data-theme-img-key="guild-emblem-navbar" alt="ESI Emblem" className="emblem-img" />
+          <img src={emblemSrc} data-theme-img-key="guild-emblem-navbar" alt="ESI Emblem" className="emblem-img" />
           <div className="guild-title">
             <span className="guild-acronym">ESI</span>
             <span className="guild-fullname">Empire of Sindria</span>

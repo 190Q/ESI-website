@@ -1,7 +1,9 @@
 import { DiscordIcon, GitHubIcon } from './Icons'
+import { resolveThemeImagePath } from '../themeImages'
 
 export default function Footer() {
   const year = new Date().getFullYear()
+  const emblemSrc = resolveThemeImagePath('/images/guild_emblem.avif')
 
   return (
     <footer className="site-footer" id="siteFooter" role="contentinfo">
@@ -11,7 +13,7 @@ export default function Footer() {
         <div className="site-footer-col site-footer-brand">
           <div className="site-footer-title">
             <img
-              src="/images/guild_emblem.avif"
+              src={emblemSrc}
               alt=""
               className="site-footer-emblem"
               aria-hidden="true"

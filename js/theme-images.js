@@ -138,6 +138,21 @@
     _cachedOverrides = null;
     _cachedHasAny = false;
   }
+
+  function _resolvePath(defaultPath) {
+    var basePath = defaultPath || '';
+    if (!basePath) return basePath;
+    var overrides = _getOverrides();
+    return overrides.byPath[basePath] || basePath;
+  }
+
+  function _resolveKey(key, fallbackPath) {
+    var cfg = KEYED_TARGETS[key];
+    var basePath = fallbackPath || (cfg && cfg.defaultPath) || '';
+    if (!cfg) return _resolvePath(basePath);
+    var overrides = _getOverrides();
+    return overrides.byKey[key] || overrides.byPath[basePath] || basePath;
+  }
   function _updateKeyedImg(img, overrides, key) {
     var cfg = KEYED_TARGETS[key];
     if (!cfg) return false;
@@ -208,6 +223,10 @@
   window.ThemeImages = Object.freeze({
     VARS: PATH_VARS,
     KEYED_TARGETS: KEYED_TARGETS,
+    /** Resolve a shared default image path to its themed URL (if overridden). */
+    resolvePath: _resolvePath,
+    /** Resolve a keyed image target to its themed URL (if overridden). */
+    resolveKey: _resolveKey,
     /** Force a full DOM re-scan (called automatically on themechange). */
     applyAll: applyAll,
     /** Drop the internal cache (useful after injecting custom CSS). */

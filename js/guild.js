@@ -8,6 +8,17 @@
   const _userRoles = (window.state && window.state.user && window.state.user.roles) || [];
   const canClear = _userRoles.includes('1396112289832243282') || _userRoles.includes('554514823191199747');
 
+  function themedPath(path) {
+    var api = window.ThemeImages;
+    return (api && typeof api.resolvePath === 'function') ? api.resolvePath(path) : path;
+  }
+
+  function themedKey(key, fallbackPath) {
+    var api = window.ThemeImages;
+    if (api && typeof api.resolveKey === 'function') return api.resolveKey(key, fallbackPath);
+    return themedPath(fallbackPath || '');
+  }
+
   // preload guild levels + territories (cached for offline)
   DataCache.cachedFetch('/api/guild/levels').then(function (r) { window.guildLevels = r.data; }).catch(function () {});
   DataCache.cachedFetch('/api/guild/territories').then(function (r) { window.guildTerritories = r.data; }).catch(function () {});
@@ -582,6 +593,9 @@
     const aspectsData = window.aspectsData || { total_aspects: 0, members: {} };
     const owedAspects = Object.values(aspectsData.members || {}).reduce((s, m) => s + (flatMembers.some(fm => fm.name === m.name) ? (m.owed || 0) : 0), 0);
     const territories = Object.keys((window.guildTerritories || {}).territories || {}).length;
+    const aspectIconGuildSrc = themedKey('aspect-icon-guild', '/images/aspect_icon.avif');
+    const pointIconGuildSrc = themedKey('point-icon-guild', '/images/point_icon.png');
+    const territoryIconSrc = themedPath('/images/territory_icon.png');
     // only show ESI members in the owed list
     const RANK_PRIORITY = { owner: 6, chief: 5, strategist: 4, captain: 3, recruiter: 2, recruit: 1 };
     const guildMemberNames = new Set(flatMembers.map(fm => fm.name));
@@ -597,17 +611,17 @@
 
     document.getElementById('guildOwedCards').innerHTML = `
       <div class="owed-card owed-card-clickable" id="owedAspectsCard">
-        <div class="owed-icon"><img src="/images/aspect_icon.avif" data-theme-img-key="aspect-icon-guild" alt="aspect" style="width:32px;height:32px;image-rendering:pixelated"></div>
+        <div class="owed-icon"><img src="${aspectIconGuildSrc}" data-theme-img-key="aspect-icon-guild" alt="aspect" style="width:32px;height:32px;image-rendering:pixelated"></div>
         <div class="owed-value">${owedAspects}<span style="font-size:1rem;color:var(--text-dim)"> / 120</span></div>
         <div class="owed-label">Aspects Owed</div>
       </div>
       <div class="owed-card owed-card-clickable" id="esiPointsCard">
-        <div class="owed-icon"><img src="/images/point_icon.png" data-theme-img-key="point-icon-guild" alt="point" style="width:32px;height:32px;image-rendering:pixelated"></div>
+        <div class="owed-icon"><img src="${pointIconGuildSrc}" data-theme-img-key="point-icon-guild" alt="point" style="width:32px;height:32px;image-rendering:pixelated"></div>
         <div class="owed-value" id="esiPointsVal">${formatGuildPointsCardValue(window.esiPointsData)}</div>
         <div class="owed-label">ESI Points</div>
       </div>
       <div class="owed-card owed-card-clickable" id="territoriesCard">
-        <div class="owed-icon"><img src="/images/territory_icon.png" alt="territory" style="width:32px;height:32px;image-rendering:pixelated"></div>
+        <div class="owed-icon"><img src="${territoryIconSrc}" alt="territory" style="width:32px;height:32px;image-rendering:pixelated"></div>
         <div class="owed-value">${fmt(territories)}</div>
         <div class="owed-label">Territories</div>
       </div>`;
@@ -655,7 +669,7 @@
       const players = getOwedPlayers();
       popup.innerHTML = `
         <div class="owed-aspects-popup-header">
-          <img src="/images/aspect_icon.avif" data-theme-img-key="aspect-icon-guild" alt="aspect" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">Aspects Owed
+          <img src="${aspectIconGuildSrc}" data-theme-img-key="aspect-icon-guild" alt="aspect" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">Aspects Owed
             <span class="owed-aspects-popup-count" style="color:${owedColor(total)}">${total}/120</span>
           </span>
           <button class="owed-aspects-popup-close" id="owedAspectsClose">✕</button>
@@ -762,7 +776,7 @@
         pointsPopup.innerHTML = `
           <div class="owed-aspects-popup-header">
             <span class="owed-aspects-popup-title">
-              <img src="/images/point_icon.png" data-theme-img-key="point-icon-guild" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points Leaderboard
+              <img src="${pointIconGuildSrc}" data-theme-img-key="point-icon-guild" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points Leaderboard
             </span>
             <button class="owed-aspects-popup-close" id="esiPointsClose">\u2715</button>
           </div>
@@ -784,7 +798,7 @@
       pointsPopup.innerHTML = `
         <div class="owed-aspects-popup-header">
           <span class="owed-aspects-popup-title">
-            <img src="/images/point_icon.png" data-theme-img-key="point-icon-guild" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points Leaderboard
+            <img src="${pointIconGuildSrc}" data-theme-img-key="point-icon-guild" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points Leaderboard
             <span class="owed-aspects-popup-count" style="color:var(--gold-light)">${formatInt(totalPoints)} EP</span>
           </span>
           <button class="owed-aspects-popup-close" id="esiPointsClose">\u2715</button>
@@ -875,7 +889,7 @@
 
       terrPopup.innerHTML = `
         <div class="owed-aspects-popup-header">
-          <img src="/images/territory_icon.png" alt="territory" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">
+          <img src="${territoryIconSrc}" alt="territory" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">
           Territories
           <span class="owed-aspects-popup-count" style="color:var(--text-dim);font-size:0.85rem;margin-left:0.4rem">· ${fmt(Object.keys(current).length)} held · updated ${lastUpdate}</span>
           <button class="owed-aspects-popup-close" id="territoriesClose">✕</button>

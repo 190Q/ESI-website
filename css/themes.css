@@ -196,26 +196,11 @@
 /* Purple Theme */
 [data-theme="purple"] {
 
-  /* Image overrides
-  --img-guild-emblem-navbar:    url('/images/themes/purple/guild_emblem_navbar.avif');
-  --img-guild-emblem-guild:     url('/images/themes/purple/guild_emblem_guild.avif');
-  --img-guild-emblem:           url('/images/themes/purple/guild_emblem.avif');     // fallback for unkeyed emblem images
-  --img-aspect-icon:            url('/images/themes/purple/aspect_icon.avif');      // shared fallback
-  --img-aspect-icon-player:     url('/images/themes/purple/aspect_icon_player.avif');
-  --img-aspect-icon-guild:      url('/images/themes/purple/aspect_icon_guild.avif');
-  --img-point-icon:             url('/images/themes/purple/point_icon.png');        // shared fallback
-  --img-point-icon-player:      url('/images/themes/purple/point_icon_player.png');
-  --img-point-icon-guild:       url('/images/themes/purple/point_icon_guild.png');
+  /* Image overrides */
+  --img-guild-emblem:           url('/images/themes/purple/guild_emblem.avif');
+  --img-aspect-icon:            url('/images/themes/purple/aspect_icon.avif');
+  --img-point-icon:             url('/images/themes/purple/point_icon.png');
   --img-territory-icon:         url('/images/themes/purple/territory_icon.png');
-  --img-medal-allegiance:       url('/images/themes/purple/allegiance.png');
-  --img-medal-benevolence:      url('/images/themes/purple/benevolence.png');
-  --img-medal-brilliance:       url('/images/themes/purple/brilliance.png');
-  --img-medal-fellowship:       url('/images/themes/purple/fellowship.png');
-  --img-medal-inspiration:      url('/images/themes/purple/inspiration.png');
-  --img-medal-order-of-sindria: url('/images/themes/purple/order_of_sindria.png');
-  --img-medal-sindrian-eagle:   url('/images/themes/purple/sindrian_eagle.png');
-  --img-medal-valliance:        url('/images/themes/purple/valliance.png');
-  */
 
   /* Gold / Purple accents */
   --gold:            #A855F7;
