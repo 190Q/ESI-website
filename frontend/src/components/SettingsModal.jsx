@@ -10,7 +10,13 @@ export default function SettingsModal() {
 
           {/* Appearance */}
           <div className="settings-section">
-            <div className="settings-section-label">Appearance</div>
+            <div className="settings-section-label">
+              Appearance
+              <span className="settings-section-hint">
+                Get more themes on the{' '}
+                <a href="https://discord.gg/YwnAyzefdV" target="_blank" rel="noopener noreferrer">ESI Dev Discord</a>
+              </span>
+            </div>
 
             <div className="settings-row">
               <div className="settings-row-info">
