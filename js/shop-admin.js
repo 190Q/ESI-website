@@ -64,6 +64,7 @@
   }
 
   var _adminBannedDetected = false;
+  var _privilegeBlocked = false;
 
   function fetchShopState(cb) {
     fetch('/api/admin/shop/state', { credentials: 'same-origin' })
@@ -73,6 +74,9 @@
             if (d && d.error && d.error.indexOf('banned') !== -1) {
               _adminBannedDetected = true;
             }
+            if (d && d.error && d.error.indexOf('pending') !== -1) {
+              _privilegeBlocked = true;
+            }
             return null;
           });
         }
@@ -80,6 +84,8 @@
       })
       .then(function (d) {
         if (_adminBannedDetected) { if (cb) cb(null); return; }
+        if (d && d.privilege_blocked) { _privilegeBlocked = true; }
+        if (_privilegeBlocked) { if (cb) cb(null); return; }
         if (d && typeof d.shop_enabled === 'boolean') _shopEnabled = !!d.shop_enabled;
         if (d && typeof d.message === 'string' && d.message.trim()) _shopDisabledMessage = d.message.trim();
         _canToggleShopState = !!(d && d.can_toggle);
@@ -4269,6 +4275,27 @@
     if (adminNav) adminNav.style.display = 'none';
   }
 
+  function _applyPrivilegeBlockedState() {
+    panel.innerHTML =
+      '<div class="auth-gate">' +
+        '<div class="auth-gate-card">' +
+          '<svg class="auth-gate-icon" viewBox="0 0 24 24" fill="none" ' +
+            'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+            '<circle cx="12" cy="12" r="10"/>' +
+            '<polyline points="12 6 12 12 16 14"/>' +
+          '</svg>' +
+          '<div class="auth-gate-title">Access Pending</div>' +
+          '<div class="auth-gate-text">' +
+            'Your manage shop privileges are pending approval from the Owner. ' +
+            'You\'ll gain access once your privileges have been reviewed.' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    window._privilegeBlocked = true;
+    var adminNav = document.getElementById('shopAdminNavItem');
+    if (adminNav) adminNav.style.display = 'none';
+  }
+
   /* Applications Tab (Parliament only) */
   function fetchApplications(cb) {
     fetch('/api/admin/shop/creator-applications', { credentials: 'same-origin' })
@@ -4820,11 +4847,19 @@
       _applyAdminBannedState();
       return;
     }
+    if (window._privilegeBlocked) {
+      _applyPrivilegeBlockedState();
+      return;
+    }
     buildShell();
     fetchShopState(function () {
       // Check if the fetch detected an admin ban (403)
       if (_adminBannedDetected) {
         _applyAdminBannedState();
+        return;
+      }
+      if (_privilegeBlocked) {
+        _applyPrivilegeBlockedState();
         return;
       }
       renderShopStateBanner();
@@ -4846,7 +4881,14 @@
     _isChief      = window.hasShopAdmin      ? window.hasShopAdmin()      : false;
     _isParliament = window.hasParliamentPlus ? window.hasParliamentPlus() : false;
     fetchShopState(function () {
-      if (_adminBannedDetected || !_shopEnabled) return;
+      if (_adminBannedDetected || _privilegeBlocked || !_shopEnabled) {
+        if (_privilegeBlocked) {
+          window._privilegeBlocked = true;
+          var adminNav = document.getElementById('shopAdminNavItem');
+          if (adminNav) adminNav.style.display = 'none';
+        }
+        return;
+      }
       var _done = 0;
       var _need = 1;
       var _isP = _isParliament || _isOwnerShopAdmin();

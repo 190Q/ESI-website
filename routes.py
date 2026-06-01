@@ -1811,6 +1811,9 @@ def admin_shop_state():
     state = _shop_get_state() or {}
     enabled = bool(state.get("shop_enabled"))
     message = None if enabled else (state.get("message") or _shop_get_disabled_message())
+    # privilege_blocked: user has admin roles but zero approved access
+    privilege_blocked = privilege_pending and effective_level <= 0 if not is_owner else False
+
     return jsonify({
         **state,
         "shop_enabled": enabled,
@@ -1819,6 +1822,7 @@ def admin_shop_state():
         "can_toggle": is_owner,
         "is_parliament": effective_parliament,
         "privilege_pending": privilege_pending,
+        "privilege_blocked": privilege_blocked,
     })
 
 @app.route("/api/admin/shop/state", methods=["POST"])
