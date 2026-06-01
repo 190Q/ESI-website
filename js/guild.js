@@ -597,12 +597,12 @@
 
     document.getElementById('guildOwedCards').innerHTML = `
       <div class="owed-card owed-card-clickable" id="owedAspectsCard">
-        <div class="owed-icon"><img src="/images/aspect_icon.avif" alt="aspect" style="width:32px;height:32px;image-rendering:pixelated"></div>
+        <div class="owed-icon"><img src="/images/aspect_icon.avif" data-theme-img-key="aspect-icon-guild" alt="aspect" style="width:32px;height:32px;image-rendering:pixelated"></div>
         <div class="owed-value">${owedAspects}<span style="font-size:1rem;color:var(--text-dim)"> / 120</span></div>
         <div class="owed-label">Aspects Owed</div>
       </div>
       <div class="owed-card owed-card-clickable" id="esiPointsCard">
-        <div class="owed-icon"><img src="/images/point_icon.png" alt="point" style="width:32px;height:32px;image-rendering:pixelated"></div>
+        <div class="owed-icon"><img src="/images/point_icon.png" data-theme-img-key="point-icon-guild" alt="point" style="width:32px;height:32px;image-rendering:pixelated"></div>
         <div class="owed-value" id="esiPointsVal">${formatGuildPointsCardValue(window.esiPointsData)}</div>
         <div class="owed-label">ESI Points</div>
       </div>
@@ -655,7 +655,7 @@
       const players = getOwedPlayers();
       popup.innerHTML = `
         <div class="owed-aspects-popup-header">
-          <img src="/images/aspect_icon.avif" alt="aspect" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">Aspects Owed
+          <img src="/images/aspect_icon.avif" data-theme-img-key="aspect-icon-guild" alt="aspect" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">Aspects Owed
             <span class="owed-aspects-popup-count" style="color:${owedColor(total)}">${total}/120</span>
           </span>
           <button class="owed-aspects-popup-close" id="owedAspectsClose">✕</button>
@@ -762,7 +762,7 @@
         pointsPopup.innerHTML = `
           <div class="owed-aspects-popup-header">
             <span class="owed-aspects-popup-title">
-              <img src="/images/point_icon.png" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points Leaderboard
+              <img src="/images/point_icon.png" data-theme-img-key="point-icon-guild" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points Leaderboard
             </span>
             <button class="owed-aspects-popup-close" id="esiPointsClose">\u2715</button>
           </div>
@@ -784,7 +784,7 @@
       pointsPopup.innerHTML = `
         <div class="owed-aspects-popup-header">
           <span class="owed-aspects-popup-title">
-            <img src="/images/point_icon.png" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points Leaderboard
+            <img src="/images/point_icon.png" data-theme-img-key="point-icon-guild" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points Leaderboard
             <span class="owed-aspects-popup-count" style="color:var(--gold-light)">${formatInt(totalPoints)} EP</span>
           </span>
           <button class="owed-aspects-popup-close" id="esiPointsClose">\u2715</button>

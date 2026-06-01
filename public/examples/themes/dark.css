@@ -3,9 +3,15 @@
 
     /* Image overrides, uncomment any line to replace that image.
        Use a url() path or a data-URI for a self-contained theme.
-    --img-guild-emblem:           url('/path/to/your/guild_emblem.avif');
-    --img-aspect-icon:            url('/path/to/your/aspect_icon.avif');
-    --img-point-icon:             url('/path/to/your/point_icon.png');
+    --img-guild-emblem-navbar:    url('/path/to/your/guild_emblem_navbar.avif');
+    --img-guild-emblem-guild:     url('/path/to/your/guild_emblem_guild.avif');
+    --img-guild-emblem:           url('/path/to/your/guild_emblem.avif');      // fallback for other emblem uses
+    --img-aspect-icon:            url('/path/to/your/aspect_icon.avif');       // shared fallback
+    --img-aspect-icon-player:     url('/path/to/your/aspect_icon_player.avif');
+    --img-aspect-icon-guild:      url('/path/to/your/aspect_icon_guild.avif');
+    --img-point-icon:             url('/path/to/your/point_icon.png');         // shared fallback
+    --img-point-icon-player:      url('/path/to/your/point_icon_player.png');
+    --img-point-icon-guild:       url('/path/to/your/point_icon_guild.png');
     --img-territory-icon:         url('/path/to/your/territory_icon.png');
     --img-medal-allegiance:       url('/path/to/your/allegiance.png');
     --img-medal-benevolence:      url('/path/to/your/benevolence.png');

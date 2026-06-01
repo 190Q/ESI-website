@@ -968,12 +968,12 @@
 
       owedEl.innerHTML = `
         <div class="owed-card owed-card-clickable" id="playerOwedAspectsCard">
-          <div class="owed-icon"><img src="/images/aspect_icon.avif" alt="aspect" style="width:32px;height:32px;image-rendering:pixelated"></div>
+          <div class="owed-icon"><img src="/images/aspect_icon.avif" data-theme-img-key="aspect-icon-player" alt="aspect" style="width:32px;height:32px;image-rendering:pixelated"></div>
           <div class="owed-value" id="playerOwedAspectsVal">${fmt(getPlayerOwed())}</div>
           <div class="owed-label">Owed Aspects</div>
         </div>
         <div class="owed-card owed-card-clickable" id="playerEsiPointsCard">
-          <div class="owed-icon"><img src="/images/point_icon.png" alt="point" style="width:32px;height:32px;image-rendering:pixelated"></div>
+          <div class="owed-icon"><img src="/images/point_icon.png" data-theme-img-key="point-icon-player" alt="point" style="width:32px;height:32px;image-rendering:pixelated"></div>
           <div class="owed-value" id="playerEsiPointsVal"><span style="color:var(--text-faint)">\u2026</span></div>
           <div class="owed-label">ESI Points</div>
         </div>`;
@@ -1000,7 +1000,7 @@
         popup.innerHTML = `
           <div class="owed-aspects-popup-header">
             <span class="owed-aspects-popup-title">
-              <img src="/images/aspect_icon.avif" alt="aspect" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">Aspects Owed
+              <img src="/images/aspect_icon.avif" data-theme-img-key="aspect-icon-player" alt="aspect" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">Aspects Owed
               <span class="owed-aspects-popup-count" style="color:${owedColor(owed)}">${owed}</span>
             </span>
             <button class="owed-aspects-popup-close" id="playerOwedAspectsClose">✕</button>
@@ -1091,7 +1091,7 @@
           ptsPopup.innerHTML = `
             <div class="owed-aspects-popup-header">
               <span class="owed-aspects-popup-title">
-                <img src="/images/point_icon.png" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points
+                <img src="/images/point_icon.png" data-theme-img-key="point-icon-player" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points
               </span>
               <button class="owed-aspects-popup-close" id="playerEsiPointsClose">\u2715</button>
             </div>
@@ -1105,7 +1105,7 @@
           ptsPopup.innerHTML = `
             <div class="owed-aspects-popup-header">
               <span class="owed-aspects-popup-title">
-                <img src="/images/point_icon.png" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points
+                <img src="/images/point_icon.png" data-theme-img-key="point-icon-player" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points
               </span>
               <button class="owed-aspects-popup-close" id="playerEsiPointsClose">\u2715</button>
             </div>
@@ -1119,7 +1119,7 @@
           ptsPopup.innerHTML = `
             <div class="owed-aspects-popup-header">
               <span class="owed-aspects-popup-title">
-                <img src="/images/point_icon.png" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points for ${escapeHtml(name)}
+                <img src="/images/point_icon.png" data-theme-img-key="point-icon-player" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points for ${escapeHtml(name)}
               </span>
               <button class="owed-aspects-popup-close" id="playerEsiPointsClose">\u2715</button>
             </div>
@@ -1147,7 +1147,7 @@
         ptsPopup.innerHTML = `
           <div class="owed-aspects-popup-header">
             <span class="owed-aspects-popup-title">
-              <img src="/images/point_icon.png" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points for ${escapeHtml(playerPointsData.username || name)}
+              <img src="/images/point_icon.png" data-theme-img-key="point-icon-player" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points for ${escapeHtml(playerPointsData.username || name)}
               <span class="owed-aspects-popup-count" style="color:var(--gold-light)">${formatInt(headerPts)} EP</span>
             </span>
             <button class="owed-aspects-popup-close" id="playerEsiPointsClose">\u2715</button>

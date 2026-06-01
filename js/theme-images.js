@@ -12,17 +12,18 @@
    * Example inside a theme CSS file:
    *
    *   [data-theme="purple"] {
-   *     --img-guild-emblem: url('/images/themes/purple/guild_emblem.avif');
-   *     --img-aspect-icon:  url('/images/themes/purple/aspect_icon.avif');
+   *     --img-guild-emblem-navbar: url('/images/themes/purple/guild_emblem_nav.avif');
+   *     --img-guild-emblem-guild:  url('/images/themes/purple/guild_emblem_card.avif');
+   *     --img-aspect-icon:         url('/images/themes/purple/aspect_icon.avif');
+   *     --img-point-icon-player:   url('/images/themes/purple/player_point_icon.png');
    *   }
    *
    * Data-URIs work too (handy for self-contained custom themes):
    *
    *   --img-point-icon: url(data:image/png;base64,...);
    */
-
-  /* CSS variable name  ->  default image path */
-  var VARS = {
+  /* Shared CSS variable name  ->  default image path */
+  var PATH_VARS = {
     '--img-guild-emblem':           '/images/guild_emblem.avif',
     '--img-aspect-icon':            '/images/aspect_icon.avif',
     '--img-point-icon':             '/images/point_icon.png',
@@ -36,10 +37,40 @@
     '--img-medal-sindrian-eagle':   '/images/medals/sindrian_eagle.png',
     '--img-medal-valliance':        '/images/medals/valliance.png',
   };
+  /*
+   * Context-specific image targets selected via data-theme-img-key.
+   * Each key can define a fallback chain of CSS variables.
+   */
+  var KEYED_TARGETS = {
+    'guild-emblem-navbar': {
+      defaultPath: '/images/guild_emblem.avif',
+      vars: ['--img-guild-emblem-navbar', '--img-guild-emblem'],
+    },
+    'guild-emblem-guild': {
+      defaultPath: '/images/guild_emblem.avif',
+      vars: ['--img-guild-emblem-guild', '--img-guild-emblem'],
+    },
+    'aspect-icon-player': {
+      defaultPath: '/images/aspect_icon.avif',
+      vars: ['--img-aspect-icon-player', '--img-aspect-icon'],
+    },
+    'aspect-icon-guild': {
+      defaultPath: '/images/aspect_icon.avif',
+      vars: ['--img-aspect-icon-guild', '--img-aspect-icon'],
+    },
+    'point-icon-player': {
+      defaultPath: '/images/point_icon.png',
+      vars: ['--img-point-icon-player', '--img-point-icon'],
+    },
+    'point-icon-guild': {
+      defaultPath: '/images/point_icon.png',
+      vars: ['--img-point-icon-guild', '--img-point-icon'],
+    },
+  };
 
-  /* Reverse lookup: default path -> CSS variable name */
+  /* Reverse lookup: default path -> any shared CSS variable name */
   var _pathToVar = {};
-  for (var v in VARS) _pathToVar[VARS[v]] = v;
+  for (var v in PATH_VARS) _pathToVar[PATH_VARS[v]] = v;
 
   /* Cache (invalidated on every theme switch) */
   var _cachedTheme = null;
@@ -54,6 +85,20 @@
     return m ? m[2] : '';
   }
 
+  function _isValidReplacementUrl(url) {
+    return !!(url && (url.charAt(0) === '/' || /^https?:/.test(url) || /^data:/.test(url)));
+  }
+
+  function _pickFirstDefinedUrl(style, varNames) {
+    for (var i = 0; i < varNames.length; i++) {
+      var varName = varNames[i];
+      var rawValue = (style.getPropertyValue(varName) || '').trim();
+      var parsed = _parseUrl(rawValue);
+      if (_isValidReplacementUrl(parsed)) return parsed;
+    }
+    return '';
+  }
+
   function _currentTheme() {
     return document.documentElement.getAttribute('data-theme') || '';
   }
@@ -63,17 +108,25 @@
     var current = _currentTheme();
     if (_cachedOverrides !== null && _cachedTheme === current) return _cachedOverrides;
     _cachedTheme = current;
-    _cachedOverrides = {};
+    _cachedOverrides = { byPath: {}, byKey: {} };
     _cachedHasAny = false;
 
     if (!current) return _cachedOverrides;
 
     var s = getComputedStyle(document.documentElement);
-    for (var varName in VARS) {
+    for (var varName in PATH_VARS) {
       var url = _parseUrl((s.getPropertyValue(varName) || '').trim());
-      // Only accept absolute paths, full URLs, or data-URIs
-      if (url && (url.charAt(0) === '/' || /^https?:/.test(url) || /^data:/.test(url))) {
-        _cachedOverrides[VARS[varName]] = url;
+      if (_isValidReplacementUrl(url)) {
+        _cachedOverrides.byPath[PATH_VARS[varName]] = url;
+        _cachedHasAny = true;
+      }
+    }
+
+    for (var key in KEYED_TARGETS) {
+      var cfg = KEYED_TARGETS[key];
+      var keyedUrl = _pickFirstDefinedUrl(s, cfg.vars || []);
+      if (keyedUrl) {
+        _cachedOverrides.byKey[key] = keyedUrl;
         _cachedHasAny = true;
       }
     }
@@ -85,14 +138,30 @@
     _cachedOverrides = null;
     _cachedHasAny = false;
   }
+  function _updateKeyedImg(img, overrides, key) {
+    var cfg = KEYED_TARGETS[key];
+    if (!cfg) return false;
+
+    var src = img.getAttribute('src') || '';
+    var original = img.dataset.themeOriginal || src || cfg.defaultPath;
+    if (!img.dataset.themeOriginal && original) img.dataset.themeOriginal = original;
+
+    var basePath = img.dataset.themeOriginal || cfg.defaultPath;
+    var replacement = overrides.byKey[key] || overrides.byPath[basePath];
+    var target = replacement || basePath;
+    if (target && img.getAttribute('src') !== target) img.src = target;
+    return true;
+  }
 
   /** Update a single <img> element. */
   function _updateImg(img, overrides) {
+    var key = img.dataset.themeImgKey;
+    if (key && _updateKeyedImg(img, overrides, key)) return;
     var src = img.getAttribute('src') || '';
     var original = img.dataset.themeOriginal || src;
     if (!(original in _pathToVar)) return;
     if (!img.dataset.themeOriginal) img.dataset.themeOriginal = original;
-    var replacement = overrides[original];
+    var replacement = overrides.byPath[original];
     var target = replacement || original;
     if (img.getAttribute('src') !== target) img.src = target;
   }
@@ -137,7 +206,8 @@
 
   /* Public API */
   window.ThemeImages = Object.freeze({
-    VARS: VARS,
+    VARS: PATH_VARS,
+    KEYED_TARGETS: KEYED_TARGETS,
     /** Force a full DOM re-scan (called automatically on themechange). */
     applyAll: applyAll,
     /** Drop the internal cache (useful after injecting custom CSS). */

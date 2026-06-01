@@ -197,9 +197,15 @@
 [data-theme="purple"] {
 
   /* Image overrides
-  --img-guild-emblem:           url('/images/themes/purple/guild_emblem.avif');
-  --img-aspect-icon:            url('/images/themes/purple/aspect_icon.avif');
-  --img-point-icon:             url('/images/themes/purple/point_icon.png');
+  --img-guild-emblem-navbar:    url('/images/themes/purple/guild_emblem_navbar.avif');
+  --img-guild-emblem-guild:     url('/images/themes/purple/guild_emblem_guild.avif');
+  --img-guild-emblem:           url('/images/themes/purple/guild_emblem.avif');     // fallback for unkeyed emblem images
+  --img-aspect-icon:            url('/images/themes/purple/aspect_icon.avif');      // shared fallback
+  --img-aspect-icon-player:     url('/images/themes/purple/aspect_icon_player.avif');
+  --img-aspect-icon-guild:      url('/images/themes/purple/aspect_icon_guild.avif');
+  --img-point-icon:             url('/images/themes/purple/point_icon.png');        // shared fallback
+  --img-point-icon-player:      url('/images/themes/purple/point_icon_player.png');
+  --img-point-icon-guild:       url('/images/themes/purple/point_icon_guild.png');
   --img-territory-icon:         url('/images/themes/purple/territory_icon.png');
   --img-medal-allegiance:       url('/images/themes/purple/allegiance.png');
   --img-medal-benevolence:      url('/images/themes/purple/benevolence.png');
