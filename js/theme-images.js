@@ -157,11 +157,10 @@
     var cfg = KEYED_TARGETS[key];
     if (!cfg) return false;
 
-    var src = img.getAttribute('src') || '';
-    var original = img.dataset.themeOriginal || src || cfg.defaultPath;
-    if (!img.dataset.themeOriginal && original) img.dataset.themeOriginal = original;
-
-    var basePath = img.dataset.themeOriginal || cfg.defaultPath;
+    var basePath = cfg.defaultPath || img.dataset.themeOriginal || (img.getAttribute('src') || '');
+    if (basePath && img.dataset.themeOriginal !== basePath) {
+      img.dataset.themeOriginal = basePath;
+    }
     var replacement = overrides.byKey[key] || overrides.byPath[basePath];
     var target = replacement || basePath;
     if (target && img.getAttribute('src') !== target) img.src = target;

@@ -14,6 +14,7 @@ export default function Footer() {
           <div className="site-footer-title">
             <img
               src={emblemSrc}
+              data-theme-original="/images/guild_emblem.avif"
               alt=""
               className="site-footer-emblem"
               aria-hidden="true"

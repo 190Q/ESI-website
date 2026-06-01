@@ -1010,10 +1010,11 @@
       function renderPlayerOwedPopup() {
         const owed = getPlayerOwed();
         const name = p.username;
+        const aspectIconPlayerSrcCurrent = themedKey('aspect-icon-player', '/images/aspect_icon.avif');
         popup.innerHTML = `
           <div class="owed-aspects-popup-header">
             <span class="owed-aspects-popup-title">
-              <img src="${aspectIconPlayerSrc}" data-theme-img-key="aspect-icon-player" alt="aspect" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">Aspects Owed
+              <img src="${aspectIconPlayerSrcCurrent}" data-theme-img-key="aspect-icon-player" alt="aspect" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">Aspects Owed
               <span class="owed-aspects-popup-count" style="color:${owedColor(owed)}">${owed}</span>
             </span>
             <button class="owed-aspects-popup-close" id="playerOwedAspectsClose">✕</button>
@@ -1100,11 +1101,12 @@
 
       function renderPlayerPointsPopup() {
         const name = p.username;
+        const pointIconPlayerSrcCurrent = themedKey('point-icon-player', '/images/point_icon.png');
         if (!playerPointsData) {
           ptsPopup.innerHTML = `
             <div class="owed-aspects-popup-header">
               <span class="owed-aspects-popup-title">
-                <img src="${pointIconPlayerSrc}" data-theme-img-key="point-icon-player" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points
+                <img src="${pointIconPlayerSrcCurrent}" data-theme-img-key="point-icon-player" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points
               </span>
               <button class="owed-aspects-popup-close" id="playerEsiPointsClose">\u2715</button>
             </div>
@@ -1118,7 +1120,7 @@
           ptsPopup.innerHTML = `
             <div class="owed-aspects-popup-header">
               <span class="owed-aspects-popup-title">
-                <img src="${pointIconPlayerSrc}" data-theme-img-key="point-icon-player" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points
+                <img src="${pointIconPlayerSrcCurrent}" data-theme-img-key="point-icon-player" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points
               </span>
               <button class="owed-aspects-popup-close" id="playerEsiPointsClose">\u2715</button>
             </div>
@@ -1132,7 +1134,7 @@
           ptsPopup.innerHTML = `
             <div class="owed-aspects-popup-header">
               <span class="owed-aspects-popup-title">
-                <img src="${pointIconPlayerSrc}" data-theme-img-key="point-icon-player" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points for ${escapeHtml(name)}
+                <img src="${pointIconPlayerSrcCurrent}" data-theme-img-key="point-icon-player" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points for ${escapeHtml(name)}
               </span>
               <button class="owed-aspects-popup-close" id="playerEsiPointsClose">\u2715</button>
             </div>
@@ -1160,7 +1162,7 @@
         ptsPopup.innerHTML = `
           <div class="owed-aspects-popup-header">
             <span class="owed-aspects-popup-title">
-              <img src="${pointIconPlayerSrc}" data-theme-img-key="point-icon-player" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points for ${escapeHtml(playerPointsData.username || name)}
+              <img src="${pointIconPlayerSrcCurrent}" data-theme-img-key="point-icon-player" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points for ${escapeHtml(playerPointsData.username || name)}
               <span class="owed-aspects-popup-count" style="color:var(--gold-light)">${formatInt(headerPts)} EP</span>
             </span>
             <button class="owed-aspects-popup-close" id="playerEsiPointsClose">\u2715</button>

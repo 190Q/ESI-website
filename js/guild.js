@@ -621,7 +621,7 @@
         <div class="owed-label">ESI Points</div>
       </div>
       <div class="owed-card owed-card-clickable" id="territoriesCard">
-        <div class="owed-icon"><img src="${territoryIconSrc}" alt="territory" style="width:32px;height:32px;image-rendering:pixelated"></div>
+        <div class="owed-icon"><img src="${territoryIconSrc}" data-theme-original="/images/territory_icon.png" alt="territory" style="width:32px;height:32px;image-rendering:pixelated"></div>
         <div class="owed-value">${fmt(territories)}</div>
         <div class="owed-label">Territories</div>
       </div>`;
@@ -667,9 +667,10 @@
     function renderOwedPopup() {
       const total = getTotalOwed();
       const players = getOwedPlayers();
+      const aspectIconGuildSrcCurrent = themedKey('aspect-icon-guild', '/images/aspect_icon.avif');
       popup.innerHTML = `
         <div class="owed-aspects-popup-header">
-          <img src="${aspectIconGuildSrc}" data-theme-img-key="aspect-icon-guild" alt="aspect" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">Aspects Owed
+          <img src="${aspectIconGuildSrcCurrent}" data-theme-img-key="aspect-icon-guild" alt="aspect" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">Aspects Owed
             <span class="owed-aspects-popup-count" style="color:${owedColor(total)}">${total}/120</span>
           </span>
           <button class="owed-aspects-popup-close" id="owedAspectsClose">✕</button>
@@ -772,11 +773,12 @@
 
     function renderPointsPopup() {
       const data = window.esiPointsData || {};
+      const pointIconGuildSrcCurrent = themedKey('point-icon-guild', '/images/point_icon.png');
       if (!data.available) {
         pointsPopup.innerHTML = `
           <div class="owed-aspects-popup-header">
             <span class="owed-aspects-popup-title">
-              <img src="${pointIconGuildSrc}" data-theme-img-key="point-icon-guild" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points Leaderboard
+              <img src="${pointIconGuildSrcCurrent}" data-theme-img-key="point-icon-guild" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points Leaderboard
             </span>
             <button class="owed-aspects-popup-close" id="esiPointsClose">\u2715</button>
           </div>
@@ -798,7 +800,7 @@
       pointsPopup.innerHTML = `
         <div class="owed-aspects-popup-header">
           <span class="owed-aspects-popup-title">
-            <img src="${pointIconGuildSrc}" data-theme-img-key="point-icon-guild" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points Leaderboard
+            <img src="${pointIconGuildSrcCurrent}" data-theme-img-key="point-icon-guild" alt="point" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">ESI Points Leaderboard
             <span class="owed-aspects-popup-count" style="color:var(--gold-light)">${formatInt(totalPoints)} EP</span>
           </span>
           <button class="owed-aspects-popup-close" id="esiPointsClose">\u2715</button>
@@ -886,10 +888,11 @@
       const history    = (terrData.history || []).slice().reverse();
       const current    = terrData.territories || {};
       const lastUpdate = terrData.last_update ? fmtTerrTimestamp(terrData.last_update) : 'Unknown';
+      const territoryIconSrcCurrent = themedPath('/images/territory_icon.png');
 
       terrPopup.innerHTML = `
         <div class="owed-aspects-popup-header">
-          <img src="${territoryIconSrc}" alt="territory" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">
+          <img src="${territoryIconSrcCurrent}" data-theme-original="/images/territory_icon.png" alt="territory" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">
           Territories
           <span class="owed-aspects-popup-count" style="color:var(--text-dim);font-size:0.85rem;margin-left:0.4rem">· ${fmt(Object.keys(current).length)} held · updated ${lastUpdate}</span>
           <button class="owed-aspects-popup-close" id="territoriesClose">✕</button>
