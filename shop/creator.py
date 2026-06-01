@@ -683,6 +683,7 @@ def submit_item_request(
     item_id: str | None,
     changes: dict,
     note: str | None = None,
+    actor_name: str | None = None,
 ) -> dict:
     """Submit a request to create a new item or edit an existing one.
 
@@ -750,10 +751,12 @@ def submit_item_request(
     except sqlite3.Error as exc:
         return {"error": f"Database error: {exc}"}
 
+    _resolved_actor = actor_name or _resolve_creator_username(discord_id)
     _log_admin_action(
-        discord_id, "creator_item_request_submitted", item_id or changes.get("name") or req_id,
+        _resolved_actor, "creator_item_request_submitted", item_id or changes.get("name") or req_id,
         {
             "discord_id": discord_id,
+            "username": _resolved_actor,
             "item_id": item_id,
             "item_name": changes.get("name"),
             "request_type": "edit" if item_id else "new",

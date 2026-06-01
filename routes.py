@@ -2738,7 +2738,8 @@ def shop_creator_request_item():
     if not isinstance(changes, dict) or not changes:
         return jsonify({"error": "changes must be a non-empty object"}), 400
     note = (body.get("note") or "").strip()[:200] or None
-    result = _creator_submit_item_request(user.get("id", ""), item_id, changes, note=note)
+    actor = user.get("nick") or user.get("username", "")
+    result = _creator_submit_item_request(user.get("id", ""), item_id, changes, note=note, actor_name=actor)
     return jsonify(result), 200 if result.get("ok") else 400
 
 
