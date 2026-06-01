@@ -6,9 +6,13 @@
   <title>Empire of Sindria dashboard</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico" />
   <script src="/js/theme-config.js"></script>
+  <script src="/js/font-config.js"></script>
   <script>
     if (window.ThemeConfig && typeof window.ThemeConfig.applyInitialTheme === 'function') {
       window.ThemeConfig.applyInitialTheme();
+    }
+    if (window.FontConfig && typeof window.FontConfig.applyInitialFont === 'function') {
+      window.FontConfig.applyInitialFont();
     }
   </script>
   <script src="/js/theme-images.js"></script>

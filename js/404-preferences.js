@@ -41,11 +41,20 @@
       appliedTheme = '';
     }
   }
-
-  var storedFont = _safeGet('font');
-  if (storedFont) document.documentElement.setAttribute('data-font', storedFont);
-  else document.documentElement.removeAttribute('data-font');
+  var appliedFont = null;
+  if (window.FontConfig && typeof window.FontConfig.applyInitialFont === 'function') {
+    appliedFont = window.FontConfig.applyInitialFont();
+  } else {
+    var storedFont = _safeGet('font');
+    if (storedFont) {
+      document.documentElement.setAttribute('data-font', storedFont);
+      appliedFont = storedFont;
+    } else {
+      document.documentElement.removeAttribute('data-font');
+      appliedFont = '';
+    }
+  }
 
   if (appliedTheme === 'custom') _injectCustomCss('theme');
-  if (storedFont === 'custom') _injectCustomCss('font');
+  if (appliedFont === 'custom') _injectCustomCss('font');
 })();

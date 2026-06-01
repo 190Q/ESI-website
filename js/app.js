@@ -2182,13 +2182,41 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   /* settings modal */
   window.Popup.register(settingsBackdrop, { closeBtn: settingsCloseBtn });
+  function _awaitAppearanceCatalogReady() {
+    var waits = [];
+    if (window.ThemeConfig && typeof window.ThemeConfig.whenReady === 'function') {
+      waits.push(window.ThemeConfig.whenReady());
+    }
+    if (window.FontConfig && typeof window.FontConfig.whenReady === 'function') {
+      waits.push(window.FontConfig.whenReady());
+    }
+    if (!waits.length) return Promise.resolve();
+    return Promise.all(waits).catch(function () {});
+  }
 
-  function openSettings() {
+  var _openingSettings = false;
+
+  function _openSettingsNow() {
     _populateSettingsForm();
     _settingsSnapshot = _readFormValues();
     _updateLoginRows();
     _updateSaveBtn();
     window.Popup.open(settingsBackdrop);
+  }
+
+  function openSettings() {
+    if (_openingSettings) return;
+    _openingSettings = true;
+    _awaitAppearanceCatalogReady().then(
+      function () {
+        _openingSettings = false;
+        _openSettingsNow();
+      },
+      function () {
+        _openingSettings = false;
+        _openSettingsNow();
+      }
+    );
   }
   function closeSettings() { window.Popup.close(settingsBackdrop); }
 
@@ -2272,6 +2300,54 @@ fetch('/auth/session', { credentials: 'same-origin' })
     return '';
   }
 
+  function _getFontDefaultOptionLabel() {
+    if (window.FontConfig && typeof window.FontConfig.getDefaultOptionLabel === 'function') {
+      var configured = String(window.FontConfig.getDefaultOptionLabel() || '').trim();
+      if (configured) return configured;
+    }
+    return 'Cinzel & Crimson Pro';
+  }
+
+  function _getBuiltInFontsFromConfig() {
+    if (!window.FontConfig || typeof window.FontConfig.getBuiltInFonts !== 'function') return null;
+    var list = window.FontConfig.getBuiltInFonts();
+    if (!Array.isArray(list)) return [];
+    var unique = {};
+    var fonts = [];
+    for (var i = 0; i < list.length; i++) {
+      var entry = list[i] || {};
+      var value = String(entry.value || '').trim();
+      if (!value || value === 'custom' || unique[value]) continue;
+      unique[value] = true;
+      fonts.push({
+        value: value,
+        label: String(entry.label || value),
+      });
+    }
+    return fonts;
+  }
+
+  function _isKnownFontValue(fontValue, builtIns) {
+    var value = String(fontValue || '').trim();
+    if (!value) return false;
+    if (value === 'custom') return true;
+    var fonts = Array.isArray(builtIns) ? builtIns : [];
+    for (var i = 0; i < fonts.length; i++) {
+      if (fonts[i] && fonts[i].value === value) return true;
+    }
+    return false;
+  }
+
+  function _getFontSelectValueForForm() {
+    if (window.FontConfig && typeof window.FontConfig.resolveFontSelectValue === 'function') {
+      return String(window.FontConfig.resolveFontSelectValue() || '').trim();
+    }
+    var stored = String(localStorage.getItem('font') || '').trim();
+    var builtIns = _getBuiltInFontsFromConfig() || [];
+    if (_isKnownFontValue(stored, builtIns)) return stored;
+    return '';
+  }
+
   function _findSelectOptionByValue(select, value) {
     if (!select) return null;
     for (var i = 0; i < select.options.length; i++) {
@@ -2308,6 +2384,33 @@ fetch('/auth/session', { credentials: 'same-origin' })
     if (customOption) _sTheme.appendChild(customOption);
   }
 
+  function _rebuildFontOptions() {
+    if (!_sFont) return;
+    var builtIns = _getBuiltInFontsFromConfig() || [];
+
+    var options = Array.prototype.slice.call(_sFont.options);
+    options.forEach(function (option) {
+      if (!option) return;
+      if (option.value === 'custom') return;
+      option.remove();
+    });
+
+    var customOption = _findSelectOptionByValue(_sFont, 'custom');
+    var defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = _getFontDefaultOptionLabel();
+    _sFont.appendChild(defaultOption);
+    for (var i = 0; i < builtIns.length; i++) {
+      var font = builtIns[i];
+      if (!font || !font.value) continue;
+      var option = document.createElement('option');
+      option.value = font.value;
+      option.textContent = font.label;
+      _sFont.appendChild(option);
+    }
+    if (customOption) _sFont.appendChild(customOption);
+  }
+
   function _applyToastRowVisibility() {
     if (_sToastRow) {
       _sToastRow.style.display = (_sToastsEnabled && _sToastsEnabled.checked) ? '' : 'none';
@@ -2317,13 +2420,16 @@ fetch('/auth/session', { credentials: 'same-origin' })
   function _populateSettingsForm() {
     var s = _readAllSettings();
     _rebuildThemeOptions();
+    _rebuildFontOptions();
     _syncCustomOption('theme');
     _syncCustomOption('font');
     var themeSelectValue = _getThemeSelectValueForForm();
+    var fontSelectValue = _getFontSelectValueForForm();
     _sTheme.value = themeSelectValue;
     if (_sTheme.value !== themeSelectValue) _sTheme.value = '';
     if (!_sTheme.value) _sTheme.selectedIndex = 0;
-    _sFont.value     = localStorage.getItem('font') || '';
+    _sFont.value = fontSelectValue;
+    if (_sFont.value !== fontSelectValue) _sFont.value = '';
     if (!_sFont.value) _sFont.selectedIndex = 0;
     _sMetric.value   = s.defaultGraphMetric || 'playtime';
     _sRange.value    = s.defaultGraphRange  || 30;

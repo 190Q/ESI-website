@@ -48,8 +48,6 @@ export default function SettingsModal() {
               <div className="settings-row-control">
                 <select className="settings-select" id="settingFont" aria-label="Font">
                   <option value="">Cinzel &amp; Crimson Pro</option>
-                  <option value="inter">Inter</option>
-                  <option value="minecraft">Minecraft</option>
                 </select>
               </div>
             </div>

@@ -594,6 +594,96 @@ def _fetch_staff_roles():
         print(f"[STAFF] Failed to fetch staff roles: {exc}", file=sys.stderr)
         return cached["data"] or []
 
+_APPEARANCE_CACHE = {"data": None, "ts": 0}
+_APPEARANCE_CACHE_TTL = 60
+_THEME_SELECTOR_RE = _re.compile(r"(?:html\s*)?\[\s*data-theme\s*=\s*[\"']([^\"']+)[\"']\s*\]", _re.IGNORECASE)
+_FONT_SELECTOR_RE = _re.compile(r"(?:html\s*)?\[\s*data-font\s*=\s*[\"']([^\"']+)[\"']\s*\]", _re.IGNORECASE)
+
+
+def _slug_to_label(slug):
+    text = str(slug or "").strip().replace("_", " ").replace("-", " ")
+    if not text:
+        return ""
+    return " ".join(part[:1].upper() + part[1:] for part in text.split())
+
+
+def _extract_selector_value(css_path, selector_re):
+    try:
+        with open(css_path, "r", encoding="utf-8", errors="ignore") as fh:
+            css = fh.read()
+    except OSError:
+        return ""
+    match = selector_re.search(css)
+    if not match:
+        return ""
+    return str(match.group(1) or "").strip()
+
+
+def _build_catalog_from_directory(directory_path, url_prefix, selector_re):
+    items = []
+    seen_values = set()
+    if not os.path.isdir(directory_path):
+        return items
+
+    for filename in sorted(os.listdir(directory_path)):
+        if not filename.lower().endswith(".css"):
+            continue
+        file_path = os.path.join(directory_path, filename)
+        if not os.path.isfile(file_path):
+            continue
+
+        selector_value = _extract_selector_value(file_path, selector_re)
+        value = selector_value or os.path.splitext(filename)[0]
+        value = str(value or "").strip()
+        if not value or value.lower() == "custom":
+            continue
+        if value in seen_values:
+            continue
+
+        label = _slug_to_label(value) or value
+        items.append({
+            "value": value,
+            "label": label,
+            "stylesheet": f"{url_prefix}/{filename}",
+        })
+        seen_values.add(value)
+    return items
+
+
+def _build_appearance_catalog():
+    themes = _build_catalog_from_directory(
+        os.path.join(_BASE_DIR, "css", "themes"),
+        "/css/themes",
+        _THEME_SELECTOR_RE,
+    )
+    fonts = _build_catalog_from_directory(
+        os.path.join(_BASE_DIR, "css", "fonts"),
+        "/css/fonts",
+        _FONT_SELECTOR_RE,
+    )
+    return {
+        "themes": themes,
+        "fonts": fonts,
+        "themeDefaultOptionLabel": "Default",
+        "fontDefaultOptionLabel": "Cinzel & Crimson Pro",
+    }
+
+
+def _get_appearance_catalog():
+    now = time()
+    cached = _APPEARANCE_CACHE
+    if cached["data"] is not None and now - cached["ts"] < _APPEARANCE_CACHE_TTL:
+        return cached["data"]
+    data = _build_appearance_catalog()
+    cached["data"] = data
+    cached["ts"] = now
+    return data
+
+
+@app.route("/api/appearance-catalog")
+def appearance_catalog():
+    return jsonify(_get_appearance_catalog())
+
 
 # public config endpoint
 

@@ -4,8 +4,6 @@ import App from './App'
 
 // Import all CSS (Vite bundles these into a single file)
 import '../../css/fonts.css'
-import '../../css/fonts/inter.css'
-import '../../css/fonts/minecraft.css'
 import '../../css/themes.css'
 import '../../css/base.css'
 import '../../css/popup.css'
@@ -22,8 +20,12 @@ import '../../css/creator-studio.css'
 import '../../css/auth-gate.css'
 
 const themeConfig = (typeof window !== 'undefined' && window.ThemeConfig) ? window.ThemeConfig : null;
+const fontConfig = (typeof window !== 'undefined' && window.FontConfig) ? window.FontConfig : null;
 if (themeConfig && typeof themeConfig.ensureBuiltInThemeStylesLoaded === 'function') {
   themeConfig.ensureBuiltInThemeStylesLoaded();
+}
+if (fontConfig && typeof fontConfig.ensureBuiltInFontStylesLoaded === 'function') {
+  fontConfig.ensureBuiltInFontStylesLoaded();
 }
 
 function resolveBaseThemeName() {
@@ -56,14 +58,45 @@ function resolveThemeFromStorageOrDefault() {
   return resolveBaseThemeName();
 }
 
+function resolveBaseFontName() {
+  if (fontConfig && typeof fontConfig.getBaseFont === 'function') {
+    return fontConfig.getBaseFont() || '';
+  }
+  return '';
+}
+
+function isKnownFontValue(rawValue) {
+  const value = (rawValue || '').trim();
+  if (!value) return false;
+  if (value === 'custom') return true;
+  if (!fontConfig || typeof fontConfig.getBuiltInFonts !== 'function') return true;
+  const builtIns = fontConfig.getBuiltInFonts();
+  if (!Array.isArray(builtIns)) return false;
+  for (let i = 0; i < builtIns.length; i++) {
+    const entry = builtIns[i] || {};
+    if ((entry.value || '').trim() === value) return true;
+  }
+  return false;
+}
+
+function resolveFontFromStorageOrDefault() {
+  if (fontConfig && typeof fontConfig.resolveFontFromStorageOrDefault === 'function') {
+    return fontConfig.resolveFontFromStorageOrDefault() || '';
+  }
+  const saved = (localStorage.getItem('font') || '').trim();
+  if (isKnownFontValue(saved)) return saved;
+  return resolveBaseFontName();
+}
+
 // Theme switcher (call setTheme('name') in the DevTools console)
 const initialTheme = resolveThemeFromStorageOrDefault();
 if (initialTheme) document.documentElement.setAttribute('data-theme', initialTheme);
 else document.documentElement.removeAttribute('data-theme');
 
 // Font switcher (call setFont('name') in the DevTools console)
-const savedFont = localStorage.getItem('font');
+const savedFont = resolveFontFromStorageOrDefault();
 if (savedFont) document.documentElement.setAttribute('data-font', savedFont);
+else document.documentElement.removeAttribute('data-font');
 
 // Custom CSS injection (stored in localStorage, never sent to server)
 window._injectCustomCSS = (type) => {
@@ -121,19 +154,25 @@ window.setTheme = (name) => {
 };
 
 window.setFont = (name) => {
-  const prev = document.documentElement.getAttribute('data-font');
+  const prev = document.documentElement.getAttribute('data-font') || '';
   if (name === undefined || name === null) return `Current font: ${prev || 'default'}`;
-  if (name) {
-    document.documentElement.setAttribute('data-font', name);
-    localStorage.setItem('font', name);
-  } else {
-    document.documentElement.removeAttribute('data-font');
+  const nextRequested = (name || '').trim();
+  if (!nextRequested) {
     localStorage.removeItem('font');
+  } else {
+    localStorage.setItem('font', nextRequested);
   }
-  if (name === 'custom') window._injectCustomCSS('font');
+  const resolvedDefault = resolveFontFromStorageOrDefault();
+  if (resolvedDefault) document.documentElement.setAttribute('data-font', resolvedDefault);
+  else document.documentElement.removeAttribute('data-font');
+  const current = document.documentElement.getAttribute('data-font') || '';
+  if (current === 'custom') window._injectCustomCSS('font');
   else window._removeCustomCSS('font');
-  if (name === prev) return `Font already set to '${name || 'default'}'`;
-  return `Font changed: '${prev || 'default'}' → '${name || 'default'}'`;
+  if (window.FontConfig && typeof window.FontConfig.ensureBuiltInFontStylesLoaded === 'function') {
+    window.FontConfig.ensureBuiltInFontStylesLoaded();
+  }
+  if (current === prev) return `Font already set to '${current || 'default'}'`;
+  return `Font changed: '${prev || 'default'}' → '${current || 'default'}'`;
 };
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />)
