@@ -49,6 +49,7 @@ export default function SettingsModal() {
                 <select className="settings-select" id="settingFont" aria-label="Font">
                   <option value="">Cinzel &amp; Crimson Pro</option>
                   <option value="inter">Inter</option>
+                  <option value="minecraft">Minecraft</option>
                 </select>
               </div>
             </div>
@@ -56,7 +57,7 @@ export default function SettingsModal() {
             <div className="settings-add-custom-wrap">
               <button type="button" className="settings-add-custom" id="addCustomFontBtn">+ Add Custom</button>
               <button type="button" className="settings-add-custom-x" id="removeCustomFontBtn" style={{ display: 'none' }}>{"\u00d7"}</button>
-              <input type="file" id="customFontFileInput" accept=".css" style={{ display: 'none' }} />
+              <input type="file" id="customFontFileInput" accept=".css,.zip" style={{ display: 'none' }} />
             </div>
           </div>
 

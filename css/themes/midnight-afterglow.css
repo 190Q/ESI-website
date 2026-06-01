@@ -1,0 +1,147 @@
+html[data-theme="midnight-afterglow"] {
+    --gold:            #EBC17A;
+    --gold-light:      #F0CE9B;
+    --gold-dim:        #D6A76A;
+    --gold-muted:      #C9975E;
+    --gold-rgb:        235, 193, 122;
+    --gold-light-rgb:  240, 206, 155;
+    --gold-glow:       rgba(235, 193, 122, 0.25);
+
+    --green-dark:      #272a33;
+    --green-mid:       #292e38;
+    --green-deep:      #1e2128;
+    --green-mid-rgb:   41, 46, 56;
+    --green-deep-rgb:  30, 33, 40;
+
+    --parchment:       #23262e;
+    --parchment-rgb:   35, 38, 46;
+    --surface:         #272a33;
+    --surface-2:       #292e38;
+    --surface-3:       #353a44;
+    --navbar-bg-mid:   #21242c;
+    --graph-bg:        #24272f;
+    --tooltip-bg-rgb:  39, 42, 51;
+
+    --text-main:       #D7E2EF;
+    --text-dim:        #8093af;
+    --text-faint:      #737d96;
+    --text-muted-warm: #a0aec0;
+
+    --border:          rgba(235, 193, 122, 0.16);
+    --border-mid:      rgba(235, 193, 122, 0.32);
+
+    --graph-axis:           #3c4855;
+    --graph-series-2:       #D6A76A;
+    --graph-series-2-rgb:   214, 167, 106;
+    --graph-series-2-point: #EBC17A;
+    --graph-avg:            #C9975E;
+    --maintenance-text:     #1e2128;
+
+    --online:           #909D63;
+    --online-light:     #A8B57A;
+    --online-rgb:       144, 157, 99;
+    --online-pale:      #C4CE9E;
+    --online-very-light:#DDE3C5;
+    --online-muted:     #7A8655;
+    --online-light-rgb: 168, 181, 122;
+    --success:          #909D63;
+    --success-rgb:      144, 157, 99;
+
+    --warn:             #EBC17A;
+    --warn-rgb:         235, 193, 122;
+    --amber:            #D6A76A;
+    --amber-rgb:        214, 167, 106;
+    --orange:           #C9975E;
+
+    --danger:           #BC5653;
+    --danger-dark:      #7a3230;
+    --danger-mid:       #C96A67;
+    --danger-light:     #D99290;
+    --danger-rgb:       188, 86, 83;
+    --danger-mid-rgb:   201, 106, 103;
+    --red:              #BC5653;
+    --red-rgb:          188, 86, 83;
+    --red-dark:         #7a3230;
+    --red-dark-rgb:     122, 50, 48;
+
+    --discord:          #3d8bbb;
+    --discord-hover:    #2f7aaa;
+    --discord-light:    #5fa3cc;
+    --discord-muted:    #6A8799;
+    --discord-lavender: #B06698;
+    --discord-pale:     #c4d8e4;
+    --discord-rgb:      61, 139, 187;
+
+    --blue:             #3d8bbb;
+    --blue-rgb:         61, 139, 187;
+
+    --top1:             #EBC17A;
+    --top1-rgb:         235, 193, 122;
+    --top2:             #8093af;
+    --top3:             #C9975E;
+
+    --guild-owner:            #F0CE9B;
+    --guild-owner-light:      #F5DDB8;
+    --guild-owner-rgb:        240, 206, 155;
+    --guild-chief:            #EBC17A;
+    --guild-chief-light:      #F0CE9B;
+    --guild-chief-rgb:        235, 193, 122;
+    --guild-strategist:       #D6A76A;
+    --guild-strategist-light: #E0BA88;
+    --guild-strategist-rgb:   214, 167, 106;
+    --guild-captain:          #3d8bbb;
+    --guild-captain-light:    #5fa3cc;
+    --guild-captain-rgb:      61, 139, 187;
+    --guild-recruiter:        #B06698;
+    --guild-recruiter-light:  #C484B0;
+    --guild-recruiter-rgb:    176, 102, 152;
+    --guild-recruit:          #737d96;
+    --guild-recruit-light:    #8093af;
+    --guild-recruit-rgb:      115, 125, 150;
+
+    --rank-emperor:       #F0CE9B;
+    --rank-archduke:      #EBC17A;
+    --rank-grand-duke:    #D6A76A;
+    --rank-duke:          #C9975E;
+    --rank-count:         #BC8752;
+    --rank-viscount:      #909D63;
+    --rank-knight:        #3d8bbb;
+    --rank-squire:        #737d96;
+
+    --echelon-valaendor:      #D6A76A;
+    --echelon-parliament:     #EBC17A;
+    --echelon-congress:       #3d8bbb;
+    --echelon-juror:          #B06698;
+    --echelon-sindrian-pride: #BC5653;
+
+    --badge-bar:        #D6A76A;
+    --badge-tier-text:  #EBC17A;
+    --badge-info:       #C9975E;
+
+    --citizen-pill:     #EBC17A;
+
+    --stats-bar:        #D6A76A;
+
+    --ironman:          #6A8799;
+    --ironman-light:    #8093af;
+    --ironman-rgb:      106, 135, 153;
+
+    --offline-border:   #3c4855;
+    --offline-text:     #737d96;
+    --offline-rgb:      60, 72, 85;
+
+    --vc-text:          #EBC17A;
+    --vc-text-light:    #F0CE9B;
+    --vc-rgb:           61, 80, 40;
+    --vc-border-rgb:    144, 157, 99;
+    --vc-text-light-rgb:240, 206, 155;
+    --vc-focus-rgb:     235, 193, 122;
+
+    --alert-note:       #3d8bbb;
+    --alert-tip:        #909D63;
+    --alert-important:  #B06698;
+    --alert-warning:    #EBC17A;
+    --alert-caution:    #BC5653;
+
+    --banner-bg-rgb:    35, 38, 46;
+}

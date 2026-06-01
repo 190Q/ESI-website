@@ -1,0 +1,36 @@
+/* Font Pack: Minecraft (Monocraft) */
+
+@font-face {
+  font-family: 'Monocraft';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/public/fonts/Monocraft-Regular.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Monocraft';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/public/fonts/Monocraft-Bold.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Monocraft';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/public/fonts/Monocraft-Italic.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Monocraft';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/public/fonts/Monocraft-Bold-Italic.ttf') format('truetype');
+}
+
+[data-font="minecraft"] {
+  --font-display: 'Monocraft', monospace;
+  --font-heading: 'Monocraft', monospace;
+  --font-body:    'Monocraft', monospace;
+}

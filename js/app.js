@@ -2459,7 +2459,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
   }
 
   // Handle file upload for custom theme/font
-  function _handleCustomFile(type, file, companionImages) {
+  function _handleCustomFile(type, file, companionAssets) {
     if (!file) return;
     if (!file.name.endsWith('.css')) {
       showToast('\u26a0 Please select a .css file.', 'warn');
@@ -2506,7 +2506,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
       var customSel = type === 'theme' ? '[data-theme="custom"]' : '[data-font="custom"]';
       cssText = cssText.replace(selectorRe, customSel);
 
-      // Inline companion images: replace relative url() refs with data-URIs
+      // Inline companion assets: replace relative url() refs with data-URIs
       function _applyAndFinish(finalCss) {
         localStorage.setItem('esi_custom_' + type + '_css', finalCss);
         localStorage.setItem('esi_custom_' + type + '_name', displayName);
@@ -2529,12 +2529,15 @@ fetch('/auth/session', { credentials: 'same-origin' })
         _allRelRefs.push(_m[2].replace(/^\.\//, '').toLowerCase());
       }
 
-      if (!companionImages || !companionImages.length) {
+      if (!companionAssets || !companionAssets.length) {
         if (_allRelRefs.length) {
           // CSS references local files but none were uploaded alongside it —
           // re-open the picker so the user can add them
-          showToast('\u26a0 Your theme references image files (e.g. ' + _allRelRefs[0] + '). Please select the CSS and its images together.', 'warn');
-          _customThemeFile.click();
+          var _assetType = type === 'font' ? 'font files' : 'images';
+          var _extraHint = type === 'font' ? ', or upload a .zip.' : '.';
+          showToast('\u26a0 Your custom CSS references local files (e.g. ' + _allRelRefs[0] + '). Please select the CSS and its ' + _assetType + ' together' + _extraHint, 'warn');
+          if (type === 'font') _customFontFile.click();
+          else _customThemeFile.click();
           return;
         }
         _applyAndFinish(cssText);
@@ -2542,8 +2545,8 @@ fetch('/auth/session', { credentials: 'same-origin' })
       }
 
       // Build a filename
-      var imgByName = {};
-      companionImages.forEach(function (f) { imgByName[f.name.toLowerCase()] = f; });
+      var assetByName = {};
+      companionAssets.forEach(function (f) { assetByName[f.name.toLowerCase()] = f; });
 
       // Match relative refs to uploaded files
       var urlRe = /url\(\s*(['"]?)(?!(?:https?:|data:|\/))([^)'"]+)\1\s*\)/g;
@@ -2551,13 +2554,13 @@ fetch('/auth/session', { credentials: 'same-origin' })
       var m;
       while ((m = urlRe.exec(cssText)) !== null) {
         var refName = m[2].replace(/^\.\//, '').toLowerCase();
-        if (imgByName[refName]) matches.push({ full: m[0], quote: m[1], ref: m[2], name: refName });
+        if (assetByName[refName]) matches.push({ full: m[0], quote: m[1], ref: m[2], name: refName });
       }
 
       // Warn about refs that didn't match any uploaded file
-      var unresolved = _allRelRefs.filter(function (r) { return !imgByName[r]; });
+      var unresolved = _allRelRefs.filter(function (r) { return !assetByName[r]; });
       if (unresolved.length) {
-        showToast('\u26a0 Could not find: ' + unresolved.join(', ') + '. Those images won\u2019t be replaced.', 'warn');
+        showToast('\u26a0 Could not find: ' + unresolved.join(', ') + '. Those files won\u2019t be replaced.', 'warn');
       }
 
       if (!matches.length) {
@@ -2565,12 +2568,12 @@ fetch('/auth/session', { credentials: 'same-origin' })
         return;
       }
 
-      // Read each matched image as a data-URI, then replace in the CSS
+      // Read each matched asset as a data-URI, then replace in the CSS
       var pending = matches.length;
       var replacements = {};
       matches.forEach(function (entry) {
-        var imgReader = new FileReader();
-        imgReader.onload = function (ev) {
+        var assetReader = new FileReader();
+        assetReader.onload = function (ev) {
           replacements[entry.full] = 'url(' + ev.target.result + ')';
           if (--pending === 0) {
             var final = cssText;
@@ -2578,14 +2581,14 @@ fetch('/auth/session', { credentials: 'same-origin' })
             _applyAndFinish(final);
           }
         };
-        imgReader.onerror = function () {
+        assetReader.onerror = function () {
           if (--pending === 0) {
             var final = cssText;
             for (var original in replacements) final = final.split(original).join(replacements[original]);
             _applyAndFinish(final);
           }
         };
-        imgReader.readAsDataURL(imgByName[entry.name]);
+        assetReader.readAsDataURL(assetByName[entry.name]);
       });
     };
     reader.readAsText(file);
@@ -2653,6 +2656,60 @@ fetch('/auth/session', { credentials: 'same-origin' })
     reader.readAsArrayBuffer(zipFile);
   }
 
+  // Extract CSS + font assets from a .zip and pass them to _handleCustomFile
+  function _handleZipFont(zipFile) {
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      JSZip.loadAsync(e.target.result).then(function (zip) {
+        var cssEntry = null;
+        var assetEntries = [];
+        zip.forEach(function (path, entry) {
+          if (entry.dir) return;
+          var name = path.split('/').pop().toLowerCase();
+          if (name.endsWith('.css')) {
+            if (!cssEntry) cssEntry = entry;
+            return;
+          }
+          assetEntries.push(entry);
+        });
+        if (!cssEntry) {
+          showToast('\u26a0 No .css file found inside the zip.', 'warn');
+          return;
+        }
+        // Read the CSS as text
+        cssEntry.async('string').then(function (cssText) {
+          if (!assetEntries.length) {
+            // Synthesize a File for the CSS so _handleCustomFile can use file.name
+            var cssBlob = new File([cssText], cssEntry.name.split('/').pop(), { type: 'text/css' });
+            _handleCustomFile('font', cssBlob, []);
+            return;
+          }
+          // Read all assets as blobs, convert to Files
+          var pending = assetEntries.length;
+          var assetFiles = [];
+          assetEntries.forEach(function (asset) {
+            asset.async('blob').then(function (blob) {
+              var assetName = asset.name.split('/').pop();
+              assetFiles.push(new File([blob], assetName, { type: blob.type || 'application/octet-stream' }));
+              if (--pending === 0) {
+                var cssBlob = new File([cssText], cssEntry.name.split('/').pop(), { type: 'text/css' });
+                _handleCustomFile('font', cssBlob, assetFiles);
+              }
+            }).catch(function () {
+              if (--pending === 0) {
+                var cssBlob = new File([cssText], cssEntry.name.split('/').pop(), { type: 'text/css' });
+                _handleCustomFile('font', cssBlob, assetFiles);
+              }
+            });
+          });
+        });
+      }).catch(function () {
+        showToast('\u26a0 Could not read the zip file.', 'warn');
+      });
+    };
+    reader.readAsArrayBuffer(zipFile);
+  }
+
   // Wire up add-custom buttons
   _addCustomThemeBtn.addEventListener('click', function () { _customThemeFile.click(); });
   _customThemeFile.addEventListener('change', function () {
@@ -2673,7 +2730,14 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   _addCustomFontBtn.addEventListener('click', function () { _customFontFile.click(); });
   _customFontFile.addEventListener('change', function () {
-    _handleCustomFile('font', this.files[0]);
+    var files = Array.prototype.slice.call(this.files || []);
+    var zipFile = files.find(function (f) { return f.name.toLowerCase().endsWith('.zip'); });
+    if (zipFile) {
+      _handleZipFont(zipFile);
+      this.value = '';
+      return;
+    }
+    _handleCustomFile('font', files[0], files.slice(1));
     this.value = '';
   });
   _removeCustomFontBtn.addEventListener('click', function () { _removeCustomFile('font'); });

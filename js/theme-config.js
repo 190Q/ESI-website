@@ -9,6 +9,8 @@
    */
   var BUILT_IN_THEMES = [
     { value: 'purple', label: 'Purple', stylesheet: '/css/themes/purple.css' },
+    { value: 'midnight-afterglow', label: 'Midnight Afterglow', stylesheet: '/css/themes/midnight-afterglow.css' },
+    { value: 'catppuccin', label: 'Catppuccin', stylesheet: '/css/themes/catppuccin.css' },
   ];
 
   /*

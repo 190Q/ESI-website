@@ -4,6 +4,8 @@ import App from './App'
 
 // Import all CSS (Vite bundles these into a single file)
 import '../../css/fonts.css'
+import '../../css/fonts/inter.css'
+import '../../css/fonts/minecraft.css'
 import '../../css/themes.css'
 import '../../css/base.css'
 import '../../css/popup.css'
