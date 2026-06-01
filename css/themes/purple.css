@@ -1,0 +1,175 @@
+[data-theme="purple"] {
+
+  /* Image overrides */
+  --img-guild-emblem:           url('/images/themes/purple/guild_emblem.avif');
+  --img-aspect-icon:            url('/images/themes/purple/aspect_icon.avif');
+  --img-point-icon:             url('/images/themes/purple/point_icon.png');
+  --img-territory-icon:         url('/images/themes/purple/territory_icon.png');
+
+  /* Gold / Purple accents */
+  --gold:            #A855F7;
+  --gold-light:      #C084FC;
+  --gold-dim:        #9333EA;
+  --gold-muted:      #A78BFA;
+  --gold-rgb:        168, 85, 247;
+  --gold-light-rgb:  192, 132, 252;
+  --gold-glow:       rgba(168, 85, 247, 0.25);
+
+  /* Surfaces: near-black with faint purple */
+  --green-dark:      #0D0A14;
+  --green-mid:       #1A1228;
+  --green-deep:      #060410;
+  --green-mid-rgb:   26, 18, 40;
+  --green-deep-rgb:  6, 4, 16;
+
+  --parchment:       #070510;
+  --parchment-rgb:   7, 5, 16;
+  --surface:         #0C0A16;
+  --surface-2:       #13101E;
+  --surface-3:       #1C1830;
+  --navbar-bg-mid:   #080614;
+  --graph-bg:        #0A0812;
+  --tooltip-bg-rgb:  8, 6, 14;
+
+  /* Text */
+  --text-main:       #D8D0E8;
+  --text-dim:        #8878A8;
+  --text-faint:      #6B5A88;
+  --text-muted-warm: #B8A8D0;
+
+  /* Borders */
+  --border:          rgba(168, 85, 247, 0.16);
+  --border-mid:      rgba(168, 85, 247, 0.32);
+
+  /* Graph */
+  --graph-axis:           #4A3A60;
+  --graph-series-2:       #C084FC;
+  --graph-series-2-rgb:   192, 132, 252;
+  --graph-series-2-point: #D8B4FE;
+  --graph-avg:            #7C3AED;
+  --maintenance-text: #060410;
+
+  /* Status: Online / Success = indigo-violet */
+  --online:           #818CF8;
+  --online-light:     #A5B4FC;
+  --online-rgb:       129, 140, 248;
+  --online-pale:      #C7D2FE;
+  --online-very-light:#E0E7FF;
+  --online-muted:     #93A0D8;
+  --online-light-rgb: 165, 180, 252;
+  --success:          #7C83F2;
+  --success-rgb:      124, 131, 242;
+
+  /* Status: Warning = warm lavender */
+  --warn:             #D8B4FE;
+  --warn-rgb:         216, 180, 254;
+  --amber:            #C49CED;
+  --amber-rgb:        196, 156, 237;
+  --orange:           #B07ADA;
+
+  /* Status: Danger = magenta-pink */
+  --danger:           #F472B6;
+  --danger-dark:      #BE185D;
+  --danger-mid:       #EC4899;
+  --danger-light:     #F9A8D4;
+  --danger-rgb:       244, 114, 182;
+  --danger-mid-rgb:   236, 72, 153;
+  --red:              #E84593;
+  --red-rgb:          232, 69, 147;
+  --red-dark:         #9D174D;
+  --red-dark-rgb:     157, 23, 77;
+
+  /* Discord = deep violet */
+  --discord:          #7C3AED;
+  --discord-hover:    #6D28D9;
+  --discord-light:    #8B5CF6;
+  --discord-muted:    #9D7AE8;
+  --discord-lavender: #BDA8F0;
+  --discord-pale:     #D6CCF5;
+  --discord-rgb:      124, 58, 237;
+
+  /* Blue = periwinkle */
+  --blue:             #6366F1;
+  --blue-rgb:         99, 102, 241;
+
+  /* Leaderboard Podium */
+  --top1:             #E9D5FF;
+  --top1-rgb:         233, 213, 255;
+  --top2:             #B8B0C8;
+  --top3:             #8B6D8E;
+
+  /* Guild Ranks */
+  --guild-owner:            #E2BBFF;
+  --guild-owner-light:      #EEDAFF;
+  --guild-owner-rgb:        226, 187, 255;
+  --guild-chief:            #D946EF;
+  --guild-chief-light:      #E879F7;
+  --guild-chief-rgb:        217, 70, 239;
+  --guild-strategist:       #A45DCC;
+  --guild-strategist-light: #C48DE2;
+  --guild-strategist-rgb:   164, 93, 204;
+  --guild-captain:          #7B68EE;
+  --guild-captain-light:    #9B8CFE;
+  --guild-captain-rgb:      123, 104, 238;
+  --guild-recruiter:        #B07ADA;
+  --guild-recruiter-light:  #C99EEB;
+  --guild-recruiter-rgb:    176, 122, 218;
+  --guild-recruit:          #736B84;
+  --guild-recruit-light:    #8F87A0;
+  --guild-recruit-rgb:      115, 107, 132;
+
+  /* Account modal: Rank tree */
+  --rank-emperor:       #E2BBFF;
+  --rank-archduke:      #D8B4FE;
+  --rank-grand-duke:    #C084FC;
+  --rank-duke:          #A78BFA;
+  --rank-count:         #9B8CFE;
+  --rank-viscount:      #818CF8;
+  --rank-knight:        #B07ADA;
+  --rank-squire:        #8F87A0;
+
+  /* Account modal: Echelon roles */
+  --echelon-valaendor:      #9F6CE8;
+  --echelon-parliament:     #C9B8E8;
+  --echelon-congress:       #818CF8;
+  --echelon-juror:          #D4A8F0;
+  --echelon-sindrian-pride: #EA5EA8;
+
+  /* Account modal: Badge progress */
+  --badge-bar:        #9F6CE8;
+  --badge-tier-text:  #C084FC;
+  --badge-info:       #A78BFA;
+
+  /* Account modal: Citizen pill */
+  --citizen-pill:     #A78BFA;
+
+  /* Statistics charts */
+  --stats-bar:        #9F6CE8;
+
+  /* Ironman badge */
+  --ironman:          #B294E8;
+  --ironman-light:    #D1C4F0;
+  --ironman-rgb:      178, 148, 232;
+
+  /* Offline */
+  --offline-border:   #4A3A60;
+  --offline-text:     #6E6088;
+  --offline-rgb:      62, 48, 78;
+
+  /* Voice Channel */
+  --vc-text:          #D4A8F0;
+  --vc-text-light:    #E6D0F8;
+  --vc-rgb:           82, 30, 128;
+  --vc-border-rgb:    138, 58, 220;
+  --vc-text-light-rgb:230, 208, 248;
+  --vc-focus-rgb:     212, 168, 240;
+
+  /* Markdown Alerts */
+  --alert-note:       #7B82F0;
+  --alert-tip:        #A088E0;
+  --alert-important:  #D4B8F6;
+  --alert-warning:    #BE8CE8;
+  --alert-caution:    #EA5EA8;
+
+  --banner-bg-rgb:   10, 8, 18;
+}

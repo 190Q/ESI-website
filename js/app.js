@@ -206,6 +206,7 @@
         rolesEl.appendChild(row);
       });
     }
+
   }
 
 
@@ -2222,6 +2223,140 @@ fetch('/auth/session', { credentials: 'same-origin' })
   var _addCustomFontBtn    = document.getElementById('addCustomFontBtn');
   var _removeCustomFontBtn = document.getElementById('removeCustomFontBtn');
   var _customFontFile      = document.getElementById('customFontFileInput');
+  function _getThemeSelectValues() {
+    if (window.ThemeConfig && typeof window.ThemeConfig.getThemeSelectValues === 'function') {
+      var configured = window.ThemeConfig.getThemeSelectValues() || {};
+      return {
+        baseDefault: String(configured.BASE_DEFAULT || '__base_default__'),
+        seasonalDefault: String(configured.SEASONAL_DEFAULT || '__seasonal_default__'),
+      };
+    }
+    return {
+      baseDefault: '__base_default__',
+      seasonalDefault: '__seasonal_default__',
+    };
+  }
+  function _getThemeDefaultOptionLabel() {
+    if (window.ThemeConfig && typeof window.ThemeConfig.getDefaultOptionLabel === 'function') {
+      var configured = String(window.ThemeConfig.getDefaultOptionLabel() || '').trim();
+      if (configured) return configured;
+    }
+    return 'Default';
+  }
+
+  function _getBaseDefaultOptionLabel() {
+    if (window.ThemeConfig && typeof window.ThemeConfig.getBaseDefaultOptionLabel === 'function') {
+      var configured = String(window.ThemeConfig.getBaseDefaultOptionLabel() || '').trim();
+      if (configured) return configured;
+    }
+    return 'Real Default';
+  }
+
+  function _getBuiltInThemesFromConfig() {
+    if (!window.ThemeConfig || typeof window.ThemeConfig.getBuiltInThemes !== 'function') return null;
+    var list = window.ThemeConfig.getBuiltInThemes();
+    if (!Array.isArray(list)) return [];
+    var unique = {};
+    var themes = [];
+    for (var i = 0; i < list.length; i++) {
+      var entry = list[i] || {};
+      var value = String(entry.value || '').trim();
+      if (!value || value === 'custom' || unique[value]) continue;
+      unique[value] = true;
+      themes.push({
+        value: value,
+        label: String(entry.label || value),
+      });
+    }
+    return themes;
+  }
+
+  function _getActiveSeasonalThemeValue() {
+    if (window.ThemeConfig && typeof window.ThemeConfig.getActiveSeasonalTheme === 'function') {
+      return String(window.ThemeConfig.getActiveSeasonalTheme(new Date()) || '').trim();
+    }
+    return '';
+  }
+
+  function _getSeasonalOptionLabel(activeSeasonalTheme, builtIns) {
+    if (!activeSeasonalTheme) return '';
+    if (window.ThemeConfig && typeof window.ThemeConfig.getSeasonalOptionLabel === 'function') {
+      var configured = String(window.ThemeConfig.getSeasonalOptionLabel(new Date()) || '').trim();
+      if (configured) return configured;
+    }
+    var themes = Array.isArray(builtIns) ? builtIns : [];
+    for (var i = 0; i < themes.length; i++) {
+      if (themes[i] && themes[i].value === activeSeasonalTheme) {
+        return String(themes[i].label || activeSeasonalTheme);
+      }
+    }
+    return activeSeasonalTheme;
+  }
+
+  function _getThemeSelectValueForForm() {
+    if (window.ThemeConfig && typeof window.ThemeConfig.resolveThemeSelectValue === 'function') {
+      return String(window.ThemeConfig.resolveThemeSelectValue(new Date()) || '').trim();
+    }
+    var stored = String(localStorage.getItem('theme') || '').trim();
+    var selectValues = _getThemeSelectValues();
+    var activeSeasonal = _getActiveSeasonalThemeValue();
+    if (activeSeasonal) {
+      if (stored === selectValues.baseDefault) return selectValues.baseDefault;
+      return selectValues.seasonalDefault;
+    }
+    if (stored === selectValues.baseDefault || stored === selectValues.seasonalDefault) return '';
+    return stored;
+  }
+
+  function _findSelectOptionByValue(select, value) {
+    if (!select) return null;
+    for (var i = 0; i < select.options.length; i++) {
+      var option = select.options[i];
+      if (option && option.value === value) return option;
+    }
+    return null;
+  }
+
+  function _rebuildThemeOptions() {
+    if (!_sTheme) return;
+    var selectValues = _getThemeSelectValues();
+    var builtIns = _getBuiltInThemesFromConfig() || [];
+    var activeSeasonal = _getActiveSeasonalThemeValue();
+    var seasonalLabel = _getSeasonalOptionLabel(activeSeasonal, builtIns);
+
+    var options = Array.prototype.slice.call(_sTheme.options);
+    options.forEach(function (option) {
+      if (!option) return;
+      if (option.value === 'custom') return;
+      option.remove();
+    });
+
+    var customOption = _findSelectOptionByValue(_sTheme, 'custom');
+    var defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = _getThemeDefaultOptionLabel();
+    _sTheme.appendChild(defaultOption);
+
+    if (activeSeasonal && seasonalLabel) {
+      var seasonalOption = document.createElement('option');
+      seasonalOption.value = selectValues.seasonalDefault;
+      seasonalOption.textContent = seasonalLabel;
+      _sTheme.appendChild(seasonalOption);
+
+      var baseDefaultOption = document.createElement('option');
+      baseDefaultOption.value = selectValues.baseDefault;
+      baseDefaultOption.textContent = _getBaseDefaultOptionLabel();
+      _sTheme.appendChild(baseDefaultOption);
+    }
+    for (var i = 0; i < builtIns.length; i++) {
+      var theme = builtIns[i];
+      var option = document.createElement('option');
+      option.value = theme.value;
+      option.textContent = theme.label;
+      _sTheme.appendChild(option);
+    }
+    if (customOption) _sTheme.appendChild(customOption);
+  }
 
   function _applyToastRowVisibility() {
     if (_sToastRow) {
@@ -2231,9 +2366,12 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   function _populateSettingsForm() {
     var s = _readAllSettings();
+    _rebuildThemeOptions();
     _syncCustomOption('theme');
     _syncCustomOption('font');
-    _sTheme.value    = localStorage.getItem('theme') || '';
+    var themeSelectValue = _getThemeSelectValueForForm();
+    _sTheme.value = themeSelectValue;
+    if (_sTheme.value !== themeSelectValue) _sTheme.value = '';
     if (!_sTheme.value) _sTheme.selectedIndex = 0;
     _sFont.value     = localStorage.getItem('font') || '';
     if (!_sFont.value) _sFont.selectedIndex = 0;

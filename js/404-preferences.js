@@ -7,12 +7,6 @@
     }
   }
 
-  function _setAttrFromStorage(storageKey, attrName) {
-    var value = _safeGet(storageKey);
-    if (value) {
-      document.documentElement.setAttribute(attrName, value);
-    }
-  }
 
   function _injectCustomCss(type) {
     var storageKey = type === 'theme' ? 'esi_custom_theme_css' : 'esi_custom_font_css';
@@ -34,10 +28,24 @@
     style.textContent = css;
     document.head.appendChild(style);
   }
+  var appliedTheme = null;
+  if (window.ThemeConfig && typeof window.ThemeConfig.applyInitialTheme === 'function') {
+    appliedTheme = window.ThemeConfig.applyInitialTheme();
+  } else {
+    var storedTheme = _safeGet('theme');
+    if (storedTheme) {
+      document.documentElement.setAttribute('data-theme', storedTheme);
+      appliedTheme = storedTheme;
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+      appliedTheme = '';
+    }
+  }
 
-  _setAttrFromStorage('theme', 'data-theme');
-  _setAttrFromStorage('font', 'data-font');
+  var storedFont = _safeGet('font');
+  if (storedFont) document.documentElement.setAttribute('data-font', storedFont);
+  else document.documentElement.removeAttribute('data-font');
 
-  if (_safeGet('theme') === 'custom') _injectCustomCss('theme');
-  if (_safeGet('font') === 'custom') _injectCustomCss('font');
+  if (appliedTheme === 'custom') _injectCustomCss('theme');
+  if (storedFont === 'custom') _injectCustomCss('font');
 })();

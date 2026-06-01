@@ -27,8 +27,7 @@ export default function SettingsModal() {
               </div>
               <div className="settings-row-control">
                 <select className="settings-select" id="settingTheme" aria-label="Colour theme">
-                  <option value="">Empire of Sindria</option>
-                  <option value="purple">Purple</option>
+                  <option value="">Default</option>
                 </select>
               </div>
             </div>
