@@ -30,7 +30,7 @@ export default function SettingsModal() {
             <div className="settings-add-custom-wrap">
               <button type="button" className="settings-add-custom" id="addCustomThemeBtn">+ Add Custom</button>
               <button type="button" className="settings-add-custom-x" id="removeCustomThemeBtn" style={{ display: 'none' }}>{"\u00d7"}</button>
-              <input type="file" id="customThemeFileInput" accept=".css" style={{ display: 'none' }} />
+              <input type="file" id="customThemeFileInput" accept=".css,image/*" multiple style={{ display: 'none' }} />
             </div>
 
             <div className="settings-row">

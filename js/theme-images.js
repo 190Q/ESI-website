@@ -71,7 +71,8 @@
     var s = getComputedStyle(document.documentElement);
     for (var varName in VARS) {
       var url = _parseUrl((s.getPropertyValue(varName) || '').trim());
-      if (url) {
+      // Only accept absolute paths, full URLs, or data-URIs
+      if (url && (url.charAt(0) === '/' || /^https?:/.test(url) || /^data:/.test(url))) {
         _cachedOverrides[VARS[varName]] = url;
         _cachedHasAny = true;
       }

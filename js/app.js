@@ -1162,14 +1162,12 @@ if (savedUser) {
         state.user = _cachedUser;
         updateLoginButton();
         _cachedLoginApplied = true;
-        console.log('[auth-cache] restored cached user:', _cachedUser.username, 'roles:', (_cachedUser.roles || []).length);
 
         // immediately restore nav visibility from the last known state
         var _cachedNav = localStorage.getItem('esi_nav_cache');
         if (_cachedNav) {
             try {
                 var _nav = JSON.parse(_cachedNav);
-                console.log('[auth-cache] restoring nav cache:', _nav);
                 if (_nav.shop)           { var _e = document.getElementById('shopNavItem');           if (_e) _e.style.display = ''; }
                 if (_nav.creatorStudio)   { var _e = document.getElementById('creatorStudioNavItem');  if (_e) _e.style.display = ''; }
                 if (_nav.shopAdmin)       { var _e = document.getElementById('shopAdminNavItem');      if (_e) _e.style.display = ''; }
@@ -1177,9 +1175,7 @@ if (savedUser) {
                 if (_nav.inactivity)      { var _e = document.querySelector('[data-panel="inactivity"]');    if (_e) _e.parentElement.style.display = ''; }
                 if (_nav.promotions)      { var _e = document.querySelector('[data-panel="promotions"]');    if (_e) _e.parentElement.style.display = ''; }
                 if (_nav.eventsManage)    { var _e = document.querySelector('[data-panel="events-manage"]'); if (_e) _e.parentElement.style.display = ''; }
-            } catch (e) { console.warn('[auth-cache] nav cache parse error', e); }
-        } else {
-            console.log('[auth-cache] no esi_nav_cache found (first login on this browser)');
+            } catch (e) { /*nav cache parse error*/ }
         }
 
         // immediately activate the correct panel based on URL
@@ -1191,27 +1187,22 @@ if (savedUser) {
         if (_urlFirst === 'shop'   && _urlParts[1] === 'studio') _wantPanel = 'creator-studio';
         var _wantPanelEl = document.getElementById('panel-' + _wantPanel);
         if (_wantPanelEl && _wantPanel !== 'player') {
-            console.log('[auth-cache] switching active panel to', _wantPanel);
             document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
             _wantPanelEl.classList.add('active');
             document.querySelectorAll('.nav-item').forEach(function (n) { n.classList.remove('active'); });
             var _wantNav = document.querySelector('[data-panel="' + _wantPanel + '"]');
             if (_wantNav) _wantNav.classList.add('active');
-        } else {
-            console.log('[auth-cache] staying on player panel (url panel:', _wantPanel, 'found:', !!_wantPanelEl, ')');
         }
 
         // pre-paint CSS overrides are no longer needed; JS has set inline styles
         var _preloadCSS = document.getElementById('esi-preload-css');
-        if (_preloadCSS) { _preloadCSS.remove(); console.log('[auth-cache] removed pre-paint CSS overrides'); }
+        if (_preloadCSS) { _preloadCSS.remove(); }
 
         // apply cached permissions once config loads (confirms/adjusts nav state)
         _configPromise.then(function () {
-            console.log('[auth-cache] config loaded, applying permissions with cached roles');
             if (state.user === _cachedUser) applyPermissions();
         });
     } catch (e) {
-        console.warn('[auth-cache] failed to parse cached user', e);
         localStorage.removeItem('esi_user');
     }
 }
@@ -2044,9 +2035,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
       if (target === 'inactivity'      && !hasParliamentPlus()) target = 'player';
       if (target === 'promotions'      && !hasJurorPlus())      target = 'player';
       if (target === 'events-manage'   && !hasEventsAccess())   target = 'player';
-      if (_before !== target) console.log('[switchToPanel] bounced', _before, '-> player (configLoaded:', _configLoaded, ')');
-    } else {
-      console.log('[switchToPanel] skipping role checks for', target, '(cached auth, config not loaded yet)');
+      if (_before !== target);
     }
     navItems.forEach(n => n.classList.remove('active'));
     const navItem = document.querySelector(`[data-panel="${target}"]`);
@@ -2382,7 +2371,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
   }
 
   // Handle file upload for custom theme/font
-  function _handleCustomFile(type, file) {
+  function _handleCustomFile(type, file, companionImages) {
     if (!file) return;
     if (!file.name.endsWith('.css')) {
       showToast('\u26a0 Please select a .css file.', 'warn');
@@ -2428,17 +2417,88 @@ fetch('/auth/session', { credentials: 'same-origin' })
         : /\[data-font="[^"]*"\]/g;
       var customSel = type === 'theme' ? '[data-theme="custom"]' : '[data-font="custom"]';
       cssText = cssText.replace(selectorRe, customSel);
-      localStorage.setItem('esi_custom_' + type + '_css', cssText);
-      localStorage.setItem('esi_custom_' + type + '_name', displayName);
-      _syncCustomOption(type);
-      var select = type === 'theme' ? _sTheme : _sFont;
-      select.value = 'custom';
-      if (type === 'theme') {
-        window.setTheme('custom');
-        if (state.loggedIn && state.user) updateLoginButton();
-      } else {
-        window.setFont('custom');
+
+      // Inline companion images: replace relative url() refs with data-URIs
+      function _applyAndFinish(finalCss) {
+        localStorage.setItem('esi_custom_' + type + '_css', finalCss);
+        localStorage.setItem('esi_custom_' + type + '_name', displayName);
+        _syncCustomOption(type);
+        var select = type === 'theme' ? _sTheme : _sFont;
+        select.value = 'custom';
+        if (type === 'theme') {
+          window.setTheme('custom');
+          if (state.loggedIn && state.user) updateLoginButton();
+        } else {
+          window.setFont('custom');
+        }
       }
+
+      // Find all relative url() references (not http/https/data/absolute)
+      var _relUrlRe = /url\(\s*(['"]?)(?!(?:https?:|data:|\/))([^)'"]+)\1\s*\)/g;
+      var _allRelRefs = [];
+      var _m;
+      while ((_m = _relUrlRe.exec(cssText)) !== null) {
+        _allRelRefs.push(_m[2].replace(/^\.\//, '').toLowerCase());
+      }
+
+      if (!companionImages || !companionImages.length) {
+        if (_allRelRefs.length) {
+          // CSS references local files but none were uploaded alongside it —
+          // re-open the picker so the user can add them
+          showToast('\u26a0 Your theme references image files (e.g. ' + _allRelRefs[0] + '). Please select the CSS and its images together.', 'warn');
+          _customThemeFile.click();
+          return;
+        }
+        _applyAndFinish(cssText);
+        return;
+      }
+
+      // Build a filename
+      var imgByName = {};
+      companionImages.forEach(function (f) { imgByName[f.name.toLowerCase()] = f; });
+
+      // Match relative refs to uploaded files
+      var urlRe = /url\(\s*(['"]?)(?!(?:https?:|data:|\/))([^)'"]+)\1\s*\)/g;
+      var matches = [];
+      var m;
+      while ((m = urlRe.exec(cssText)) !== null) {
+        var refName = m[2].replace(/^\.\//, '').toLowerCase();
+        if (imgByName[refName]) matches.push({ full: m[0], quote: m[1], ref: m[2], name: refName });
+      }
+
+      // Warn about refs that didn't match any uploaded file
+      var unresolved = _allRelRefs.filter(function (r) { return !imgByName[r]; });
+      if (unresolved.length) {
+        showToast('\u26a0 Could not find: ' + unresolved.join(', ') + '. Those images won\u2019t be replaced.', 'warn');
+      }
+
+      if (!matches.length) {
+        _applyAndFinish(cssText);
+        return;
+      }
+
+      // Read each matched image as a data-URI, then replace in the CSS
+      var pending = matches.length;
+      var replacements = {};
+      matches.forEach(function (entry) {
+        var imgReader = new FileReader();
+        imgReader.onload = function (ev) {
+          replacements[entry.full] = 'url(' + ev.target.result + ')';
+          if (--pending === 0) {
+            var final = cssText;
+            for (var original in replacements) final = final.split(original).join(replacements[original]);
+            _applyAndFinish(final);
+          }
+        };
+        imgReader.onerror = function () {
+          if (--pending === 0) {
+            var final = cssText;
+            for (var original in replacements) final = final.split(original).join(replacements[original]);
+            _applyAndFinish(final);
+          }
+        };
+        imgReader.readAsDataURL(imgByName[entry.name]);
+      });
     };
     reader.readAsText(file);
   }
@@ -2462,7 +2522,10 @@ fetch('/auth/session', { credentials: 'same-origin' })
   // Wire up add-custom buttons
   _addCustomThemeBtn.addEventListener('click', function () { _customThemeFile.click(); });
   _customThemeFile.addEventListener('change', function () {
-    _handleCustomFile('theme', this.files[0]);
+    var files = Array.prototype.slice.call(this.files);
+    var cssFile = files.find(function (f) { return f.name.toLowerCase().endsWith('.css'); });
+    var images  = files.filter(function (f) { return f.type && f.type.indexOf('image/') === 0; });
+    _handleCustomFile('theme', cssFile, images);
     this.value = '';
   });
   _removeCustomThemeBtn.addEventListener('click', function () { _removeCustomFile('theme'); });
