@@ -1,5 +1,22 @@
 /* Dark Theme */
 [data-theme="dark"] {
+
+    /* Image overrides, uncomment any line to replace that image.
+       Use a url() path or a data-URI for a self-contained theme.
+    --img-guild-emblem:           url('/path/to/your/guild_emblem.avif');
+    --img-aspect-icon:            url('/path/to/your/aspect_icon.avif');
+    --img-point-icon:             url('/path/to/your/point_icon.png');
+    --img-territory-icon:         url('/path/to/your/territory_icon.png');
+    --img-medal-allegiance:       url('/path/to/your/allegiance.png');
+    --img-medal-benevolence:      url('/path/to/your/benevolence.png');
+    --img-medal-brilliance:       url('/path/to/your/brilliance.png');
+    --img-medal-fellowship:       url('/path/to/your/fellowship.png');
+    --img-medal-inspiration:      url('/path/to/your/inspiration.png');
+    --img-medal-order-of-sindria: url('/path/to/your/order_of_sindria.png');
+    --img-medal-sindrian-eagle:   url('/path/to/your/sindrian_eagle.png');
+    --img-medal-valliance:        url('/path/to/your/valliance.png');
+    */
+
     --green-dark:      #1A1A1A;
     --green-mid:       #2A2A2A;
     --green-deep:      #080808;

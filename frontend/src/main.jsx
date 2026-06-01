@@ -70,6 +70,7 @@ window.setTheme = (name) => {
   if (name === 'custom') window._injectCustomCSS('theme');
   else window._removeCustomCSS('theme');
   if (window.ThemeColors && window.ThemeColors.invalidateCache) window.ThemeColors.invalidateCache();
+  if (window.ThemeImages && window.ThemeImages.invalidateCache) window.ThemeImages.invalidateCache();
   window.dispatchEvent(new Event('themechange'));
   if (name === prev) return `Theme already set to '${name || 'default'}'`;
   return `Theme changed: '${prev || 'default'}' → '${name || 'default'}'`;

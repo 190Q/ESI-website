@@ -32,6 +32,7 @@ export default function useScriptLoader() {
       await loadScript('/js/auth-gate.js')
       await loadScript('/js/app.js')
       await loadScript('/js/themes.js')
+      await loadScript('/js/theme-images.js')
       await loadScript('/js/graph-shared.js')
       await loadScript('/js/player.js')
       await loadScript('/js/guild.js')

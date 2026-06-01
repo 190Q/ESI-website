@@ -196,6 +196,21 @@
 /* Purple Theme */
 [data-theme="purple"] {
 
+  /* Image overrides
+  --img-guild-emblem:           url('/images/themes/purple/guild_emblem.avif');
+  --img-aspect-icon:            url('/images/themes/purple/aspect_icon.avif');
+  --img-point-icon:             url('/images/themes/purple/point_icon.png');
+  --img-territory-icon:         url('/images/themes/purple/territory_icon.png');
+  --img-medal-allegiance:       url('/images/themes/purple/allegiance.png');
+  --img-medal-benevolence:      url('/images/themes/purple/benevolence.png');
+  --img-medal-brilliance:       url('/images/themes/purple/brilliance.png');
+  --img-medal-fellowship:       url('/images/themes/purple/fellowship.png');
+  --img-medal-inspiration:      url('/images/themes/purple/inspiration.png');
+  --img-medal-order-of-sindria: url('/images/themes/purple/order_of_sindria.png');
+  --img-medal-sindrian-eagle:   url('/images/themes/purple/sindrian_eagle.png');
+  --img-medal-valliance:        url('/images/themes/purple/valliance.png');
+  */
+
   /* Gold / Purple accents */
   --gold:            #A855F7;
   --gold-light:      #C084FC;
