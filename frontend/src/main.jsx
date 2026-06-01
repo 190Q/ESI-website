@@ -88,15 +88,9 @@ function resolveFontFromStorageOrDefault() {
   return resolveBaseFontName();
 }
 
-// Theme switcher (call setTheme('name') in the DevTools console)
-const initialTheme = resolveThemeFromStorageOrDefault();
-if (initialTheme) document.documentElement.setAttribute('data-theme', initialTheme);
-else document.documentElement.removeAttribute('data-theme');
-
-// Font switcher (call setFont('name') in the DevTools console)
-const savedFont = resolveFontFromStorageOrDefault();
-if (savedFont) document.documentElement.setAttribute('data-font', savedFont);
-else document.documentElement.removeAttribute('data-font');
+// Theme/font are applied by early bootstrap scripts in index.html
+const initialTheme = (document.documentElement.getAttribute('data-theme') || '').trim();
+const savedFont = (document.documentElement.getAttribute('data-font') || '').trim();
 
 // Custom CSS injection (stored in localStorage, never sent to server)
 window._injectCustomCSS = (type) => {

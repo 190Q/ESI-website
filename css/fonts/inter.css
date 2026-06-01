@@ -36,7 +36,7 @@
   src: url('/public/fonts/inter-v20-latin-900.woff2') format('woff2');
 }
 
-[data-font="inter"] {
+html[data-font="inter"] {
   --font-display: 'Inter', sans-serif;
   --font-heading: 'Inter', sans-serif;
   --font-body:    'Inter', sans-serif;

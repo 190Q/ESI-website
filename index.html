@@ -5,18 +5,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Empire of Sindria dashboard</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-  <script src="/js/theme-config.js"></script>
-  <script src="/js/font-config.js"></script>
+  <style id="esi-prepaint-hide">
+    html.theme-preload body { opacity: 0 !important; }
+  </style>
+  <script>
+    (function () {
+      try {
+        var storedTheme = String(localStorage.getItem('theme') || '').trim();
+        if (storedTheme && storedTheme !== 'custom') {
+          document.documentElement.classList.add('theme-preload');
+        }
+      } catch (_err) {}
+    })();
+  </script>
+  <script src="/js/theme-config.js?v=20260601b"></script>
   <script>
     if (window.ThemeConfig && typeof window.ThemeConfig.applyInitialTheme === 'function') {
       window.ThemeConfig.applyInitialTheme();
     }
+  </script>
+  <script src="/js/font-config.js?v=20260601b"></script>
+  <script>
     if (window.FontConfig && typeof window.FontConfig.applyInitialFont === 'function') {
       window.FontConfig.applyInitialFont();
     }
   </script>
   <script src="/js/theme-images.js"></script>
-  <script type="module" crossorigin src="/assets/index-DKghVYoy.js"></script>
+  <script type="module" crossorigin src="/assets/index-C4bSUyvz.js"></script>
   <link rel="stylesheet" crossorigin href="/assets/index-q_GdQs0d.css">
 </head>
 <body>

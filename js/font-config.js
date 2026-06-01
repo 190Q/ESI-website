@@ -9,6 +9,7 @@
   var _catalogPromise = null;
   var _catalogFonts = [];
   var _defaultOptionLabel = String(FONT_DEFAULTS.defaultOptionLabel || '').trim() || 'Cinzel & Crimson Pro';
+  var _CUSTOM_FONT_STYLE_ID = 'esi-custom-font-style';
 
   function _safeGetLocalStorageFont() {
     try {
@@ -20,6 +21,34 @@
 
   function _cleanFontValue(value) {
     return String(value || '').trim();
+  }
+  function _safeGetLocalStorageCustomFontCss() {
+    try {
+      return localStorage.getItem('esi_custom_font_css');
+    } catch (_err) {
+      return null;
+    }
+  }
+  function _removeCustomFontCss() {
+    var existing = document.getElementById(_CUSTOM_FONT_STYLE_ID);
+    if (existing) existing.remove();
+  }
+  function _injectCustomFontCss() {
+    var css = _safeGetLocalStorageCustomFontCss();
+    if (!css) {
+      _removeCustomFontCss();
+      return;
+    }
+    css = String(css).replace(
+      /\[data-font="custom"\]/g,
+      'html[data-font="custom"]'
+    );
+    var existing = document.getElementById(_CUSTOM_FONT_STYLE_ID);
+    if (existing) existing.remove();
+    var style = document.createElement('style');
+    style.id = _CUSTOM_FONT_STYLE_ID;
+    style.textContent = css;
+    (document.head || document.documentElement).appendChild(style);
   }
 
   function _normalizeStylesheetHref(href) {
@@ -120,7 +149,8 @@
     if (!target) return false;
     if (target === 'custom') return true;
     if (!_catalogReady) return true;
-    return !!_findBuiltInFontByValue(target);
+    if (_findBuiltInFontByValue(target)) return true;
+    return !!_deriveFontStylesheetFromValue(target);
   }
 
   function getBuiltInFonts() {
@@ -179,10 +209,12 @@
         var existingValue = _cleanFontValue(existing.getAttribute('data-built-in-font-css'));
         if (value && existingValue === value) {
           if (existing.getAttribute('href') !== href) existing.setAttribute('href', href);
+          head.appendChild(existing);
           return;
         }
         if (_normalizeStylesheetHref(existing.getAttribute('href')) === href) {
           if (value) existing.setAttribute('data-built-in-font-css', value);
+          head.appendChild(existing);
           return;
         }
       }
@@ -220,6 +252,8 @@
     var resolved = resolveFontFromStorageOrDefault();
     if (resolved) document.documentElement.setAttribute('data-font', resolved);
     else document.documentElement.removeAttribute('data-font');
+    if (resolved === 'custom') _injectCustomFontCss();
+    else _removeCustomFontCss();
     ensureBuiltInFontStylesLoaded();
     return resolved;
   }

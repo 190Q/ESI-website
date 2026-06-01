@@ -29,7 +29,7 @@
   src: url('/public/fonts/Monocraft-Bold-Italic.ttf') format('truetype');
 }
 
-[data-font="minecraft"] {
+html[data-font="minecraft"] {
   --font-display: 'Monocraft', monospace;
   --font-heading: 'Monocraft', monospace;
   --font-body:    'Monocraft', monospace;

@@ -8,6 +8,9 @@
   var _catalogPromise = null;
   var _catalogThemes = [];
   var _defaultOptionLabel = String(THEME_DEFAULTS.defaultOptionLabel || '').trim() || 'Default';
+  var _CUSTOM_THEME_STYLE_ID = 'esi-custom-theme-style';
+  var _THEME_PRELOAD_CLASS = 'theme-preload';
+  var _THEME_PRELOAD_STYLE_ID = 'esi-prepaint-hide';
 
   function _safeGetLocalStorageTheme() {
     try {
@@ -19,6 +22,62 @@
 
   function _cleanThemeValue(value) {
     return String(value || '').trim();
+  }
+  function _safeGetLocalStorageCustomThemeCss() {
+    try {
+      return localStorage.getItem('esi_custom_theme_css');
+    } catch (_err) {
+      return null;
+    }
+  }
+  function _removeCustomThemeCss() {
+    var existing = document.getElementById(_CUSTOM_THEME_STYLE_ID);
+    if (existing) existing.remove();
+  }
+  function _releaseThemePreloadMask() {
+    document.documentElement.classList.remove(_THEME_PRELOAD_CLASS);
+    var preloadStyle = document.getElementById(_THEME_PRELOAD_STYLE_ID);
+    if (preloadStyle) preloadStyle.remove();
+  }
+  function _releaseThemePreloadMaskWhenLinkReady(link) {
+    if (!link) {
+      _releaseThemePreloadMask();
+      return;
+    }
+    var released = false;
+    function release() {
+      if (released) return;
+      released = true;
+      _releaseThemePreloadMask();
+    }
+    try {
+      if (link.sheet) {
+        release();
+        return;
+      }
+    } catch (_err) {
+      // Ignore and wait for load/error.
+    }
+    link.addEventListener('load', release, { once: true });
+    link.addEventListener('error', release, { once: true });
+    setTimeout(release, 1500);
+  }
+  function _injectCustomThemeCss() {
+    var css = _safeGetLocalStorageCustomThemeCss();
+    if (!css) {
+      _removeCustomThemeCss();
+      return;
+    }
+    css = String(css).replace(
+      /\[data-theme="custom"\]/g,
+      'html[data-theme="custom"]'
+    );
+    var existing = document.getElementById(_CUSTOM_THEME_STYLE_ID);
+    if (existing) existing.remove();
+    var style = document.createElement('style');
+    style.id = _CUSTOM_THEME_STYLE_ID;
+    style.textContent = css;
+    (document.head || document.documentElement).appendChild(style);
   }
   function _normalizeStylesheetHref(href) {
     var value = String(href || '').trim();
@@ -118,7 +177,8 @@
     if (!target) return false;
     if (target === 'custom') return true;
     if (!_catalogReady) return true;
-    return !!_findBuiltInThemeByValue(target);
+    if (_findBuiltInThemeByValue(target)) return true;
+    return !!_deriveThemeStylesheetFromValue(target);
   }
 
   function getBuiltInThemes() {
@@ -177,11 +237,13 @@
         var existingValue = _cleanThemeValue(existing.getAttribute('data-built-in-theme-css'));
         if (value && existingValue === value) {
           if (existing.getAttribute('href') !== href) existing.setAttribute('href', href);
-          return;
+          head.appendChild(existing);
+          return existing;
         }
         if (_normalizeStylesheetHref(existing.getAttribute('href')) === href) {
           if (value) existing.setAttribute('data-built-in-theme-css', value);
-          return;
+          head.appendChild(existing);
+          return existing;
         }
       }
       var link = document.createElement('link');
@@ -189,12 +251,14 @@
       link.href = href;
       link.setAttribute('data-built-in-theme-css', value || 'theme');
       head.appendChild(link);
+      return link;
     }
 
     var activeTheme = _cleanThemeValue(document.documentElement.getAttribute('data-theme'));
     if (!activeTheme) activeTheme = _cleanThemeValue(_safeGetLocalStorageTheme());
+    var activeThemeLink = null;
     if (activeTheme && activeTheme !== 'custom') {
-      ensureLink(_deriveThemeStylesheetFromValue(activeTheme), activeTheme);
+      activeThemeLink = ensureLink(_deriveThemeStylesheetFromValue(activeTheme), activeTheme);
     }
 
     var cachedThemes = _catalogThemes;
@@ -211,13 +275,25 @@
         if (!entry || !entry.stylesheet) continue;
         ensureLink(entry.stylesheet, _cleanThemeValue(entry.value));
       }
+      if (activeTheme && activeTheme !== 'custom') {
+        var match = _findBuiltInThemeByValue(activeTheme);
+        if (match && match.stylesheet) {
+          activeThemeLink = ensureLink(match.stylesheet, activeTheme) || activeThemeLink;
+        }
+      }
+      if (activeTheme && activeTheme !== 'custom') _releaseThemePreloadMaskWhenLinkReady(activeThemeLink);
+      else _releaseThemePreloadMask();
     });
+    if (activeTheme && activeTheme !== 'custom') _releaseThemePreloadMaskWhenLinkReady(activeThemeLink);
+    else _releaseThemePreloadMask();
   }
 
   function applyInitialTheme(date) {
     var resolved = resolveThemeFromStorageOrDefault(date);
     if (resolved) document.documentElement.setAttribute('data-theme', resolved);
     else document.documentElement.removeAttribute('data-theme');
+    if (resolved === 'custom') _injectCustomThemeCss();
+    else _removeCustomThemeCss();
     ensureBuiltInThemeStylesLoaded();
     return resolved;
   }
