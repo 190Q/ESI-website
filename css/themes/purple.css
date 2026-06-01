@@ -1,11 +1,5 @@
 html[data-theme="purple"] {
 
-  /* Image overrides */
-  --img-guild-emblem:           url('/images/themes/purple/guild_emblem.avif');
-  --img-aspect-icon:            url('/images/themes/purple/aspect_icon.avif');
-  --img-point-icon:             url('/images/themes/purple/point_icon.png');
-  --img-territory-icon:         url('/images/themes/purple/territory_icon.png');
-
   /* Gold / Purple accents */
   --gold:            #A855F7;
   --gold-light:      #C084FC;
