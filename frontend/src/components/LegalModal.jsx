@@ -58,7 +58,7 @@ export default function LegalModal() {
             role="tabpanel"
           >
             <h3 className="legal-heading">Privacy Policy</h3>
-            <p className="legal-meta">Last updated: May 2026</p>
+            <p className="legal-meta">Last updated: June 2026</p>
 
             <h4 className="legal-subheading">1. Overview</h4>
             <p>
@@ -302,8 +302,11 @@ export default function LegalModal() {
             <h4 className="legal-subheading">11. Changes</h4>
             <p>
               We may update this Privacy Policy from time to time. Material
-              changes will be announced in the guild's Discord server and the
-              "Last updated" date above will be revised.
+              changes will be announced in the{' '}
+              <a href="https://discord.com/channels/1510771400561131711/1510774339354755163" target="_blank" rel="noopener noreferrer" className="legal-link">#privacy-policy</a>
+              {' '}channel of the{' '}
+              <a href="https://discord.gg/YwnAyzefdV" target="_blank" rel="noopener noreferrer" className="legal-link">ESI dev Discord</a>
+              {' '}and the "Last updated" date above will be revised.
             </p>
           </section>
 
