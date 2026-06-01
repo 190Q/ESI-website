@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/sync-build-output.mjs",
+    "build:raw": "vite build",
+    "sync:build-output": "node scripts/sync-build-output.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
