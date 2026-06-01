@@ -708,7 +708,7 @@
     monday.setDate(today.getDate() - sinceMon);
     monday.setHours(0, 0, 0, 0);
     var options = [];
-    for (var i = 0; i < 8; i++) {
+    for (var i = -1; i < 8; i++) {
       var mon = new Date(monday);
       mon.setDate(monday.getDate() + i * 7);
       var tue = new Date(mon);
