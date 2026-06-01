@@ -23,11 +23,6 @@ const themeConfig = (typeof window !== 'undefined' && window.ThemeConfig) ? wind
 if (themeConfig && typeof themeConfig.ensureBuiltInThemeStylesLoaded === 'function') {
   themeConfig.ensureBuiltInThemeStylesLoaded();
 }
-const themeSelectValues = (themeConfig && typeof themeConfig.getThemeSelectValues === 'function')
-  ? themeConfig.getThemeSelectValues()
-  : {};
-const BASE_DEFAULT_THEME_VALUE = themeSelectValues.BASE_DEFAULT || '__base_default__';
-const SEASONAL_DEFAULT_THEME_VALUE = themeSelectValues.SEASONAL_DEFAULT || '__seasonal_default__';
 
 function resolveBaseThemeName() {
   if (themeConfig && typeof themeConfig.getBaseTheme === 'function') {
@@ -36,11 +31,18 @@ function resolveBaseThemeName() {
   return '';
 }
 
-function resolveDefaultThemeName() {
-  if (themeConfig && typeof themeConfig.resolveDefaultTheme === 'function') {
-    return themeConfig.resolveDefaultTheme(new Date()) || '';
+function isKnownThemeValue(rawValue) {
+  const value = (rawValue || '').trim();
+  if (!value) return false;
+  if (value === 'custom') return true;
+  if (!themeConfig || typeof themeConfig.getBuiltInThemes !== 'function') return true;
+  const builtIns = themeConfig.getBuiltInThemes();
+  if (!Array.isArray(builtIns)) return false;
+  for (let i = 0; i < builtIns.length; i++) {
+    const entry = builtIns[i] || {};
+    if ((entry.value || '').trim() === value) return true;
   }
-  return '';
+  return false;
 }
 
 function resolveThemeFromStorageOrDefault() {
@@ -48,10 +50,8 @@ function resolveThemeFromStorageOrDefault() {
     return themeConfig.resolveThemeFromStorageOrDefault(new Date()) || '';
   }
   const saved = (localStorage.getItem('theme') || '').trim();
-  if (saved === BASE_DEFAULT_THEME_VALUE) return resolveBaseThemeName();
-  if (saved === SEASONAL_DEFAULT_THEME_VALUE) return resolveDefaultThemeName();
-  if (saved) return saved;
-  return resolveDefaultThemeName();
+  if (isKnownThemeValue(saved)) return saved;
+  return resolveBaseThemeName();
 }
 
 // Theme switcher (call setTheme('name') in the DevTools console)
@@ -97,22 +97,14 @@ window.setTheme = (name) => {
   const prev = document.documentElement.getAttribute('data-theme') || '';
   if (name === undefined || name === null) return `Current theme: ${prev || 'default'}`;
   const nextRequested = (name || '').trim();
-  if (!nextRequested || nextRequested === SEASONAL_DEFAULT_THEME_VALUE) {
+  if (!nextRequested) {
     localStorage.removeItem('theme');
-    const resolvedDefault = resolveThemeFromStorageOrDefault();
-    if (resolvedDefault) document.documentElement.setAttribute('data-theme', resolvedDefault);
-    else document.documentElement.removeAttribute('data-theme');
-  } else if (nextRequested === BASE_DEFAULT_THEME_VALUE) {
-    localStorage.setItem('theme', BASE_DEFAULT_THEME_VALUE);
-    const baseTheme = resolveBaseThemeName();
-    if (baseTheme) document.documentElement.setAttribute('data-theme', baseTheme);
-    else document.documentElement.removeAttribute('data-theme');
   } else {
     localStorage.setItem('theme', nextRequested);
-    const resolvedDefault = resolveThemeFromStorageOrDefault();
-    if (resolvedDefault) document.documentElement.setAttribute('data-theme', resolvedDefault);
-    else document.documentElement.removeAttribute('data-theme');
   }
+  const resolvedDefault = resolveThemeFromStorageOrDefault();
+  if (resolvedDefault) document.documentElement.setAttribute('data-theme', resolvedDefault);
+  else document.documentElement.removeAttribute('data-theme');
   const current = document.documentElement.getAttribute('data-theme') || '';
   if (current === 'custom') window._injectCustomCSS('theme');
   else window._removeCustomCSS('theme');

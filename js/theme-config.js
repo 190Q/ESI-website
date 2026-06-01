@@ -13,25 +13,13 @@
 
   /*
    * Default theme behavior:
-   * - baseTheme: the real fallback default when no seasonal rule matches.
+   * - baseTheme: the fallback default theme.
    *   Use '' to keep :root (Empire of Sindria).
-   * - seasonal: first matching rule wins, based on the user's local clock.
-   *   Date format is DD-MM and supports year-wrapping ranges (for example: 01-12 to 15-01).
    */
   var THEME_DEFAULTS = {
     baseTheme: '',
     defaultOptionLabel: 'Default',
-    baseDefaultOptionLabel: 'Real Default',
-    seasonalOptionSuffix: '',
-    seasonal: [
-      // { start: '01-12', end: '15-01', theme: 'purple' },
-      // { start: '01-10', end: '31-10', theme: 'purple' },
-    ],
   };
-  var THEME_SELECT_VALUES = Object.freeze({
-    BASE_DEFAULT: '__base_default__',
-    SEASONAL_DEFAULT: '__seasonal_default__',
-  });
 
   function _safeGetLocalStorageTheme() {
     try {
@@ -41,51 +29,8 @@
     }
   }
 
-  function _parseMonthDay(raw) {
-    var value = String(raw || '').trim();
-    var match = value.match(/^(\d{2})-(\d{2})$/);
-    if (!match) return null;
-    var day = parseInt(match[1], 10);
-    var month = parseInt(match[2], 10);
-    if (!Number.isFinite(day) || !Number.isFinite(month)) return null;
-    if (day < 1 || day > 31) return null;
-    if (month < 1 || month > 12) return null;
-    return month * 100 + day;
-  }
-
-  function _monthDayKey(date) {
-    return (date.getMonth() + 1) * 100 + date.getDate();
-  }
-
-  function _inMonthDayRange(nowKey, startKey, endKey) {
-    if (startKey <= endKey) return nowKey >= startKey && nowKey <= endKey;
-    return nowKey >= startKey || nowKey <= endKey;
-  }
   function _cleanThemeValue(value) {
     return String(value || '').trim();
-  }
-
-  function _findActiveSeasonalRule(date) {
-    var now = (date instanceof Date) ? date : new Date();
-    if (!Number.isFinite(now.getTime())) now = new Date();
-    var nowKey = _monthDayKey(now);
-
-    for (var i = 0; i < THEME_DEFAULTS.seasonal.length; i++) {
-      var rule = THEME_DEFAULTS.seasonal[i] || {};
-      var theme = _cleanThemeValue(rule.theme);
-      if (!theme) continue;
-      var startKey = _parseMonthDay(rule.start);
-      var endKey = _parseMonthDay(rule.end);
-      if (startKey == null || endKey == null) continue;
-      if (!_inMonthDayRange(nowKey, startKey, endKey)) continue;
-      return {
-        start: String(rule.start || ''),
-        end: String(rule.end || ''),
-        theme: theme,
-      };
-    }
-
-    return null;
   }
 
   function _findBuiltInThemeByValue(value) {
@@ -97,6 +42,13 @@
       return theme;
     }
     return null;
+  }
+
+  function _isStoredThemeUsable(value) {
+    var target = _cleanThemeValue(value);
+    if (!target) return false;
+    if (target === 'custom') return true;
+    return !!_findBuiltInThemeByValue(target);
   }
 
   function getBuiltInThemes() {
@@ -117,17 +69,6 @@
     return _cleanThemeValue(THEME_DEFAULTS.baseTheme);
   }
 
-  function getBaseDefaultOptionLabel() {
-    return String(THEME_DEFAULTS.baseDefaultOptionLabel || '').trim() || 'Real Default';
-  }
-
-  function getThemeSelectValues() {
-    return {
-      BASE_DEFAULT: THEME_SELECT_VALUES.BASE_DEFAULT,
-      SEASONAL_DEFAULT: THEME_SELECT_VALUES.SEASONAL_DEFAULT,
-    };
-  }
-
   function getThemeLabel(themeValue) {
     var target = _cleanThemeValue(themeValue);
     if (!target) return getDefaultOptionLabel();
@@ -136,45 +77,20 @@
     return target;
   }
 
-  function getActiveSeasonalTheme(date) {
-    var rule = _findActiveSeasonalRule(date);
-    return rule ? rule.theme : '';
-  }
-
-  function getSeasonalOptionLabel(date) {
-    var activeTheme = getActiveSeasonalTheme(date);
-    if (!activeTheme) return '';
-    var themeLabel = getThemeLabel(activeTheme);
-    var suffix = String(THEME_DEFAULTS.seasonalOptionSuffix || '').trim();
-    if (!suffix) return themeLabel;
-    return themeLabel + ' (' + suffix + ')';
-  }
-
   function resolveDefaultTheme(date) {
-    var activeSeasonal = getActiveSeasonalTheme(date);
-    if (activeSeasonal) return activeSeasonal;
     return getBaseTheme();
   }
 
   function resolveThemeFromStorageOrDefault(date) {
     var stored = _cleanThemeValue(_safeGetLocalStorageTheme());
-    var activeSeasonal = getActiveSeasonalTheme(date);
-    if (stored === THEME_SELECT_VALUES.BASE_DEFAULT) return getBaseTheme();
-    if (activeSeasonal) return activeSeasonal;
-    if (stored && stored !== THEME_SELECT_VALUES.SEASONAL_DEFAULT) return stored;
+    if (_isStoredThemeUsable(stored)) return stored;
     return getBaseTheme();
   }
 
   function resolveThemeSelectValue(date) {
     var stored = _cleanThemeValue(_safeGetLocalStorageTheme());
-    var activeSeasonal = getActiveSeasonalTheme(date);
-    if (activeSeasonal) {
-      if (stored === THEME_SELECT_VALUES.BASE_DEFAULT) return THEME_SELECT_VALUES.BASE_DEFAULT;
-      return THEME_SELECT_VALUES.SEASONAL_DEFAULT;
-    }
-    if (stored === THEME_SELECT_VALUES.BASE_DEFAULT) return '';
-    if (stored === THEME_SELECT_VALUES.SEASONAL_DEFAULT) return '';
-    return stored;
+    if (_isStoredThemeUsable(stored)) return stored;
+    return '';
   }
 
   function ensureBuiltInThemeStylesLoaded() {
@@ -215,11 +131,7 @@
     getBuiltInThemes: getBuiltInThemes,
     getDefaultOptionLabel: getDefaultOptionLabel,
     getBaseTheme: getBaseTheme,
-    getBaseDefaultOptionLabel: getBaseDefaultOptionLabel,
-    getThemeSelectValues: getThemeSelectValues,
     getThemeLabel: getThemeLabel,
-    getActiveSeasonalTheme: getActiveSeasonalTheme,
-    getSeasonalOptionLabel: getSeasonalOptionLabel,
     resolveDefaultTheme: resolveDefaultTheme,
     resolveThemeFromStorageOrDefault: resolveThemeFromStorageOrDefault,
     resolveThemeSelectValue: resolveThemeSelectValue,

@@ -1,4 +1,4 @@
-[data-theme="purple"] {
+html[data-theme="purple"] {
 
   /* Image overrides */
   --img-guild-emblem:           url('/images/themes/purple/guild_emblem.avif');
