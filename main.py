@@ -466,7 +466,9 @@ def _gate_requests():
     stripped = path.strip("/").split("/")[0]
     if stripped in _SPA_PANELS:
         return
-    # block everything else (server.py, .env, .db, data files, etc.)
+    # Unknown browser paths should render a not-found page
+    if request.method in ("GET", "HEAD"):
+        abort(404)
     abort(403)
 
 
@@ -633,6 +635,10 @@ def forbidden(e):
 
 @app.errorhandler(404)
 def not_found(e):
+    if request.path.startswith(("/api/", "/auth/")):
+        return jsonify({"error": "Not found"}), 404
+    if "text/html" in (request.headers.get("Accept") or ""):
+        return send_from_directory(_BASE_DIR, "404.html"), 404
     return jsonify({"error": "Not found"}), 404
 
 @app.errorhandler(503)

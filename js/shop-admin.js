@@ -4808,7 +4808,11 @@
     if (_initDone) return;
     _initDone = true;
     if (!window.state || !window.state.loggedIn) {
-      panel.innerHTML = '<div class="shop-login-prompt">Log in to access the shop admin.</div>';
+      if (window.renderAuthGate) {
+        window.renderAuthGate(panel);
+      } else {
+        panel.innerHTML = '<div class=\"shop-login-prompt\">Log in to access the shop admin.</div>';
+      }
       return;
     }
     // If already detected as admin-banned (from shop state), don't load anything
