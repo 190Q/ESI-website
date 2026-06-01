@@ -2519,10 +2519,63 @@ fetch('/auth/session', { credentials: 'same-origin' })
     if (!select.value) select.selectedIndex = 0;
   }
 
+  // Extract CSS + images from a .zip and pass them to _handleCustomFile
+  function _handleZipTheme(zipFile) {
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      JSZip.loadAsync(e.target.result).then(function (zip) {
+        var cssEntry = null;
+        var imgEntries = [];
+        zip.forEach(function (path, entry) {
+          if (entry.dir) return;
+          var name = path.split('/').pop().toLowerCase();
+          if (name.endsWith('.css')) cssEntry = entry;
+          else if (/\.(png|jpe?g|gif|webp|avif|svg|ico|bmp)$/i.test(name)) imgEntries.push(entry);
+        });
+        if (!cssEntry) {
+          showToast('\u26a0 No .css file found inside the zip.', 'warn');
+          return;
+        }
+        // Read the CSS as text
+        cssEntry.async('string').then(function (cssText) {
+          if (!imgEntries.length) {
+            // Synthesize a File for the CSS so _handleCustomFile can use file.name
+            var cssBlob = new File([cssText], cssEntry.name.split('/').pop(), { type: 'text/css' });
+            _handleCustomFile('theme', cssBlob, []);
+            return;
+          }
+          // Read all images as blobs, convert to Files
+          var pending = imgEntries.length;
+          var imgFiles = [];
+          imgEntries.forEach(function (img) {
+            img.async('blob').then(function (blob) {
+              var imgName = img.name.split('/').pop();
+              imgFiles.push(new File([blob], imgName, { type: blob.type || 'application/octet-stream' }));
+              if (--pending === 0) {
+                var cssBlob = new File([cssText], cssEntry.name.split('/').pop(), { type: 'text/css' });
+                _handleCustomFile('theme', cssBlob, imgFiles);
+              }
+            });
+          });
+        });
+      }).catch(function () {
+        showToast('\u26a0 Could not read the zip file.', 'warn');
+      });
+    };
+    reader.readAsArrayBuffer(zipFile);
+  }
+
   // Wire up add-custom buttons
   _addCustomThemeBtn.addEventListener('click', function () { _customThemeFile.click(); });
   _customThemeFile.addEventListener('change', function () {
     var files = Array.prototype.slice.call(this.files);
+    // If a zip was selected, extract it instead
+    var zipFile = files.find(function (f) { return f.name.toLowerCase().endsWith('.zip'); });
+    if (zipFile) {
+      _handleZipTheme(zipFile);
+      this.value = '';
+      return;
+    }
     var cssFile = files.find(function (f) { return f.name.toLowerCase().endsWith('.css'); });
     var images  = files.filter(function (f) { return f.type && f.type.indexOf('image/') === 0; });
     _handleCustomFile('theme', cssFile, images);
