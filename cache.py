@@ -233,17 +233,27 @@ def _compute_bulk_playtime():
                         if ulow not in stats:
                             stats[ulow] = {"guildPrefix": ""}
                         stats[ulow]["guildRaids"] = row[1] or 0
+                        stats[ulow]["guildRaidsOffsetApplied"] = False
                 except Exception:
                     pass
-                # Subtract guild-wide graid fault offsets if present
+                # Apply guild-raid fault offsets when counters are still in the
+                # old inflated range. If a counter has reset below its offset,
+                # keep the raw value so new raids are not clamped to zero.
                 try:
                     for row in c.execute(
                         "SELECT LOWER(username), offset FROM graid_fault_offsets"
                     ).fetchall():
                         ulow = row[0]
-                        off = row[1] or 0
-                        if ulow in stats and "guildRaids" in stats[ulow]:
-                            stats[ulow]["guildRaids"] = max(0, stats[ulow]["guildRaids"] - off)
+                        off = _safe_number(row[1])
+                        if ulow not in stats or "guildRaids" not in stats[ulow]:
+                            continue
+                        total = _safe_number(stats[ulow]["guildRaids"])
+                        if off > 0 and total > off:
+                            stats[ulow]["guildRaids"] = max(0, total - off)
+                            stats[ulow]["guildRaidsOffsetApplied"] = True
+                        else:
+                            stats[ulow]["guildRaids"] = max(0, total)
+                            stats[ulow]["guildRaidsOffsetApplied"] = False
                 except Exception:
                     pass
                 c.close()
@@ -330,7 +340,7 @@ def _compute_bulk_playtime():
                 "guildRaidsRawDelta": 0, "guildRaidsAppliedDelta": 0,
                 "warsRawDelta": 0, "warsAppliedDelta": 0,
                 "skippedMissing": 0, "skippedApiGap": 0,
-                "skippedApiOff": 0, "skippedReactivation": 0,
+                "skippedApiOff": 0, "skippedOffsetSwitch": 0, "skippedReactivation": 0,
                 "reactivationUsers": [],
             }
             for i in range(1, len(api_days))
@@ -369,6 +379,12 @@ def _compute_bulk_playtime():
                         reason = "missing_snapshot"
                     elif _is_player_api_off(prev_user) or _is_player_api_off(curr_user):
                         reason = "api_off_interval"
+                    elif (
+                        mk == "guildRaids"
+                        and bool(prev_user.get("guildRaidsOffsetApplied"))
+                        != bool(curr_user.get("guildRaidsOffsetApplied"))
+                    ):
+                        reason = "offset_mode_switch"
                     elif i in _init_intervals.get(mk, ()):
                         reason = "column_init"
                     elif _is_reactivation_spike(
@@ -402,6 +418,8 @@ def _compute_bulk_playtime():
                                 gdbg["skippedApiGap"] += 1
                             elif reason == "api_off_interval":
                                 gdbg["skippedApiOff"] += 1
+                            elif reason == "offset_mode_switch":
+                                gdbg["skippedOffsetSwitch"] += 1
                             elif reason == "reactivation_spike":
                                 gdbg["skippedReactivation"] += 1
                                 if raw_delta is not None and raw_delta > 0 and len(gdbg["reactivationUsers"]) < 20:
@@ -485,7 +503,7 @@ def _compute_bulk_playtime():
                 "guildRaidsRawDelta": 0, "guildRaidsAppliedDelta": 0,
                 "warsRawDelta": 0, "warsAppliedDelta": 0,
                 "skippedMissing": 0, "skippedApiGap": 0,
-                "skippedApiOff": 0, "skippedReactivation": 0,
+                "skippedApiOff": 0, "skippedOffsetSwitch": 0, "skippedReactivation": 0,
                 "reactivationUsers": [],
             }
 
@@ -540,8 +558,14 @@ def _compute_bulk_playtime():
                     prev_graids = prev_user.get("guildRaids")
                     curr_graids = cur_user.get("guildRaids")
                     raw_graids = None if prev_graids is None or curr_graids is None else _safe_number(curr_graids) - _safe_number(prev_graids)
+                    offset_mode_switched = (
+                        bool(prev_user.get("guildRaidsOffsetApplied"))
+                        != bool(cur_user.get("guildRaidsOffsetApplied"))
+                    )
                     if raw_graids is None:
                         interval_debug["skippedMissing"] += 1
+                    elif offset_mode_switched:
+                        interval_debug["skippedOffsetSwitch"] += 1
                     else:
                         if raw_graids > 0:
                             interval_debug["guildRaidsRawDelta"] += int(round(raw_graids))
@@ -570,7 +594,15 @@ def _compute_bulk_playtime():
 
             debug_guild_intervals.append(interval_debug)
 
-    guild_raids = [max(0, (int(v) // 4)) for v in guild_raids]
+    # Guild raid counters are typically aggregated per participant
+    normalized_guild_raids = []
+    for v in guild_raids:
+        raw_val = max(0, int(v))
+        if raw_val == 0:
+            normalized_guild_raids.append(0)
+            continue
+        normalized_guild_raids.append((raw_val + 3) // 4)
+    guild_raids = normalized_guild_raids
 
     for _m in members.values():
         _mr = _m.get("guildRaids", [])
@@ -635,6 +667,7 @@ def _compute_bulk_playtime():
                         or row.get("skippedMissing", 0) > 0
                         or row.get("skippedApiGap", 0) > 0
                         or row.get("skippedApiOff", 0) > 0
+                        or row.get("skippedOffsetSwitch", 0) > 0
                         or row.get("skippedReactivation", 0) > 0
                     )
                 ],
