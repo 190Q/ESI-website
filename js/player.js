@@ -1193,7 +1193,7 @@
                   const dirtyTag = r.is_dirty ? '<span style="font-size:0.65rem;color:var(--orange);margin-left:0.35rem;font-weight:600" title="Dirty EP (excluded from LE for HR)">DIRTY</span>' : '';
                   return `
                   <div class="owed-aspects-row">
-                    <span style="font-family:'Cinzel',serif;font-size:0.75rem;color:var(--text-faint);min-width:85px">${escapeHtml(ts)}</span>
+                    <span style="font-family:var(--font-heading);font-size:0.75rem;color:var(--text-faint);min-width:85px">${escapeHtml(ts)}</span>
                     <span class="esi-points-reason">${escapeHtml(r.reason || 'Unknown')}${dirtyTag}</span>
                     <div class="owed-aspects-right">
                       <span class="owed-aspects-player-count" style="color:${color}">${sign}${formatInt(pts)} pts</span>

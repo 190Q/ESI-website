@@ -1228,7 +1228,7 @@ select, option { font-family: inherit; }
   color: var(--text-main);
 }
 .profile-role-id {
-  font-family: 'Consolas', monospace;
+  font-family: var(--font-heading);
   font-size: 0.68rem;
   color: var(--text-faint);
 }
@@ -1670,7 +1670,7 @@ select, option { font-family: inherit; }
   margin-bottom: 4px;
 }
 .account-modal-sub {
-  font-family: 'Consolas', monospace;
+  font-family: var(--font-heading);
   font-size: 0.7rem;
   color: var(--text-faint);
 }

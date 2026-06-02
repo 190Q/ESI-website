@@ -1309,7 +1309,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
       var displayName = u.nick || u.username;
       var isCitizen = (u.roles || []).includes(ESI_CITIZEN_ROLE.id);
       var _citizenC = _cssVar('--citizen-pill', ESI_CITIZEN_ROLE.color);
-      var citizenStyle = 'color:' + _citizenC + ';background:' + _citizenC + '22;border:1px solid ' + _citizenC + '66;border-radius:20px;font-family:\'Cinzel\',serif;font-size:0.6rem;letter-spacing:0.08em;padding:1px 8px;vertical-align:middle;margin-left:6px;white-space:nowrap;';
+      var citizenStyle = 'color:' + _citizenC + ';background:' + _citizenC + '22;border:1px solid ' + _citizenC + '66;border-radius:20px;font-family:var(--font-heading);font-size:0.6rem;letter-spacing:0.08em;padding:1px 8px;vertical-align:middle;margin-left:6px;white-space:nowrap;';
       document.getElementById('accountModalName').innerHTML =
         displayName + (isCitizen ? ' <span style="' + citizenStyle + '">Citizen</span>' : '');
       document.getElementById('accountModalSub').textContent = '@' + u.username + '  ·  ' + u.id;
