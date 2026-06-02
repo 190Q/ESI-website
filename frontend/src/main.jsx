@@ -140,9 +140,33 @@ window.setTheme = (name) => {
   if (window.ThemeConfig && typeof window.ThemeConfig.ensureBuiltInThemeStylesLoaded === 'function') {
     window.ThemeConfig.ensureBuiltInThemeStylesLoaded();
   }
-  if (window.ThemeColors && window.ThemeColors.invalidateCache) window.ThemeColors.invalidateCache();
-  if (window.ThemeImages && window.ThemeImages.invalidateCache) window.ThemeImages.invalidateCache();
-  window.dispatchEvent(new Event('themechange'));
+  // Defer themechange
+  const themeLink = (current && current !== 'custom')
+    ? document.querySelector('link[data-built-in-theme-css="' + current + '"]')
+    : null;
+  const fireThemeChange = () => {
+    if (window.ThemeColors && window.ThemeColors.invalidateCache) window.ThemeColors.invalidateCache();
+    if (window.ThemeImages && window.ThemeImages.invalidateCache) window.ThemeImages.invalidateCache();
+    window.dispatchEvent(new Event('themechange'));
+  };
+  const fireAfterFrame = () => window.requestAnimationFrame(fireThemeChange);
+  let linkReady = true;
+  if (themeLink) {
+    try { linkReady = !!themeLink.sheet; } catch (_err) { linkReady = false; }
+  }
+  if (themeLink && !linkReady) {
+    let fired = false;
+    const once = () => {
+      if (fired) return;
+      fired = true;
+      fireAfterFrame();
+    };
+    themeLink.addEventListener('load', once, { once: true });
+    themeLink.addEventListener('error', once, { once: true });
+    setTimeout(once, 500);
+  } else {
+    fireAfterFrame();
+  }
   if (current === prev) return `Theme already set to '${current || 'default'}'`;
   return `Theme changed: '${prev || 'default'}' → '${current || 'default'}'`;
 };
