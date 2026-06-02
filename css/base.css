@@ -148,6 +148,7 @@ select, option { font-family: inherit; }
   width: 100%;
   text-align: left;
   cursor: pointer;
+  background-image: none !important;
 }
 .cs-label {
   flex: 1;
