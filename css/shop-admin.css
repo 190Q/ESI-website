@@ -242,7 +242,7 @@ select.ie-input { cursor: pointer; }
   margin-top: 4px;
   font-family: var(--font-body);
 }
-.ie-id-slug { color: var(--gold-dim); font-family: monospace; font-size: 0.78rem; }
+.ie-id-slug { color: var(--gold-dim); font-family: var(--font-heading); font-size: 0.78rem; }
 
 /* Image upload zone */
 .ie-img-zone {
@@ -377,7 +377,7 @@ select.ie-input { cursor: pointer; }
 .sa-row:not(.sa-header):hover { background: var(--surface-2); }
 .sa-row--inactive { opacity: 0.5; }
 .sa-item-name { color: var(--gold-light); font-weight: 600; }
-.sa-item-id { font-size: .83rem; color: var(--text-faint); font-family: monospace; }
+.sa-item-id { font-size: .83rem; color: var(--text-faint); font-family: var(--font-heading); }
 
 /* Type & category pills */
 .sa-pill {
@@ -1003,7 +1003,7 @@ select.sa-filter-input { cursor: pointer; }
   margin-bottom: 16px;
 }
 .am-item-id {
-  font-family: monospace;
+  font-family: var(--font-heading);
   font-size: 0.75rem;
   color: var(--text-faint);
 }
@@ -1457,7 +1457,7 @@ select.sa-filter-input { cursor: pointer; }
   text-overflow: ellipsis;
 }
 .su-tag {
-  font-family: monospace;
+  font-family: var(--font-heading);
   font-size: 0.67rem;
   color: var(--text-faint);
   white-space: nowrap;
