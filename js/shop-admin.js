@@ -3050,7 +3050,6 @@
     }
     if (a === 'creator_item_request_submitted' || a === 'creator_item_request_approved') {
       var p = [];
-      if (d.username) p.push('By: ' + esc(d.username));
       p.push(d.request_type === 'new' ? 'New item' : 'Edit');
       if (d.changes) {
         var _crChg = d.changes;
@@ -3066,7 +3065,6 @@
     }
     if (a === 'creator_item_request_rejected') {
       var p = [];
-      if (d.username) p.push('By: ' + esc(d.username));
       p.push(d.request_type === 'new' ? 'New item' : 'Edit');
       if (d.item_name) p.push(esc(d.item_name));
       if (d.reason) p.push(esc(d.reason));
