@@ -43,9 +43,6 @@
     wrap.className = 'cs-wrap';
     wrap.style.fontFamily = _fontVar(select);
     if (selectFontSize) wrap.style.fontSize = selectFontSize;
-    if (selectFlex && selectFlex !== '0 1 auto' && selectFlex !== 'none') {
-      wrap.style.flex = selectFlex;
-    }
 
     parent.insertBefore(wrap, select);
     wrap.appendChild(select);
@@ -92,7 +89,35 @@
         idx >= 0 && select.options[idx] ? select.options[idx].textContent : '';
     }
 
-    function refresh() { buildOpts(); syncLabel(); }
+    function _measureWidth() {
+      if (!select.options.length) return;
+      var span = document.createElement('span');
+      span.style.cssText =
+        'position:absolute;visibility:hidden;white-space:nowrap;' +
+        'pointer-events:none;height:0;overflow:hidden;';
+      var cs = window.getComputedStyle(trigger);
+      span.style.fontFamily = cs.fontFamily;
+      span.style.fontSize = cs.fontSize;
+      span.style.fontWeight = cs.fontWeight;
+      span.style.letterSpacing = cs.letterSpacing;
+      document.body.appendChild(span);
+
+      var maxW = 0;
+      for (var i = 0; i < select.options.length; i++) {
+        span.textContent = select.options[i].textContent;
+        if (span.offsetWidth > maxW) maxW = span.offsetWidth;
+      }
+      document.body.removeChild(span);
+
+      // trigger padding + border + arrow (8px margin-left + 8px border width)
+      var extra = (parseFloat(cs.paddingLeft) || 0) +
+                  (parseFloat(cs.paddingRight) || 0) +
+                  (parseFloat(cs.borderLeftWidth) || 0) +
+                  (parseFloat(cs.borderRightWidth) || 0) + 17;
+      wrap.style.width = Math.ceil(maxW + extra) + 'px';
+    }
+
+    function refresh() { buildOpts(); syncLabel(); _measureWidth(); }
 
     refresh();
 
