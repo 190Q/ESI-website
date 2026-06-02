@@ -630,7 +630,7 @@
           var id = r.dataset.itemId;
           if (!_seen[id]) { _seen[id] = true; ordered.push(id); }
         });
-        apiPost('/api/admin/shop/items/reorder', { ordered_ids: ordered })
+        apiPost('/api/admin/shop/items/reorder', { ordered_ids: ordered, moved_id: dragRow.dataset.itemId, from_pos: fromIdx + 1, to_pos: toIdx + 1 })
           .then(function (res) {
             if (res.ok && res.data.ok) {
               // Update local cache order
@@ -2849,9 +2849,9 @@
     var a = row.action;
     if (a === 'creator_application_approved' || a === 'creator_application_rejected') return esc(d.username || d.discord_id || row.target_id || '\u2014');
     if (a === 'creator_item_request_submitted' || a === 'creator_item_request_approved' || a === 'creator_item_request_rejected') return esc(d.item_id || d.item_name || row.target_id || '\u2014');
+    if (a === 'items_reordered') return d.item_name ? esc(d.item_name) : (d.item_id ? esc(d.item_id) : '\u2014');
     if (d.item_id) return esc(d.item_id);
     if (d.username) return esc(d.username);
-    if (a === 'items_reordered') return (d.count || '?') + ' items';
     if (a === 'shop_enabled' || a === 'shop_disabled') return '\u2014';
     return esc(row.target_id || '\u2014');
   }
@@ -2978,7 +2978,11 @@
       var nv = d.new_stock != null ? num(d.new_stock) : '\u221E';
       return 'stock: ' + ov + ' \u2192 ' + nv;
     }
-    if (a === 'items_reordered') return (d.count || '?') + ' items';
+    if (a === 'items_reordered') {
+      if (d.item_name && d.from_pos != null && d.to_pos != null) return esc(d.item_name) + ': pos ' + d.from_pos + ' \u2192 ' + d.to_pos;
+      if (d.item_id) return esc(d.item_id);
+      return '\u2014';
+    }
     if (a === 'auction_started') return d.ends_at ? 'ends ' + fmtDate(d.ends_at) : '\u2014';
     if (a === 'auction_extended') {
       var h = d.extra_hours > 0 ? '+' + d.extra_hours + 'h' : d.extra_hours + 'h';

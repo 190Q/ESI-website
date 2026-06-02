@@ -1638,7 +1638,10 @@ def admin_delete_item(item_id: str, actor: str = "unknown") -> dict:
     _log_admin_action(actor, "item_deleted", item_id, _del_d)
     return {"ok": True}
 
-def admin_reorder_items(ordered_ids: list, actor: str = "unknown") -> dict:
+def admin_reorder_items(ordered_ids: list, actor: str = "unknown",
+                       moved_id: str | None = None,
+                       from_pos: int | None = None,
+                       to_pos: int | None = None) -> dict:
     """Rewrite shop_items.json so items appear in the order given by *ordered_ids*.
 
     IDs not present in *ordered_ids* are appended at the end (preserving
@@ -1670,9 +1673,18 @@ def admin_reorder_items(ordered_ids: list, actor: str = "unknown") -> dict:
             return {"error": f"Failed to write catalogue: {exc}"}
 
     _reload_items()
+    _log_details: dict = {}
+    if moved_id:
+        _moved_item = by_id.get(moved_id)
+        _log_details["item_id"] = moved_id
+        _log_details["item_name"] = _moved_item.get("name", moved_id) if _moved_item else moved_id
+        if from_pos is not None:
+            _log_details["from_pos"] = from_pos
+        if to_pos is not None:
+            _log_details["to_pos"] = to_pos
     _log_admin_action(
-        actor, "items_reordered", None,
-        {"count": len(ordered_ids)},
+        actor, "items_reordered", moved_id,
+        _log_details,
     )
     return {"ok": True}
 

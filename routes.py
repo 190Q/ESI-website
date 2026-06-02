@@ -2030,8 +2030,19 @@ def admin_shop_reorder_items():
     ordered_ids = body.get("ordered_ids")
     if not isinstance(ordered_ids, list) or not ordered_ids:
         return jsonify({"error": "ordered_ids must be a non-empty array"}), 400
+    moved_id = (body.get("moved_id") or "").strip() or None
+    from_pos = body.get("from_pos")
+    to_pos = body.get("to_pos")
+    if from_pos is not None:
+        try: from_pos = int(from_pos)
+        except (TypeError, ValueError): from_pos = None
+    if to_pos is not None:
+        try: to_pos = int(to_pos)
+        except (TypeError, ValueError): to_pos = None
     chief_name = user.get("nick") or user.get("username", "")
-    result = admin_reorder_items(ordered_ids, actor=chief_name)
+    result = admin_reorder_items(ordered_ids, actor=chief_name,
+                                 moved_id=moved_id, from_pos=from_pos,
+                                 to_pos=to_pos)
     return jsonify(result), 200 if result.get("ok") else 400
 
 
