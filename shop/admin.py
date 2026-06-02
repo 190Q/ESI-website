@@ -2007,7 +2007,7 @@ def _admin_get_users_uncached() -> list:
         elif r["ep_type"] == "dirty":
             adj_map[uid]["dirty"] += r["adj"] or 0
 
-    # Raw EP totals from _POINTS_DB (previous cycle only)
+    # Raw EP totals from _POINTS_DB (all completed cycles)
     raw_ep_by_uuid: dict = {}
     raw_ep_username_by_uuid: dict = {}
     if os.path.isfile(_POINTS_DB):
@@ -2025,7 +2025,7 @@ def _admin_get_users_uncached() -> list:
                                COALESCE(SUM(clean_ep), 0) AS raw_clean,
                                COALESCE(SUM(dirty_ep), 0) AS raw_dirty
                         FROM esi_points
-                        WHERE cycle_id = ?
+                        WHERE cycle_id <= ?
                         GROUP BY uuid
                         """,
                         (target_cycle,),
