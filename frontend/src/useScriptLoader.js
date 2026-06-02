@@ -34,6 +34,7 @@ export default function useScriptLoader() {
       await loadScript('/js/app.js')
       await loadScript('/js/themes.js')
       await loadScript('/js/graph-shared.js')
+      await loadScript('/js/custom-select.js')
       await loadScript('/js/player.js')
       await loadScript('/js/guild.js')
       await loadScript('/js/bot.js')

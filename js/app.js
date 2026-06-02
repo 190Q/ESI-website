@@ -2637,8 +2637,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
       if (!companionAssets || !companionAssets.length) {
         if (_allRelRefs.length) {
-          // CSS references local files but none were uploaded alongside it —
-          // re-open the picker so the user can add them
+          // CSS references local files but none were uploaded alongside it
           var _assetType = type === 'font' ? 'font files' : 'images';
           var _extraHint = type === 'font' ? ', or upload a .zip.' : '.';
           showToast('\u26a0 Your custom CSS references local files (e.g. ' + _allRelRefs[0] + '). Please select the CSS and its ' + _assetType + ' together' + _extraHint, 'warn');

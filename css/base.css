@@ -134,6 +134,80 @@ body::-webkit-scrollbar-corner { background: var(--green-deep); }
 
 /* Base Button Reset */
 button { cursor: pointer; border: none; font-family: inherit; }
+select, option { font-family: inherit; }
+
+/* Custom themed select (replaces native dropdown for font/theme support) */
+.cs-wrap {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+.cs-trigger {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+.cs-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cs-trigger::after {
+  content: '';
+  margin-left: 8px;
+  border: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  opacity: 0.45;
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+.cs-open > .cs-trigger::after {
+  transform: rotate(180deg) translateY(3px);
+}
+.cs-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: var(--surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(var(--black-rgb), 0.5);
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gold-dim) transparent;
+  padding: 4px 0;
+  font-family: inherit;
+  font-size: inherit;
+}
+.cs-open > .cs-dropdown {
+  display: block;
+}
+.cs-option {
+  padding: 6px 10px;
+  cursor: pointer;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.cs-option:hover,
+.cs-option.cs-focused {
+  background: rgba(var(--gold-rgb), 0.12);
+  color: var(--gold-light);
+}
+.cs-option.cs-selected {
+  background: rgba(var(--gold-rgb), 0.18);
+  color: var(--gold-light);
+}
 
 .btn-help {
   display: flex;
