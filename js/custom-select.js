@@ -89,7 +89,11 @@
         idx >= 0 && select.options[idx] ? select.options[idx].textContent : '';
     }
 
+    var FULL_WIDTH_CLASSES = ['graph-select', 'sf-select', 'detail-variant-dropdown', 'shop-modal-input', 'ie-input', 'ie-cd-type'];
+
     function _measureWidth() {
+      var isFull = FULL_WIDTH_CLASSES.some(function (c) { return select.classList.contains(c); });
+      if (isFull) { wrap.style.width = '100%'; return; }
       if (!select.options.length) return;
       var span = document.createElement('span');
       span.style.cssText =
