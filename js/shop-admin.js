@@ -161,12 +161,17 @@
     document.getElementById('saModal').addEventListener('click', function (e) {
       if (e.target.closest('.modal-close')) {
         this.classList.remove('ie-modal');
+        this.classList.remove('am-modal');
         closeModal();
       }
     });
   }
 
-  function closeModal() { document.getElementById('saModalBackdrop').classList.remove('open'); }
+  function closeModal() {
+    var m = document.getElementById('saModal');
+    if (m) { m.classList.remove('ie-modal'); m.classList.remove('am-modal'); }
+    document.getElementById('saModalBackdrop').classList.remove('open');
+  }
 
   function _clearQueueBadges() {
     var queueBtn = document.querySelector('#saTabs [data-tab=\"queue\"]');
@@ -713,6 +718,7 @@
   function _openAuctionManageModal(aid) {
     var modal = document.getElementById('saModal');
     var bd = document.getElementById('saModalBackdrop');
+    modal.classList.add('am-modal');
     modal.innerHTML = '<div class="shop-loading" style="padding:24px"><span class="loading-spinner"></span> Loading\u2026</div>';
     bd.classList.add('open');
     fetch('/api/admin/shop/auctions/' + encodeURIComponent(aid) + '/detail', { credentials: 'same-origin' })

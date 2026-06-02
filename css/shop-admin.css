@@ -996,6 +996,10 @@ select.sa-filter-input { cursor: pointer; }
 .sa-creq-panel.active { display: block; }
 
 /* Auction manage modal */
+.am-modal {
+  max-width: 720px !important;
+  width: 96vw !important;
+}
 .am-title-row {
   display: flex;
   align-items: flex-start;
