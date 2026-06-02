@@ -2,7 +2,7 @@
   'use strict';
 
   // All selects on the site are auto-upgraded unless they have data-cs="false"
-  var SELECTOR = 'select.graph-select, select.sf-select, select.settings-select, select.ev-select, select.ie-input, select.ie-cd-type, select.sa-filter-input, select.shop-modal-input, select.detail-variant-dropdown';
+  var SELECTOR = 'select.graph-select, select.sf-select, select.settings-select, select.ev-select, select.ie-input, select.ie-cd-type, select.sa-filter-input, select.shop-modal-input, select.detail-variant-dropdown, select.char-select';
   var _open = null;
 
   /* helpers */
