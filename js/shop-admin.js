@@ -3910,10 +3910,10 @@
     var _dirtyMax = _bal.dirty_total || 0;
     html += '<div class="su-manage-section">';
     html += '<div class="su-manage-section-title">EP Adjustment</div>';
-    html += '<div style="display:flex;gap:10px;margin-bottom:8px">';
-    html += '<div style="flex:1"><label class="shop-modal-input-label">Amount (<span id="saEpAdjRange">' + (-_cleanMax) + ' to 100,000</span>)</label>' +
+    html += '<div class="su-manage-pair" style="margin-bottom:8px">';
+    html += '<div><label class="shop-modal-input-label">Amount (<span id="saEpAdjRange">' + (-_cleanMax) + ' to 100,000</span>)</label>' +
       '<input type="text" inputmode="numeric" class="shop-modal-input" id="saEpAdjAmount" placeholder="e.g. 50 or -20" maxlength="7" /></div>';
-    html += '<div style="flex:1"><label class="shop-modal-input-label">EP Type</label>' +
+    html += '<div><label class="shop-modal-input-label">EP Type</label>' +
       '<select class="shop-modal-input" id="saEpAdjType"><option value="clean">Clean EP</option><option value="dirty">Dirty EP</option></select></div>';
     html += '</div>';
     html += '<label class="shop-modal-input-label">Reason (required for EP adjustment)</label>' +
@@ -3926,11 +3926,11 @@
     var _curMaxP  = _lim.max_purchases_per_cycle;
     html += '<div class="su-manage-section">';
     html += '<div class="su-manage-section-title">Purchase Limits</div>';
-    html += '<div style="display:flex;gap:10px">';
-    html += '<div style="flex:1"><label class="shop-modal-input-label">Max EP per cycle (blank\u00a0=\u00a0no\u00a0limit)</label>' +
+    html += '<div class="su-manage-pair">';
+    html += '<div><label class="shop-modal-input-label">Max EP per cycle (blank\u00a0=\u00a0no\u00a0limit)</label>' +
       '<input type="text" inputmode="numeric" class="shop-modal-input" id="suLimMaxEp" placeholder="No limit" maxlength="6" value="' +
       (_curMaxEp != null ? esc(String(_curMaxEp)) : '') + '" /></div>';
-    html += '<div style="flex:1"><label class="shop-modal-input-label">Max purchases per cycle (blank\u00a0=\u00a0no\u00a0limit)</label>' +
+    html += '<div><label class="shop-modal-input-label">Max purchases per cycle (blank\u00a0=\u00a0no\u00a0limit)</label>' +
       '<input type="text" inputmode="numeric" class="shop-modal-input" id="suLimMaxP" placeholder="No limit" maxlength="3" value="' +
       (_curMaxP != null ? esc(String(_curMaxP)) : '') + '" /></div>';
     html += '</div>';

@@ -1832,6 +1832,21 @@ select.sa-filter-input { cursor: pointer; }
   background: rgba(var(--gold-rgb), 0.08);
 }
 
+/* Manage user side-by-side field pairs (labels + inputs always aligned) */
+.su-manage-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.su-manage-pair > div {
+  display: flex;
+  flex-direction: column;
+}
+.su-manage-pair .shop-modal-input,
+.su-manage-pair .cs-wrap {
+  margin-top: auto;
+}
+
 /* Manage user modal sections */
 .su-manage-body {
   display: flex;
