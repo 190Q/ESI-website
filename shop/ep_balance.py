@@ -122,8 +122,9 @@ def resolve_uuid_for_user(discord_id: str) -> tuple[str | None, str | None]:
 
 def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
     """Compute the full EP balance for a player UUID.
-    By default, earned EP is sourced from the previous completed cycle only.
-    Pass points_cycle_id explicitly to override this behavior.
+    By default, earned EP is accumulated from all completed cycles (up to and
+    including the previous cycle).  Pass points_cycle_id explicitly to cap
+    which cycles are included.
 
     Returns a dict with keys: clean_ep, dirty_ep, total_ep,
     reserved_clean, reserved_dirty, spendable_clean, spendable_dirty.
@@ -140,7 +141,7 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
                 try:
                     row = conn.execute(
                         "SELECT COALESCE(SUM(clean_ep), 0), COALESCE(SUM(dirty_ep), 0) "
-                        "FROM esi_points WHERE uuid = ? AND cycle_id = ?",
+                        "FROM esi_points WHERE uuid = ? AND cycle_id <= ?",
                         (uuid, points_cycle_id),
                     ).fetchone()
                 except sqlite3.OperationalError:
