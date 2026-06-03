@@ -376,6 +376,11 @@ def place_bid(
         if not item.get("accepts_dirty_ep", False):
             spend_order = "clean_only"
 
+        # resolve EP split
+        split = resolve_spend(mc_uuid, amount, spend_order)
+        clean_used = split["clean_to_spend"]
+        dirty_used = split["dirty_to_spend"]
+
         # manage EP reservations in shop.db
         _ensure_ep_reservations_table(shop_conn)
 
@@ -385,11 +390,6 @@ def place_bid(
             "WHERE uuid = ? AND source = ? AND released_at IS NULL",
             (now_iso, mc_uuid, f"auction:{auction_id}"),
         )
-
-        # resolve EP split
-        split = resolve_spend(mc_uuid, amount, spend_order)
-        clean_used = split["clean_to_spend"]
-        dirty_used = split["dirty_to_spend"]
 
         # Create new reservations (one per EP type if non-zero)
         if clean_used > 0:
@@ -407,6 +407,14 @@ def place_bid(
                 "VALUES (?, ?, ?, ?, 'dirty', ?, ?)",
                 (str(_uuid_mod.uuid4()), mc_uuid, mc_username or "", dirty_used,
                  f"auction:{auction_id}", now_iso),
+            )
+
+        # release the displaced bidder's reservation
+        if current_bidder and current_bidder != mc_uuid:
+            shop_conn.execute(
+                "UPDATE ep_reservations SET released_at = ? "
+                "WHERE uuid = ? AND source = ? AND released_at IS NULL",
+                (now_iso, current_bidder, f"auction:{auction_id}"),
             )
 
         # insert bid row
@@ -998,15 +1006,14 @@ def _cleanup_orphaned_reservations() -> None:
             if not source.startswith("auction:"):
                 continue
             auction_id = source[len("auction:"):]
-            # Only release if the bidder has no bid on this auction at all
-            has_bid_on_active = conn.execute(
+            has_valid_bid = conn.execute(
                 "SELECT 1 FROM bids b "
                 "JOIN auctions a ON a.auction_id = b.auction_id "
                 "WHERE b.auction_id = ? AND b.uuid = ? "
-                "  AND a.status = 'active' LIMIT 1",
+                "  AND b.is_winning = 1 AND a.status = 'active' LIMIT 1",
                 (auction_id, r["uuid"]),
             ).fetchone()
-            if has_bid_on_active is None:
+            if has_valid_bid is None:
                 to_release.append(r["reservation_id"])
         conn.close()
     except sqlite3.Error as exc:
