@@ -9,17 +9,54 @@
 
   var _members   = [];
   var _filter    = '';
+  var _PROMOTIONS_TABS = ['recruiter', 'captain'];
+  function _normalizePromotionsTab(tab) {
+    var normalized = String(tab || '').trim().toLowerCase();
+    return _PROMOTIONS_TABS.indexOf(normalized) !== -1 ? normalized : null;
+  }
   function _readSetting(key) {
     try { var s = JSON.parse(localStorage.getItem('esi_settings')); return s && key in s ? s[key] : undefined; }
     catch (e) { return undefined; }
   }
   var _settingsPromTab = _readSetting('promotionsTab') || 'recruiter';
-  var _activeTab = (_settingsPromTab === 'captain') ? 'captain' : 'recruiter';
+  var _promDefaultTab = _normalizePromotionsTab(_settingsPromTab) || 'recruiter';
+  var _activeTab = _promDefaultTab;
   var _promActiveToast = null;
   var _promLoading = false;
   var _promFetched = false;
 
   var panel = document.getElementById('panel-promotions');
+
+  function _readPromotionsTabFromUrl() {
+    var params = new URLSearchParams(window.location.search || '');
+    return _normalizePromotionsTab(params.get('tab'));
+  }
+
+  function _writePromotionsTabToUrl(tab) {
+    var normalized = _normalizePromotionsTab(tab);
+    if (!normalized) return;
+    var params = new URLSearchParams(window.location.search || '');
+    params.set('tab', normalized);
+    var nextSearch = params.toString();
+    var nextUrl = window.location.pathname + (nextSearch ? '?' + nextSearch : '');
+    var currentUrl = window.location.pathname + (window.location.search || '');
+    if (nextUrl !== currentUrl) history.replaceState(null, '', nextUrl);
+  }
+
+  function _syncPromotionsTabFromUrl() {
+    var _urlTab = _readPromotionsTabFromUrl();
+    var _nextTab = _urlTab || _promDefaultTab;
+    var _changed = _nextTab !== _activeTab;
+    _activeTab = _nextTab;
+    _writePromotionsTabToUrl(_activeTab);
+    var _tabs = panel.querySelectorAll('.prom-tab');
+    if (_tabs.length) {
+      _tabs.forEach(function (b) { b.classList.remove('active'); });
+      var _activeBtn = panel.querySelector('.prom-tab[data-tab="' + _activeTab + '"]');
+      if (_activeBtn) _activeBtn.classList.add('active');
+    }
+    if (_changed && document.getElementById('promTableWrap')) renderTable();
+  }
 
   /* panel activation */
   var observer = new MutationObserver(function () {
@@ -141,6 +178,7 @@
 
   /* --- load --- */
   function load() {
+    _syncPromotionsTabFromUrl();
     if (_promLoading) return;
     _promLoading = true;
     var hasExistingData = !!document.getElementById('promShell');
@@ -264,6 +302,7 @@
         panel.querySelectorAll('.prom-tab').forEach(function (b) { b.classList.remove('active'); });
         this.classList.add('active');
         _activeTab = this.dataset.tab;
+        _writePromotionsTabToUrl(_activeTab);
         renderTable();
       });
     });
