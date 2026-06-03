@@ -8,6 +8,23 @@
   var _auctions = null;
   var _activeTab    = 'items';
   var _SHOP_ADMIN_TABS = ['items', 'queue', 'logs', 'users'];
+  var _SHOP_ADMIN_SCOPE_FLAGS = {
+    items: 'show_items_tab',
+    queue: 'show_queue_tab',
+    logs: 'show_logs_tab',
+    users: 'show_users_tab',
+  };
+  var _SHOP_ADMIN_ACTION_FLAGS = {
+    items_edit: 'allow_item_edit',
+    queue_actions: 'allow_queue_actions',
+    users_edit: 'allow_user_edit',
+  };
+  var _SHOP_ADMIN_TAB_LABELS = {
+    items: 'Items',
+    queue: 'Queue',
+    logs: 'Logs',
+    users: 'Users',
+  };
   var _isChief      = false; // any shop admin (chief+ or parliament+)
   var _isParliament = false; // parliament+ only
   var _shellBuilt   = false;
@@ -27,6 +44,28 @@
     eta_iso: null,
     owner_notified_at: null,
     owner_notified_for_eta: null,
+  };
+  var _adminMaintenanceSettings = {
+    admin_visible: true,
+    show_items_tab: true,
+    allow_item_edit: true,
+    show_queue_tab: true,
+    allow_queue_actions: true,
+    show_logs_tab: true,
+    show_users_tab: true,
+    allow_user_edit: true,
+    affected_user_types: null,
+  };
+  var _effectiveAdminMaintenanceSettings = {
+    admin_visible: true,
+    show_items_tab: true,
+    allow_item_edit: true,
+    show_queue_tab: true,
+    allow_queue_actions: true,
+    show_logs_tab: true,
+    show_users_tab: true,
+    allow_user_edit: true,
+    affected_user_types: null,
   };
 
   function _normalizeShopAdminTab(tab) {
@@ -121,6 +160,12 @@
         if (d && typeof d.shop_enabled === 'boolean') _shopEnabled = !!d.shop_enabled;
         if (d && typeof d.message === 'string' && d.message.trim()) _shopDisabledMessage = d.message.trim();
         if (d && d.maintenance_settings) _maintenanceSettings = _normalizeMaintenanceSettings(d.maintenance_settings);
+        if (d && d.admin_maintenance_settings) _adminMaintenanceSettings = _normalizeAdminMaintenanceSettings(d.admin_maintenance_settings);
+        if (d && d.effective_admin_maintenance_settings) {
+          _effectiveAdminMaintenanceSettings = _normalizeAdminMaintenanceSettings(d.effective_admin_maintenance_settings);
+        } else if (d && d.admin_maintenance_settings) {
+          _effectiveAdminMaintenanceSettings = _normalizeAdminMaintenanceSettings(d.admin_maintenance_settings);
+        }
         _canToggleShopState = !!(d && d.can_toggle);
         _isParliamentFromState = !!(d && d.is_parliament);
         if (cb) cb(d);
@@ -136,12 +181,18 @@
     return !!_canToggleShopState;
   }
 
-  function _canChiefEditShopAdmin() {
-    return (_isChief || _isOwnerShopAdmin()) && (_shopEnabled || _isOwnerShopAdmin() || _isParliamentFromState);
+  function _canChiefEditShopAdmin(scope, action) {
+    var canEdit = (_isChief || _isOwnerShopAdmin()) && (_shopEnabled || _isOwnerShopAdmin() || _isParliamentFromState);
+    if (!canEdit) return false;
+    if (!scope) return canEdit;
+    return _canActOnAdminScope(scope, action || null);
   }
 
-  function _canParliamentEditShopAdmin() {
-    return (_isParliament || _isOwnerShopAdmin()) && (_shopEnabled || _isOwnerShopAdmin() || _isParliamentFromState);
+  function _canParliamentEditShopAdmin(scope, action) {
+    var canEdit = (_isParliament || _isOwnerShopAdmin()) && (_shopEnabled || _isOwnerShopAdmin() || _isParliamentFromState);
+    if (!canEdit) return false;
+    if (!scope) return canEdit;
+    return _canActOnAdminScope(scope, action || null);
   }
 
   function _disabledMessageLabel() {
@@ -217,6 +268,143 @@
     base.owner_notified_for_eta = raw.owner_notified_for_eta ? String(raw.owner_notified_for_eta) : null;
     return base;
   }
+  var _ADMIN_MAINT_AUDIENCE_TYPES = ['creators', 'chief_admins', 'parliament_admins'];
+  var _ADMIN_MAINT_AUDIENCE_LABELS = {
+    creators: 'Creators',
+    chief_admins: 'Chief admins',
+    parliament_admins: 'Parliament admins',
+  };
+  function _normalizeAdminMaintenanceAudience(raw) {
+    if (!Array.isArray(raw)) return null;
+    var cleaned = [];
+    var seen = {};
+    raw.forEach(function (entry) {
+      var text = String(entry || '').trim().toLowerCase();
+      if (!text) return;
+      var isExclude = text.charAt(0) === '!';
+      var token = isExclude ? text.slice(1) : text;
+      if (_ADMIN_MAINT_AUDIENCE_TYPES.indexOf(token) === -1) return;
+      var normalized = (isExclude ? '!' : '') + token;
+      if (seen[normalized]) return;
+      seen[normalized] = true;
+      cleaned.push(normalized);
+    });
+    return cleaned.length ? cleaned : null;
+  }
+  function _parseAdminMaintenanceAudience(raw) {
+    var state = {};
+    _ADMIN_MAINT_AUDIENCE_TYPES.forEach(function (type) { state[type] = 0; });
+    var normalized = _normalizeAdminMaintenanceAudience(raw);
+    if (!normalized) return state;
+    normalized.forEach(function (entry) {
+      var isExclude = entry.charAt(0) === '!';
+      var token = isExclude ? entry.slice(1) : entry;
+      if (state[token] == null) return;
+      if (isExclude) {
+        state[token] = -1;
+      } else if (state[token] !== -1) {
+        state[token] = 1;
+      }
+    });
+    return state;
+  }
+  function _normalizeAdminMaintenanceSettings(raw) {
+    var base = {
+      admin_visible: true,
+      show_items_tab: true,
+      allow_item_edit: true,
+      show_queue_tab: true,
+      allow_queue_actions: true,
+      show_logs_tab: true,
+      show_users_tab: true,
+      allow_user_edit: true,
+      affected_user_types: null,
+    };
+    if (!raw || typeof raw !== 'object') return base;
+    base.admin_visible = _asBool(raw.admin_visible, base.admin_visible);
+    base.show_items_tab = _asBool(raw.show_items_tab, base.show_items_tab);
+    base.allow_item_edit = _asBool(raw.allow_item_edit, base.allow_item_edit);
+    base.show_queue_tab = _asBool(raw.show_queue_tab, base.show_queue_tab);
+    base.allow_queue_actions = _asBool(raw.allow_queue_actions, base.allow_queue_actions);
+    base.show_logs_tab = _asBool(raw.show_logs_tab, base.show_logs_tab);
+    base.show_users_tab = _asBool(raw.show_users_tab, base.show_users_tab);
+    base.allow_user_edit = _asBool(raw.allow_user_edit, base.allow_user_edit);
+    base.affected_user_types = _normalizeAdminMaintenanceAudience(raw.affected_user_types);
+    if (!base.show_items_tab) base.allow_item_edit = false;
+    if (!base.show_queue_tab) base.allow_queue_actions = false;
+    if (!base.show_users_tab) base.allow_user_edit = false;
+    if (!base.admin_visible) {
+      base.show_items_tab = false;
+      base.allow_item_edit = false;
+      base.show_queue_tab = false;
+      base.allow_queue_actions = false;
+      base.show_logs_tab = false;
+      base.show_users_tab = false;
+      base.allow_user_edit = false;
+    }
+    return base;
+  }
+  function _activeAdminMaintenanceSettings() {
+    return _normalizeAdminMaintenanceSettings(_effectiveAdminMaintenanceSettings || _adminMaintenanceSettings);
+  }
+  function _isAdminScopeVisible(scope) {
+    var key = _SHOP_ADMIN_SCOPE_FLAGS[scope];
+    if (!key) return true;
+    var settings = _activeAdminMaintenanceSettings();
+    return settings.admin_visible !== false && settings[key] !== false;
+  }
+  function _canActOnAdminScope(scope, action) {
+    if (!_isAdminScopeVisible(scope)) return false;
+    if (!action) return true;
+    var actionKey = _SHOP_ADMIN_ACTION_FLAGS[action];
+    if (!actionKey) return true;
+    var settings = _activeAdminMaintenanceSettings();
+    return settings[actionKey] !== false;
+  }
+  function _adminScopeDisabledLabel(scope, action) {
+    var settings = _activeAdminMaintenanceSettings();
+    if (settings.admin_visible === false) return 'Admin shop is currently hidden.';
+    var scopeKey = _SHOP_ADMIN_SCOPE_FLAGS[scope];
+    if (scopeKey && settings[scopeKey] === false) {
+      return (_SHOP_ADMIN_TAB_LABELS[scope] || 'This section') + ' is currently hidden.';
+    }
+    if (action) {
+      var actionKey = _SHOP_ADMIN_ACTION_FLAGS[action];
+      if (actionKey && settings[actionKey] === false) {
+        if (action === 'items_edit') return 'Item edits are disabled during maintenance.';
+        if (action === 'queue_actions') return 'Queue actions are disabled during maintenance.';
+        if (action === 'users_edit') return 'User edits are disabled during maintenance.';
+      }
+    }
+    return 'This action is disabled during maintenance.';
+  }
+  function _syncAdminTabsVisibility() {
+    var tabsWrap = document.getElementById('saTabs');
+    if (!tabsWrap) return _SHOP_ADMIN_TABS.slice();
+    var visibleTabs = _SHOP_ADMIN_TABS.filter(function (tab) {
+      return _isAdminScopeVisible(tab);
+    });
+    _SHOP_ADMIN_TABS.forEach(function (tab) {
+      var btn = tabsWrap.querySelector('[data-tab="' + tab + '"]');
+      if (!btn) return;
+      var visible = visibleTabs.indexOf(tab) !== -1;
+      btn.style.display = visible ? '' : 'none';
+    });
+    if (!visibleTabs.length) {
+      tabsWrap.querySelectorAll('.shop-tab').forEach(function (btn) {
+        btn.classList.remove('active');
+      });
+      return visibleTabs;
+    }
+    if (visibleTabs.indexOf(_activeTab) === -1) {
+      _activeTab = visibleTabs[0];
+      _writeShopAdminTabToUrl(_activeTab);
+    }
+    tabsWrap.querySelectorAll('.shop-tab').forEach(function (btn) {
+      btn.classList.toggle('active', btn.dataset.tab === _activeTab);
+    });
+    return visibleTabs;
+  }
   function _toLocalDateTimeInput(isoText) {
     if (!isoText) return '';
     var d = new Date(isoText);
@@ -269,52 +457,105 @@
     modal.classList.remove('ie-modal');
     modal.classList.remove('am-modal');
     modal.classList.add('sa-maint-modal');
-    var settings = _normalizeMaintenanceSettings(_maintenanceSettings);
-    var toggles = [
+    var shopSettings = _normalizeMaintenanceSettings(_maintenanceSettings);
+    var adminSettings = _normalizeAdminMaintenanceSettings(_adminMaintenanceSettings);
+    var shopToggles = [
       { id: 'saMaintShopVisible', key: 'shop_visible', title: 'Show shop page during maintenance', hint: 'If disabled, users only see a maintenance screen.' },
       { id: 'saMaintShowItems', key: 'show_items', title: 'Show items and cart (read-only)', hint: 'Hides item cards when off; cart remains available and shows maintenance messaging.' },
       { id: 'saMaintShowBalance', key: 'show_balance_bar', title: 'Show real EP balance during maintenance', hint: 'When enabled, users see actual EP balances; when off, the bar shows "Under Maintenance".' },
       { id: 'saMaintShowOrders', key: 'show_orders', title: 'Show My Orders history contents', hint: 'When enabled, users can view order history in maintenance; when off, they see an unavailable message.' },
     ];
-    var toggleHtml = toggles.map(function (row) {
+    var adminToggles = [
+      { id: 'saAdminMaintVisible', key: 'admin_visible', title: 'Show Admin Shop + Creator Studio', hint: 'Master toggle for all admin/creator maintenance controls.' },
+      { id: 'saAdminMaintShowItems', key: 'show_items_tab', title: 'Show Items tab', hint: 'Controls visibility of the admin items tab.' },
+      { id: 'saAdminMaintAllowItemEdit', key: 'allow_item_edit', title: 'Allow item edits', hint: 'Prevents creating/editing/deleting items and auction management when off.' },
+      { id: 'saAdminMaintShowQueue', key: 'show_queue_tab', title: 'Show Queue tab', hint: 'Controls visibility of queue and requests tabs.' },
+      { id: 'saAdminMaintAllowQueueActions', key: 'allow_queue_actions', title: 'Allow queue actions', hint: 'Prevents fulfill/deny/approve actions when off.' },
+      { id: 'saAdminMaintShowLogs', key: 'show_logs_tab', title: 'Show Logs tab', hint: 'Controls visibility of activity and changes logs.' },
+      { id: 'saAdminMaintShowUsers', key: 'show_users_tab', title: 'Show Users tab', hint: 'Controls visibility of user management.' },
+      { id: 'saAdminMaintAllowUserEdit', key: 'allow_user_edit', title: 'Allow user edits', hint: 'Prevents edits to user settings, bans, and EP adjustments when off.' },
+    ];
+    var shopToggleHtml = shopToggles.map(function (row) {
       return '<div class="sa-maint-toggle-row" data-maint-row="' + row.key + '">' +
         '<span class="sa-maint-toggle-text">' +
           '<strong>' + esc(row.title) + '</strong>' +
           '<span>' + esc(row.hint) + '</span>' +
         '</span>' +
         '<label class="settings-toggle" for="' + row.id + '">' +
-          '<input type="checkbox" id="' + row.id + '"' + (settings[row.key] ? ' checked' : '') + ' />' +
+          '<input type="checkbox" id="' + row.id + '"' + (shopSettings[row.key] ? ' checked' : '') + ' />' +
           '<span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>' +
         '</label>' +
       '</div>';
     }).join('');
-    var audienceStates = _parseMaintenanceAudience(settings.affected_user_types);
-    var audienceHtml = _MAINT_AUDIENCE_TYPES.map(function (type) {
-      var state = audienceStates[type] || 0;
+    var adminToggleHtml = adminToggles.map(function (row) {
+      return '<div class="sa-maint-toggle-row" data-admin-maint-row="' + row.key + '">' +
+        '<span class="sa-maint-toggle-text">' +
+          '<strong>' + esc(row.title) + '</strong>' +
+          '<span>' + esc(row.hint) + '</span>' +
+        '</span>' +
+        '<label class="settings-toggle" for="' + row.id + '">' +
+          '<input type="checkbox" id="' + row.id + '"' + (adminSettings[row.key] ? ' checked' : '') + ' />' +
+          '<span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>' +
+        '</label>' +
+      '</div>';
+    }).join('');
+    var shopAudienceStates = _parseMaintenanceAudience(shopSettings.affected_user_types);
+    var shopAudienceHtml = _MAINT_AUDIENCE_TYPES.map(function (type) {
+      var state = shopAudienceStates[type] || 0;
       var label = _MAINT_AUDIENCE_LABELS[type] || type;
       return '<button class="ie-rank-chip sa-maint-audience-chip" type="button" data-maint-audience="' + esc(type) + '" data-state="' + state + '">' + esc(label) + '</button>';
+    }).join('');
+    var adminAudienceStates = _parseAdminMaintenanceAudience(adminSettings.affected_user_types);
+    var adminAudienceHtml = _ADMIN_MAINT_AUDIENCE_TYPES.map(function (type) {
+      var state = adminAudienceStates[type] || 0;
+      var label = _ADMIN_MAINT_AUDIENCE_LABELS[type] || type;
+      return '<button class="ie-rank-chip sa-maint-audience-chip" type="button" data-admin-maint-audience="' + esc(type) + '" data-state="' + state + '">' + esc(label) + '</button>';
     }).join('');
     modal.innerHTML =
       '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
       '<div class="shop-modal-title">Maintenance settings</div>' +
       '<div class="shop-modal-body sa-maint-settings-body">' +
-        '<label class="shop-modal-input-label" for="saMaintEtaInput">Maintenance ETA</label>' +
-        '<div class="sa-maint-eta-row">' +
-          '<input type="datetime-local" class="shop-modal-input" id="saMaintEtaInput" value="' + esc(_toLocalDateTimeInput(settings.eta_iso)) + '" />' +
-          '<button class="shop-modal-btn shop-modal-btn--cancel sa-maint-clear-btn" id="saMaintClearEta" type="button">Clear</button>' +
-        '</div>' +
-        '<div class="sa-maint-eta-status" id="saMaintEtaStatus">' + esc(_maintenanceEtaSummary(settings)) + '</div>' +
-        '<div class="sa-maint-settings-note">Use these toggles to control real EP balance visibility and whether My Orders history contents are shown.</div>' +
-        '<div class="sa-maint-toggle-list">' + toggleHtml + '</div>' +
-        '<div class="sa-maint-audience-section">' +
-          '<label class="shop-modal-input-label">Affected user types</label>' +
-          '<div class="ie-rank-chips" id="saMaintAudienceChips">' + audienceHtml + '</div>' +
-          '<div class="ie-hint ie-rank-legend">' +
-            '<span class="ie-rl-dot" style="background:var(--border)"></span>Neutral (no filter) &ensp;' +
-            '<span class="ie-rl-dot" style="background:var(--gold)"></span>Include &ensp;' +
-            '<span class="ie-rl-dot" style="background:var(--danger)"></span>Exclude &ensp;- click to cycle' +
+        '<div class="sa-maint-eta-block">' +
+          '<label class="shop-modal-input-label" for="saMaintEtaInput">Maintenance ETA</label>' +
+          '<div class="sa-maint-eta-row">' +
+            '<input type="datetime-local" class="shop-modal-input" id="saMaintEtaInput" value="' + esc(_toLocalDateTimeInput(shopSettings.eta_iso)) + '" />' +
+            '<button class="shop-modal-btn shop-modal-btn--cancel sa-maint-clear-btn" id="saMaintClearEta" type="button">Clear</button>' +
           '</div>' +
-          '<div class="sa-maint-settings-note">OWNER is never affected by maintenance settings.</div>' +
+          '<div class="sa-maint-eta-status" id="saMaintEtaStatus">' + esc(_maintenanceEtaSummary(shopSettings)) + '</div>' +
+        '</div>' +
+        '<div class="shop-tabs sa-maint-tab-nav" id="saMaintTabNav">' +
+          '<button type="button" class="shop-tab sa-maint-tab-btn active" data-maint-tab="shop">Shop</button>' +
+          '<button type="button" class="shop-tab sa-maint-tab-btn" data-maint-tab="admin">Admin Shop + Creator Studio</button>' +
+        '</div>' +
+        '<div class="sa-maint-settings-scroll">' +
+          '<div class="sa-maint-tab-panel" data-maint-panel="shop">' +
+            '<div class="sa-maint-settings-note">Use these toggles to control public shop visibility during maintenance.</div>' +
+            '<div class="sa-maint-toggle-list">' + shopToggleHtml + '</div>' +
+            '<div class="sa-maint-audience-section">' +
+              '<label class="shop-modal-input-label">Affected user types</label>' +
+              '<div class="ie-rank-chips" id="saMaintAudienceChips">' + shopAudienceHtml + '</div>' +
+              '<div class="ie-hint ie-rank-legend">' +
+                '<span class="ie-rl-dot" style="background:var(--border)"></span>Neutral (no filter) &ensp;' +
+                '<span class="ie-rl-dot" style="background:var(--gold)"></span>Include &ensp;' +
+                '<span class="ie-rl-dot" style="background:var(--danger)"></span>Exclude &ensp;- click to cycle' +
+              '</div>' +
+              '<div class="sa-maint-settings-note">OWNER is never affected by maintenance settings.</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="sa-maint-tab-panel" data-maint-panel="admin" style="display:none">' +
+            '<div class="sa-maint-settings-note">These toggles affect both Admin Shop and Creator Studio.</div>' +
+            '<div class="sa-maint-toggle-list">' + adminToggleHtml + '</div>' +
+            '<div class="sa-maint-audience-section">' +
+              '<label class="shop-modal-input-label">Affected user types</label>' +
+              '<div class="ie-rank-chips" id="saAdminMaintAudienceChips">' + adminAudienceHtml + '</div>' +
+              '<div class="ie-hint ie-rank-legend">' +
+                '<span class="ie-rl-dot" style="background:var(--border)"></span>Neutral (no filter) &ensp;' +
+                '<span class="ie-rl-dot" style="background:var(--gold)"></span>Include &ensp;' +
+                '<span class="ie-rl-dot" style="background:var(--danger)"></span>Exclude &ensp;- click to cycle' +
+              '</div>' +
+              '<div class="sa-maint-settings-note">OWNER is never affected by maintenance settings.</div>' +
+            '</div>' +
+          '</div>' +
         '</div>' +
       '</div>' +
       '<div class="shop-modal-actions">' +
@@ -329,9 +570,18 @@
     var showItemsInput = document.getElementById('saMaintShowItems');
     var showBalanceInput = document.getElementById('saMaintShowBalance');
     var showOrdersInput = document.getElementById('saMaintShowOrders');
+    var adminVisibleInput = document.getElementById('saAdminMaintVisible');
+    var adminShowItemsInput = document.getElementById('saAdminMaintShowItems');
+    var adminAllowItemEditInput = document.getElementById('saAdminMaintAllowItemEdit');
+    var adminShowQueueInput = document.getElementById('saAdminMaintShowQueue');
+    var adminAllowQueueActionsInput = document.getElementById('saAdminMaintAllowQueueActions');
+    var adminShowLogsInput = document.getElementById('saAdminMaintShowLogs');
+    var adminShowUsersInput = document.getElementById('saAdminMaintShowUsers');
+    var adminAllowUserEditInput = document.getElementById('saAdminMaintAllowUserEdit');
     var saveBtn = document.getElementById('saMaintSave');
+    var tabNav = document.getElementById('saMaintTabNav');
     var baselineSettings = null;
-    function _syncMaintenanceToggleDependencies(changedKey) {
+    function _syncShopToggleDependencies(changedKey) {
       if (!shopVisibleInput || !showItemsInput || !showBalanceInput || !showOrdersInput) return;
       if (changedKey === 'shop_visible') {
         if (!shopVisibleInput.checked) {
@@ -352,7 +602,42 @@
         shopVisibleInput.checked = false;
       }
     }
-    function _readCurrentSettings() {
+    function _syncAdminToggleDependencies(changedKey) {
+      if (!adminVisibleInput || !adminShowItemsInput || !adminAllowItemEditInput || !adminShowQueueInput ||
+          !adminAllowQueueActionsInput || !adminShowLogsInput || !adminShowUsersInput || !adminAllowUserEditInput) {
+        return;
+      }
+      if (changedKey === 'admin_visible' && !adminVisibleInput.checked) {
+        adminShowItemsInput.checked = false;
+        adminAllowItemEditInput.checked = false;
+        adminShowQueueInput.checked = false;
+        adminAllowQueueActionsInput.checked = false;
+        adminShowLogsInput.checked = false;
+        adminShowUsersInput.checked = false;
+        adminAllowUserEditInput.checked = false;
+        return;
+      }
+      if (!adminVisibleInput.checked && (adminShowItemsInput.checked || adminShowQueueInput.checked || adminShowLogsInput.checked || adminShowUsersInput.checked ||
+          adminAllowItemEditInput.checked || adminAllowQueueActionsInput.checked || adminAllowUserEditInput.checked)) {
+        adminVisibleInput.checked = true;
+      }
+      if (!adminShowItemsInput.checked) adminAllowItemEditInput.checked = false;
+      if (!adminShowQueueInput.checked) adminAllowQueueActionsInput.checked = false;
+      if (!adminShowUsersInput.checked) adminAllowUserEditInput.checked = false;
+      if (changedKey === 'allow_item_edit' && adminAllowItemEditInput.checked) {
+        adminShowItemsInput.checked = true;
+        adminVisibleInput.checked = true;
+      }
+      if (changedKey === 'allow_queue_actions' && adminAllowQueueActionsInput.checked) {
+        adminShowQueueInput.checked = true;
+        adminVisibleInput.checked = true;
+      }
+      if (changedKey === 'allow_user_edit' && adminAllowUserEditInput.checked) {
+        adminShowUsersInput.checked = true;
+        adminVisibleInput.checked = true;
+      }
+    }
+    function _readCurrentShopSettings() {
       return _normalizeMaintenanceSettings({
         shop_visible: !!(shopVisibleInput && shopVisibleInput.checked),
         show_items: !!(showItemsInput && showItemsInput.checked),
@@ -370,63 +655,132 @@
           return _normalizeMaintenanceAudience(selected);
         })(),
         eta_iso: _fromLocalDateTimeInput(etaInput ? etaInput.value : ''),
-        owner_notified_at: settings.owner_notified_at,
-        owner_notified_for_eta: settings.owner_notified_for_eta,
+        owner_notified_at: shopSettings.owner_notified_at,
+        owner_notified_for_eta: shopSettings.owner_notified_for_eta,
       });
     }
-    function _sameAudienceSelection(a, b) {
-      var left = _normalizeMaintenanceAudience(a) || [];
-      var right = _normalizeMaintenanceAudience(b) || [];
+    function _readCurrentAdminSettings() {
+      return _normalizeAdminMaintenanceSettings({
+        admin_visible: !!(adminVisibleInput && adminVisibleInput.checked),
+        show_items_tab: !!(adminShowItemsInput && adminShowItemsInput.checked),
+        allow_item_edit: !!(adminAllowItemEditInput && adminAllowItemEditInput.checked),
+        show_queue_tab: !!(adminShowQueueInput && adminShowQueueInput.checked),
+        allow_queue_actions: !!(adminAllowQueueActionsInput && adminAllowQueueActionsInput.checked),
+        show_logs_tab: !!(adminShowLogsInput && adminShowLogsInput.checked),
+        show_users_tab: !!(adminShowUsersInput && adminShowUsersInput.checked),
+        allow_user_edit: !!(adminAllowUserEditInput && adminAllowUserEditInput.checked),
+        affected_user_types: (function () {
+          var selected = [];
+          modal.querySelectorAll('[data-admin-maint-audience]').forEach(function (chip) {
+            var key = String(chip.getAttribute('data-admin-maint-audience') || '').trim();
+            if (_ADMIN_MAINT_AUDIENCE_TYPES.indexOf(key) === -1) return;
+            var state = parseInt(chip.dataset.state, 10) || 0;
+            if (state === 1) selected.push(key);
+            else if (state === -1) selected.push('!' + key);
+          });
+          return _normalizeAdminMaintenanceAudience(selected);
+        })(),
+      });
+    }
+    function _sameAudienceSelection(a, b, normalizer) {
+      var left = (normalizer(a) || []).slice();
+      var right = (normalizer(b) || []).slice();
       return JSON.stringify(left) === JSON.stringify(right);
     }
-    function _settingsChanged(nextSettings) {
+    function _settingsChanged(nextShopSettings, nextAdminSettings) {
       if (!baselineSettings) return false;
-      var next = nextSettings || _readCurrentSettings();
-      return next.shop_visible !== baselineSettings.shop_visible ||
-        next.show_items !== baselineSettings.show_items ||
-        next.show_balance_bar !== baselineSettings.show_balance_bar ||
-        next.show_orders !== baselineSettings.show_orders ||
-        !_sameAudienceSelection(next.affected_user_types, baselineSettings.affected_user_types) ||
-        (next.eta_iso || null) !== (baselineSettings.eta_iso || null);
+      var nextShop = nextShopSettings || _readCurrentShopSettings();
+      var nextAdmin = nextAdminSettings || _readCurrentAdminSettings();
+      return nextShop.shop_visible !== baselineSettings.shop.shop_visible ||
+        nextShop.show_items !== baselineSettings.shop.show_items ||
+        nextShop.show_balance_bar !== baselineSettings.shop.show_balance_bar ||
+        nextShop.show_orders !== baselineSettings.shop.show_orders ||
+        !_sameAudienceSelection(nextShop.affected_user_types, baselineSettings.shop.affected_user_types, _normalizeMaintenanceAudience) ||
+        (nextShop.eta_iso || null) !== (baselineSettings.shop.eta_iso || null) ||
+        nextAdmin.admin_visible !== baselineSettings.admin.admin_visible ||
+        nextAdmin.show_items_tab !== baselineSettings.admin.show_items_tab ||
+        nextAdmin.allow_item_edit !== baselineSettings.admin.allow_item_edit ||
+        nextAdmin.show_queue_tab !== baselineSettings.admin.show_queue_tab ||
+        nextAdmin.allow_queue_actions !== baselineSettings.admin.allow_queue_actions ||
+        nextAdmin.show_logs_tab !== baselineSettings.admin.show_logs_tab ||
+        nextAdmin.show_users_tab !== baselineSettings.admin.show_users_tab ||
+        nextAdmin.allow_user_edit !== baselineSettings.admin.allow_user_edit ||
+        !_sameAudienceSelection(nextAdmin.affected_user_types, baselineSettings.admin.affected_user_types, _normalizeAdminMaintenanceAudience);
     }
-    function _updateSaveButton(nextSettings) {
+    function _updateSaveButton(nextShopSettings, nextAdminSettings) {
       if (!saveBtn) return;
-      var isDirty = _settingsChanged(nextSettings);
+      var isDirty = _settingsChanged(nextShopSettings, nextAdminSettings);
       saveBtn.style.display = isDirty ? '' : 'none';
       if (!saveBtn.disabled) saveBtn.textContent = 'Save settings';
     }
-    function _refreshEtaSummary(nextSettings) {
+    function _refreshEtaSummary(nextShopSettings) {
       if (!etaInput || !etaStatus) return;
-      etaStatus.textContent = _maintenanceEtaSummary(nextSettings || _readCurrentSettings());
+      etaStatus.textContent = _maintenanceEtaSummary(nextShopSettings || _readCurrentShopSettings());
     }
-    function _refreshModalState(changedKey) {
-      _syncMaintenanceToggleDependencies(changedKey);
-      var nextSettings = _readCurrentSettings();
-      _refreshEtaSummary(nextSettings);
-      _updateSaveButton(nextSettings);
+    function _switchTab(tabName) {
+      if (!tabNav) return;
+      tabNav.querySelectorAll('[data-maint-tab]').forEach(function (btn) {
+        btn.classList.toggle('active', btn.getAttribute('data-maint-tab') === tabName);
+      });
+      modal.querySelectorAll('[data-maint-panel]').forEach(function (panel) {
+        panel.style.display = panel.getAttribute('data-maint-panel') === tabName ? '' : 'none';
+      });
     }
-    if (shopVisibleInput) shopVisibleInput.addEventListener('change', function () { _refreshModalState('shop_visible'); });
-    if (showItemsInput) showItemsInput.addEventListener('change', function () { _refreshModalState('show_items'); });
-    if (showBalanceInput) showBalanceInput.addEventListener('change', function () { _refreshModalState('show_balance_bar'); });
-    if (showOrdersInput) showOrdersInput.addEventListener('change', function () { _refreshModalState('show_orders'); });
+    function _refreshModalState(scope, changedKey) {
+      if (scope === 'shop') _syncShopToggleDependencies(changedKey);
+      else if (scope === 'admin') _syncAdminToggleDependencies(changedKey);
+      var nextShopSettings = _readCurrentShopSettings();
+      var nextAdminSettings = _readCurrentAdminSettings();
+      _refreshEtaSummary(nextShopSettings);
+      _updateSaveButton(nextShopSettings, nextAdminSettings);
+    }
+    if (tabNav) {
+      tabNav.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-maint-tab]');
+        if (!btn) return;
+        _switchTab(btn.getAttribute('data-maint-tab'));
+      });
+    }
+    if (shopVisibleInput) shopVisibleInput.addEventListener('change', function () { _refreshModalState('shop', 'shop_visible'); });
+    if (showItemsInput) showItemsInput.addEventListener('change', function () { _refreshModalState('shop', 'show_items'); });
+    if (showBalanceInput) showBalanceInput.addEventListener('change', function () { _refreshModalState('shop', 'show_balance_bar'); });
+    if (showOrdersInput) showOrdersInput.addEventListener('change', function () { _refreshModalState('shop', 'show_orders'); });
+    if (adminVisibleInput) adminVisibleInput.addEventListener('change', function () { _refreshModalState('admin', 'admin_visible'); });
+    if (adminShowItemsInput) adminShowItemsInput.addEventListener('change', function () { _refreshModalState('admin', 'show_items_tab'); });
+    if (adminAllowItemEditInput) adminAllowItemEditInput.addEventListener('change', function () { _refreshModalState('admin', 'allow_item_edit'); });
+    if (adminShowQueueInput) adminShowQueueInput.addEventListener('change', function () { _refreshModalState('admin', 'show_queue_tab'); });
+    if (adminAllowQueueActionsInput) adminAllowQueueActionsInput.addEventListener('change', function () { _refreshModalState('admin', 'allow_queue_actions'); });
+    if (adminShowLogsInput) adminShowLogsInput.addEventListener('change', function () { _refreshModalState('admin', 'show_logs_tab'); });
+    if (adminShowUsersInput) adminShowUsersInput.addEventListener('change', function () { _refreshModalState('admin', 'show_users_tab'); });
+    if (adminAllowUserEditInput) adminAllowUserEditInput.addEventListener('change', function () { _refreshModalState('admin', 'allow_user_edit'); });
     modal.querySelectorAll('[data-maint-audience]').forEach(function (chip) {
       chip.addEventListener('click', function () {
         var state = parseInt(chip.dataset.state, 10) || 0;
         chip.dataset.state = state === 0 ? 1 : (state === 1 ? -1 : 0);
-        _refreshModalState();
+        _refreshModalState('shop');
       });
     });
-    if (etaInput) etaInput.addEventListener('input', _refreshModalState);
+    modal.querySelectorAll('[data-admin-maint-audience]').forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        var state = parseInt(chip.dataset.state, 10) || 0;
+        chip.dataset.state = state === 0 ? 1 : (state === 1 ? -1 : 0);
+        _refreshModalState('admin');
+      });
+    });
+    if (etaInput) etaInput.addEventListener('input', function () { _refreshModalState('shop'); });
     if (clearBtn) {
       clearBtn.addEventListener('click', function () {
         if (!etaInput) return;
         etaInput.value = '';
-        _refreshModalState();
+        _refreshModalState('shop');
       });
     }
-    _refreshModalState();
-    baselineSettings = _readCurrentSettings();
-    _updateSaveButton(baselineSettings);
+    _refreshModalState('shop');
+    _refreshModalState('admin');
+    var initialShopSettings = _readCurrentShopSettings();
+    var initialAdminSettings = _readCurrentAdminSettings();
+    baselineSettings = { shop: initialShopSettings, admin: initialAdminSettings };
+    _updateSaveButton(initialShopSettings, initialAdminSettings);
     var cancelBtn = document.getElementById('saMaintCancel');
     if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
     if (saveBtn) {
@@ -437,45 +791,83 @@
           showToast('\u26a0 Invalid ETA date/time.', 'warn');
           return;
         }
-        _syncMaintenanceToggleDependencies();
-        var nextSettings = _readCurrentSettings();
-        if (!_settingsChanged(nextSettings)) {
-          _updateSaveButton(nextSettings);
+        _syncShopToggleDependencies();
+        _syncAdminToggleDependencies();
+        var nextShopSettings = _readCurrentShopSettings();
+        var nextAdminSettings = _readCurrentAdminSettings();
+        if (!_settingsChanged(nextShopSettings, nextAdminSettings)) {
+          _updateSaveButton(nextShopSettings, nextAdminSettings);
           return;
         }
-        var payload = {
-          shop_visible: nextSettings.shop_visible,
-          show_items: nextSettings.show_items,
-          show_balance_bar: nextSettings.show_balance_bar,
-          show_orders: nextSettings.show_orders,
-          affected_user_types: nextSettings.affected_user_types,
+        var shopPayload = {
+          shop_visible: nextShopSettings.shop_visible,
+          show_items: nextShopSettings.show_items,
+          show_balance_bar: nextShopSettings.show_balance_bar,
+          show_orders: nextShopSettings.show_orders,
+          affected_user_types: nextShopSettings.affected_user_types,
           eta_iso: etaIso,
+        };
+        var adminPayload = {
+          admin_visible: nextAdminSettings.admin_visible,
+          show_items_tab: nextAdminSettings.show_items_tab,
+          allow_item_edit: nextAdminSettings.allow_item_edit,
+          show_queue_tab: nextAdminSettings.show_queue_tab,
+          allow_queue_actions: nextAdminSettings.allow_queue_actions,
+          show_logs_tab: nextAdminSettings.show_logs_tab,
+          show_users_tab: nextAdminSettings.show_users_tab,
+          allow_user_edit: nextAdminSettings.allow_user_edit,
+          affected_user_types: nextAdminSettings.affected_user_types,
         };
         saveBtn.disabled = true;
         saveBtn.style.display = '';
         saveBtn.textContent = 'Saving\u2026';
-        apiPost('/api/admin/shop/maintenance-settings', { maintenance_settings: payload })
+        apiPost('/api/admin/shop/maintenance-settings', {
+          maintenance_settings: shopPayload,
+          admin_maintenance_settings: adminPayload,
+        })
           .then(function (res) {
             if (res.ok && res.data && res.data.ok) {
-              _maintenanceSettings = _normalizeMaintenanceSettings((res.data && res.data.maintenance_settings) || nextSettings);
-              settings = _maintenanceSettings;
-              if (shopVisibleInput) shopVisibleInput.checked = !!settings.shop_visible;
-              if (showItemsInput) showItemsInput.checked = !!settings.show_items;
-              if (showBalanceInput) showBalanceInput.checked = !!settings.show_balance_bar;
-              if (showOrdersInput) showOrdersInput.checked = !!settings.show_orders;
-              if (etaInput) etaInput.value = _toLocalDateTimeInput(settings.eta_iso);
-              var refreshedAudienceStates = _parseMaintenanceAudience(settings.affected_user_types);
+              _maintenanceSettings = _normalizeMaintenanceSettings((res.data && res.data.maintenance_settings) || nextShopSettings);
+              _adminMaintenanceSettings = _normalizeAdminMaintenanceSettings((res.data && res.data.admin_maintenance_settings) || nextAdminSettings);
+              _effectiveAdminMaintenanceSettings = _normalizeAdminMaintenanceSettings(
+                (res.data && res.data.effective_admin_maintenance_settings) || _adminMaintenanceSettings
+              );
+              shopSettings = _maintenanceSettings;
+              adminSettings = _adminMaintenanceSettings;
+              if (shopVisibleInput) shopVisibleInput.checked = !!shopSettings.shop_visible;
+              if (showItemsInput) showItemsInput.checked = !!shopSettings.show_items;
+              if (showBalanceInput) showBalanceInput.checked = !!shopSettings.show_balance_bar;
+              if (showOrdersInput) showOrdersInput.checked = !!shopSettings.show_orders;
+              if (etaInput) etaInput.value = _toLocalDateTimeInput(shopSettings.eta_iso);
+              if (adminVisibleInput) adminVisibleInput.checked = !!adminSettings.admin_visible;
+              if (adminShowItemsInput) adminShowItemsInput.checked = !!adminSettings.show_items_tab;
+              if (adminAllowItemEditInput) adminAllowItemEditInput.checked = !!adminSettings.allow_item_edit;
+              if (adminShowQueueInput) adminShowQueueInput.checked = !!adminSettings.show_queue_tab;
+              if (adminAllowQueueActionsInput) adminAllowQueueActionsInput.checked = !!adminSettings.allow_queue_actions;
+              if (adminShowLogsInput) adminShowLogsInput.checked = !!adminSettings.show_logs_tab;
+              if (adminShowUsersInput) adminShowUsersInput.checked = !!adminSettings.show_users_tab;
+              if (adminAllowUserEditInput) adminAllowUserEditInput.checked = !!adminSettings.allow_user_edit;
+              var refreshedAudienceStates = _parseMaintenanceAudience(shopSettings.affected_user_types);
               modal.querySelectorAll('[data-maint-audience]').forEach(function (chip) {
                 var key = String(chip.getAttribute('data-maint-audience') || '').trim();
                 chip.dataset.state = String(refreshedAudienceStates[key] || 0);
               });
-              _syncMaintenanceToggleDependencies();
-              var refreshedSettings = _readCurrentSettings();
-              _refreshEtaSummary(refreshedSettings);
-              baselineSettings = refreshedSettings;
+              var refreshedAdminAudienceStates = _parseAdminMaintenanceAudience(adminSettings.affected_user_types);
+              modal.querySelectorAll('[data-admin-maint-audience]').forEach(function (chip) {
+                var key = String(chip.getAttribute('data-admin-maint-audience') || '').trim();
+                chip.dataset.state = String(refreshedAdminAudienceStates[key] || 0);
+              });
+              _syncShopToggleDependencies();
+              _syncAdminToggleDependencies();
+              var refreshedShopSettings = _readCurrentShopSettings();
+              var refreshedAdminSettings = _readCurrentAdminSettings();
+              _refreshEtaSummary(refreshedShopSettings);
+              baselineSettings = { shop: refreshedShopSettings, admin: refreshedAdminSettings };
               saveBtn.disabled = false;
-              _updateSaveButton(refreshedSettings);
+              _updateSaveButton(refreshedShopSettings, refreshedAdminSettings);
               renderShopStateBanner();
+              _syncAdminTabsVisibility();
+              renderTab();
               _notifyShopUpdated();
               showToast('\u2713 Maintenance settings saved.', 'success');
             } else {
@@ -656,9 +1048,26 @@
         '<div>' + esc(_disabledMessageLabel()) + '</div>' +
       '</div>';
   }
+  function _renderAdminMaintenanceUnavailable(c) {
+    var activeSettings = _activeAdminMaintenanceSettings();
+    var msg = activeSettings.admin_visible === false
+      ? 'Admin Shop and Creator Studio are currently hidden for your audience.'
+      : 'All admin sections are currently hidden for your audience.';
+    c.innerHTML =
+      '<div class="shop-empty sa-coming-soon-tab">' +
+        '<div class="sa-coming-soon-title">Admin shop unavailable</div>' +
+        '<div>' + esc(msg) + '</div>' +
+      '</div>';
+  }
 
   function renderTab() {
     var c = document.getElementById('saContent');
+    if (!c) return;
+    var visibleTabs = _syncAdminTabsVisibility();
+    if (!visibleTabs || !visibleTabs.length) {
+      _renderAdminMaintenanceUnavailable(c);
+      return;
+    }
     if (_activeTab === 'items') renderItems(c);
     else if (_activeTab === 'queue') renderQueue(c);
     else if (_activeTab === 'logs') renderLogs(c);
@@ -703,8 +1112,8 @@
 
   function renderItemsTable(c) {
     var html = '';
-    var canChiefEdit = _canChiefEditShopAdmin();
-    var canParliamentEdit = _canParliamentEditShopAdmin();
+    var canChiefEdit = _canChiefEditShopAdmin('items', 'items_edit');
+    var canParliamentEdit = _canParliamentEditShopAdmin('items', 'items_edit');
     if (canParliamentEdit) {
       html += '<div style="display:flex;justify-content:flex-end;margin-bottom:12px;">' +
         '<button class="shop-modal-btn shop-modal-btn--confirm" id="saNewItem">+ New Item</button>' +
@@ -1167,7 +1576,7 @@
           h += '<span class="am-bid-time">' + fmtDate(b.placed_at) + '</span>';
           h += '<span class="am-bid-actions">';
           if (b.is_winning) h += '<span class="am-bid-status am-bid-status--win">Winning</span> ';
-          if (_canParliamentEditShopAdmin()) h += '<button class="am-bid-remove" data-remove-bid="' + esc(b.bid_id) + '" aria-label="Remove bid">' + _svg.close + '</button>';
+          if (_canParliamentEditShopAdmin('items', 'items_edit')) h += '<button class="am-bid-remove" data-remove-bid="' + esc(b.bid_id) + '" aria-label="Remove bid">' + _svg.close + '</button>';
           h += '</span>';
           h += '</div>';
         });
@@ -1205,7 +1614,7 @@
       h += '</div></div>';
 
       // Adjust end time (Parliament only)
-    if (_canParliamentEditShopAdmin()) {
+    if (_canParliamentEditShopAdmin('items', 'items_edit')) {
         var curExt = data.extended_hours || 0;
         h += '<div class="am-adjust">';
         h += '<span class="am-tl-label" style="min-width:auto">Adjust end time</span>';
@@ -1226,7 +1635,7 @@
       h += '</div>';
 
       // Cancel auction (Parliament only)
-      if (_canParliamentEditShopAdmin()) {
+      if (_canParliamentEditShopAdmin('items', 'items_edit')) {
         h += '<div class="am-cancel-row">';
         h += '<button class="am-cancel-btn" id="amCancel">' + _svg.close + ' Cancel auction</button>';
         h += '</div>';
@@ -2907,16 +3316,16 @@
       html += '<button class="sa-q-btn sa-q-btn--primary" data-action="approve-privilege" data-id="' + esc(d.id) + '">Approve</button>';
       html += '<button class="sa-q-btn sa-q-btn--reject" data-action="reject-privilege" data-id="' + esc(d.id) + '">Reject</button>';
       html += '</div>';
-    } else if (isApp && _canParliamentEditShopAdmin()) {
+    } else if (isApp && _canParliamentEditShopAdmin('queue', 'queue_actions')) {
       html += '<div class="sa-q-actions">';
       html += '<button class="sa-q-btn sa-q-btn--primary" data-action="approve-app" data-id="' + esc(d.id) + '">Approve</button>';
       html += '<button class="sa-q-btn sa-q-btn--reject" data-action="reject-app" data-id="' + esc(d.id) + '">Reject</button>';
       html += '</div>';
-    } else if (isCreq && _canParliamentEditShopAdmin()) {
+    } else if (isCreq && _canParliamentEditShopAdmin('queue', 'queue_actions')) {
       html += '<div class="sa-q-actions">';
       html += '<button class="sa-q-btn sa-q-btn--primary" data-action="review-creq" data-id="' + esc(d.id) + '">Review</button>';
       html += '</div>';
-    } else if (_canChiefEditShopAdmin() && !isApp && !isCreq) {
+    } else if (_canChiefEditShopAdmin('queue', 'queue_actions') && !isApp && !isCreq) {
       html += '<div class="sa-q-actions">';
       if (isPurchase) {
         html += '<button class="sa-q-btn sa-q-btn--primary" data-action="fulfill" data-type="purchase" data-id="' + esc(d.purchase_id) + '">Mark fulfilled</button>';

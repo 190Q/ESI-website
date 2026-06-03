@@ -55,7 +55,9 @@ from shop.state import (
     get_shop_enabled as _shop_get_enabled,
     get_shop_disabled_message as _shop_get_disabled_message,
     get_shop_maintenance_settings as _shop_get_maintenance_settings,
+    get_shop_admin_maintenance_settings as _shop_get_admin_maintenance_settings,
     set_shop_maintenance_settings as _shop_set_maintenance_settings,
+    set_shop_admin_maintenance_settings as _shop_set_admin_maintenance_settings,
     claim_due_maintenance_eta_notification as _shop_claim_due_maintenance_eta_notification,
 )
 import ipaddress
@@ -1296,13 +1298,64 @@ def _shop_disabled_response():
         503,
     )
 
-_MAINTENANCE_BOOL_FIELDS = (
+_SHOP_MAINTENANCE_BOOL_FIELDS = (
     "shop_visible",
     "show_items",
     "show_balance_bar",
     "show_orders",
 )
-_MAINTENANCE_AUDIENCE_TYPES = {"normal_users", "chief_admins", "parliament_admins"}
+_SHOP_MAINTENANCE_AUDIENCE_TYPES = {"normal_users", "chief_admins", "parliament_admins"}
+_ADMIN_MAINTENANCE_BOOL_FIELDS = (
+    "admin_visible",
+    "show_items_tab",
+    "allow_item_edit",
+    "show_queue_tab",
+    "allow_queue_actions",
+    "show_logs_tab",
+    "show_users_tab",
+    "allow_user_edit",
+)
+_ADMIN_MAINTENANCE_AUDIENCE_TYPES = {"creators", "chief_admins", "parliament_admins"}
+_ADMIN_MAINTENANCE_SCOPE_FLAGS = {
+    "items": "show_items_tab",
+    "queue": "show_queue_tab",
+    "logs": "show_logs_tab",
+    "users": "show_users_tab",
+}
+_ADMIN_MAINTENANCE_ACTION_FLAGS = {
+    "items_edit": "allow_item_edit",
+    "queue_actions": "allow_queue_actions",
+    "users_edit": "allow_user_edit",
+}
+
+def _parse_maintenance_audience(raw_tokens, allowed_tokens) -> tuple[set, set]:
+    includes: set = set()
+    excludes: set = set()
+    if not isinstance(raw_tokens, list):
+        return includes, excludes
+    for entry in raw_tokens:
+        text = str(entry or "").strip().lower()
+        if not text:
+            continue
+        is_exclude = text.startswith("!")
+        token = text[1:] if is_exclude else text
+        if token not in allowed_tokens:
+            continue
+        if is_exclude:
+            excludes.add(token)
+        else:
+            includes.add(token)
+    return includes, excludes
+
+def _audience_applies_to_user(raw_tokens, user_type: str | None, allowed_tokens: set) -> bool:
+    if user_type is None:
+        return False
+    includes, excludes = _parse_maintenance_audience(raw_tokens, allowed_tokens)
+    if user_type in excludes:
+        return False
+    if includes and user_type not in includes:
+        return False
+    return True
 
 def _maintenance_user_type(user: dict | None) -> str | None:
     if _is_owner_user(user):
@@ -1314,6 +1367,19 @@ def _maintenance_user_type(user: dict | None) -> str | None:
         return "chief_admins"
     return "normal_users"
 
+def _admin_maintenance_user_type(user: dict | None) -> str | None:
+    if _is_owner_user(user):
+        return None
+    roles = set((user or {}).get("roles") or [])
+    if roles & _PARLIAMENT_PLUS:
+        return "parliament_admins"
+    if roles & _CHIEF_PLUS:
+        return "chief_admins"
+    discord_id = str((user or {}).get("id") or "").strip()
+    if discord_id and _is_creator(discord_id):
+        return "creators"
+    return None
+
 def _maintenance_applies_to_user(settings: dict | None, user: dict | None) -> bool:
     user_type = _maintenance_user_type(user)
     if user_type is None:
@@ -1323,33 +1389,90 @@ def _maintenance_applies_to_user(settings: dict | None, user: dict | None) -> bo
     raw = settings.get("affected_user_types")
     if not isinstance(raw, list) or not raw:
         return True
-    includes: set = set()
-    excludes: set = set()
-    for entry in raw:
-        text = str(entry or "").strip().lower()
-        if not text:
-            continue
-        is_exclude = text.startswith("!")
-        token = text[1:] if is_exclude else text
-        if token not in _MAINTENANCE_AUDIENCE_TYPES:
-            continue
-        if is_exclude:
-            excludes.add(token)
-        else:
-            includes.add(token)
-    if user_type in excludes:
+    return _audience_applies_to_user(raw, user_type, _SHOP_MAINTENANCE_AUDIENCE_TYPES)
+
+def _admin_maintenance_applies_to_user(settings: dict | None, user: dict | None) -> bool:
+    user_type = _admin_maintenance_user_type(user)
+    if user_type is None:
         return False
-    if includes and user_type not in includes:
-        return False
-    return True
+    if not isinstance(settings, dict):
+        return True
+    raw = settings.get("affected_user_types")
+    if not isinstance(raw, list) or not raw:
+        return True
+    return _audience_applies_to_user(raw, user_type, _ADMIN_MAINTENANCE_AUDIENCE_TYPES)
 
 def _maintenance_settings_for_user(settings: dict | None, user: dict | None) -> dict:
     effective = dict(settings or {})
     if _maintenance_applies_to_user(effective, user):
         return effective
-    for field in _MAINTENANCE_BOOL_FIELDS:
+    for field in _SHOP_MAINTENANCE_BOOL_FIELDS:
         effective[field] = True
     return effective
+
+def _admin_maintenance_settings_for_user(settings: dict | None, user: dict | None) -> dict:
+    raw = settings if isinstance(settings, dict) else {}
+    effective = {}
+    for field in _ADMIN_MAINTENANCE_BOOL_FIELDS:
+        effective[field] = _maintenance_flag(raw, field, True)
+    effective["affected_user_types"] = raw.get("affected_user_types")
+    if not _admin_maintenance_applies_to_user(raw, user):
+        for field in _ADMIN_MAINTENANCE_BOOL_FIELDS:
+            effective[field] = True
+        return effective
+    if not effective["show_items_tab"]:
+        effective["allow_item_edit"] = False
+    if not effective["show_queue_tab"]:
+        effective["allow_queue_actions"] = False
+    if not effective["show_users_tab"]:
+        effective["allow_user_edit"] = False
+    has_any_tab = bool(
+        effective["show_items_tab"]
+        or effective["show_queue_tab"]
+        or effective["show_logs_tab"]
+        or effective["show_users_tab"]
+    )
+    if not has_any_tab:
+        effective["admin_visible"] = False
+    if not effective["admin_visible"]:
+        effective["show_items_tab"] = False
+        effective["allow_item_edit"] = False
+        effective["show_queue_tab"] = False
+        effective["allow_queue_actions"] = False
+        effective["show_logs_tab"] = False
+        effective["show_users_tab"] = False
+        effective["allow_user_edit"] = False
+    return effective
+
+def _admin_maintenance_denied_response(message: str, effective_settings: dict | None = None):
+    payload = {
+        "error": message,
+        "maintenance_restricted": True,
+    }
+    if isinstance(effective_settings, dict):
+        payload["admin_maintenance_settings"] = effective_settings
+    return jsonify(payload), 403
+
+def _admin_maintenance_guard(user: dict | None, maintenance_scope: str | None = None, maintenance_action: str | None = None):
+    effective_settings = _admin_maintenance_settings_for_user(_shop_get_admin_maintenance_settings() or {}, user)
+    if not _maintenance_flag(effective_settings, "admin_visible", True):
+        return _admin_maintenance_denied_response(
+            "Admin Shop + Creator Studio is unavailable during maintenance.",
+            effective_settings,
+        )
+    scope_key = _ADMIN_MAINTENANCE_SCOPE_FLAGS.get(str(maintenance_scope or "").strip().lower())
+    if scope_key and not _maintenance_flag(effective_settings, scope_key, True):
+        return _admin_maintenance_denied_response(
+            "This section is unavailable during maintenance.",
+            effective_settings,
+        )
+    action_key = _ADMIN_MAINTENANCE_ACTION_FLAGS.get(str(maintenance_action or "").strip().lower())
+    if action_key and not _maintenance_flag(effective_settings, action_key, True):
+        return _admin_maintenance_denied_response(
+            "This action is unavailable during maintenance.",
+            effective_settings,
+        )
+    return None
 
 def _shop_disabled_payload(extra: dict | None = None, user: dict | None = None, maintenance_settings: dict | None = None) -> dict:
     message = _shop_get_disabled_message()
@@ -1950,7 +2073,11 @@ def shop_request_refund():
 
 # Shop admin endpoints
 _SHOP_ADMIN = _CHIEF_PLUS | _PARLIAMENT_PLUS  # read access
-def _require_shop_admin(require_shop_enabled: bool = True):
+def _require_shop_admin(
+    require_shop_enabled: bool = True,
+    maintenance_scope: str | None = None,
+    maintenance_action: str | None = None,
+):
     """Returns (user, is_parliament, err).
 
     is_parliament=True  -> Parliament+ : full write (create/edit/delete items,
@@ -1992,6 +2119,13 @@ def _require_shop_admin(require_shop_enabled: bool = True):
         return None, False, (jsonify({"error": "Your shop admin privileges are pending owner approval"}), 403)
 
     is_parliament = effective_level >= 2
+    maintenance_err = _admin_maintenance_guard(
+        user,
+        maintenance_scope=maintenance_scope,
+        maintenance_action=maintenance_action,
+    )
+    if maintenance_err:
+        return None, False, maintenance_err
     if require_shop_enabled and not _is_shop_enabled():
         return None, False, _shop_disabled_response()
     return user, is_parliament, None
@@ -2028,10 +2162,14 @@ def admin_shop_state():
     _maybe_notify_owner_maintenance_eta_elapsed()
 
     state = _shop_get_state() or {}
-    maintenance_settings = state.get("maintenance_settings") or _shop_get_maintenance_settings() or {}
+    maintenance_settings_raw = state.get("maintenance_settings") or _shop_get_maintenance_settings() or {}
+    maintenance_settings_effective = _maintenance_settings_for_user(maintenance_settings_raw, user)
+    admin_maintenance_settings_raw = state.get("admin_maintenance_settings") or _shop_get_admin_maintenance_settings() or {}
+    admin_maintenance_settings_effective = _admin_maintenance_settings_for_user(admin_maintenance_settings_raw, user)
     enabled = bool(state.get("shop_enabled"))
     message = None if enabled else (state.get("message") or _shop_get_disabled_message())
-    maintenance_view_only = bool((not enabled) and maintenance_settings.get("shop_visible", True))
+    maintenance_view_only = bool((not enabled) and maintenance_settings_effective.get("shop_visible", True))
+    admin_maintenance_restricted = not _maintenance_flag(admin_maintenance_settings_effective, "admin_visible", True)
     # privilege_blocked: user has admin roles but zero approved access
     privilege_blocked = privilege_pending and effective_level <= 0 if not is_owner else False
 
@@ -2041,7 +2179,11 @@ def admin_shop_state():
         "coming_soon": False if enabled else bool(state.get("coming_soon", message == "Coming soon")),
         "message": message,
         "maintenance_view_only": maintenance_view_only,
-        "maintenance_settings": maintenance_settings,
+        "maintenance_settings": maintenance_settings_raw,
+        "effective_maintenance_settings": maintenance_settings_effective,
+        "admin_maintenance_settings": admin_maintenance_settings_raw,
+        "effective_admin_maintenance_settings": admin_maintenance_settings_effective,
+        "admin_maintenance_restricted": admin_maintenance_restricted,
         "can_toggle": is_owner,
         "is_parliament": effective_parliament,
         "privilege_pending": privilege_pending,
@@ -2075,17 +2217,41 @@ def admin_shop_maintenance_settings_update():
     body = request.get_json(silent=True)
     if not isinstance(body, dict):
         return jsonify({"error": "Invalid request body"}), 400
-    incoming = body.get("maintenance_settings") if isinstance(body.get("maintenance_settings"), dict) else body
+    incoming_shop = body.get("maintenance_settings") if isinstance(body.get("maintenance_settings"), dict) else None
+    incoming_admin = body.get("admin_maintenance_settings") if isinstance(body.get("admin_maintenance_settings"), dict) else None
+    if incoming_shop is None and incoming_admin is None:
+        incoming_shop = body
     actor = user.get("nick") or user.get("username", "")
-    result = _shop_set_maintenance_settings(incoming, actor=actor)
-    if isinstance(result, dict) and result.get("error"):
-        return jsonify(result), 400
-    return jsonify(result), 200
+    shop_result = None
+    admin_result = None
+    if incoming_shop is not None:
+        shop_result = _shop_set_maintenance_settings(incoming_shop, actor=actor)
+        if isinstance(shop_result, dict) and shop_result.get("error"):
+            return jsonify(shop_result), 400
+    if incoming_admin is not None:
+        admin_result = _shop_set_admin_maintenance_settings(incoming_admin, actor=actor)
+        if isinstance(admin_result, dict) and admin_result.get("error"):
+            return jsonify(admin_result), 400
+    shop_settings = (
+        shop_result.get("maintenance_settings")
+        if isinstance(shop_result, dict)
+        else None
+    ) or _shop_get_maintenance_settings() or {}
+    admin_settings = (
+        admin_result.get("admin_maintenance_settings")
+        if isinstance(admin_result, dict)
+        else None
+    ) or _shop_get_admin_maintenance_settings() or {}
+    return jsonify({
+        "ok": True,
+        "maintenance_settings": shop_settings,
+        "admin_maintenance_settings": admin_settings,
+    }), 200
 
 @app.route("/api/admin/shop/items")
 @rate_limit(30)
 def admin_shop_items():
-    user, _, err = _require_shop_admin(require_shop_enabled=False)
+    user, _, err = _require_shop_admin(require_shop_enabled=False, maintenance_scope="items")
     if err:
         return err
     return jsonify(admin_list_all_items_unfiltered())
@@ -2095,7 +2261,11 @@ def admin_shop_items():
 @rate_limit(10)
 def admin_shop_upload_image():
     """Upload an image for a shop item. Returns the served URL."""
-    user, is_admin, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_admin, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="items",
+        maintenance_action="items_edit",
+    )
     if err:
         return err
     if not is_admin:
@@ -2136,7 +2306,11 @@ def admin_shop_upload_image():
 @rate_limit(20)
 def admin_shop_create_item():
     """Create a new item in the JSON catalogue."""
-    user, is_admin, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_admin, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="items",
+        maintenance_action="items_edit",
+    )
     if err:
         return err
     if not is_admin:
@@ -2153,7 +2327,11 @@ def admin_shop_create_item():
 @rate_limit(20)
 def admin_shop_update_item(item_id):
     """Fully update an existing item in the JSON catalogue."""
-    user, is_admin, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_admin, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="items",
+        maintenance_action="items_edit",
+    )
     if err:
         return err
     if not is_admin:
@@ -2170,7 +2348,11 @@ def admin_shop_update_item(item_id):
 @rate_limit(10)
 def admin_shop_reorder_items():
     """Reorder items in the JSON catalogue."""
-    user, is_admin, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_admin, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="items",
+        maintenance_action="items_edit",
+    )
     if err:
         return err
     if not is_admin:
@@ -2201,7 +2383,11 @@ def admin_shop_reorder_items():
 @rate_limit(10)
 def admin_shop_delete_item_route(item_id):
     """Remove an item from the JSON catalogue."""
-    user, is_admin, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_admin, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="items",
+        maintenance_action="items_edit",
+    )
     if err:
         return err
     if not is_admin:
@@ -2214,7 +2400,11 @@ def admin_shop_delete_item_route(item_id):
 @app.route("/api/admin/shop/items/<item_id>/override", methods=["POST"])
 @rate_limit(20)
 def admin_shop_item_override(item_id):
-    user, _, err = _require_shop_admin(require_shop_enabled=False)
+    user, _, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="items",
+        maintenance_action="items_edit",
+    )
     if err:
         return err
     body = request.get_json(silent=True) or {}
@@ -2241,7 +2431,10 @@ def admin_shop_item_override(item_id):
 @app.route("/api/admin/shop/purchases/<purchase_id>/cancel", methods=["POST"])
 @rate_limit(10)
 def admin_shop_cancel_purchase(purchase_id):
-    user, is_parliament, err = _require_shop_admin()
+    user, is_parliament, err = _require_shop_admin(
+        maintenance_scope="queue",
+        maintenance_action="queue_actions",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2259,7 +2452,10 @@ def admin_shop_cancel_purchase(purchase_id):
 @rate_limit(10)
 def admin_shop_start_auction_route():
     """Start a new auction instance for an auction-type item."""
-    user, is_parliament, err = _require_shop_admin()
+    user, is_parliament, err = _require_shop_admin(
+        maintenance_scope="items",
+        maintenance_action="items_edit",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2276,7 +2472,7 @@ def admin_shop_start_auction_route():
 @app.route("/api/admin/shop/auctions/<auction_id>/detail")
 @rate_limit(30)
 def admin_shop_auction_detail(auction_id):
-    user, _, err = _require_shop_admin(require_shop_enabled=False)
+    user, _, err = _require_shop_admin(require_shop_enabled=False, maintenance_scope="items")
     if err:
         return err
     result = admin_auction_detail(auction_id)
@@ -2286,7 +2482,10 @@ def admin_shop_auction_detail(auction_id):
 @app.route("/api/admin/shop/bids/<bid_id>/remove", methods=["POST"])
 @rate_limit(10)
 def admin_shop_remove_bid(bid_id):
-    user, is_parliament, err = _require_shop_admin()
+    user, is_parliament, err = _require_shop_admin(
+        maintenance_scope="items",
+        maintenance_action="items_edit",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2301,7 +2500,10 @@ def admin_shop_remove_bid(bid_id):
 @app.route("/api/admin/shop/auctions/<auction_id>/close", methods=["POST"])
 @rate_limit(10)
 def admin_shop_close_auction(auction_id):
-    user, is_parliament, err = _require_shop_admin()
+    user, is_parliament, err = _require_shop_admin(
+        maintenance_scope="items",
+        maintenance_action="items_edit",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2314,7 +2516,10 @@ def admin_shop_close_auction(auction_id):
 @app.route("/api/admin/shop/auctions/<auction_id>/extend", methods=["POST"])
 @rate_limit(10)
 def admin_shop_extend_auction(auction_id):
-    user, is_parliament, err = _require_shop_admin()
+    user, is_parliament, err = _require_shop_admin(
+        maintenance_scope="items",
+        maintenance_action="items_edit",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2334,7 +2539,7 @@ def admin_shop_extend_auction(auction_id):
 @app.route("/api/admin/shop/logs")
 @rate_limit(30)
 def admin_shop_logs():
-    user, _, err = _require_shop_admin(require_shop_enabled=False)
+    user, _, err = _require_shop_admin(require_shop_enabled=False, maintenance_scope="logs")
     if err:
         return err
     page = max(1, int(request.args.get("page", 1)))
@@ -2353,7 +2558,7 @@ def admin_shop_logs():
 @app.route("/api/admin/shop/reservations")
 @rate_limit(30)
 def admin_shop_reservations():
-    user, _, err = _require_shop_admin(require_shop_enabled=False)
+    user, _, err = _require_shop_admin(require_shop_enabled=False, maintenance_scope="queue")
     if err:
         return err
     return jsonify(admin_get_reservations())
@@ -2362,7 +2567,10 @@ def admin_shop_reservations():
 @app.route("/api/admin/shop/reservations/<reservation_id>/release", methods=["POST"])
 @rate_limit(10)
 def admin_shop_release_reservation(reservation_id):
-    user, is_parliament, err = _require_shop_admin()
+    user, is_parliament, err = _require_shop_admin(
+        maintenance_scope="queue",
+        maintenance_action="queue_actions",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2375,7 +2583,7 @@ def admin_shop_release_reservation(reservation_id):
 @app.route("/api/admin/shop/queue")
 @rate_limit(30)
 def admin_shop_queue():
-    user, _, err = _require_shop_admin(require_shop_enabled=False)
+    user, _, err = _require_shop_admin(require_shop_enabled=False, maintenance_scope="queue")
     if err:
         return err
     result = admin_get_queue()
@@ -2388,7 +2596,10 @@ def admin_shop_queue():
 @app.route("/api/admin/shop/queue/fulfill", methods=["POST"])
 @rate_limit(20)
 def admin_shop_fulfill():
-    user, _, err = _require_shop_admin()
+    user, _, err = _require_shop_admin(
+        maintenance_scope="queue",
+        maintenance_action="queue_actions",
+    )
     if err:
         return err
     body = request.get_json(silent=True) or {}
@@ -2405,7 +2616,10 @@ def admin_shop_fulfill():
 @app.route("/api/admin/shop/queue/reject", methods=["POST"])
 @rate_limit(20)
 def admin_shop_reject():
-    user, _, err = _require_shop_admin()
+    user, _, err = _require_shop_admin(
+        maintenance_scope="queue",
+        maintenance_action="queue_actions",
+    )
     if err:
         return err
     body = request.get_json(silent=True) or {}
@@ -2425,7 +2639,7 @@ def admin_shop_reject():
 @rate_limit(30)
 def admin_shop_changes():
     """Paginated admin action log."""
-    user, _, err = _require_shop_admin(require_shop_enabled=False)
+    user, _, err = _require_shop_admin(require_shop_enabled=False, maintenance_scope="logs")
     if err:
         return err
     page = max(1, int(request.args.get("page", 1)))
@@ -2497,7 +2711,7 @@ def _get_shop_admin_map() -> dict:
 @rate_limit(10)
 def admin_shop_users():
     """Aggregated per-user shop activity (60-second cache; pass ?refresh=true to bypass)."""
-    user, _, err = _require_shop_admin(require_shop_enabled=False)
+    user, _, err = _require_shop_admin(require_shop_enabled=False, maintenance_scope="users")
     if err:
         return err
     if request.args.get("refresh") == "true":
@@ -2556,7 +2770,11 @@ def _fetch_target_roles(target_uuid: str) -> set | None:
 @rate_limit(10)
 def admin_shop_toggle_creator(discord_id):
     """Grant or revoke creator status for a user (Parliament+ only)."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="users",
+        maintenance_action="users_edit",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2578,7 +2796,11 @@ def admin_shop_toggle_creator(discord_id):
 @rate_limit(10)
 def admin_shop_ban_user(uuid):
     """Ban a user from the shop (Parliament+ only)."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="users",
+        maintenance_action="users_edit",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2604,7 +2826,11 @@ def admin_shop_ban_user(uuid):
 @rate_limit(10)
 def admin_shop_unban_user(uuid):
     """Unban a user from the shop (Parliament+ only)."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="users",
+        maintenance_action="users_edit",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2618,7 +2844,11 @@ def admin_shop_unban_user(uuid):
 @rate_limit(10)
 def admin_shop_admin_ban(discord_id):
     """Ban a shop admin from the manage shop panel (Parliament+ only)."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="users",
+        maintenance_action="users_edit",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2653,7 +2883,11 @@ def admin_shop_admin_ban(discord_id):
 @rate_limit(10)
 def admin_shop_admin_unban(discord_id):
     """Unban a shop admin from the manage shop panel (Parliament+ only)."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="users",
+        maintenance_action="users_edit",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2667,7 +2901,7 @@ def admin_shop_admin_unban(discord_id):
 @rate_limit(30)
 def admin_shop_user_notes(uuid):
     """Get all notes for a user (Chief+ can view)."""
-    user, _, err = _require_shop_admin(require_shop_enabled=False)
+    user, _, err = _require_shop_admin(require_shop_enabled=False, maintenance_scope="users")
     if err:
         return err
     return jsonify({"notes": get_user_notes(uuid)})
@@ -2677,7 +2911,11 @@ def admin_shop_user_notes(uuid):
 @rate_limit(20)
 def admin_shop_add_note(uuid):
     """Add a note to a user (Parliament+ only)."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="users",
+        maintenance_action="users_edit",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2695,7 +2933,11 @@ def admin_shop_add_note(uuid):
 @rate_limit(20)
 def admin_shop_delete_note(uuid, note_id):
     """Delete a note (Parliament+ only)."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="users",
+        maintenance_action="users_edit",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2708,7 +2950,11 @@ def admin_shop_delete_note(uuid, note_id):
 @rate_limit(10)
 def admin_shop_refund():
     """Approve a refund request (Parliament+ only)."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="queue",
+        maintenance_action="queue_actions",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2727,7 +2973,11 @@ def admin_shop_refund():
 @rate_limit(10)
 def admin_shop_reject_refund():
     """Reject a refund request (Parliament+ only)."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="queue",
+        maintenance_action="queue_actions",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2745,7 +2995,11 @@ def admin_shop_reject_refund():
 @rate_limit(20)
 def admin_shop_set_limits(uuid):
     """Set purchase limits for a user (Parliament+ only)."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="users",
+        maintenance_action="users_edit",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2771,7 +3025,11 @@ def admin_shop_set_limits(uuid):
 @rate_limit(10)
 def admin_shop_ep_adjust(uuid):
     """Manually adjust a user's EP balance (Parliament+ only)."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="users",
+        maintenance_action="users_edit",
+    )
     if err:
         return err
     if not is_parliament:
@@ -2832,7 +3090,10 @@ def admin_shop_reject_privilege(approval_id):
 
 
 # Creator system endpoints
-def _require_creator():
+def _require_creator(
+    maintenance_scope: str | None = None,
+    maintenance_action: str | None = None,
+):
     """Middleware: checks user is logged in, has creator flag, and is not shop-banned.
 
     Returns (user, err) like _require_guild_member.
@@ -2843,6 +3104,13 @@ def _require_creator():
     discord_id = user.get("id", "")
     if not _is_creator(discord_id):
         return None, (jsonify({"error": "Creator status required"}), 403)
+    maintenance_err = _admin_maintenance_guard(
+        user,
+        maintenance_scope=maintenance_scope,
+        maintenance_action=maintenance_action,
+    )
+    if maintenance_err:
+        return None, maintenance_err
     mc_uuid, _ = resolve_uuid_for_user(discord_id)
     if mc_uuid and is_shop_banned(mc_uuid):
         return None, (jsonify({"error": "You have been banned from the shop"}), 403)
@@ -2884,7 +3152,7 @@ def shop_creator_apply_status():
 @rate_limit(30)
 def shop_creator_my_items():
     """Return the calling creator's own items and pending requests."""
-    user, err = _require_creator()
+    user, err = _require_creator(maintenance_scope="items")
     if err:
         return err
     return jsonify(_creator_get_items(user.get("id", "")))
@@ -2894,7 +3162,7 @@ def shop_creator_my_items():
 @rate_limit(30)
 def shop_creator_my_requests():
     """Return the calling creator's own item requests (read-only history)."""
-    user, err = _require_creator()
+    user, err = _require_creator(maintenance_scope="logs")
     if err:
         return err
     data = _creator_get_items(user.get("id", ""))
@@ -2905,7 +3173,7 @@ def shop_creator_my_requests():
 @rate_limit(30)
 def shop_creator_my_orders():
     """Return purchases made on the creator's items."""
-    user, err = _require_creator()
+    user, err = _require_creator(maintenance_scope="queue")
     if err:
         return err
     return jsonify(_creator_get_orders(user.get("id", "")))
@@ -2915,7 +3183,7 @@ def shop_creator_my_orders():
 @rate_limit(20)
 def shop_creator_fulfill_order(purchase_id):
     """Creator marks a purchase on their own item as fulfilled."""
-    user, err = _require_creator()
+    user, err = _require_creator(maintenance_scope="queue", maintenance_action="queue_actions")
     if err:
         return err
     body = request.get_json(silent=True) or {}
@@ -2929,7 +3197,7 @@ def shop_creator_fulfill_order(purchase_id):
 @rate_limit(20)
 def shop_creator_reject_order(purchase_id):
     """Creator rejects a purchase on their own item (refunds EP, restores stock)."""
-    user, err = _require_creator()
+    user, err = _require_creator(maintenance_scope="queue", maintenance_action="queue_actions")
     if err:
         return err
     body = request.get_json(silent=True) or {}
@@ -2945,7 +3213,7 @@ def shop_creator_reject_order(purchase_id):
 @rate_limit(10)
 def shop_creator_upload_image():
     """Upload an image for a creator item request. Returns the served URL."""
-    user, err = _require_creator()
+    user, err = _require_creator(maintenance_scope="items", maintenance_action="items_edit")
     if err:
         return err
     if "file" not in request.files:
@@ -2983,7 +3251,7 @@ def shop_creator_upload_image():
 @rate_limit(5, 60)
 def shop_creator_request_item():
     """Submit a new-item or edit-item request."""
-    user, err = _require_creator()
+    user, err = _require_creator(maintenance_scope="items", maintenance_action="items_edit")
     if err:
         return err
     body = request.get_json(silent=True)
@@ -3003,7 +3271,7 @@ def shop_creator_request_item():
 @rate_limit(20)
 def shop_creator_update_stock(item_id):
     """Directly update stock on the creator's own item."""
-    user, err = _require_creator()
+    user, err = _require_creator(maintenance_scope="items", maintenance_action="items_edit")
     if err:
         return err
     body = request.get_json(silent=True) or {}
@@ -3024,7 +3292,7 @@ def shop_creator_update_stock(item_id):
 @rate_limit(20)
 def shop_creator_update_active(item_id):
     """Directly toggle active state on the creator's own item."""
-    user, err = _require_creator()
+    user, err = _require_creator(maintenance_scope="items", maintenance_action="items_edit")
     if err:
         return err
     body = request.get_json(silent=True) or {}
@@ -3041,7 +3309,7 @@ def shop_creator_update_active(item_id):
 @rate_limit(30)
 def admin_creators_list():
     """Return all creators with usernames (for assignment dropdown)."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False, maintenance_scope="items")
     if err:
         return err
     if not is_parliament:
@@ -3053,7 +3321,7 @@ def admin_creators_list():
 @rate_limit(30)
 def admin_creator_applications():
     """List all creator applications, filterable by status."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False, maintenance_scope="queue")
     if err:
         return err
     if not is_parliament:
@@ -3066,7 +3334,11 @@ def admin_creator_applications():
 @rate_limit(10)
 def admin_creator_application_approve(app_id):
     """Approve a creator application."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="queue",
+        maintenance_action="queue_actions",
+    )
     if err:
         return err
     if not is_parliament:
@@ -3080,7 +3352,11 @@ def admin_creator_application_approve(app_id):
 @rate_limit(10)
 def admin_creator_application_reject(app_id):
     """Reject a creator application with optional reason."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="queue",
+        maintenance_action="queue_actions",
+    )
     if err:
         return err
     if not is_parliament:
@@ -3096,7 +3372,7 @@ def admin_creator_application_reject(app_id):
 @rate_limit(30)
 def admin_creator_requests():
     """List all creator item requests, filterable by status."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False, maintenance_scope="queue")
     if err:
         return err
     if not is_parliament:
@@ -3109,7 +3385,11 @@ def admin_creator_requests():
 @rate_limit(10)
 def admin_creator_request_approve(req_id):
     """Approve a creator item request: applies changes to the catalogue."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="queue",
+        maintenance_action="queue_actions",
+    )
     if err:
         return err
     if not is_parliament:
@@ -3123,7 +3403,11 @@ def admin_creator_request_approve(req_id):
 @rate_limit(10)
 def admin_creator_request_reject(req_id):
     """Reject a creator item request with optional reason."""
-    user, is_parliament, err = _require_shop_admin(require_shop_enabled=False)
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="queue",
+        maintenance_action="queue_actions",
+    )
     if err:
         return err
     if not is_parliament:

@@ -9,18 +9,34 @@ from config import _SHOP_DB
 _SHOP_ENABLED_KEY = "shop_enabled"
 _SHOP_HAS_EVER_ENABLED_KEY = "shop_has_ever_enabled"
 _SHOP_MAINTENANCE_SETTINGS_KEY = "shop_maintenance_settings"
-_MAINT_BOOL_FIELDS = (
+_SHOP_ADMIN_MAINTENANCE_SETTINGS_KEY = "shop_admin_maintenance_settings"
+_SHOP_MAINT_BOOL_FIELDS = (
     "shop_visible",
     "show_items",
     "show_balance_bar",
     "show_orders",
 )
-_MAINT_AUDIENCE_TYPES = (
+_SHOP_MAINT_AUDIENCE_TYPES = (
     "normal_users",
     "chief_admins",
     "parliament_admins",
 )
-_DEFAULT_MAINTENANCE_SETTINGS = {
+_SHOP_ADMIN_MAINT_BOOL_FIELDS = (
+    "admin_visible",
+    "show_items_tab",
+    "allow_item_edit",
+    "show_queue_tab",
+    "allow_queue_actions",
+    "show_logs_tab",
+    "show_users_tab",
+    "allow_user_edit",
+)
+_SHOP_ADMIN_MAINT_AUDIENCE_TYPES = (
+    "creators",
+    "chief_admins",
+    "parliament_admins",
+)
+_DEFAULT_SHOP_MAINTENANCE_SETTINGS = {
     "shop_visible": True,
     "show_items": True,
     "show_balance_bar": True,
@@ -29,6 +45,17 @@ _DEFAULT_MAINTENANCE_SETTINGS = {
     "eta_iso": None,
     "owner_notified_at": None,
     "owner_notified_for_eta": None,
+}
+_DEFAULT_SHOP_ADMIN_MAINTENANCE_SETTINGS = {
+    "admin_visible": True,
+    "show_items_tab": True,
+    "allow_item_edit": True,
+    "show_queue_tab": True,
+    "allow_queue_actions": True,
+    "show_logs_tab": True,
+    "show_users_tab": True,
+    "allow_user_edit": True,
+    "affected_user_types": None,
 }
 
 def _migrate_bin_purchases_check(conn: sqlite3.Connection) -> None:
@@ -143,10 +170,10 @@ def _parse_iso_utc(value) -> _dt | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=_tz.utc)
     return parsed.astimezone(_tz.utc)
-def _normalize_affected_user_types(raw_value) -> list | None:
+def _normalize_audience_tokens(raw_value, allowed_tokens) -> list | None:
     if not isinstance(raw_value, (list, tuple)):
         return None
-    allowed = set(_MAINT_AUDIENCE_TYPES)
+    allowed = set(allowed_tokens or [])
     cleaned: list = []
     seen: set = set()
     for entry in raw_value:
@@ -164,8 +191,8 @@ def _normalize_affected_user_types(raw_value) -> list | None:
         cleaned.append(normalized)
     return cleaned or None
 
-def _normalize_maintenance_settings(raw) -> dict:
-    base = dict(_DEFAULT_MAINTENANCE_SETTINGS)
+def _normalize_shop_maintenance_settings(raw) -> dict:
+    base = dict(_DEFAULT_SHOP_MAINTENANCE_SETTINGS)
     payload = raw
     if isinstance(payload, str):
         try:
@@ -173,11 +200,14 @@ def _normalize_maintenance_settings(raw) -> dict:
         except (TypeError, ValueError, json.JSONDecodeError):
             payload = None
     if isinstance(payload, dict):
-        for field in _MAINT_BOOL_FIELDS:
+        for field in _SHOP_MAINT_BOOL_FIELDS:
             if field in payload:
                 base[field] = _as_bool(payload.get(field), default=base[field])
         if "affected_user_types" in payload:
-            base["affected_user_types"] = _normalize_affected_user_types(payload.get("affected_user_types"))
+            base["affected_user_types"] = _normalize_audience_tokens(
+                payload.get("affected_user_types"),
+                _SHOP_MAINT_AUDIENCE_TYPES,
+            )
         eta_dt = _parse_iso_utc(payload.get("eta_iso"))
         base["eta_iso"] = eta_dt.isoformat() if eta_dt else None
         notified_at_dt = _parse_iso_utc(payload.get("owner_notified_at"))
@@ -189,14 +219,59 @@ def _normalize_maintenance_settings(raw) -> dict:
         base["owner_notified_for_eta"] = None
     return base
 
-def _get_maintenance_settings_from_conn(conn: sqlite3.Connection) -> dict:
-    raw = _get_setting_value(conn, _SHOP_MAINTENANCE_SETTINGS_KEY)
-    return _normalize_maintenance_settings(raw)
+def _normalize_shop_admin_maintenance_settings(raw) -> dict:
+    base = dict(_DEFAULT_SHOP_ADMIN_MAINTENANCE_SETTINGS)
+    payload = raw
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = None
+    if isinstance(payload, dict):
+        for field in _SHOP_ADMIN_MAINT_BOOL_FIELDS:
+            if field in payload:
+                base[field] = _as_bool(payload.get(field), default=base[field])
+        if "affected_user_types" in payload:
+            base["affected_user_types"] = _normalize_audience_tokens(
+                payload.get("affected_user_types"),
+                _SHOP_ADMIN_MAINT_AUDIENCE_TYPES,
+            )
+    if not base["show_items_tab"]:
+        base["allow_item_edit"] = False
+    if not base["show_queue_tab"]:
+        base["allow_queue_actions"] = False
+    if not base["show_users_tab"]:
+        base["allow_user_edit"] = False
+    has_any_tab = bool(base["show_items_tab"] or base["show_queue_tab"] or base["show_logs_tab"] or base["show_users_tab"])
+    if not has_any_tab:
+        base["admin_visible"] = False
+    if not base["admin_visible"]:
+        base["show_items_tab"] = False
+        base["allow_item_edit"] = False
+        base["show_queue_tab"] = False
+        base["allow_queue_actions"] = False
+        base["show_logs_tab"] = False
+        base["show_users_tab"] = False
+        base["allow_user_edit"] = False
+    return base
 
-def _write_maintenance_settings(conn: sqlite3.Connection, settings: dict, updated_at: str, updated_by: str) -> None:
-    normalized = _normalize_maintenance_settings(settings)
+def _get_shop_maintenance_settings_from_conn(conn: sqlite3.Connection) -> dict:
+    raw = _get_setting_value(conn, _SHOP_MAINTENANCE_SETTINGS_KEY)
+    return _normalize_shop_maintenance_settings(raw)
+
+def _get_shop_admin_maintenance_settings_from_conn(conn: sqlite3.Connection) -> dict:
+    raw = _get_setting_value(conn, _SHOP_ADMIN_MAINTENANCE_SETTINGS_KEY)
+    return _normalize_shop_admin_maintenance_settings(raw)
+
+def _write_shop_maintenance_settings(conn: sqlite3.Connection, settings: dict, updated_at: str, updated_by: str) -> None:
+    normalized = _normalize_shop_maintenance_settings(settings)
     encoded = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
     _upsert_setting(conn, _SHOP_MAINTENANCE_SETTINGS_KEY, encoded, updated_at, updated_by)
+
+def _write_shop_admin_maintenance_settings(conn: sqlite3.Connection, settings: dict, updated_at: str, updated_by: str) -> None:
+    normalized = _normalize_shop_admin_maintenance_settings(settings)
+    encoded = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
+    _upsert_setting(conn, _SHOP_ADMIN_MAINTENANCE_SETTINGS_KEY, encoded, updated_at, updated_by)
 
 def _has_shop_enabled_log(conn: sqlite3.Connection) -> bool:
     """Legacy fallback: infer whether shop was ever enabled from admin logs."""
@@ -256,16 +331,30 @@ def get_shop_disabled_message() -> str:
 def get_shop_maintenance_settings() -> dict:
     """Return persisted maintenance settings with defaults."""
     if not os.path.isfile(_SHOP_DB):
-        return dict(_DEFAULT_MAINTENANCE_SETTINGS)
+        return dict(_DEFAULT_SHOP_MAINTENANCE_SETTINGS)
     try:
         conn = sqlite3.connect(_SHOP_DB, timeout=5)
         conn.execute("PRAGMA journal_mode=WAL")
         _ensure_settings_table(conn)
-        settings = _get_maintenance_settings_from_conn(conn)
+        settings = _get_shop_maintenance_settings_from_conn(conn)
         conn.close()
         return settings
     except sqlite3.Error:
-        return dict(_DEFAULT_MAINTENANCE_SETTINGS)
+        return dict(_DEFAULT_SHOP_MAINTENANCE_SETTINGS)
+
+def get_shop_admin_maintenance_settings() -> dict:
+    """Return persisted admin/creator maintenance settings with defaults."""
+    if not os.path.isfile(_SHOP_DB):
+        return dict(_DEFAULT_SHOP_ADMIN_MAINTENANCE_SETTINGS)
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_settings_table(conn)
+        settings = _get_shop_admin_maintenance_settings_from_conn(conn)
+        conn.close()
+        return settings
+    except sqlite3.Error:
+        return dict(_DEFAULT_SHOP_ADMIN_MAINTENANCE_SETTINGS)
 
 def set_shop_maintenance_settings(settings: dict, actor: str = "unknown") -> dict:
     """Persist maintenance settings for disabled-shop behavior."""
@@ -279,13 +368,16 @@ def set_shop_maintenance_settings(settings: dict, actor: str = "unknown") -> dic
         conn = sqlite3.connect(_SHOP_DB, timeout=10)
         conn.execute("PRAGMA journal_mode=WAL")
         _ensure_settings_table(conn)
-        current = _get_maintenance_settings_from_conn(conn)
+        current = _get_shop_maintenance_settings_from_conn(conn)
         updated = dict(current)
-        for field in _MAINT_BOOL_FIELDS:
+        for field in _SHOP_MAINT_BOOL_FIELDS:
             if field in settings:
                 updated[field] = _as_bool(settings.get(field), default=current.get(field, True))
         if "affected_user_types" in settings:
-            updated["affected_user_types"] = _normalize_affected_user_types(settings.get("affected_user_types"))
+            updated["affected_user_types"] = _normalize_audience_tokens(
+                settings.get("affected_user_types"),
+                _SHOP_MAINT_AUDIENCE_TYPES,
+            )
         if "eta_iso" in settings:
             eta_dt = _parse_iso_utc(settings.get("eta_iso"))
             new_eta = eta_dt.isoformat() if eta_dt else None
@@ -293,14 +385,49 @@ def set_shop_maintenance_settings(settings: dict, actor: str = "unknown") -> dic
                 updated["owner_notified_at"] = None
                 updated["owner_notified_for_eta"] = None
             updated["eta_iso"] = new_eta
-        _write_maintenance_settings(conn, updated, now_iso, actor)
+        _write_shop_maintenance_settings(conn, updated, now_iso, actor)
         conn.commit()
         conn.close()
     except sqlite3.Error as exc:
         return {"error": str(exc)}
     return {
         "ok": True,
-        "maintenance_settings": _normalize_maintenance_settings(updated),
+        "maintenance_settings": _normalize_shop_maintenance_settings(updated),
+        "updated_at": now_iso,
+        "updated_by": actor,
+    }
+
+def set_shop_admin_maintenance_settings(settings: dict, actor: str = "unknown") -> dict:
+    """Persist admin/creator-studio maintenance settings."""
+    if not isinstance(settings, dict):
+        return {"error": "settings must be an object"}
+    folder = os.path.dirname(_SHOP_DB)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    now_iso = _now_iso()
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_settings_table(conn)
+        current = _get_shop_admin_maintenance_settings_from_conn(conn)
+        updated = dict(current)
+        for field in _SHOP_ADMIN_MAINT_BOOL_FIELDS:
+            if field in settings:
+                updated[field] = _as_bool(settings.get(field), default=current.get(field, True))
+        if "affected_user_types" in settings:
+            updated["affected_user_types"] = _normalize_audience_tokens(
+                settings.get("affected_user_types"),
+                _SHOP_ADMIN_MAINT_AUDIENCE_TYPES,
+            )
+        normalized = _normalize_shop_admin_maintenance_settings(updated)
+        _write_shop_admin_maintenance_settings(conn, normalized, now_iso, actor)
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"error": str(exc)}
+    return {
+        "ok": True,
+        "admin_maintenance_settings": normalized,
         "updated_at": now_iso,
         "updated_by": actor,
     }
@@ -319,7 +446,7 @@ def claim_due_maintenance_eta_notification(actor: str = "system") -> dict | None
         if enabled:
             conn.close()
             return None
-        settings = _get_maintenance_settings_from_conn(conn)
+        settings = _get_shop_maintenance_settings_from_conn(conn)
         eta_iso = settings.get("eta_iso")
         eta_dt = _parse_iso_utc(eta_iso)
         if not eta_dt or eta_dt > now_dt:
@@ -330,7 +457,7 @@ def claim_due_maintenance_eta_notification(actor: str = "system") -> dict | None
             return None
         settings["owner_notified_for_eta"] = eta_iso
         settings["owner_notified_at"] = now_iso
-        _write_maintenance_settings(conn, settings, now_iso, actor)
+        _write_shop_maintenance_settings(conn, settings, now_iso, actor)
         conn.commit()
         conn.close()
         return {
@@ -345,11 +472,13 @@ def get_shop_state() -> dict:
     enabled = get_shop_enabled(default=False)
     message = None if enabled else get_shop_disabled_message()
     maintenance_settings = get_shop_maintenance_settings()
+    admin_maintenance_settings = get_shop_admin_maintenance_settings()
     return {
         "shop_enabled": enabled,
         "coming_soon": bool(message == "Coming soon"),
         "message": message,
         "maintenance_settings": maintenance_settings,
+        "admin_maintenance_settings": admin_maintenance_settings,
         "maintenance_view_only": bool((not enabled) and maintenance_settings.get("shop_visible", True)),
     }
 

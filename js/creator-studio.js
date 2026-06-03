@@ -7,6 +7,28 @@
   var _data      = null; // { items, requests }
   var _activeTab = 'items';
   var _shellBuilt = false;
+  var _CREATOR_TABS = ['items', 'queue', 'requests'];
+  var _CREATOR_SCOPE_FLAGS = {
+    items: 'show_items_tab',
+    queue: 'show_queue_tab',
+    requests: 'show_logs_tab',
+  };
+  var _CREATOR_TAB_LABELS = {
+    items: 'My Items',
+    queue: 'Queue',
+    requests: 'My Requests',
+  };
+  var _adminMaintenanceSettings = {
+    admin_visible: true,
+    show_items_tab: true,
+    allow_item_edit: true,
+    show_queue_tab: true,
+    allow_queue_actions: true,
+    show_logs_tab: true,
+    show_users_tab: true,
+    allow_user_edit: true,
+    affected_user_types: null,
+  };
 
   /* helpers */
   function esc(s) {
@@ -15,21 +37,151 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
   function num(n) { return Number(n || 0).toLocaleString(); }
+  function _asBool(v, fallback) {
+    if (v == null) return !!fallback;
+    if (typeof v === 'boolean') return v;
+    var t = String(v).trim().toLowerCase();
+    if (!t) return !!fallback;
+    return t === '1' || t === 'true' || t === 'yes' || t === 'on';
+  }
+  function _normalizeAdminMaintenanceSettings(raw) {
+    var base = {
+      admin_visible: true,
+      show_items_tab: true,
+      allow_item_edit: true,
+      show_queue_tab: true,
+      allow_queue_actions: true,
+      show_logs_tab: true,
+      show_users_tab: true,
+      allow_user_edit: true,
+      affected_user_types: null,
+    };
+    if (!raw || typeof raw !== 'object') return base;
+    base.admin_visible = _asBool(raw.admin_visible, base.admin_visible);
+    base.show_items_tab = _asBool(raw.show_items_tab, base.show_items_tab);
+    base.allow_item_edit = _asBool(raw.allow_item_edit, base.allow_item_edit);
+    base.show_queue_tab = _asBool(raw.show_queue_tab, base.show_queue_tab);
+    base.allow_queue_actions = _asBool(raw.allow_queue_actions, base.allow_queue_actions);
+    base.show_logs_tab = _asBool(raw.show_logs_tab, base.show_logs_tab);
+    base.show_users_tab = _asBool(raw.show_users_tab, base.show_users_tab);
+    base.allow_user_edit = _asBool(raw.allow_user_edit, base.allow_user_edit);
+    base.affected_user_types = Array.isArray(raw.affected_user_types) ? raw.affected_user_types.slice() : null;
+    if (!base.show_items_tab) base.allow_item_edit = false;
+    if (!base.show_queue_tab) base.allow_queue_actions = false;
+    if (!base.show_users_tab) base.allow_user_edit = false;
+    var hasAnyTab = !!(base.show_items_tab || base.show_queue_tab || base.show_logs_tab || base.show_users_tab);
+    if (!hasAnyTab) base.admin_visible = false;
+    if (!base.admin_visible) {
+      base.show_items_tab = false;
+      base.allow_item_edit = false;
+      base.show_queue_tab = false;
+      base.allow_queue_actions = false;
+      base.show_logs_tab = false;
+      base.show_users_tab = false;
+      base.allow_user_edit = false;
+    }
+    return base;
+  }
+  function _isCreatorScopeVisible(scope) {
+    if (_adminMaintenanceSettings.admin_visible === false) return false;
+    var key = _CREATOR_SCOPE_FLAGS[scope];
+    return key ? _adminMaintenanceSettings[key] !== false : true;
+  }
+  function _canCreatorEditItems() {
+    return _isCreatorScopeVisible('items') && _adminMaintenanceSettings.allow_item_edit !== false;
+  }
+  function _canCreatorQueueActions() {
+    return _isCreatorScopeVisible('queue') && _adminMaintenanceSettings.allow_queue_actions !== false;
+  }
+  function _creatorMaintenanceMessage(scope, action) {
+    if (_adminMaintenanceSettings.admin_visible === false) {
+      return 'Admin Shop and Creator Studio are currently hidden for your audience.';
+    }
+    var scopeKey = _CREATOR_SCOPE_FLAGS[scope];
+    if (scopeKey && _adminMaintenanceSettings[scopeKey] === false) {
+      return (_CREATOR_TAB_LABELS[scope] || 'This section') + ' is currently hidden for your audience.';
+    }
+    if (action === 'items_edit' && _adminMaintenanceSettings.allow_item_edit === false) {
+      return 'Item edits are disabled during maintenance.';
+    }
+    if (action === 'queue_actions' && _adminMaintenanceSettings.allow_queue_actions === false) {
+      return 'Queue actions are disabled during maintenance.';
+    }
+    return 'This action is unavailable during maintenance.';
+  }
+  function _renderMaintenanceUnavailable(c, msg, title) {
+    c.innerHTML =
+      '<div class="shop-empty sa-coming-soon-tab">' +
+        '<div class="sa-coming-soon-title">' + esc(title || 'Creator studio unavailable') + '</div>' +
+        '<div>' + esc(msg || 'This section is unavailable during maintenance.') + '</div>' +
+      '</div>';
+  }
+  function _syncCreatorTabsVisibility() {
+    var tabsWrap = document.getElementById('csTabs');
+    if (!tabsWrap) return _CREATOR_TABS.slice();
+    var visibleTabs = _CREATOR_TABS.filter(function (tab) { return _isCreatorScopeVisible(tab); });
+    _CREATOR_TABS.forEach(function (tab) {
+      var btn = tabsWrap.querySelector('[data-tab="' + tab + '"]');
+      if (!btn) return;
+      btn.style.display = visibleTabs.indexOf(tab) !== -1 ? '' : 'none';
+    });
+    if (!visibleTabs.length) {
+      tabsWrap.querySelectorAll('.shop-tab').forEach(function (btn) { btn.classList.remove('active'); });
+      return visibleTabs;
+    }
+    if (visibleTabs.indexOf(_activeTab) === -1) _activeTab = visibleTabs[0];
+    tabsWrap.querySelectorAll('.shop-tab').forEach(function (btn) {
+      btn.classList.toggle('active', btn.dataset.tab === _activeTab);
+    });
+    return visibleTabs;
+  }
+  function _ingestAdminMaintenanceSettings(raw) {
+    if (!raw || typeof raw !== 'object') return;
+    _adminMaintenanceSettings = _normalizeAdminMaintenanceSettings(raw);
+    if (_shellBuilt) _syncCreatorTabsVisibility();
+  }
+  function _isMaintenanceRestrictedPayload(payload) {
+    return !!(payload && typeof payload === 'object' && payload.maintenance_restricted);
+  }
+  function _handleMaintenanceRestriction(payload, options) {
+    if (!_isMaintenanceRestrictedPayload(payload)) return false;
+    _ingestAdminMaintenanceSettings(payload.admin_maintenance_settings || {});
+    var opts = options || {};
+    if (opts.notify !== false && window.showToast) {
+      window.showToast('\u26a0 ' + (payload.error || 'This action is unavailable during maintenance.'), 'warn');
+    }
+    if (opts.rerender !== false && _shellBuilt && panel.classList.contains('active')) {
+      renderTab();
+    }
+    return true;
+  }
+  function _fetchJson(url, options) {
+    var opts = options || {};
+    if (!opts.credentials) opts.credentials = 'same-origin';
+    return fetch(url, opts).then(function (r) {
+      return r.json().catch(function () { return null; }).then(function (d) {
+        if (_isMaintenanceRestrictedPayload(d)) {
+          _ingestAdminMaintenanceSettings(d.admin_maintenance_settings || {});
+        }
+        return { ok: r.ok, status: r.status, data: d };
+      });
+    });
+  }
 
   function apiPost(url, body) {
-    return fetch(url, {
+    return _fetchJson(url, {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); });
+    });
   }
 
   function apiPatch(url, body) {
-    return fetch(url, {
+    return _fetchJson(url, {
       method: 'PATCH', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); });
+    });
   }
 
   function statusPill(status) {
@@ -63,6 +215,7 @@
       '<div class="shop-modal-backdrop" id="csModalBackdrop">' +
         '<div class="shop-modal" id="csModal"></div>' +
       '</div>';
+    _syncCreatorTabsVisibility();
 
     document.getElementById('csTabs').addEventListener('click', function (e) {
       var btn = e.target.closest('.shop-tab');
@@ -70,8 +223,7 @@
       var tab = btn.dataset.tab;
       if (tab === _activeTab) return;
       _activeTab = tab;
-      document.querySelectorAll('#csTabs .shop-tab').forEach(function (t) { t.classList.remove('active'); });
-      btn.classList.add('active');
+      _syncCreatorTabsVisibility();
       renderTab();
     });
 
@@ -91,10 +243,15 @@
 
   /* data fetching */
   function fetchData(cb) {
-    fetch('/api/shop/creator/my-items', { credentials: 'same-origin' })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) {
-        _data = d;
+    _fetchJson('/api/shop/creator/my-items', { credentials: 'same-origin' })
+      .then(function (res) {
+        var d = (res && res.ok) ? res.data : null;
+        if (_isMaintenanceRestrictedPayload(res && res.data)) {
+          _handleMaintenanceRestriction(res.data, { notify: false, rerender: false });
+          _data = { items: [], requests: [] };
+        } else {
+          _data = d;
+        }
         // seed queue badge from the requests that come with items
         if (d && d.requests) {
           var pendingCount = d.requests.filter(function (r) { return r.status === 'pending'; }).length;
@@ -109,6 +266,12 @@
   function renderTab() {
     var c = document.getElementById('csContent');
     if (!c) return;
+    var visibleTabs = _syncCreatorTabsVisibility();
+    if (!visibleTabs || !visibleTabs.length) {
+      _updateCsQueueBadge(0);
+      _renderMaintenanceUnavailable(c, _creatorMaintenanceMessage(_activeTab), 'Creator studio unavailable');
+      return;
+    }
     if (_activeTab === 'items') renderItemsTab(c);
     else if (_activeTab === 'queue') renderQueueTab(c);
     else if (_activeTab === 'requests') renderRequestsTab(c);
@@ -119,10 +282,18 @@
     if (!_data) { c.innerHTML = '<div class="shop-empty">Loading\u2026</div>'; return; }
     var items = _data.items || [];
     var requests = _data.requests || [];
+    var canEditItems = _canCreatorEditItems();
 
     var html = '<div style="display:flex;justify-content:flex-end;margin-bottom:12px;">' +
-      '<button class="shop-modal-btn shop-modal-btn--confirm" id="csNewItem">+ Request New Item</button>' +
+      '<button class="shop-modal-btn shop-modal-btn--confirm" id="csNewItem"' +
+        (canEditItems ? '' : ' disabled title="' + esc(_creatorMaintenanceMessage('items', 'items_edit')) + '"') +
+      '>+ Request New Item</button>' +
     '</div>';
+    if (!canEditItems) {
+      html += '<div class="sa-maint-settings-note" style="margin-bottom:10px;">' +
+        esc(_creatorMaintenanceMessage('items', 'items_edit')) +
+      '</div>';
+    }
 
     if (items.length === 0) {
       html += '<div class="shop-empty">You have no items yet. Request one above!</div>';
@@ -160,19 +331,22 @@
 
         // Active toggle
         html += '<span><label class="settings-toggle" data-cs-toggle="' + esc(item.id) + '">' +
-          '<input type="checkbox"' + (isActive ? ' checked' : '') + ' />' +
+          '<input type="checkbox"' + (isActive ? ' checked' : '') + (canEditItems ? '' : ' disabled') + ' />' +
           '<span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>' +
           '</label></span>';
 
         // Stock input
         var stockVal = item.stock != null ? item.stock : '';
         html += '<span><input type="number" min="0" max="99999" class="sa-stock-input" ' +
-          'data-cs-stock="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="\u221E" /></span>';
+          'data-cs-stock="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="\u221E"' +
+          (canEditItems ? '' : ' disabled') + ' /></span>';
 
         // Actions
         html += '<span class="sa-actions-cell">';
         if (hasEditPending) {
           html += '<span class="sa-pill sa-pill--pending" style="font-size:0.6rem">Edit pending</span>';
+        } else if (!canEditItems) {
+          html += '<span class="sa-pill" style="font-size:0.62rem;color:var(--text-faint);border-color:var(--border)">Edits disabled</span>';
         } else {
           html += '<button class="sa-action-btn ie-edit-btn" data-cs-edit="' + esc(item.id) + '">Request Edit</button>';
         }
@@ -187,9 +361,16 @@
     c.innerHTML = html;
 
     /* wire events */
-    document.getElementById('csNewItem').addEventListener('click', function () {
-      showRequestForm(null);
-    });
+    var newItemBtn = document.getElementById('csNewItem');
+    if (newItemBtn) {
+      newItemBtn.addEventListener('click', function () {
+        if (!canEditItems) {
+          window.showToast('\u26a0 ' + _creatorMaintenanceMessage('items', 'items_edit'), 'warn');
+          return;
+        }
+        showRequestForm(null);
+      });
+    }
 
     // Active toggles
     c.querySelectorAll('[data-cs-toggle]').forEach(function (label) {
@@ -208,7 +389,8 @@
               var item = (items || []).find(function (it) { return it.id === id; });
               if (item) item.active = active;
             } else {
-              window.showToast('\u26a0 ' + (r.data.error || 'Failed'), 'warn');
+              if (_handleMaintenanceRestriction(r.data)) { checkbox.checked = !active; return; }
+              window.showToast('\u26a0 ' + ((r.data && r.data.error) || 'Failed'), 'warn');
               checkbox.checked = !active;
             }
           })
@@ -234,7 +416,8 @@
               lastVal = val;
               window.showToast('\u2713 Stock updated for ' + id, 'success');
             } else {
-              window.showToast('\u26a0 ' + (r.data.error || 'Failed'), 'warn');
+              if (_handleMaintenanceRestriction(r.data)) { inp.value = lastVal; return; }
+              window.showToast('\u26a0 ' + ((r.data && r.data.error) || 'Failed'), 'warn');
               inp.value = lastVal;
             }
           })
@@ -251,6 +434,10 @@
     // Edit buttons
     c.querySelectorAll('[data-cs-edit]').forEach(function (btn) {
       btn.addEventListener('click', function () {
+        if (!canEditItems) {
+          window.showToast('\u26a0 ' + _creatorMaintenanceMessage('items', 'items_edit'), 'warn');
+          return;
+        }
         var id = btn.dataset.csEdit;
         var item = (items || []).find(function (it) { return it.id === id; });
         if (item) showRequestForm(item);
@@ -343,19 +530,21 @@
     var allowed = ['image/png','image/jpeg','image/jpg','image/gif','image/webp'];
     if (allowed.indexOf(file.type) === -1) { window.showToast('\u26a0 Use PNG, JPG, GIF or WebP.', 'warn'); return; }
     if (file.size > 2*1024*1024) { window.showToast('\u26a0 Image must be < 2 MB.', 'warn'); return; }
+    if (!_canCreatorEditItems()) { window.showToast('\u26a0 ' + _creatorMaintenanceMessage('items', 'items_edit'), 'warn'); return; }
     if (_csImages.length >= 3) { window.showToast('\u26a0 Maximum 3 images.', 'warn'); return; }
     var addBtn = listEl.parentNode.querySelector('#csImgAdd');
     if (addBtn) addBtn.style.display = 'none';
     var fd = new FormData();
     fd.append('file', file);
-    fetch('/api/shop/creator/upload-image', { method:'POST', credentials:'same-origin', body:fd })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.ok) {
+    _fetchJson('/api/shop/creator/upload-image', { method:'POST', credentials:'same-origin', body:fd })
+      .then(function(res) {
+        var data = res && res.data;
+        if (res && res.ok && data && data.ok) {
           _csImages.push({ name:file.name, url:data.url });
           _csRenderImageList(listEl);
         } else {
-          window.showToast('\u26a0 ' + (data.error || 'Upload failed'), 'warn');
+          if (_handleMaintenanceRestriction(data, { notify: true })) { return; }
+          window.showToast('\u26a0 ' + ((data && data.error) || 'Upload failed'), 'warn');
           if (addBtn) addBtn.style.display = _csImages.length >= 3 ? 'none' : '';
         }
       })
@@ -689,7 +878,13 @@
                   if (otb) otb.classList.toggle('ie-variant-tab--inactive', !active);
                 });
               } else {
-                window.showToast('\u26a0 ' + (r.data.error || 'Failed'), 'warn');
+                if (_handleMaintenanceRestriction(r.data)) {
+                  va.value = active ? 'false' : 'true';
+                  if (v.data) v.data.active = va.value;
+                  if (tb) tb.classList.toggle('ie-variant-tab--inactive', va.value === 'false');
+                  return;
+                }
+                window.showToast('\u26a0 ' + ((r.data && r.data.error) || 'Failed'), 'warn');
                 va.value = active ? 'false' : 'true';
                 if (v.data) v.data.active = va.value;
                 if (tb) tb.classList.toggle('ie-variant-tab--inactive', va.value === 'false');
@@ -738,7 +933,8 @@
                   if (otb) otb.classList.toggle('ie-variant-tab--inactive', !active);
                 });
               } else {
-                window.showToast('\u26a0 ' + (r.data.error || 'Failed'), 'warn');
+                if (_handleMaintenanceRestriction(r.data)) { _liveActive.value = active ? 'false' : 'true'; return; }
+                window.showToast('\u26a0 ' + ((r.data && r.data.error) || 'Failed'), 'warn');
                 _liveActive.value = active ? 'false' : 'true';
               }
             })
@@ -766,7 +962,8 @@
                 var tableStock = document.querySelector('[data-cs-stock="' + id + '"]');
                 if (tableStock) tableStock.value = val;
               } else {
-                window.showToast('\u26a0 ' + (r.data.error || 'Failed'), 'warn');
+                if (_handleMaintenanceRestriction(r.data)) { _liveStock.value = _lsLast; return; }
+                window.showToast('\u26a0 ' + ((r.data && r.data.error) || 'Failed'), 'warn');
                 _liveStock.value = _lsLast;
               }
             })
@@ -796,7 +993,8 @@
                 var tableStock = document.querySelector('[data-cs-stock="' + existingItem.id + '"]');
                 if (tableStock) tableStock.value = val;
               } else {
-                window.showToast('\u26a0 ' + (r.data.error || 'Failed'), 'warn');
+                if (_handleMaintenanceRestriction(r.data)) { vsInp.value = vsLast; return; }
+                window.showToast('\u26a0 ' + ((r.data && r.data.error) || 'Failed'), 'warn');
                 vsInp.value = vsLast;
               }
             })
@@ -964,8 +1162,15 @@
       var noteVal=modal.querySelector('#csF_note'); if(noteVal&&noteVal.value.trim()) body.note=noteVal.value.trim();
       apiPost('/api/shop/creator/request-item',body)
         .then(function(r){
-          if(r.ok&&r.data.ok){window.showToast('\u2713 Request submitted!','success');_closeModal();fetchData(function(){renderTab();});}
-          else{_formMsg(r.data.error||'Failed to submit.','warn');sub.disabled=false;sub.textContent='Submit Request';}
+          if(r.ok&&r.data&&r.data.ok){window.showToast('\u2713 Request submitted!','success');_closeModal();fetchData(function(){renderTab();});}
+          else{
+            if (_handleMaintenanceRestriction(r.data, { notify: false })) {
+              _formMsg(((r.data && r.data.error) || _creatorMaintenanceMessage('items', 'items_edit')), 'warn');
+            } else {
+              _formMsg(((r.data && r.data.error) || 'Failed to submit.'), 'warn');
+            }
+            sub.disabled=false;sub.textContent='Submit Request';
+          }
         })
         .catch(function(){_formMsg('Network error. Please try again.','warn');sub.disabled=false;sub.textContent='Submit Request';});
     });
@@ -991,6 +1196,10 @@
 
   /* Main entry point*/
   function showRequestForm(existingItem) {
+    if (!_canCreatorEditItems()) {
+      window.showToast('\u26a0 ' + _creatorMaintenanceMessage('items', 'items_edit'), 'warn');
+      return;
+    }
     var modal = document.getElementById('csModal');
     var bd    = document.getElementById('csModalBackdrop');
     var isEdit = !!existingItem;
@@ -1049,12 +1258,22 @@
   function renderQueueTab(c) {
     c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading queue\u2026</div>';
     Promise.all([
-      fetch('/api/shop/creator/my-requests', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }),
-      fetch('/api/shop/creator/my-orders', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }),
+      _fetchJson('/api/shop/creator/my-requests', { credentials: 'same-origin' }),
+      _fetchJson('/api/shop/creator/my-orders', { credentials: 'same-origin' }),
     ]).then(function (results) {
       if (_activeTab !== 'queue') return;
-      var reqData = results[0];
-      var ordData = results[1];
+      var reqRes = results[0] || {};
+      var ordRes = results[1] || {};
+      var restrictionPayload = (_isMaintenanceRestrictedPayload(reqRes.data) ? reqRes.data : null) ||
+        (_isMaintenanceRestrictedPayload(ordRes.data) ? ordRes.data : null);
+      if (restrictionPayload) _handleMaintenanceRestriction(restrictionPayload, { notify: false, rerender: false });
+      if (!_isCreatorScopeVisible('queue')) {
+        _updateCsQueueBadge(0);
+        _renderMaintenanceUnavailable(c, _creatorMaintenanceMessage('queue'), 'Queue unavailable');
+        return;
+      }
+      var reqData = reqRes.ok ? reqRes.data : null;
+      var ordData = ordRes.ok ? ordRes.data : null;
       if (!reqData && !ordData) { c.innerHTML = '<div class="shop-empty">Could not load queue.</div>'; return; }
       var pending = ((reqData && reqData.requests) || []).filter(function (r) { return r.status === 'pending'; });
       var orders = ((ordData && ordData.orders) || []).filter(function (o) { return o.status === 'pending'; });
@@ -1098,6 +1317,7 @@
   }
 
   function _renderQueueContent(c, pending, orders) {
+    var canQueueActions = _canCreatorQueueActions();
     var newCount  = pending.filter(function (r) { return !r.item_id; }).length;
     var editCount = pending.filter(function (r) { return !!r.item_id; }).length;
     var orderCount = orders.length;
@@ -1110,6 +1330,11 @@
     html += '<button class="sa-q-pill' + (_csQueueFilter === 'edit' ? ' active' : '') + '" data-qf="edit">Edit Item <span class="sa-q-count">' + editCount + '</span></button>';
     html += '<span class="sa-q-sort" id="csQueueSort">' + (_csQueueSort === 'oldest' ? 'Oldest first' : 'Newest first') + '</span>';
     html += '</div>';
+    if (!canQueueActions) {
+      html += '<div class="sa-maint-settings-note" style="margin:0 0 10px 0;">' +
+        esc(_creatorMaintenanceMessage('queue', 'queue_actions')) +
+      '</div>';
+    }
 
     var merged = pending.map(function (r) {
       return { subtype: r.item_id ? 'edit' : 'new', date: r.submitted_at || '', data: r };
@@ -1128,7 +1353,7 @@
     } else {
       merged.forEach(function (item) {
         var hidden = _csQueueFilter !== 'all' && _csQueueFilter !== item.subtype;
-        html += _buildCsQueueCard(item, hidden);
+        html += _buildCsQueueCard(item, hidden, canQueueActions);
       });
     }
     html += '</div>';
@@ -1155,6 +1380,10 @@
     /* Bind fulfill buttons on order cards */
     c.querySelectorAll('[data-cs-fulfill]').forEach(function (btn) {
       btn.addEventListener('click', function () {
+        if (!canQueueActions) {
+          window.showToast('\u26a0 ' + _creatorMaintenanceMessage('queue', 'queue_actions'), 'warn');
+          return;
+        }
         _openCsFulfillModal(btn.dataset.csFulfill, btn, c, parseInt(btn.dataset.csEpSpent || '0', 10));
       });
     });
@@ -1162,12 +1391,20 @@
     /* Bind reject buttons on order cards */
     c.querySelectorAll('[data-cs-reject]').forEach(function (btn) {
       btn.addEventListener('click', function () {
+        if (!canQueueActions) {
+          window.showToast('\u26a0 ' + _creatorMaintenanceMessage('queue', 'queue_actions'), 'warn');
+          return;
+        }
         _openCsRejectModal(btn.dataset.csReject, btn, c);
       });
     });
   }
 
   function _openCsFulfillModal(pid, triggerBtn, queueContainer, epSpent) {
+    if (!_canCreatorQueueActions()) {
+      window.showToast('\u26a0 ' + _creatorMaintenanceMessage('queue', 'queue_actions'), 'warn');
+      return;
+    }
     var modal = document.getElementById('csModal');
     var bd    = document.getElementById('csModalBackdrop');
     modal.classList.remove('ie-modal');
@@ -1197,7 +1434,8 @@
             if (card) { card.style.opacity = '0.3'; card.style.pointerEvents = 'none'; }
             renderQueueTab(queueContainer);
           } else {
-            window.showToast('\u26a0 ' + (r.data.error || 'Failed'), 'warn');
+            if (_handleMaintenanceRestriction(r.data, { notify: true })) { _closeModal(); return; }
+            window.showToast('\u26a0 ' + ((r.data && r.data.error) || 'Failed'), 'warn');
             confirmBtn.disabled = false; confirmBtn.textContent = 'Mark Fulfilled';
           }
         })
@@ -1209,6 +1447,10 @@
   }
 
   function _openCsRejectModal(pid, triggerBtn, queueContainer) {
+    if (!_canCreatorQueueActions()) {
+      window.showToast('\u26a0 ' + _creatorMaintenanceMessage('queue', 'queue_actions'), 'warn');
+      return;
+    }
     var modal = document.getElementById('csModal');
     var bd    = document.getElementById('csModalBackdrop');
     modal.classList.remove('ie-modal');
@@ -1237,7 +1479,8 @@
             if (card) { card.style.opacity = '0.3'; card.style.pointerEvents = 'none'; }
             renderQueueTab(queueContainer);
           } else {
-            window.showToast('\u26a0 ' + (r.data.error || 'Failed'), 'warn');
+            if (_handleMaintenanceRestriction(r.data, { notify: true })) { _closeModal(); return; }
+            window.showToast('\u26a0 ' + ((r.data && r.data.error) || 'Failed'), 'warn');
             rejectBtn.disabled = false; rejectBtn.textContent = 'Reject';
           }
         })
@@ -1248,7 +1491,7 @@
     });
   }
 
-  function _buildCsQueueCard(item, hidden) {
+  function _buildCsQueueCard(item, hidden, canQueueActions) {
     var d = item.data;
     var isNew = item.subtype === 'new';
     var isOrder = item.subtype === 'order';
@@ -1302,8 +1545,10 @@
       /* Action buttons for pending orders */
       if ((d.status || 'pending') === 'pending') {
         html += '<div class="sa-q-actions">';
-        html += '<button class="sa-q-btn sa-q-btn--primary" data-cs-fulfill="' + esc(d.purchase_id) + '" data-cs-ep-spent="' + (d.ep_spent || 0) + '">Mark fulfilled</button>';
-        html += '<button class="sa-q-btn sa-q-btn--reject" data-cs-reject="' + esc(d.purchase_id) + '">Reject</button>';
+        html += '<button class="sa-q-btn sa-q-btn--primary" data-cs-fulfill="' + esc(d.purchase_id) + '" data-cs-ep-spent="' + (d.ep_spent || 0) + '"' +
+          (canQueueActions ? '' : ' disabled title="' + esc(_creatorMaintenanceMessage('queue', 'queue_actions')) + '"') + '>Mark fulfilled</button>';
+        html += '<button class="sa-q-btn sa-q-btn--reject" data-cs-reject="' + esc(d.purchase_id) + '"' +
+          (canQueueActions ? '' : ' disabled title="' + esc(_creatorMaintenanceMessage('queue', 'queue_actions')) + '"') + '>Reject</button>';
         html += '</div>';
       } else {
         /* Status pill for resolved orders */
@@ -1370,10 +1615,16 @@
   /* My Requests tab */
   function renderRequestsTab(c) {
     c.innerHTML = '<div class="shop-empty">Loading\u2026</div>';
-
-    fetch('/api/shop/creator/my-requests', { credentials: 'same-origin' })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (d) {
+    _fetchJson('/api/shop/creator/my-requests', { credentials: 'same-origin' })
+      .then(function (res) {
+        if (_isMaintenanceRestrictedPayload(res && res.data)) {
+          _handleMaintenanceRestriction(res.data, { notify: false, rerender: false });
+          if (!_isCreatorScopeVisible('requests')) {
+            _renderMaintenanceUnavailable(c, _creatorMaintenanceMessage('requests'), 'Requests unavailable');
+            return;
+          }
+        }
+        var d = (res && res.ok) ? res.data : null;
         if (!d) { c.innerHTML = '<div class="shop-empty">Failed to load requests.</div>'; return; }
         var reqs = d.requests || [];
         if (reqs.length === 0) {
@@ -1447,11 +1698,20 @@
   // Preload badge counts for the sidebar nav item (called before panel is active)
   window.preloadCreatorStudioBadge = function () {
     Promise.all([
-      fetch('/api/shop/creator/my-requests', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }),
-      fetch('/api/shop/creator/my-orders', { credentials: 'same-origin' }).then(function (r) { return r.ok ? r.json() : null; }),
+      _fetchJson('/api/shop/creator/my-requests', { credentials: 'same-origin' }),
+      _fetchJson('/api/shop/creator/my-orders', { credentials: 'same-origin' }),
     ]).then(function (results) {
-      var reqData = results[0];
-      var ordData = results[1];
+      var reqRes = results[0] || {};
+      var ordRes = results[1] || {};
+      var restrictionPayload = (_isMaintenanceRestrictedPayload(reqRes.data) ? reqRes.data : null) ||
+        (_isMaintenanceRestrictedPayload(ordRes.data) ? ordRes.data : null);
+      if (restrictionPayload) _handleMaintenanceRestriction(restrictionPayload, { notify: false, rerender: false });
+      if (!_isCreatorScopeVisible('queue')) {
+        _updateCsQueueBadge(0);
+        return;
+      }
+      var reqData = reqRes.ok ? reqRes.data : null;
+      var ordData = ordRes.ok ? ordRes.data : null;
       var pending = ((reqData && reqData.requests) || []).filter(function (r) { return r.status === 'pending'; });
       var orders = (ordData && ordData.orders) || [];
       var count = pending.length + orders.filter(function (o) { return o.status === 'pending'; }).length;
