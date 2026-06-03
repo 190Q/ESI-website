@@ -26,6 +26,13 @@
   var _shellBuilt     = false;
   var _shopEnabled    = true;
   var _shopMaintenanceViewOnly = false;
+  var _shopMaintenanceSettings = {
+    shop_visible: true,
+    show_items: true,
+    show_balance_bar: true,
+    show_orders: true,
+    eta_iso: null,
+  };
   var _shopComingSoon = false;
   var _shopDisabledMessage = 'Coming soon';
   var _cart           = {};    // { [item_id]: { item, quantity } }
@@ -57,6 +64,83 @@
   function disabledMessage() {
     var msg = String(_shopDisabledMessage || '').trim();
     return msg || 'Coming soon';
+  }
+  function _coerceBool(v, fallback) {
+    if (typeof v === 'boolean') return v;
+    if (typeof v === 'number') return v !== 0;
+    var s = String(v == null ? '' : v).trim().toLowerCase();
+    if (!s) return !!fallback;
+    if (s === '1' || s === 'true' || s === 'yes' || s === 'on') return true;
+    if (s === '0' || s === 'false' || s === 'no' || s === 'off') return false;
+    return !!fallback;
+  }
+  function _normalizeMaintenanceSettings(raw, shopVisibleFallback) {
+    var src = (raw && typeof raw === 'object') ? raw : {};
+    return {
+      shop_visible: _coerceBool(src.shop_visible, shopVisibleFallback !== undefined ? shopVisibleFallback : true),
+      show_items: _coerceBool(src.show_items, true),
+      show_balance_bar: _coerceBool(src.show_balance_bar, true),
+      show_orders: _coerceBool(src.show_orders, true),
+      eta_iso: (typeof src.eta_iso === 'string' && src.eta_iso.trim()) ? src.eta_iso.trim() : null,
+    };
+  }
+  function _setMaintenanceSettings(raw, shopVisibleFallback) {
+    _shopMaintenanceSettings = _normalizeMaintenanceSettings(raw, shopVisibleFallback);
+    if (_shopEnabled === false) {
+      _shopMaintenanceViewOnly = !!_shopMaintenanceSettings.shop_visible;
+    }
+  }
+  function _maintenanceCanShow(sectionKey, fallback) {
+    if (_shopEnabled !== false) return true;
+    if (!_shopMaintenanceViewOnly) return false;
+    return _coerceBool(_shopMaintenanceSettings && _shopMaintenanceSettings[sectionKey], fallback);
+  }
+  function _maintenanceToggleEnabled(sectionKey, fallback) {
+    if (_shopEnabled !== false || !_shopMaintenanceViewOnly) return true;
+    return _coerceBool(_shopMaintenanceSettings && _shopMaintenanceSettings[sectionKey], fallback);
+  }
+  function _showItemsSection() {
+    return _maintenanceCanShow('show_items', true);
+  }
+  function _showBalanceSection() {
+    return _shopEnabled !== false || _shopMaintenanceViewOnly;
+  }
+  function _showOrdersSection() {
+    return _shopEnabled !== false || _shopMaintenanceViewOnly;
+  }
+  function _showFiltersSection() {
+    return _showItemsSection();
+  }
+  function _setSectionHidden(el, hidden) {
+    if (!el) return;
+    el.classList.toggle('shop-section-hidden', !!hidden);
+  }
+  function _applyMaintenanceSectionVisibility() {
+    var maintenanceReadOnly = (_shopEnabled === false && _shopMaintenanceViewOnly);
+    var showItems = _showItemsSection();
+    var showCart = maintenanceReadOnly ? true : showItems;
+    var showBalance = maintenanceReadOnly ? true : _showBalanceSection();
+    var showOrders = maintenanceReadOnly ? true : _showOrdersSection();
+    var showFilters = _showFiltersSection();
+    _setSectionHidden(document.getElementById('shopBalanceBar'), !showBalance);
+    _setSectionHidden(document.getElementById('shopCartBtn'), !showCart);
+    _setSectionHidden(document.getElementById('shopOrdersBtn'), !showOrders);
+    _setSectionHidden(document.getElementById('shopFilters'), !showFilters);
+    var actions = panel.querySelector('.shop-top-actions');
+    if (actions) actions.classList.toggle('shop-top-actions--empty', !showCart && !showOrders);
+  }
+  function _maintenanceHeadline() {
+    return isComingSoonDisabled() ? 'Coming Soon' : 'Under Maintenance';
+  }
+  function _renderMaintenanceNotice(title, message, modifierClass) {
+    var container = document.getElementById('shopContent');
+    if (!container) return;
+    var cls = 'shop-maintenance-hero' + (modifierClass ? ' ' + modifierClass : '');
+    container.innerHTML =
+      '<div class="' + cls + '">' +
+        '<div class="shop-maintenance-hero-title">' + esc(title) + '</div>' +
+        '<div class="shop-maintenance-hero-text">' + esc(message) + '</div>' +
+      '</div>';
   }
   function _effectiveMaxQty(item, variantIdx) {
     var v = (variantIdx != null && item.variants && item.variants[variantIdx]) ? item.variants[variantIdx] : null;
@@ -213,12 +297,17 @@
     });
     document.getElementById('shopCartBtn').addEventListener('click', function () {
       if (_shopEnabled === false && !_shopMaintenanceViewOnly) { openComingSoonModal('Cart'); return; }
+      if (_shopEnabled === false && !_showItemsSection()) {
+        openComingSoonModal('Cart', 'Under Maintenance');
+        return;
+      }
       openCartModal();
     });
     document.getElementById('shopOrdersBtn').addEventListener('click', function () {
       if (_shopEnabled === false && !_shopMaintenanceViewOnly) { openComingSoonModal('My Orders'); return; }
       openOrdersModal();
     });
+    _applyMaintenanceSectionVisibility();
   }
 
   function fetchShopState(cb) {
@@ -228,7 +317,12 @@
         if (data && typeof data.shop_enabled === 'boolean') {
           _shopEnabled = !!data.shop_enabled;
         }
-        _shopMaintenanceViewOnly = !!(data && data.maintenance_view_only);
+        var stateShopVisible = (data && typeof data.maintenance_view_only === 'boolean')
+          ? !!data.maintenance_view_only
+          : (_shopEnabled === false ? _shopMaintenanceViewOnly : true);
+        var incomingSettings = (data && data.maintenance_settings) ? data.maintenance_settings : _shopMaintenanceSettings;
+        _setMaintenanceSettings(incomingSettings, stateShopVisible);
+        _shopMaintenanceViewOnly = (_shopEnabled === false) ? !!_shopMaintenanceSettings.shop_visible : false;
         if (data && typeof data.coming_soon === 'boolean') {
           _shopComingSoon = !!data.coming_soon;
         } else if (_shopEnabled === false) {
@@ -239,6 +333,7 @@
         if (data && typeof data.message === 'string' && data.message.trim()) {
           _shopDisabledMessage = data.message.trim();
         }
+        _applyMaintenanceSectionVisibility();
         if (cb) cb(data);
       })
       .catch(function () { if (cb) cb(null); });
@@ -270,9 +365,7 @@
   }
 
   function renderComingSoonContent() {
-    var container = document.getElementById('shopContent');
-    if (!container) return;
-    container.innerHTML = '<div class=\"shop-empty shop-empty--coming-soon\">' + esc(disabledMessage()) + '</div>';
+    _renderMaintenanceNotice(_maintenanceHeadline(), disabledMessage(), 'shop-maintenance-hero--full');
   }
 
   function setComingSoonLayout(enabled) {
@@ -284,14 +377,17 @@
     if (content) content.classList.toggle('shop-content--coming-soon', !!enabled);
   }
 
-  function openComingSoonModal(section) {
+  function openComingSoonModal(section, messageOverride) {
     buildShell();
     var modal = document.getElementById('shopModal');
     if (!modal) return;
+    var bodyText = (typeof messageOverride === 'string' && messageOverride.trim())
+      ? messageOverride.trim()
+      : disabledMessage();
     modal.innerHTML =
-      '<button class=\"modal-close\" aria-label=\"Close\">' + _svg.close + '</button>' +
-      '<div class=\"shop-modal-title\">' + esc(section) + '</div>' +
-      '<div class=\"shop-modal-body\">' + esc(disabledMessage()) + '</div>';
+      '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
+      '<div class="shop-modal-title">' + esc(section) + '</div>' +
+      '<div class="shop-modal-body">' + esc(bodyText) + '</div>';
     var backdrop = document.getElementById('shopModalBackdrop');
     if (backdrop) {
       backdrop.classList.remove('orders-open', 'cart-open');
@@ -310,6 +406,7 @@
     _cart = {};
     setComingSoonLayout(true);
     setTopActionsDisabled(true);
+    _applyMaintenanceSectionVisibility();
     updateCartBadge();
     renderComingSoonBalanceBar();
     renderComingSoonContent();
@@ -321,7 +418,17 @@
       .then(function (data) {
         if (data) {
           _binData = data;
+          if (data.maintenance_settings) {
+            _setMaintenanceSettings(data.maintenance_settings, _shopMaintenanceViewOnly);
+          }
+          if (typeof data.shop_enabled === 'boolean' && data.shop_enabled === false) {
+            _shopMaintenanceViewOnly = !!_shopMaintenanceSettings.shop_visible;
+          }
           if (typeof data.coming_soon === 'boolean') _shopComingSoon = !!data.coming_soon;
+          if (typeof data.message === 'string' && data.message.trim()) {
+            _shopDisabledMessage = data.message.trim();
+          }
+          _applyMaintenanceSectionVisibility();
         }
         if (cb) cb(data);
       })
@@ -334,8 +441,18 @@
       .then(function (data) {
         if (data) {
           _auctionData = data;
+          if (data.maintenance_settings) {
+            _setMaintenanceSettings(data.maintenance_settings, _shopMaintenanceViewOnly);
+          }
+          if (typeof data.shop_enabled === 'boolean' && data.shop_enabled === false) {
+            _shopMaintenanceViewOnly = !!_shopMaintenanceSettings.shop_visible;
+          }
           if (typeof data.coming_soon === 'boolean') _shopComingSoon = !!data.coming_soon;
+          if (typeof data.message === 'string' && data.message.trim()) {
+            _shopDisabledMessage = data.message.trim();
+          }
           if (data.balance && _binData) { _binData.balance = data.balance; renderBalanceBar(); }
+          _applyMaintenanceSectionVisibility();
         }
         if (cb) cb(data);
       })
@@ -359,8 +476,28 @@
   function renderBalanceBar() {
     var el = document.getElementById('shopBalanceBar');
     if (!el) return;
+    if (_shopEnabled === false && !_showBalanceSection()) {
+      el.innerHTML = '';
+      return;
+    }
     if (_shopEnabled === false && isComingSoonDisabled()) {
       renderComingSoonBalanceBar();
+      return;
+    }
+    if (_shopEnabled === false && _shopMaintenanceViewOnly && !_maintenanceToggleEnabled('show_balance_bar', true)) {
+      var balanceText = 'Under Maintenance';
+      el.classList.remove('shop-balance-bar--hidden');
+      el.classList.remove('shop-balance-bar--coming-soon');
+      el.innerHTML =
+        '<div class="bal-blocks">' +
+          '<div class="bal-block"><span class="bal-block-label">Clean EP</span><span class="bal-block-value">' + balanceText + '</span></div>' +
+          '<div class="bal-block"><span class="bal-block-label">Dirty EP</span><span class="bal-block-value">' + balanceText + '</span></div>' +
+          '<div class="bal-block"><span class="bal-block-label">Total EP</span><span class="bal-block-value">' + balanceText + '</span></div>' +
+        '</div>' +
+        '<div class="bal-cycle">' +
+          '<span class="bal-cycle-label">End of Cycle</span>' +
+          '<span class="bal-cycle-value">' + balanceText + '</span>' +
+        '</div>';
       return;
     }
     el.classList.remove('shop-balance-bar--hidden');
@@ -439,6 +576,10 @@
 
     var el = document.getElementById('shopFilters');
     if (!el) return;
+    if (_shopEnabled === false && !_showFiltersSection()) {
+      el.innerHTML = '';
+      return;
+    }
 
     var cats    = _allCategories();
     var catOpts = '<option value="">All</option>';
@@ -657,6 +798,14 @@
     if (!container) return;
     if (_shopEnabled === false && !_shopMaintenanceViewOnly) {
       renderComingSoonContent();
+      return;
+    }
+    if (_shopEnabled === false && !_showItemsSection()) {
+      _renderMaintenanceNotice(
+        _maintenanceHeadline(),
+        'Items are unavailable while the shop is in maintenance.',
+        'shop-maintenance-hero--section'
+      );
       return;
     }
 
@@ -1586,6 +1735,10 @@
   /* Cart modal */
   function openCartModal() {
     if (_shopEnabled === false && !_shopMaintenanceViewOnly) { openComingSoonModal('Cart'); return; }
+    if (_shopEnabled === false && !_showItemsSection()) {
+      openComingSoonModal('Cart', 'Under Maintenance');
+      return;
+    }
     buildShell(); renderCartModal();
     document.getElementById('shopModalBackdrop').classList.add('open', 'cart-open');
   }
@@ -2028,6 +2181,16 @@
     buildShell();
     var modal = document.getElementById('shopModal');
     if (!modal) return;
+    var maintenanceReadOnly = (_shopEnabled === false && _shopMaintenanceViewOnly);
+    var showOrdersHistory = _maintenanceToggleEnabled('show_orders', true);
+    if (maintenanceReadOnly && !showOrdersHistory) {
+      modal.innerHTML =
+        '<button class="modal-close">\u2715</button>' +
+        '<div class="shop-modal-title">My Orders</div>' +
+        '<div class="orders-modal-body" style="color:var(--text-faint);padding:16px 0">Under Maintenance</div>';
+      document.getElementById('shopModalBackdrop').classList.add('open', 'orders-open');
+      return;
+    }
     modal.innerHTML =
       '<button class="modal-close">\u2715</button>' +
       '<div class="shop-modal-title">My Orders</div>' +
@@ -2238,14 +2401,16 @@
   var _initDone = false;
   function loadEnabledShopData() {
     setComingSoonLayout(false);
+    _setMaintenanceSettings({}, true);
     _shopMaintenanceViewOnly = false;
     setTopActionsDisabled(false);
+    _applyMaintenanceSectionVisibility();
     document.getElementById('shopContent').innerHTML =
-      '<div class=\"shop-loading\"><span class=\"loading-spinner\"></span> Loading shop\u2026</div>';
+      '<div class="shop-loading"><span class="loading-spinner"></span> Loading shop\u2026</div>';
     fetchBinData(function (data) {
       if (!data) {
         document.getElementById('shopContent').innerHTML =
-          '<div class=\"shop-empty\">Could not load shop data. You may not be a guild member.</div>';
+          '<div class="shop-empty">Could not load shop data. You may not be a guild member.</div>';
         return;
       }
       renderBalanceBar();
@@ -2261,15 +2426,24 @@
     stopAuctionTimers();
     if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
     _shopEnabled = false;
-    _shopMaintenanceViewOnly = true;
+    _shopMaintenanceViewOnly = !!_shopMaintenanceSettings.shop_visible;
     _cart = {};
     _cartLoaded = false;
     _filterBarBuilt = false;
     setComingSoonLayout(false);
     setTopActionsDisabled(false);
+    _applyMaintenanceSectionVisibility();
     renderBalanceBar();
-    document.getElementById('shopContent').innerHTML =
-      '<div class="shop-loading"><span class="loading-spinner"></span> Loading shop\u2026</div>';
+    if (_showItemsSection()) {
+      document.getElementById('shopContent').innerHTML =
+        '<div class="shop-loading"><span class="loading-spinner"></span> Loading shop…</div>';
+    } else {
+      _renderMaintenanceNotice(
+        _maintenanceHeadline(),
+        'Items are unavailable while the shop is in maintenance.',
+        'shop-maintenance-hero--section'
+      );
+    }
     fetchBinData(function (data) {
       if (!data) {
         document.getElementById('shopContent').innerHTML =
@@ -2278,13 +2452,16 @@
       }
       renderBalanceBar();
       buildFilterBar();
-      loadCart(data.items || []);
+      if (_showItemsSection()) loadCart(data.items || []);
+      else { _cart = {}; _cartLoaded = false; updateCartBadge(); }
     });
     fetchAuctionData(function (data) {
       if (!data) return;
       renderBalanceBar();
-      updateFilterBarData();
-      renderContent();
+      if (_showItemsSection()) {
+        updateFilterBarData();
+        renderContent();
+      }
     });
   }
 
@@ -2326,7 +2503,7 @@
         window._adminBanned = false;
       }
       if (state && state.shop_enabled === false) {
-        if (state.maintenance_view_only) {
+        if (_shopMaintenanceViewOnly) {
           loadMaintenanceViewOnlyData();
           return;
         }

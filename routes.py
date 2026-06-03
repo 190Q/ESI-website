@@ -19,7 +19,7 @@ import functools as _functools
 import sqlite3 as _sqlite3
 import requests
 from time import time
-from datetime import timedelta
+from datetime import timedelta, datetime as _dt, timezone as _tz
 from flask import Flask, jsonify, abort, send_from_directory, redirect, request, session, Response as _Response
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -50,7 +50,14 @@ from config import (
     _APPLICATION_FORMS, _APPLICATIONS_JSON, _user_has_min_rank,
     _APPLICATION_DISCORD, _PARLI_SERVER_ID, _PARLI_PARLI_ROLE, _DEV_SERVER_ID,
 )
-from shop.state import get_shop_state as _shop_get_state, get_shop_enabled as _shop_get_enabled, get_shop_disabled_message as _shop_get_disabled_message
+from shop.state import (
+    get_shop_state as _shop_get_state,
+    get_shop_enabled as _shop_get_enabled,
+    get_shop_disabled_message as _shop_get_disabled_message,
+    get_shop_maintenance_settings as _shop_get_maintenance_settings,
+    set_shop_maintenance_settings as _shop_set_maintenance_settings,
+    claim_due_maintenance_eta_notification as _shop_claim_due_maintenance_eta_notification,
+)
 import ipaddress
 
 # Flask app
@@ -73,7 +80,7 @@ os.makedirs(_UPLOAD_DIR, exist_ok=True)
 
 @app.after_request
 def _set_security_headers(response):
-    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
@@ -1233,7 +1240,7 @@ import uuid as _uuid_mod
 from shop.ep_balance import resolve_uuid_for_user, fetch_ep_balance, resolve_spend, InsufficientFunds
 from shop.bin import list_bin_items, execute_bin_purchase, execute_cart_checkout, PurchaseError, is_guild_member
 from shop.cart import get_cart, save_cart
-from shop.auction import list_auctions, place_bid, start_auction_close_worker
+from shop.auction import list_auctions, place_bid, start_auction_close_worker, _dm_in_background
 from shop.donate import submit_donation, get_donation_history
 from shop.orders import get_order_history
 from shop.admin import (
@@ -1289,19 +1296,116 @@ def _shop_disabled_response():
         503,
     )
 
-def _shop_disabled_payload(extra: dict | None = None) -> dict:
+_MAINTENANCE_BOOL_FIELDS = (
+    "shop_visible",
+    "show_items",
+    "show_balance_bar",
+    "show_orders",
+)
+_MAINTENANCE_AUDIENCE_TYPES = {"normal_users", "chief_admins", "parliament_admins"}
+
+def _maintenance_user_type(user: dict | None) -> str | None:
+    if _is_owner_user(user):
+        return None
+    roles = set((user or {}).get("roles") or [])
+    if roles & _PARLIAMENT_PLUS:
+        return "parliament_admins"
+    if roles & _CHIEF_PLUS:
+        return "chief_admins"
+    return "normal_users"
+
+def _maintenance_applies_to_user(settings: dict | None, user: dict | None) -> bool:
+    user_type = _maintenance_user_type(user)
+    if user_type is None:
+        return False
+    if not isinstance(settings, dict):
+        return True
+    raw = settings.get("affected_user_types")
+    if not isinstance(raw, list) or not raw:
+        return True
+    includes: set = set()
+    excludes: set = set()
+    for entry in raw:
+        text = str(entry or "").strip().lower()
+        if not text:
+            continue
+        is_exclude = text.startswith("!")
+        token = text[1:] if is_exclude else text
+        if token not in _MAINTENANCE_AUDIENCE_TYPES:
+            continue
+        if is_exclude:
+            excludes.add(token)
+        else:
+            includes.add(token)
+    if user_type in excludes:
+        return False
+    if includes and user_type not in includes:
+        return False
+    return True
+
+def _maintenance_settings_for_user(settings: dict | None, user: dict | None) -> dict:
+    effective = dict(settings or {})
+    if _maintenance_applies_to_user(effective, user):
+        return effective
+    for field in _MAINTENANCE_BOOL_FIELDS:
+        effective[field] = True
+    return effective
+
+def _shop_disabled_payload(extra: dict | None = None, user: dict | None = None, maintenance_settings: dict | None = None) -> dict:
     message = _shop_get_disabled_message()
+    raw_settings = maintenance_settings if isinstance(maintenance_settings, dict) else (_shop_get_maintenance_settings() or {})
+    effective_settings = _maintenance_settings_for_user(raw_settings, user)
+    maintenance_view_only = bool(effective_settings.get("shop_visible", True))
     payload = {
         "shop_enabled": False,
         "coming_soon": message == "Coming soon",
         "message": message,
+        "maintenance_view_only": maintenance_view_only,
+        "maintenance_settings": effective_settings,
     }
     if isinstance(extra, dict):
         payload.update(extra)
     return payload
+def _maintenance_flag(settings: dict | None, key: str, default: bool = True) -> bool:
+    if not isinstance(settings, dict):
+        return bool(default)
+    value = settings.get(key, default)
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 def _is_shop_enabled() -> bool:
     return bool(_shop_get_enabled(default=False))
+
+def _owner_discord_id() -> str | None:
+    owner = str(os.environ.get("OWNER") or "").strip()
+    if not owner:
+        return None
+    if owner.startswith("<@") and owner.endswith(">"):
+        owner = owner.strip("<@!>").strip()
+    return owner if owner.isdigit() else None
+
+def _maybe_notify_owner_maintenance_eta_elapsed() -> None:
+    owner_id = _owner_discord_id()
+    if not owner_id:
+        return
+    claim = _shop_claim_due_maintenance_eta_notification(actor="system:maintenance-eta")
+    if not claim:
+        return
+    eta_iso = str(claim.get("eta_iso") or "").strip()
+    eta_label = eta_iso
+    try:
+        eta_dt = _dt.fromisoformat(eta_iso.replace("Z", "+00:00"))
+        if eta_dt.tzinfo is None:
+            eta_dt = eta_dt.replace(tzinfo=_tz.utc)
+        eta_label = eta_dt.astimezone(_tz.utc).strftime("%Y-%m-%d %H:%M UTC")
+    except ValueError:
+        pass
+    _dm_in_background(
+        owner_id,
+        f"Shop maintenance ETA reached ({eta_label}). The shop is still OFF and was not turned back on automatically.",
+        low_urgency=False,
+    )
 
 def _is_owner_user(user: dict | None) -> bool:
     owner = str(os.environ.get("OWNER") or "").strip()
@@ -1357,16 +1461,20 @@ def shop_state():
                 banned = True
         if (user_roles & _SHOP_ADMIN) and is_admin_banned(user.get("id")):
             admin_banned_flag = True
+    _maybe_notify_owner_maintenance_eta_elapsed()
     state = _shop_get_state() or {}
+    raw_maintenance_settings = state.get("maintenance_settings") or _shop_get_maintenance_settings() or {}
+    maintenance_settings = _maintenance_settings_for_user(raw_maintenance_settings, user)
     enabled = bool(state.get("shop_enabled"))
     message = None if enabled else (state.get("message") or _shop_get_disabled_message())
-    maintenance_view_only = bool(not enabled)
+    maintenance_view_only = bool((not enabled) and maintenance_settings.get("shop_visible", True))
     return jsonify({
         **state,
         "shop_enabled": enabled,
         "coming_soon": False if enabled else bool(state.get("coming_soon", message == "Coming soon")),
         "message": message,
         "maintenance_view_only": maintenance_view_only,
+        "maintenance_settings": maintenance_settings,
         "shop_banned": banned,
         "admin_banned": admin_banned_flag,
     })
@@ -1379,7 +1487,7 @@ def me_ep_balance():
     if err:
         return err
     if not _is_shop_enabled():
-        return jsonify(_shop_disabled_payload({"linked": False})), 200
+        return jsonify(_shop_disabled_payload({"linked": False}, user=user)), 200
     discord_id = user.get("id", "")
     mc_uuid, mc_username = resolve_uuid_for_user(discord_id)
     if not mc_uuid:
@@ -1492,24 +1600,29 @@ def shop_bin_list():
     user_roles = user.get("roles") or []
     _is_admin = bool(set(user_roles) & _SHOP_ADMIN) or _is_owner_user(user)
     if not _is_shop_enabled():
+        maintenance_settings = _maintenance_settings_for_user(_shop_get_maintenance_settings() or {}, user)
+        show_items = _maintenance_flag(maintenance_settings, "show_items", True)
+        can_view_items = show_items
         result = list_bin_items(
             user_roles=user_roles,
             discord_id=user.get("id", ""),
             is_shop_admin=_is_admin,
         )
         ro_items = []
-        for item in result.get("items") or []:
-            if not isinstance(item, dict):
-                continue
-            ro_item = dict(item)
-            ro_item["active"] = False
-            ro_items.append(ro_item)
+        if can_view_items:
+            for item in result.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                ro_item = dict(item)
+                ro_item["active"] = False
+                ro_items.append(ro_item)
         payload = {
             **result,
             "items": ro_items,
-            "maintenance_view_only": True,
+            "item_order": (result.get("item_order") or []) if can_view_items else [],
+            "read_only": True,
         }
-        payload.update(_shop_disabled_payload())
+        payload.update(_shop_disabled_payload(user=user, maintenance_settings=maintenance_settings))
         return jsonify(payload), 200
     result = list_bin_items(
         user_roles=user_roles,
@@ -1617,15 +1730,23 @@ def shop_cart_get():
     if err:
         return err
     if not _is_shop_enabled():
-        # Shop admins can still view their cart (read-only)
-        user_roles = set(user.get("roles") or [])
-        if (user_roles & _SHOP_ADMIN) or _is_owner_user(user):
-            items = get_cart(user.get("id", ""))
-            return jsonify({"ok": True, "items": items, "read_only": True})
+        maintenance_settings = _maintenance_settings_for_user(_shop_get_maintenance_settings() or {}, user)
+        show_items = _maintenance_flag(maintenance_settings, "show_items", True)
+        can_view_items = show_items
+        if not can_view_items:
+            return jsonify(_shop_disabled_payload({
+                "maintenance_settings": maintenance_settings,
+                "ok": True,
+                "items": [],
+                "read_only": True,
+            }, user=user, maintenance_settings=maintenance_settings)), 200
+        items = get_cart(user.get("id", ""))
         return jsonify(_shop_disabled_payload({
+            "maintenance_settings": maintenance_settings,
             "ok": True,
-            "items": [],
-        })), 200
+            "items": items,
+            "read_only": True,
+        }, user=user, maintenance_settings=maintenance_settings)), 200
     items = get_cart(user.get("id", ""))
     return jsonify({"ok": True, "items": items})
 
@@ -1672,22 +1793,26 @@ def shop_auction_list():
     user_roles = user.get("roles") or []
     _is_admin = bool(set(user_roles) & _SHOP_ADMIN) or _is_owner_user(user)
     if not _is_shop_enabled():
+        maintenance_settings = _maintenance_settings_for_user(_shop_get_maintenance_settings() or {}, user)
+        show_items = _maintenance_flag(maintenance_settings, "show_items", True)
+        can_view_items = show_items
         result = list_auctions(discord_id=user.get("id", ""),
                                user_roles=user_roles,
                                is_shop_admin=_is_admin)
         ro_auctions = []
-        for auction in result.get("auctions") or []:
-            if not isinstance(auction, dict):
-                continue
-            ro_auction = dict(auction)
-            ro_auction["active"] = False
-            ro_auctions.append(ro_auction)
+        if can_view_items:
+            for auction in result.get("auctions") or []:
+                if not isinstance(auction, dict):
+                    continue
+                ro_auction = dict(auction)
+                ro_auction["active"] = False
+                ro_auctions.append(ro_auction)
         payload = {
             **result,
             "auctions": ro_auctions,
-            "maintenance_view_only": True,
+            "read_only": True,
         }
-        payload.update(_shop_disabled_payload())
+        payload.update(_shop_disabled_payload(user=user, maintenance_settings=maintenance_settings))
         return jsonify(payload), 200
     return jsonify(list_auctions(discord_id=user.get("id", ""),
                                 user_roles=user_roles,
@@ -1774,7 +1899,7 @@ def shop_donation_history():
         return jsonify(_shop_disabled_payload({
             "linked": False,
             "tickets": [],
-        })), 200
+        }, user=user)), 200
     return jsonify(get_donation_history(discord_id=user.get("id", "")))
 
 
@@ -1786,18 +1911,21 @@ def shop_orders():
     if err:
         return err
     if not _is_shop_enabled():
-        # Shop admins can still view their orders (read-only)
-        user_roles = set(user.get("roles") or [])
-        if (user_roles & _SHOP_ADMIN) or _is_owner_user(user):
+        maintenance_settings = _maintenance_settings_for_user(_shop_get_maintenance_settings() or {}, user)
+        show_orders = _maintenance_flag(maintenance_settings, "show_orders", True)
+        can_view_orders = show_orders
+        if can_view_orders:
             result = get_order_history(discord_id=user.get("id", ""))
             result["read_only"] = True
-            return jsonify(result)
+            result.update(_shop_disabled_payload(user=user, maintenance_settings=maintenance_settings))
+            return jsonify(result), 200
         return jsonify(_shop_disabled_payload({
+            "maintenance_settings": maintenance_settings,
             "linked": False,
             "purchases": [],
             "bids": [],
             "donations": [],
-        })), 200
+        }, user=user, maintenance_settings=maintenance_settings)), 200
     return jsonify(get_order_history(discord_id=user.get("id", "")))
 
 
@@ -1897,10 +2025,13 @@ def admin_shop_state():
         effective_level = min(actual_level, approved_level)
         effective_parliament = effective_level >= 2
         privilege_pending = actual_level > approved_level
+    _maybe_notify_owner_maintenance_eta_elapsed()
 
     state = _shop_get_state() or {}
+    maintenance_settings = state.get("maintenance_settings") or _shop_get_maintenance_settings() or {}
     enabled = bool(state.get("shop_enabled"))
     message = None if enabled else (state.get("message") or _shop_get_disabled_message())
+    maintenance_view_only = bool((not enabled) and maintenance_settings.get("shop_visible", True))
     # privilege_blocked: user has admin roles but zero approved access
     privilege_blocked = privilege_pending and effective_level <= 0 if not is_owner else False
 
@@ -1909,6 +2040,8 @@ def admin_shop_state():
         "shop_enabled": enabled,
         "coming_soon": False if enabled else bool(state.get("coming_soon", message == "Coming soon")),
         "message": message,
+        "maintenance_view_only": maintenance_view_only,
+        "maintenance_settings": maintenance_settings,
         "can_toggle": is_owner,
         "is_parliament": effective_parliament,
         "privilege_pending": privilege_pending,
@@ -1930,6 +2063,24 @@ def admin_shop_state_update():
     actor = user.get("nick") or user.get("username", "")
     result = admin_set_shop_enabled(enabled, actor=actor)
     return jsonify(result), 200 if result.get("ok") else 400
+
+@app.route("/api/admin/shop/maintenance-settings", methods=["POST"])
+@rate_limit(10)
+def admin_shop_maintenance_settings_update():
+    user, err = _require_login()
+    if err:
+        return err
+    if not _is_owner_user(user):
+        return jsonify({"error": "Only OWNER can change maintenance settings"}), 403
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "Invalid request body"}), 400
+    incoming = body.get("maintenance_settings") if isinstance(body.get("maintenance_settings"), dict) else body
+    actor = user.get("nick") or user.get("username", "")
+    result = _shop_set_maintenance_settings(incoming, actor=actor)
+    if isinstance(result, dict) and result.get("error"):
+        return jsonify(result), 400
+    return jsonify(result), 200
 
 @app.route("/api/admin/shop/items")
 @rate_limit(30)

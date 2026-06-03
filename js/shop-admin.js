@@ -17,6 +17,16 @@
   var _applicationsData = null;
   var _creatorRequestsData = null;
   var _privilegeApprovalsData = null;
+  var _maintenanceSettings = {
+    shop_visible: true,
+    show_items: true,
+    show_balance_bar: true,
+    show_orders: true,
+    affected_user_types: null,
+    eta_iso: null,
+    owner_notified_at: null,
+    owner_notified_for_eta: null,
+  };
 
   var _svg = {
     check:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
@@ -88,6 +98,7 @@
         if (_privilegeBlocked) { if (cb) cb(null); return; }
         if (d && typeof d.shop_enabled === 'boolean') _shopEnabled = !!d.shop_enabled;
         if (d && typeof d.message === 'string' && d.message.trim()) _shopDisabledMessage = d.message.trim();
+        if (d && d.maintenance_settings) _maintenanceSettings = _normalizeMaintenanceSettings(d.maintenance_settings);
         _canToggleShopState = !!(d && d.can_toggle);
         _isParliamentFromState = !!(d && d.is_parliament);
         if (cb) cb(d);
@@ -115,6 +126,350 @@
     var msg = String(_shopDisabledMessage || '').trim();
     return msg || 'Coming soon';
   }
+  function _asBool(value, fallback) {
+    if (value == null) return !!fallback;
+    if (typeof value === 'boolean') return value;
+    var t = String(value).trim().toLowerCase();
+    if (!t) return !!fallback;
+    return t === '1' || t === 'true' || t === 'yes' || t === 'on';
+  }
+  var _MAINT_AUDIENCE_TYPES = ['normal_users', 'chief_admins', 'parliament_admins'];
+  var _MAINT_AUDIENCE_LABELS = {
+    normal_users: 'Normal users',
+    chief_admins: 'Chief admins',
+    parliament_admins: 'Parliament admins',
+  };
+  function _normalizeMaintenanceAudience(raw) {
+    if (!Array.isArray(raw)) return null;
+    var cleaned = [];
+    var seen = {};
+    raw.forEach(function (entry) {
+      var text = String(entry || '').trim().toLowerCase();
+      if (!text) return;
+      var isExclude = text.charAt(0) === '!';
+      var token = isExclude ? text.slice(1) : text;
+      if (_MAINT_AUDIENCE_TYPES.indexOf(token) === -1) return;
+      var normalized = (isExclude ? '!' : '') + token;
+      if (seen[normalized]) return;
+      seen[normalized] = true;
+      cleaned.push(normalized);
+    });
+    return cleaned.length ? cleaned : null;
+  }
+  function _parseMaintenanceAudience(raw) {
+    var state = {};
+    _MAINT_AUDIENCE_TYPES.forEach(function (type) { state[type] = 0; });
+    var normalized = _normalizeMaintenanceAudience(raw);
+    if (!normalized) return state;
+    normalized.forEach(function (entry) {
+      var isExclude = entry.charAt(0) === '!';
+      var token = isExclude ? entry.slice(1) : entry;
+      if (state[token] == null) return;
+      if (isExclude) {
+        state[token] = -1;
+      } else if (state[token] !== -1) {
+        state[token] = 1;
+      }
+    });
+    return state;
+  }
+  function _normalizeMaintenanceSettings(raw) {
+    var base = {
+      shop_visible: true,
+      show_items: true,
+      show_balance_bar: true,
+      show_orders: true,
+      affected_user_types: null,
+      eta_iso: null,
+      owner_notified_at: null,
+      owner_notified_for_eta: null,
+    };
+    if (!raw || typeof raw !== 'object') return base;
+    base.shop_visible = _asBool(raw.shop_visible, base.shop_visible);
+    base.show_items = _asBool(raw.show_items, base.show_items);
+    base.show_balance_bar = _asBool(raw.show_balance_bar, base.show_balance_bar);
+    base.show_orders = _asBool(raw.show_orders, base.show_orders);
+    base.affected_user_types = _normalizeMaintenanceAudience(raw.affected_user_types);
+    base.eta_iso = raw.eta_iso ? String(raw.eta_iso) : null;
+    base.owner_notified_at = raw.owner_notified_at ? String(raw.owner_notified_at) : null;
+    base.owner_notified_for_eta = raw.owner_notified_for_eta ? String(raw.owner_notified_for_eta) : null;
+    return base;
+  }
+  function _toLocalDateTimeInput(isoText) {
+    if (!isoText) return '';
+    var d = new Date(isoText);
+    if (isNaN(d.getTime())) return '';
+    var pad = function (n) { return n < 10 ? '0' + n : String(n); };
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+      'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+  function _fromLocalDateTimeInput(value) {
+    var text = String(value || '').trim();
+    if (!text) return null;
+    var d = new Date(text);
+    if (isNaN(d.getTime())) return null;
+    return d.toISOString();
+  }
+  function _fmtDateTime(isoText) {
+    if (!isoText) return null;
+    var d = new Date(isoText);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+  function _maintenanceEtaSummary(settings) {
+    if (!settings || !settings.eta_iso) {
+      return 'No ETA set. The shop stays OFF until you turn it back on manually.';
+    }
+    var etaDate = new Date(settings.eta_iso);
+    if (isNaN(etaDate.getTime())) {
+      return 'ETA is set, but the stored date is invalid.';
+    }
+    var etaLabel = _fmtDateTime(settings.eta_iso) || settings.eta_iso;
+    if (settings.owner_notified_for_eta === settings.eta_iso && settings.owner_notified_at) {
+      var notifiedAtLabel = _fmtDateTime(settings.owner_notified_at) || settings.owner_notified_at;
+      return 'ETA reached (' + etaLabel + '). OWNER was notified at ' + notifiedAtLabel + '.';
+    }
+    if (Date.now() >= etaDate.getTime()) {
+      return 'ETA reached (' + etaLabel + '). OWNER will be notified once a state check runs.';
+    }
+    return 'ETA is ' + etaLabel + '. OWNER gets a one-time DM reminder when it expires.';
+  }
+  function openMaintenanceSettingsModal() {
+    if (!_canToggleShopState) return;
+    var modal = document.getElementById('saModal');
+    if (!modal) return;
+    modal.classList.remove('ie-modal');
+    modal.classList.remove('am-modal');
+    modal.classList.add('sa-maint-modal');
+    var settings = _normalizeMaintenanceSettings(_maintenanceSettings);
+    var toggles = [
+      { id: 'saMaintShopVisible', key: 'shop_visible', title: 'Show shop page during maintenance', hint: 'If disabled, users only see a maintenance screen.' },
+      { id: 'saMaintShowItems', key: 'show_items', title: 'Show items and cart (read-only)', hint: 'Hides item cards when off; cart remains available and shows maintenance messaging.' },
+      { id: 'saMaintShowBalance', key: 'show_balance_bar', title: 'Show real EP balance during maintenance', hint: 'When enabled, users see actual EP balances; when off, the bar shows "Under Maintenance".' },
+      { id: 'saMaintShowOrders', key: 'show_orders', title: 'Show My Orders history contents', hint: 'When enabled, users can view order history in maintenance; when off, they see an unavailable message.' },
+    ];
+    var toggleHtml = toggles.map(function (row) {
+      return '<div class="sa-maint-toggle-row" data-maint-row="' + row.key + '">' +
+        '<span class="sa-maint-toggle-text">' +
+          '<strong>' + esc(row.title) + '</strong>' +
+          '<span>' + esc(row.hint) + '</span>' +
+        '</span>' +
+        '<label class="settings-toggle" for="' + row.id + '">' +
+          '<input type="checkbox" id="' + row.id + '"' + (settings[row.key] ? ' checked' : '') + ' />' +
+          '<span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>' +
+        '</label>' +
+      '</div>';
+    }).join('');
+    var audienceStates = _parseMaintenanceAudience(settings.affected_user_types);
+    var audienceHtml = _MAINT_AUDIENCE_TYPES.map(function (type) {
+      var state = audienceStates[type] || 0;
+      var label = _MAINT_AUDIENCE_LABELS[type] || type;
+      return '<button class="ie-rank-chip sa-maint-audience-chip" type="button" data-maint-audience="' + esc(type) + '" data-state="' + state + '">' + esc(label) + '</button>';
+    }).join('');
+    modal.innerHTML =
+      '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
+      '<div class="shop-modal-title">Maintenance settings</div>' +
+      '<div class="shop-modal-body sa-maint-settings-body">' +
+        '<label class="shop-modal-input-label" for="saMaintEtaInput">Maintenance ETA</label>' +
+        '<div class="sa-maint-eta-row">' +
+          '<input type="datetime-local" class="shop-modal-input" id="saMaintEtaInput" value="' + esc(_toLocalDateTimeInput(settings.eta_iso)) + '" />' +
+          '<button class="shop-modal-btn shop-modal-btn--cancel sa-maint-clear-btn" id="saMaintClearEta" type="button">Clear</button>' +
+        '</div>' +
+        '<div class="sa-maint-eta-status" id="saMaintEtaStatus">' + esc(_maintenanceEtaSummary(settings)) + '</div>' +
+        '<div class="sa-maint-settings-note">Use these toggles to control real EP balance visibility and whether My Orders history contents are shown.</div>' +
+        '<div class="sa-maint-toggle-list">' + toggleHtml + '</div>' +
+        '<div class="sa-maint-audience-section">' +
+          '<label class="shop-modal-input-label">Affected user types</label>' +
+          '<div class="ie-rank-chips" id="saMaintAudienceChips">' + audienceHtml + '</div>' +
+          '<div class="ie-hint ie-rank-legend">' +
+            '<span class="ie-rl-dot" style="background:var(--border)"></span>Neutral (no filter) &ensp;' +
+            '<span class="ie-rl-dot" style="background:var(--gold)"></span>Include &ensp;' +
+            '<span class="ie-rl-dot" style="background:var(--danger)"></span>Exclude &ensp;- click to cycle' +
+          '</div>' +
+          '<div class="sa-maint-settings-note">OWNER is never affected by maintenance settings.</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="shop-modal-actions">' +
+        '<button class="shop-modal-btn shop-modal-btn--cancel" id="saMaintCancel" type="button">Cancel</button>' +
+        '<button class="shop-modal-btn shop-modal-btn--confirm" id="saMaintSave" type="button">Save settings</button>' +
+      '</div>';
+    document.getElementById('saModalBackdrop').classList.add('open');
+    var etaInput = document.getElementById('saMaintEtaInput');
+    var etaStatus = document.getElementById('saMaintEtaStatus');
+    var clearBtn = document.getElementById('saMaintClearEta');
+    var shopVisibleInput = document.getElementById('saMaintShopVisible');
+    var showItemsInput = document.getElementById('saMaintShowItems');
+    var showBalanceInput = document.getElementById('saMaintShowBalance');
+    var showOrdersInput = document.getElementById('saMaintShowOrders');
+    var saveBtn = document.getElementById('saMaintSave');
+    var baselineSettings = null;
+    function _syncMaintenanceToggleDependencies(changedKey) {
+      if (!shopVisibleInput || !showItemsInput || !showBalanceInput || !showOrdersInput) return;
+      if (changedKey === 'shop_visible') {
+        if (!shopVisibleInput.checked) {
+          showItemsInput.checked = false;
+          showBalanceInput.checked = false;
+          showOrdersInput.checked = false;
+        } else if (!showItemsInput.checked && !showBalanceInput.checked && !showOrdersInput.checked) {
+          shopVisibleInput.checked = false;
+        }
+        return;
+      }
+      var hasAnySectionEnabled = !!(showItemsInput.checked || showBalanceInput.checked || showOrdersInput.checked);
+      if (!shopVisibleInput.checked && hasAnySectionEnabled) {
+        shopVisibleInput.checked = true;
+        return;
+      }
+      if (!hasAnySectionEnabled) {
+        shopVisibleInput.checked = false;
+      }
+    }
+    function _readCurrentSettings() {
+      return _normalizeMaintenanceSettings({
+        shop_visible: !!(shopVisibleInput && shopVisibleInput.checked),
+        show_items: !!(showItemsInput && showItemsInput.checked),
+        show_balance_bar: !!(showBalanceInput && showBalanceInput.checked),
+        show_orders: !!(showOrdersInput && showOrdersInput.checked),
+        affected_user_types: (function () {
+          var selected = [];
+          modal.querySelectorAll('[data-maint-audience]').forEach(function (chip) {
+            var key = String(chip.getAttribute('data-maint-audience') || '').trim();
+            if (_MAINT_AUDIENCE_TYPES.indexOf(key) === -1) return;
+            var state = parseInt(chip.dataset.state, 10) || 0;
+            if (state === 1) selected.push(key);
+            else if (state === -1) selected.push('!' + key);
+          });
+          return _normalizeMaintenanceAudience(selected);
+        })(),
+        eta_iso: _fromLocalDateTimeInput(etaInput ? etaInput.value : ''),
+        owner_notified_at: settings.owner_notified_at,
+        owner_notified_for_eta: settings.owner_notified_for_eta,
+      });
+    }
+    function _sameAudienceSelection(a, b) {
+      var left = _normalizeMaintenanceAudience(a) || [];
+      var right = _normalizeMaintenanceAudience(b) || [];
+      return JSON.stringify(left) === JSON.stringify(right);
+    }
+    function _settingsChanged(nextSettings) {
+      if (!baselineSettings) return false;
+      var next = nextSettings || _readCurrentSettings();
+      return next.shop_visible !== baselineSettings.shop_visible ||
+        next.show_items !== baselineSettings.show_items ||
+        next.show_balance_bar !== baselineSettings.show_balance_bar ||
+        next.show_orders !== baselineSettings.show_orders ||
+        !_sameAudienceSelection(next.affected_user_types, baselineSettings.affected_user_types) ||
+        (next.eta_iso || null) !== (baselineSettings.eta_iso || null);
+    }
+    function _updateSaveButton(nextSettings) {
+      if (!saveBtn) return;
+      var isDirty = _settingsChanged(nextSettings);
+      saveBtn.style.display = isDirty ? '' : 'none';
+      if (!saveBtn.disabled) saveBtn.textContent = 'Save settings';
+    }
+    function _refreshEtaSummary(nextSettings) {
+      if (!etaInput || !etaStatus) return;
+      etaStatus.textContent = _maintenanceEtaSummary(nextSettings || _readCurrentSettings());
+    }
+    function _refreshModalState(changedKey) {
+      _syncMaintenanceToggleDependencies(changedKey);
+      var nextSettings = _readCurrentSettings();
+      _refreshEtaSummary(nextSettings);
+      _updateSaveButton(nextSettings);
+    }
+    if (shopVisibleInput) shopVisibleInput.addEventListener('change', function () { _refreshModalState('shop_visible'); });
+    if (showItemsInput) showItemsInput.addEventListener('change', function () { _refreshModalState('show_items'); });
+    if (showBalanceInput) showBalanceInput.addEventListener('change', function () { _refreshModalState('show_balance_bar'); });
+    if (showOrdersInput) showOrdersInput.addEventListener('change', function () { _refreshModalState('show_orders'); });
+    modal.querySelectorAll('[data-maint-audience]').forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        var state = parseInt(chip.dataset.state, 10) || 0;
+        chip.dataset.state = state === 0 ? 1 : (state === 1 ? -1 : 0);
+        _refreshModalState();
+      });
+    });
+    if (etaInput) etaInput.addEventListener('input', _refreshModalState);
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function () {
+        if (!etaInput) return;
+        etaInput.value = '';
+        _refreshModalState();
+      });
+    }
+    _refreshModalState();
+    baselineSettings = _readCurrentSettings();
+    _updateSaveButton(baselineSettings);
+    var cancelBtn = document.getElementById('saMaintCancel');
+    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+    if (saveBtn) {
+      saveBtn.addEventListener('click', function () {
+        var etaRaw = etaInput ? etaInput.value : '';
+        var etaIso = _fromLocalDateTimeInput(etaRaw);
+        if (etaRaw && !etaIso) {
+          showToast('\u26a0 Invalid ETA date/time.', 'warn');
+          return;
+        }
+        _syncMaintenanceToggleDependencies();
+        var nextSettings = _readCurrentSettings();
+        if (!_settingsChanged(nextSettings)) {
+          _updateSaveButton(nextSettings);
+          return;
+        }
+        var payload = {
+          shop_visible: nextSettings.shop_visible,
+          show_items: nextSettings.show_items,
+          show_balance_bar: nextSettings.show_balance_bar,
+          show_orders: nextSettings.show_orders,
+          affected_user_types: nextSettings.affected_user_types,
+          eta_iso: etaIso,
+        };
+        saveBtn.disabled = true;
+        saveBtn.style.display = '';
+        saveBtn.textContent = 'Saving\u2026';
+        apiPost('/api/admin/shop/maintenance-settings', { maintenance_settings: payload })
+          .then(function (res) {
+            if (res.ok && res.data && res.data.ok) {
+              _maintenanceSettings = _normalizeMaintenanceSettings((res.data && res.data.maintenance_settings) || nextSettings);
+              settings = _maintenanceSettings;
+              if (shopVisibleInput) shopVisibleInput.checked = !!settings.shop_visible;
+              if (showItemsInput) showItemsInput.checked = !!settings.show_items;
+              if (showBalanceInput) showBalanceInput.checked = !!settings.show_balance_bar;
+              if (showOrdersInput) showOrdersInput.checked = !!settings.show_orders;
+              if (etaInput) etaInput.value = _toLocalDateTimeInput(settings.eta_iso);
+              var refreshedAudienceStates = _parseMaintenanceAudience(settings.affected_user_types);
+              modal.querySelectorAll('[data-maint-audience]').forEach(function (chip) {
+                var key = String(chip.getAttribute('data-maint-audience') || '').trim();
+                chip.dataset.state = String(refreshedAudienceStates[key] || 0);
+              });
+              _syncMaintenanceToggleDependencies();
+              var refreshedSettings = _readCurrentSettings();
+              _refreshEtaSummary(refreshedSettings);
+              baselineSettings = refreshedSettings;
+              saveBtn.disabled = false;
+              _updateSaveButton(refreshedSettings);
+              renderShopStateBanner();
+              _notifyShopUpdated();
+              showToast('\u2713 Maintenance settings saved.', 'success');
+            } else {
+              showToast('\u26a0 ' + ((res.data && res.data.error) || 'Failed to save maintenance settings'), 'warn');
+              saveBtn.disabled = false;
+              _updateSaveButton();
+            }
+          })
+          .catch(function () {
+            showToast('\u26a0 Network error', 'warn');
+            saveBtn.disabled = false;
+            _updateSaveButton();
+          });
+      });
+    }
+  }
 
   // Notify the shop page that item data changed so it can refresh without a reload
   function _notifyShopUpdated() {
@@ -129,7 +484,7 @@
     _isParliament = window.hasParliamentPlus ? window.hasParliamentPlus() : false;
 
     panel.innerHTML =
-      '<div class=\"sa-state-banner\" id=\"saStateBanner\"></div>' +
+      '<div class="sa-state-banner" id="saStateBanner"></div>' +
       '<div class="shop-tabs" id="saTabs">' +
         '<button class="shop-tab active" data-tab="items">Items</button>' +
         '<button class="shop-tab" data-tab="queue">Queue</button>' +
@@ -169,17 +524,17 @@
 
   function closeModal() {
     var m = document.getElementById('saModal');
-    if (m) { m.classList.remove('ie-modal'); m.classList.remove('am-modal'); }
+    if (m) { m.classList.remove('ie-modal'); m.classList.remove('am-modal'); m.classList.remove('sa-maint-modal'); }
     document.getElementById('saModalBackdrop').classList.remove('open');
   }
 
   function _clearQueueBadges() {
-    var queueBtn = document.querySelector('#saTabs [data-tab=\"queue\"]');
+    var queueBtn = document.querySelector('#saTabs [data-tab="queue"]');
     if (queueBtn) {
       var qBadge = queueBtn.querySelector('.sa-badge');
       if (qBadge) qBadge.remove();
     }
-    var navItem = document.querySelector('[data-panel=\"shop-admin\"]');
+    var navItem = document.querySelector('[data-panel="shop-admin"]');
     if (navItem) {
       var navBadge = navItem.querySelector('.nav-upcoming-badge');
       if (navBadge) navBadge.remove();
@@ -207,15 +562,24 @@
               ? disabledModeLabel + ': tabs stay available. You can still edit as Parliament.'
               : disabledModeLabel + ': tabs stay available in read-only mode. Only OWNER and Parliament can edit.'));
     banner.innerHTML =
-      '<div class=\"sa-state-meta\">' +
-        '<span class=\"sa-state-pill ' + (isOn ? 'sa-state-pill--on' : 'sa-state-pill--off') + '\">' + statusText + '</span>' +
-        '<span class=\"sa-state-text\">' + helper + '</span>' +
+      '<div class="sa-state-meta">' +
+        '<span class="sa-state-pill ' + (isOn ? 'sa-state-pill--on' : 'sa-state-pill--off') + '">' + statusText + '</span>' +
+        '<span class="sa-state-text">' + helper + '</span>' +
       '</div>' +
       (_canToggleShopState
-        ? '<button class=\"shop-modal-btn shop-modal-btn--confirm sa-state-toggle\" id=\"saToggleShopState\">' +
-            (isOn ? 'Turn shop off' : 'Turn shop on') +
-          '</button>'
+        ? '<div class="sa-state-actions">' +
+            '<button class="shop-modal-btn shop-modal-btn--cancel sa-state-maint-btn" id="saOpenMaintenanceSettings">' + _svg.gear + ' Maintenance settings</button>' +
+            '<button class="shop-modal-btn shop-modal-btn--confirm sa-state-toggle" id="saToggleShopState">' +
+              (isOn ? 'Turn shop off' : 'Turn shop on') +
+            '</button>' +
+          '</div>'
         : '');
+    var settingsBtn = document.getElementById('saOpenMaintenanceSettings');
+    if (settingsBtn) {
+      settingsBtn.addEventListener('click', function () {
+        openMaintenanceSettingsModal();
+      });
+    }
     var toggleBtn = document.getElementById('saToggleShopState');
     if (toggleBtn) {
       toggleBtn.addEventListener('click', function () {
@@ -261,8 +625,8 @@
   function renderComingSoonTab(c) {
     var titleMap = { items: 'Items', queue: 'Queue', logs: 'Logs', users: 'Users' };
     c.innerHTML =
-      '<div class=\"shop-empty sa-coming-soon-tab\">' +
-        '<div class=\"sa-coming-soon-title\">' + titleMap[_activeTab] + '</div>' +
+      '<div class="shop-empty sa-coming-soon-tab">' +
+        '<div class="sa-coming-soon-title">' + titleMap[_activeTab] + '</div>' +
         '<div>' + esc(_disabledMessageLabel()) + '</div>' +
       '</div>';
   }
@@ -323,7 +687,7 @@
     var _binItems = (_items || []).filter(function (it) { return it.type !== 'auction'; });
     var _aucItems = (_items || []).filter(function (it) { return it.type === 'auction'; });
 
-    html += '<div class=\"sa-table ie-item-table' + (canParliamentEdit ? '' : ' ie-item-table--ro') + '\" id=\"saItemTable\">';
+    html += '<div class="sa-table ie-item-table' + (canParliamentEdit ? '' : ' ie-item-table--ro') + '" id="saItemTable">';
     html += '<div class="sa-row sa-header ie-row-cols">' +
       '<span></span><span>Name</span><span>ID</span><span>Type</span><span>Category</span>' +
       '<span>Active</span><span>Stock</span>' +
@@ -334,8 +698,8 @@
       var isActive = item.active !== false;
       var rowClass = 'sa-row' + (!isActive ? ' sa-row--inactive' : '');
 
-      html += '<div class=\"' + rowClass + '\" data-item-id=\"' + esc(item.id) + '\"' + (canParliamentEdit ? ' draggable=\"true\"' : '') + '>';
-      html += '<span class=\"sa-grip\"' + (canParliamentEdit ? ' title=\"Drag to reorder\"' : ' style=\"opacity:0.2;cursor:default\"') + '>' + _svg.grip + '</span>';
+      html += '<div class="' + rowClass + '" data-item-id="' + esc(item.id) + '"' + (canParliamentEdit ? ' draggable="true"' : '') + '>';
+      html += '<span class="sa-grip"' + (canParliamentEdit ? ' title="Drag to reorder"' : ' style="opacity:0.2;cursor:default"') + '>' + _svg.grip + '</span>';
       html += '<span class="sa-item-name">' + esc(item.name) + '</span>';
       html += '<span class="sa-item-id">' + esc(item.id) + '</span>';
       var _typePill = item.type === 'auction'
@@ -423,8 +787,8 @@
       } else if (_liveAucMap[item.id]) {
         var auc = _liveAucMap[item.id];
         var isActive = item.active !== false;
-        html += '<div class=\"sa-row sa-row--live' + (!isActive ? ' sa-row--inactive' : '') + '\" data-item-id=\"' + esc(item.id) + '\"' + (canParliamentEdit ? ' draggable=\"true\"' : '') + '>';
-        html += '<span class=\"sa-grip\"' + (canParliamentEdit ? ' title=\"Drag to reorder\"' : ' style=\"opacity:0.2;cursor:default\"') + '>' + _svg.grip + '</span>';
+        html += '<div class="sa-row sa-row--live' + (!isActive ? ' sa-row--inactive' : '') + '" data-item-id="' + esc(item.id) + '"' + (canParliamentEdit ? ' draggable="true"' : '') + '>';
+        html += '<span class="sa-grip"' + (canParliamentEdit ? ' title="Drag to reorder"' : ' style="opacity:0.2;cursor:default"') + '>' + _svg.grip + '</span>';
         html += '<span class="sa-item-name">' + esc(item.name) + '</span>';
         html += '<span class="sa-item-id">' + esc(item.id) + '</span>';
         html += '<span><span class="sa-pill sa-pill--auction">Auction</span></span>';
@@ -777,7 +1141,7 @@
           h += '<span class="am-bid-time">' + fmtDate(b.placed_at) + '</span>';
           h += '<span class="am-bid-actions">';
           if (b.is_winning) h += '<span class="am-bid-status am-bid-status--win">Winning</span> ';
-          if (_canParliamentEditShopAdmin()) h += '<button class=\"am-bid-remove\" data-remove-bid=\"' + esc(b.bid_id) + '\" aria-label=\"Remove bid\">' + _svg.close + '</button>';
+          if (_canParliamentEditShopAdmin()) h += '<button class="am-bid-remove" data-remove-bid="' + esc(b.bid_id) + '" aria-label="Remove bid">' + _svg.close + '</button>';
           h += '</span>';
           h += '</div>';
         });
@@ -2368,7 +2732,7 @@
 
     html += '<div id="saQueueList">';
     if (!merged.length) {
-      html += '<div class=\"shop-empty sa-q-empty\">No items in queue</div>';
+      html += '<div class="shop-empty sa-q-empty">No items in queue</div>';
     } else {
       merged.forEach(function (item) {
         var filterMap = { purchase: 'purchases', refund: 'refunds', donation: 'donations', application: 'applications', creator_request: 'creator_requests', privilege_approval: 'privilege_approvals' };
@@ -3473,8 +3837,8 @@
         '<span class="su-tag">' + (u.discord_id ? esc(u.discord_id) : esc((u.uuid || '').substring(0, 8) + '\u2026')) + '</span>' +
         '</span>';
       html += '<span class="su-ep-cell">' +
-        '<span class=\"su-ep-total\">' + num(bal.total) + ' EP</span>' +
-        '<span class=\"su-ep-split\">' + num(bal.clean_total) + 'c + ' + num(bal.dirty_total) + 'd</span>' +
+        '<span class="su-ep-total">' + num(bal.total) + ' EP</span>' +
+        '<span class="su-ep-split">' + num(bal.clean_total) + 'c + ' + num(bal.dirty_total) + 'd</span>' +
         '</span>';
       html += '<span>' + (u.orders    || 0) + '</span>';
       html += '<span>' + (u.bids      || 0) + '</span>';
@@ -4846,7 +5210,7 @@
       if (window.renderAuthGate) {
         window.renderAuthGate(panel);
       } else {
-        panel.innerHTML = '<div class=\"shop-login-prompt\">Log in to access the shop admin.</div>';
+        panel.innerHTML = '<div class="shop-login-prompt">Log in to access the shop admin.</div>';
       }
       return;
     }

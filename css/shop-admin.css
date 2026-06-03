@@ -46,6 +46,95 @@
 .sa-state-toggle {
   flex-shrink: 0;
 }
+.sa-state-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.sa-state-maint-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.sa-state-maint-btn svg {
+  flex-shrink: 0;
+}
+.shop-modal.sa-maint-modal {
+  max-width: 680px;
+  width: 94vw;
+}
+.sa-maint-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sa-maint-settings-note {
+  font-size: 0.8rem;
+  color: var(--text-faint);
+  line-height: 1.4;
+}
+.sa-maint-eta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sa-maint-eta-row .shop-modal-input {
+  margin-bottom: 0;
+}
+.sa-maint-clear-btn {
+  white-space: nowrap;
+}
+.sa-maint-eta-status {
+  font-size: 0.76rem;
+  color: var(--gold-dim);
+  line-height: 1.35;
+}
+.sa-maint-toggle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sa-maint-toggle-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 9px 10px;
+}
+.sa-maint-toggle-row .settings-toggle {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.sa-maint-toggle-row .settings-toggle input:disabled + .settings-toggle-track {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.sa-maint-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+.sa-maint-toggle-row--disabled .sa-maint-toggle-text {
+  opacity: 0.65;
+}
+.sa-maint-toggle-text strong {
+  font-size: 0.8rem;
+  color: var(--text-main);
+  font-family: var(--font-heading);
+  letter-spacing: 0.03em;
+}
+.sa-maint-toggle-text span {
+  font-size: 0.74rem;
+  color: var(--text-faint);
+  line-height: 1.35;
+}
 
 /* Coming-soon tab state */
 .sa-coming-soon-tab {

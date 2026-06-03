@@ -107,6 +107,40 @@
   text-transform: uppercase;
   color: var(--text-faint);
 }
+.shop-section-hidden {
+  display: none !important;
+}
+.shop-top-actions--empty {
+  display: none !important;
+}
+.shop-maintenance-hero {
+  max-width: 60ch;
+  margin: 0 auto;
+  padding: 0;
+  text-align: center;
+}
+.shop-maintenance-hero-title {
+  margin: 0 0 0.75rem;
+  font-family: var(--font-heading);
+  font-size: clamp(2rem, 2vw + 1rem, 2.8rem);
+  color: var(--gold-light);
+  letter-spacing: 0.01em;
+}
+.shop-maintenance-hero-text {
+  margin: 0;
+  font-size: 1.15rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+.shop-maintenance-hero--full {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.shop-maintenance-hero--section {
+  margin-top: 18px;
+}
 .bal-block {
   display: flex;
   flex-direction: column;
