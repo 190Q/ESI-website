@@ -2673,27 +2673,23 @@ def admin_shop_changes():
 
 
 # Cached map of shop admin discord_ids -> rank_level
-_shop_admin_map_cache = {"data": {}, "ts": 0}
+_shop_admin_map_cache = {"data": {}, "ts": 0.0, "refreshing": False}
+_shop_admin_map_lock = _threading.Lock()
 _SHOP_ADMIN_MAP_TTL = 300
 
-def _get_shop_admin_map() -> dict:
-    """Return {discord_id: rank_level} for all known shop admins (cached 5 min).
-
-    Uses the Discord guild roles endpoint (one call) to get all roles,
-    then checks each linked user's member record. Only members with
-    Chief+ or Parliament+ roles are included.
-    """
-    now = time()
-    if _shop_admin_map_cache["data"] and now - _shop_admin_map_cache["ts"] < _SHOP_ADMIN_MAP_TTL:
-        return _shop_admin_map_cache["data"]
+def _owner_shop_admin_map() -> dict:
+    """Return a map containing only the OWNER rank if configured."""
     result = {}
-    # Include the OWNER
     owner_id = str(os.environ.get("OWNER") or "").strip()
     if owner_id.startswith("<@") and owner_id.endswith(">"):
         owner_id = owner_id.strip("<@!>").strip()
     if owner_id.isdigit():
         result[owner_id] = 3
-    # Bulk-fetch guild members and pick out admins
+    return result
+
+def _fetch_shop_admin_map() -> dict:
+    """Fetch {discord_id: rank_level} for all known shop admins from Discord."""
+    result = _owner_shop_admin_map()
     try:
         after = "0"
         while True:
@@ -2721,9 +2717,45 @@ def _get_shop_admin_map() -> dict:
             after = batch[-1]["user"]["id"]
     except Exception:
         pass
-    _shop_admin_map_cache["data"] = result
-    _shop_admin_map_cache["ts"] = now
     return result
+
+def _set_shop_admin_map_cache(data: dict) -> None:
+    with _shop_admin_map_lock:
+        _shop_admin_map_cache["data"] = data or _owner_shop_admin_map()
+        _shop_admin_map_cache["ts"] = time()
+
+def _start_shop_admin_map_refresh() -> None:
+    with _shop_admin_map_lock:
+        if _shop_admin_map_cache["refreshing"]:
+            return
+        _shop_admin_map_cache["refreshing"] = True
+
+    def _worker():
+        try:
+            _set_shop_admin_map_cache(_fetch_shop_admin_map())
+        finally:
+            with _shop_admin_map_lock:
+                _shop_admin_map_cache["refreshing"] = False
+
+    _threading.Thread(target=_worker, daemon=True).start()
+
+def _get_shop_admin_map(blocking: bool = False) -> dict:
+    """Return {discord_id: rank_level} with cache-first, optional blocking refresh."""
+    now = time()
+    with _shop_admin_map_lock:
+        cached = _shop_admin_map_cache["data"]
+        cached_ts = _shop_admin_map_cache["ts"]
+    if cached and now - cached_ts < _SHOP_ADMIN_MAP_TTL:
+        return cached
+    if blocking:
+        fresh = _fetch_shop_admin_map()
+        _set_shop_admin_map_cache(fresh)
+        return fresh
+    if not cached:
+        cached = _owner_shop_admin_map()
+        _set_shop_admin_map_cache(cached)
+    _start_shop_admin_map_refresh()
+    return cached
 
 @app.route("/api/admin/shop/users")
 @rate_limit(10)
@@ -2736,7 +2768,7 @@ def admin_shop_users():
         from shop.admin import _invalidate_users_cache
         _invalidate_users_cache()
     users = admin_get_users()
-    admin_map = _get_shop_admin_map()
+    admin_map = _get_shop_admin_map(blocking=False)
     admin_banned_ids = _get_admin_banned_ids()
     creator_ids = _get_all_creator_ids()
     for u in users:
@@ -2872,7 +2904,7 @@ def admin_shop_admin_ban(discord_id):
     if not is_parliament:
         return jsonify({"error": "Parliament rank required"}), 403
     # Target must be a shop admin
-    admin_map = _get_shop_admin_map()
+    admin_map = _get_shop_admin_map(blocking=True)
     target_level = admin_map.get(discord_id, 0)
     if target_level == 0:
         return jsonify({"error": "Target is not a shop admin"}), 400

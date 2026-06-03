@@ -4254,6 +4254,7 @@
     var filtered    = _filterSortUsers();
     var total       = filtered.length;
     var totalPages  = Math.max(1, Math.ceil(total / _usersPerPage));
+    var canManageUsers = _canParliamentEditShopAdmin('users', 'users_edit');
     if (_usersPage > totalPages) _usersPage = 1;
     var start = (_usersPage - 1) * _usersPerPage;
     var page  = filtered.slice(start, start + _usersPerPage);
@@ -4315,7 +4316,7 @@
         '<span class="su-status su-status--' + (active ? 'active' : 'inactive') + '">' + (active ? 'Active' : 'Inactive') + '</span>' +
         '</span>';
       /* Settings gear */
-      if (_canParliamentEditShopAdmin('users', 'users_edit')) {
+      if (canManageUsers) {
         html += '<span class="su-manage-cell"><button class="su-manage-btn" data-manage-uuid="' + esc(u.uuid) + '" title="Manage user">' + _svg.gear + '</button></span>';
       } else {
         html += '<span></span>';
