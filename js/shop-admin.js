@@ -7,6 +7,7 @@
   var _items = null;
   var _auctions = null;
   var _activeTab    = 'items';
+  var _SHOP_ADMIN_TABS = ['items', 'queue', 'logs', 'users'];
   var _isChief      = false; // any shop admin (chief+ or parliament+)
   var _isParliament = false; // parliament+ only
   var _shellBuilt   = false;
@@ -27,6 +28,27 @@
     owner_notified_at: null,
     owner_notified_for_eta: null,
   };
+
+  function _normalizeShopAdminTab(tab) {
+    var normalized = String(tab || '').trim().toLowerCase();
+    return _SHOP_ADMIN_TABS.indexOf(normalized) !== -1 ? normalized : null;
+  }
+
+  function _readShopAdminTabFromUrl() {
+    var params = new URLSearchParams(window.location.search || '');
+    return _normalizeShopAdminTab(params.get('tab'));
+  }
+
+  function _writeShopAdminTabToUrl(tab) {
+    var normalized = _normalizeShopAdminTab(tab);
+    if (!normalized) return;
+    var params = new URLSearchParams(window.location.search || '');
+    params.set('tab', normalized);
+    var nextSearch = params.toString();
+    var nextUrl = window.location.pathname + (nextSearch ? '?' + nextSearch : '');
+    var currentUrl = window.location.pathname + (window.location.search || '');
+    if (nextUrl !== currentUrl) history.replaceState(null, '', nextUrl);
+  }
 
   var _svg = {
     check:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
@@ -482,14 +504,17 @@
     _shellBuilt = true;
     _isChief      = window.hasShopAdmin      ? window.hasShopAdmin()      : false;
     _isParliament = window.hasParliamentPlus ? window.hasParliamentPlus() : false;
+    var _urlTab = _readShopAdminTabFromUrl();
+    if (_urlTab) _activeTab = _urlTab;
+    _writeShopAdminTabToUrl(_activeTab);
 
     panel.innerHTML =
       '<div class="sa-state-banner" id="saStateBanner"></div>' +
       '<div class="shop-tabs" id="saTabs">' +
-        '<button class="shop-tab active" data-tab="items">Items</button>' +
-        '<button class="shop-tab" data-tab="queue">Queue</button>' +
-        '<button class="shop-tab" data-tab="logs">Logs</button>' +
-        '<button class="shop-tab" data-tab="users">Users</button>' +
+        '<button class="shop-tab' + (_activeTab === 'items' ? ' active' : '') + '" data-tab="items">Items</button>' +
+        '<button class="shop-tab' + (_activeTab === 'queue' ? ' active' : '') + '" data-tab="queue">Queue</button>' +
+        '<button class="shop-tab' + (_activeTab === 'logs' ? ' active' : '') + '" data-tab="logs">Logs</button>' +
+        '<button class="shop-tab' + (_activeTab === 'users' ? ' active' : '') + '" data-tab="users">Users</button>' +
       '</div>' +
       '<div id="saContent"></div>' +
       '<div class="shop-modal-backdrop" id="saModalBackdrop">' +
@@ -507,6 +532,7 @@
       _activeTab = tab;
       document.querySelectorAll('#saTabs .shop-tab').forEach(function (t) { t.classList.remove('active'); });
       btn.classList.add('active');
+      _writeShopAdminTabToUrl(_activeTab);
       renderTab();
     });
 
@@ -5203,8 +5229,20 @@
 
   /* Init */
   var _initDone = false;
+  function _syncActiveTabFromUrl() {
+    if (!_shellBuilt) return;
+    var _urlTab = _readShopAdminTabFromUrl();
+    var _nextTab = _urlTab || 'items';
+    var _changed = _nextTab !== _activeTab;
+    _activeTab = _nextTab;
+    _writeShopAdminTabToUrl(_activeTab);
+    document.querySelectorAll('#saTabs .shop-tab').forEach(function (t) { t.classList.remove('active'); });
+    var _activeBtn = document.querySelector('#saTabs .shop-tab[data-tab="' + _activeTab + '"]');
+    if (_activeBtn) _activeBtn.classList.add('active');
+    if (_changed) renderTab();
+  }
   function initAdmin() {
-    if (_initDone) return;
+    if (_initDone) { _syncActiveTabFromUrl(); return; }
     _initDone = true;
     if (!window.state || !window.state.loggedIn) {
       if (window.renderAuthGate) {
