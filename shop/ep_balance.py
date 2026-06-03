@@ -1,12 +1,47 @@
 import os
+import re
 import sqlite3
 import sys
 from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
 from config import _POINTS_DB, _SHOP_DB, _USERNAME_MATCHES_JSON, _load_json_file
 
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE,
+)
+
 _CYCLE_ANCHOR = _dt(2026, 4, 21, 16, 0, 0, tzinfo=_tz.utc)
 _CYCLE_DURATION = _td(weeks=2)
+
+
+def _split_from_history(
+    conn: sqlite3.Connection,
+    uuid: str,
+    cycle_id: int,
+    total_points: int,
+) -> tuple[int, int]:
+    """Compute ``(clean, dirty)`` from the player's per-record history table.
+
+    Falls back to ``(total_points, 0)`` (all clean) when the history
+    table or the ``is_dirty`` column doesn't exist.
+    """
+    if not uuid or not _UUID_RE.match(uuid):
+        return total_points, 0
+    player_table = "player_" + uuid.replace("-", "_")
+    try:
+        row = conn.execute(
+            f'SELECT COALESCE(SUM(CASE WHEN COALESCE(is_dirty, 0) = 1 '
+            f'THEN points_gained ELSE 0 END), 0) '
+            f'FROM "{player_table}" WHERE cycle_id = ?',
+            (cycle_id,),
+        ).fetchone()
+        if row:
+            dirty = int(row[0])
+            return total_points - dirty, dirty
+    except sqlite3.OperationalError:
+        pass  # table or column doesn't exist
+    return total_points, 0
 
 def _get_cycle_id(dt=None) -> int:
     if dt is None:
@@ -139,22 +174,34 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
             conn = sqlite3.connect(_POINTS_DB, timeout=5)
             if points_cycle_id > 0:
                 try:
-                    row = conn.execute(
-                        "SELECT COALESCE(SUM(clean_ep), 0), COALESCE(SUM(dirty_ep), 0) "
+                    rows = conn.execute(
+                        "SELECT cycle_id, COALESCE(points, 0), "
+                        "COALESCE(clean_ep, 0), COALESCE(dirty_ep, 0) "
                         "FROM esi_points WHERE uuid = ? AND cycle_id <= ?",
                         (uuid, points_cycle_id),
-                    ).fetchone()
+                    ).fetchall()
                 except sqlite3.OperationalError:
-                    row = conn.execute(
-                        "SELECT COALESCE(SUM(clean_ep), 0), COALESCE(SUM(dirty_ep), 0) "
+                    rows = conn.execute(
+                        "SELECT cycle_id, COALESCE(points, 0), "
+                        "COALESCE(clean_ep, 0), COALESCE(dirty_ep, 0) "
                         "FROM esi_points WHERE uuid = ?",
                         (uuid,),
-                    ).fetchone()
-            else:
-                row = (0, 0)
-            if row:
-                clean_ep = int(row[0])
-                dirty_ep = int(row[1])
+                    ).fetchall()
+
+                for cycle_id, pts, c, d in rows:
+                    pts, c, d = int(pts), int(c), int(d)
+                    if c == 0 and d == 0 and pts > 0:
+                        c, d = _split_from_history(
+                            conn, uuid, cycle_id, pts,
+                        )
+
+                    if cycle_id == points_cycle_id:
+                        # Previous (most-recent completed) cycle: clean stays clean
+                        clean_ep += c
+                        dirty_ep += d
+                    else:
+                        # Older cycles: all clean EP ages into dirty
+                        dirty_ep += c + d
             conn.close()
         except sqlite3.Error as exc:
             print(f"[EP] Failed to read esi_points: {exc}", file=sys.stderr)

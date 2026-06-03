@@ -2034,21 +2034,26 @@ def _admin_get_users_uncached() -> list:
                         """
                         SELECT uuid,
                                MAX(username) AS username,
-                               COALESCE(SUM(clean_ep), 0) AS raw_clean,
-                               COALESCE(SUM(dirty_ep), 0) AS raw_dirty
+                               COALESCE(SUM(CASE WHEN cycle_id = ? THEN clean_ep ELSE 0 END), 0) AS prev_clean,
+                               COALESCE(SUM(CASE WHEN cycle_id = ? THEN dirty_ep ELSE 0 END), 0) AS prev_dirty,
+                               COALESCE(SUM(CASE WHEN cycle_id = ? THEN points  ELSE 0 END), 0) AS prev_points,
+                               COALESCE(SUM(CASE WHEN cycle_id < ? THEN points  ELSE 0 END), 0) AS older_points
                         FROM esi_points
                         WHERE cycle_id <= ?
                         GROUP BY uuid
                         """,
-                        (target_cycle,),
+                        (target_cycle, target_cycle, target_cycle,
+                         target_cycle, target_cycle),
                     ).fetchall()
                 except sqlite3.OperationalError:
                     rows = pts.execute(
                         """
                         SELECT uuid,
                                MAX(username) AS username,
-                               COALESCE(SUM(clean_ep), 0) AS raw_clean,
-                               COALESCE(SUM(dirty_ep), 0) AS raw_dirty
+                               COALESCE(SUM(clean_ep), 0) AS prev_clean,
+                               COALESCE(SUM(dirty_ep), 0) AS prev_dirty,
+                               COALESCE(SUM(points), 0)   AS prev_points,
+                               0 AS older_points
                         FROM esi_points
                         GROUP BY uuid
                         """
@@ -2059,10 +2064,17 @@ def _admin_get_users_uncached() -> list:
                 uuid = r["uuid"]
                 if not uuid:
                     continue
-                raw_ep_by_uuid[uuid] = {
-                    "rc": r["raw_clean"] or 0,
-                    "rd": r["raw_dirty"] or 0,
-                }
+                pc = r["prev_clean"] or 0
+                pd = r["prev_dirty"] or 0
+                pp = r["prev_points"] or 0
+                op = r["older_points"] or 0
+                # Fallback for previous cycle when clean/dirty not populated
+                if pc == 0 and pd == 0 and pp > 0:
+                    pc = pp  # treat as all clean
+                # Only the previous cycle keeps clean EP
+                rc = pc
+                rd = pd + op
+                raw_ep_by_uuid[uuid] = {"rc": rc, "rd": rd}
                 if r["username"]:
                     raw_ep_username_by_uuid[uuid] = r["username"]
             pts.close()
