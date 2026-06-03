@@ -2180,7 +2180,7 @@
     if (!_ieVariants.length) {
     h += '<div class="ie-section" data-ie-pricing><div class="ie-section-title">Pricing &amp; Stock</div>';
     h += '<div class="ie-row">';
-    h += '<div class="ie-field" data-ie-bin><label class="ie-label">Price (EP)</label>' +
+    h += '<div class="ie-field" data-ie-bin><label class="ie-label">Price</label>' +
          '<input id="iePrice" type="text" inputmode="numeric" class="ie-input ie-num" value="' + _v(it.price, '') + '" maxlength="6" placeholder="0" /></div>';
     h += '<div class="ie-field" data-ie-bin><label class="ie-label">Stock (blank\u00a0=\u00a0\u221E)</label>' +
          '<input id="ieStock" type="text" inputmode="numeric" class="ie-input ie-num" value="' + _v(it.stock, '') + '" maxlength="6" placeholder="\u221E" /></div>';
@@ -2190,8 +2190,8 @@
     var durType = it.duration_type || 'fixed';
     var durHrs  = it.duration_hours || 48;
     h += '<div class="ie-row" data-ie-auction>';
-    h += '<div class="ie-field"><label class="ie-label">Starting Bid (EP)</label><input id="ieStartBid" type="text" inputmode="numeric" class="ie-input ie-num" value="' + _v(it.starting_bid, 1) + '" maxlength="6" /></div>';
-    h += '<div class="ie-field"><label class="ie-label">Min Increment (EP)</label><input id="ieMinInc" type="text" inputmode="numeric" class="ie-input ie-num" value="' + _v(it.min_increment, 1) + '" maxlength="6" /></div>';
+    h += '<div class="ie-field"><label class="ie-label">Starting Bid</label><input id="ieStartBid" type="text" inputmode="numeric" class="ie-input ie-num" value="' + _v(it.starting_bid, 1) + '" maxlength="6" /></div>';
+    h += '<div class="ie-field"><label class="ie-label">Min Increment</label><input id="ieMinInc" type="text" inputmode="numeric" class="ie-input ie-num" value="' + _v(it.min_increment, 1) + '" maxlength="6" /></div>';
     h += '<div class="ie-field ie-field--wide"><label class="ie-label">Duration</label>' +
          '<div class="ie-cooldown-row">' +
          '<select id="ieDurType" class="ie-input ie-cd-type">' +
@@ -2311,7 +2311,7 @@
            '<option value="false"' + _sel(d.active === 'false') + '>No</option></select></div>';
       h += '</div>';
       h += '<div class="ie-row">';
-      h += '<div class="ie-field"><label class="ie-label">Price (EP)</label>' +
+      h += '<div class="ie-field"><label class="ie-label">Price</label>' +
            '<input id="ieVarPrice_' + i + '" type="text" inputmode="numeric" class="ie-input ie-num" value="' + _v(d.price, '') + '" maxlength="6" placeholder="0" /></div>';
       h += '<div class="ie-field"><label class="ie-label">Stock (blank\u00a0=\u00a0\u221e)</label>' +
            '<input id="ieVarStock_' + i + '" type="text" inputmode="numeric" class="ie-input ie-num" value="' + _v(d.stock, '') + '" maxlength="6" placeholder="\u221e" /></div>';
