@@ -95,7 +95,7 @@
   }
   function _creatorMaintenanceMessage(scope, action) {
     if (_adminMaintenanceSettings.admin_visible === false) {
-      return 'Admin Shop and Creator Studio are currently hidden for your audience.';
+      return 'Creator Studio is currently hidden for your audience.';
     }
     var scopeKey = _CREATOR_SCOPE_FLAGS[scope];
     if (scopeKey && _adminMaintenanceSettings[scopeKey] === false) {
@@ -111,9 +111,9 @@
   }
   function _renderMaintenanceUnavailable(c, msg, title) {
     c.innerHTML =
-      '<div class="shop-empty sa-coming-soon-tab">' +
-        '<div class="sa-coming-soon-title">' + esc(title || 'Creator studio unavailable') + '</div>' +
-        '<div>' + esc(msg || 'This section is unavailable during maintenance.') + '</div>' +
+      '<div class="shop-maintenance-hero shop-maintenance-hero--full">' +
+        '<div class="shop-maintenance-hero-title">' + esc(title || 'Creator Studio Unavailable') + '</div>' +
+        '<div class="shop-maintenance-hero-text">' + esc(msg || 'Creator Studio is unavailable during maintenance.') + '</div>' +
       '</div>';
   }
   function _syncCreatorTabsVisibility() {
@@ -269,7 +269,7 @@
     var visibleTabs = _syncCreatorTabsVisibility();
     if (!visibleTabs || !visibleTabs.length) {
       _updateCsQueueBadge(0);
-      _renderMaintenanceUnavailable(c, _creatorMaintenanceMessage(_activeTab), 'Creator studio unavailable');
+      _renderMaintenanceUnavailable(c, _creatorMaintenanceMessage(_activeTab), 'Creator Studio Unavailable');
       return;
     }
     if (_activeTab === 'items') renderItemsTab(c);

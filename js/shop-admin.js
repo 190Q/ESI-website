@@ -345,7 +345,18 @@
     return base;
   }
   function _activeAdminMaintenanceSettings() {
-    return _normalizeAdminMaintenanceSettings(_effectiveAdminMaintenanceSettings || _adminMaintenanceSettings);
+    var settings = _normalizeAdminMaintenanceSettings(_effectiveAdminMaintenanceSettings || _adminMaintenanceSettings);
+    if (_shopEnabled !== false || _isOwnerShopAdmin()) {
+      settings.admin_visible = true;
+      settings.show_items_tab = true;
+      settings.allow_item_edit = true;
+      settings.show_queue_tab = true;
+      settings.allow_queue_actions = true;
+      settings.show_logs_tab = true;
+      settings.show_users_tab = true;
+      settings.allow_user_edit = true;
+    }
+    return settings;
   }
   function _isAdminScopeVisible(scope) {
     var key = _SHOP_ADMIN_SCOPE_FLAGS[scope];
@@ -607,19 +618,19 @@
           !adminAllowQueueActionsInput || !adminShowLogsInput || !adminShowUsersInput || !adminAllowUserEditInput) {
         return;
       }
-      if (changedKey === 'admin_visible' && !adminVisibleInput.checked) {
-        adminShowItemsInput.checked = false;
-        adminAllowItemEditInput.checked = false;
-        adminShowQueueInput.checked = false;
-        adminAllowQueueActionsInput.checked = false;
-        adminShowLogsInput.checked = false;
-        adminShowUsersInput.checked = false;
-        adminAllowUserEditInput.checked = false;
+      if (changedKey === 'admin_visible') {
+        if (!adminVisibleInput.checked) {
+          adminShowItemsInput.checked = false;
+          adminAllowItemEditInput.checked = false;
+          adminShowQueueInput.checked = false;
+          adminAllowQueueActionsInput.checked = false;
+          adminShowLogsInput.checked = false;
+          adminShowUsersInput.checked = false;
+          adminAllowUserEditInput.checked = false;
+        } else if (!adminShowItemsInput.checked && !adminShowQueueInput.checked && !adminShowLogsInput.checked && !adminShowUsersInput.checked) {
+          adminVisibleInput.checked = false;
+        }
         return;
-      }
-      if (!adminVisibleInput.checked && (adminShowItemsInput.checked || adminShowQueueInput.checked || adminShowLogsInput.checked || adminShowUsersInput.checked ||
-          adminAllowItemEditInput.checked || adminAllowQueueActionsInput.checked || adminAllowUserEditInput.checked)) {
-        adminVisibleInput.checked = true;
       }
       if (!adminShowItemsInput.checked) adminAllowItemEditInput.checked = false;
       if (!adminShowQueueInput.checked) adminAllowQueueActionsInput.checked = false;
@@ -635,6 +646,14 @@
       if (changedKey === 'allow_user_edit' && adminAllowUserEditInput.checked) {
         adminShowUsersInput.checked = true;
         adminVisibleInput.checked = true;
+      }
+      var hasAnySectionEnabled = !!(adminShowItemsInput.checked || adminShowQueueInput.checked || adminShowLogsInput.checked || adminShowUsersInput.checked);
+      if (!adminVisibleInput.checked && hasAnySectionEnabled) {
+        adminVisibleInput.checked = true;
+        return;
+      }
+      if (!hasAnySectionEnabled) {
+        adminVisibleInput.checked = false;
       }
     }
     function _readCurrentShopSettings() {
@@ -964,7 +983,17 @@
     var banner = document.getElementById('saStateBanner');
     if (!banner) return;
     var isOn = _shopEnabled !== false;
+    var activeSettings = _activeAdminMaintenanceSettings();
+    var hasVisibleAdminTabs = _SHOP_ADMIN_TABS.some(function (tab) {
+      var key = _SHOP_ADMIN_SCOPE_FLAGS[tab];
+      return activeSettings.admin_visible !== false && (!key || activeSettings[key] !== false);
+    });
     if (isOn && !_canToggleShopState) {
+      banner.style.display = 'none';
+      banner.innerHTML = '';
+      return;
+    }
+    if (!isOn && !_canToggleShopState && !hasVisibleAdminTabs) {
       banner.style.display = 'none';
       banner.innerHTML = '';
       return;
@@ -1051,12 +1080,12 @@
   function _renderAdminMaintenanceUnavailable(c) {
     var activeSettings = _activeAdminMaintenanceSettings();
     var msg = activeSettings.admin_visible === false
-      ? 'Admin Shop and Creator Studio are currently hidden for your audience.'
-      : 'All admin sections are currently hidden for your audience.';
+      ? 'Admin Shop is currently hidden for your audience.'
+      : 'All Admin Shop sections are currently hidden for your audience.';
     c.innerHTML =
-      '<div class="shop-empty sa-coming-soon-tab">' +
-        '<div class="sa-coming-soon-title">Admin shop unavailable</div>' +
-        '<div>' + esc(msg) + '</div>' +
+      '<div class="shop-maintenance-hero shop-maintenance-hero--full">' +
+        '<div class="shop-maintenance-hero-title">Admin Shop Unavailable</div>' +
+        '<div class="shop-maintenance-hero-text">' + esc(msg) + '</div>' +
       '</div>';
   }
 
@@ -1097,7 +1126,7 @@
   }
 
   function renderItems(c) {
-    c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading items\u2026</div>';
+    c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading items…</div>';
     var done = 0;
     function check() {
       if (++done >= 2) {
@@ -4286,7 +4315,7 @@
         '<span class="su-status su-status--' + (active ? 'active' : 'inactive') + '">' + (active ? 'Active' : 'Inactive') + '</span>' +
         '</span>';
       /* Settings gear */
-      if (_isParliament || _isOwnerShopAdmin()) {
+      if (_canParliamentEditShopAdmin('users', 'users_edit')) {
         html += '<span class="su-manage-cell"><button class="su-manage-btn" data-manage-uuid="' + esc(u.uuid) + '" title="Manage user">' + _svg.gear + '</button></span>';
       } else {
         html += '<span></span>';

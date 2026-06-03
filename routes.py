@@ -1410,13 +1410,19 @@ def _maintenance_settings_for_user(settings: dict | None, user: dict | None) -> 
         effective[field] = True
     return effective
 
-def _admin_maintenance_settings_for_user(settings: dict | None, user: dict | None) -> dict:
+def _admin_maintenance_settings_for_user(
+    settings: dict | None,
+    user: dict | None,
+    shop_enabled: bool | None = None,
+) -> dict:
     raw = settings if isinstance(settings, dict) else {}
     effective = {}
     for field in _ADMIN_MAINTENANCE_BOOL_FIELDS:
         effective[field] = _maintenance_flag(raw, field, True)
     effective["affected_user_types"] = raw.get("affected_user_types")
-    if not _admin_maintenance_applies_to_user(raw, user):
+    if shop_enabled is None:
+        shop_enabled = _is_shop_enabled()
+    if bool(shop_enabled) or not _admin_maintenance_applies_to_user(raw, user):
         for field in _ADMIN_MAINTENANCE_BOOL_FIELDS:
             effective[field] = True
         return effective
@@ -2163,10 +2169,14 @@ def admin_shop_state():
 
     state = _shop_get_state() or {}
     maintenance_settings_raw = state.get("maintenance_settings") or _shop_get_maintenance_settings() or {}
-    maintenance_settings_effective = _maintenance_settings_for_user(maintenance_settings_raw, user)
     admin_maintenance_settings_raw = state.get("admin_maintenance_settings") or _shop_get_admin_maintenance_settings() or {}
-    admin_maintenance_settings_effective = _admin_maintenance_settings_for_user(admin_maintenance_settings_raw, user)
     enabled = bool(state.get("shop_enabled"))
+    maintenance_settings_effective = _maintenance_settings_for_user(maintenance_settings_raw, user)
+    admin_maintenance_settings_effective = _admin_maintenance_settings_for_user(
+        admin_maintenance_settings_raw,
+        user,
+        shop_enabled=enabled,
+    )
     message = None if enabled else (state.get("message") or _shop_get_disabled_message())
     maintenance_view_only = bool((not enabled) and maintenance_settings_effective.get("shop_visible", True))
     admin_maintenance_restricted = not _maintenance_flag(admin_maintenance_settings_effective, "admin_visible", True)
@@ -2242,10 +2252,18 @@ def admin_shop_maintenance_settings_update():
         if isinstance(admin_result, dict)
         else None
     ) or _shop_get_admin_maintenance_settings() or {}
+    state = _shop_get_state() or {}
+    enabled = bool(state.get("shop_enabled"))
+    effective_admin_settings = _admin_maintenance_settings_for_user(
+        admin_settings,
+        user,
+        shop_enabled=enabled,
+    )
     return jsonify({
         "ok": True,
         "maintenance_settings": shop_settings,
         "admin_maintenance_settings": admin_settings,
+        "effective_admin_maintenance_settings": effective_admin_settings,
     }), 200
 
 @app.route("/api/admin/shop/items")
