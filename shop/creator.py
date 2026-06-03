@@ -79,9 +79,9 @@ def _grant_creator_commission(
         return 0
 
     _log_admin_action(
-        actor, "creator_commission_granted", purchase_id,
-        {"discord_id": creator_discord_id, "uuid": mc_uuid,
-         "item_id": item_id, "ep_spent": ep_spent, "commission": amount},
+        "system", "creator_commission_granted", creator_discord_id,
+        {"item_id": item_id, "commission": amount, "ep_spent": ep_spent,
+         "reason": reason, "purchase_id": purchase_id, "uuid": mc_uuid},
     )
     _invalidate_users_cache()
 
