@@ -132,14 +132,38 @@
   function _maintenanceHeadline() {
     return isComingSoonDisabled() ? 'Coming Soon' : 'Under Maintenance';
   }
+  function _maintenanceEtaLabel() {
+    var iso = (_shopMaintenanceSettings && typeof _shopMaintenanceSettings.eta_iso === 'string')
+      ? _shopMaintenanceSettings.eta_iso.trim()
+      : '';
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+  function _withMaintenanceEta(message) {
+    var base = String(message == null ? '' : message).trim();
+    var eta = _maintenanceEtaLabel();
+    if (!eta) return base;
+    if (!base) return 'ETA: ' + eta;
+    if (/\bETA\s*:/i.test(base)) return base;
+    return base + (/[.!?]$/.test(base) ? '' : '.') + ' ETA: ' + eta + '.';
+  }
   function _renderMaintenanceNotice(title, message, modifierClass) {
     var container = document.getElementById('shopContent');
     if (!container) return;
     var cls = 'shop-maintenance-hero' + (modifierClass ? ' ' + modifierClass : '');
+    var text = _withMaintenanceEta(message);
     container.innerHTML =
       '<div class="' + cls + '">' +
         '<div class="shop-maintenance-hero-title">' + esc(title) + '</div>' +
-        '<div class="shop-maintenance-hero-text">' + esc(message) + '</div>' +
+        '<div class="shop-maintenance-hero-text">' + esc(text) + '</div>' +
       '</div>';
   }
   function _effectiveMaxQty(item, variantIdx) {
@@ -384,6 +408,7 @@
     var bodyText = (typeof messageOverride === 'string' && messageOverride.trim())
       ? messageOverride.trim()
       : disabledMessage();
+    bodyText = _withMaintenanceEta(bodyText);
     modal.innerHTML =
       '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
       '<div class="shop-modal-title">' + esc(section) + '</div>' +
@@ -2187,7 +2212,7 @@
       modal.innerHTML =
         '<button class="modal-close">\u2715</button>' +
         '<div class="shop-modal-title">My Orders</div>' +
-        '<div class="orders-modal-body" style="color:var(--text-faint);padding:16px 0">Under Maintenance</div>';
+        '<div class="orders-modal-body" style="color:var(--text-faint);padding:16px 0">' + esc(_withMaintenanceEta('Under Maintenance')) + '</div>';
       document.getElementById('shopModalBackdrop').classList.add('open', 'orders-open');
       return;
     }

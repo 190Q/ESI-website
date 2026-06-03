@@ -1450,13 +1450,20 @@ def _admin_maintenance_settings_for_user(
         effective["allow_user_edit"] = False
     return effective
 
-def _admin_maintenance_denied_response(message: str, effective_settings: dict | None = None):
+def _admin_maintenance_denied_response(
+    message: str,
+    effective_settings: dict | None = None,
+    user: dict | None = None,
+):
     payload = {
         "error": message,
         "maintenance_restricted": True,
     }
     if isinstance(effective_settings, dict):
         payload["admin_maintenance_settings"] = effective_settings
+    effective_shop_settings = _maintenance_settings_for_user(_shop_get_maintenance_settings() or {}, user)
+    if isinstance(effective_shop_settings, dict):
+        payload["maintenance_settings"] = effective_shop_settings
     return jsonify(payload), 403
 
 def _admin_maintenance_guard(user: dict | None, maintenance_scope: str | None = None, maintenance_action: str | None = None):
@@ -1465,18 +1472,21 @@ def _admin_maintenance_guard(user: dict | None, maintenance_scope: str | None = 
         return _admin_maintenance_denied_response(
             "Admin Shop + Creator Studio is unavailable during maintenance.",
             effective_settings,
+            user=user,
         )
     scope_key = _ADMIN_MAINTENANCE_SCOPE_FLAGS.get(str(maintenance_scope or "").strip().lower())
     if scope_key and not _maintenance_flag(effective_settings, scope_key, True):
         return _admin_maintenance_denied_response(
             "This section is unavailable during maintenance.",
             effective_settings,
+            user=user,
         )
     action_key = _ADMIN_MAINTENANCE_ACTION_FLAGS.get(str(maintenance_action or "").strip().lower())
     if action_key and not _maintenance_flag(effective_settings, action_key, True):
         return _admin_maintenance_denied_response(
             "This action is unavailable during maintenance.",
             effective_settings,
+            user=user,
         )
     return None
 

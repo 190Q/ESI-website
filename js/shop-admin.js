@@ -374,20 +374,20 @@
   }
   function _adminScopeDisabledLabel(scope, action) {
     var settings = _activeAdminMaintenanceSettings();
-    if (settings.admin_visible === false) return 'Admin shop is currently hidden.';
+    if (settings.admin_visible === false) return _withMaintenanceEta('Admin shop is currently hidden.');
     var scopeKey = _SHOP_ADMIN_SCOPE_FLAGS[scope];
     if (scopeKey && settings[scopeKey] === false) {
-      return (_SHOP_ADMIN_TAB_LABELS[scope] || 'This section') + ' is currently hidden.';
+      return _withMaintenanceEta((_SHOP_ADMIN_TAB_LABELS[scope] || 'This section') + ' is currently hidden.');
     }
     if (action) {
       var actionKey = _SHOP_ADMIN_ACTION_FLAGS[action];
       if (actionKey && settings[actionKey] === false) {
-        if (action === 'items_edit') return 'Item edits are disabled during maintenance.';
-        if (action === 'queue_actions') return 'Queue actions are disabled during maintenance.';
-        if (action === 'users_edit') return 'User edits are disabled during maintenance.';
+        if (action === 'items_edit') return _withMaintenanceEta('Item edits are disabled during maintenance.');
+        if (action === 'queue_actions') return _withMaintenanceEta('Queue actions are disabled during maintenance.');
+        if (action === 'users_edit') return _withMaintenanceEta('User edits are disabled during maintenance.');
       }
     }
-    return 'This action is disabled during maintenance.';
+    return _withMaintenanceEta('This action is disabled during maintenance.');
   }
   function _syncAdminTabsVisibility() {
     var tabsWrap = document.getElementById('saTabs');
@@ -460,6 +460,20 @@
       return 'ETA reached (' + etaLabel + '). OWNER will be notified once a state check runs.';
     }
     return 'ETA is ' + etaLabel + '. OWNER gets a one-time DM reminder when it expires.';
+  }
+  function _maintenanceEtaLabel() {
+    var settings = _normalizeMaintenanceSettings(_maintenanceSettings);
+    if (!settings || !settings.eta_iso) return null;
+    var formatted = _fmtDateTime(settings.eta_iso);
+    if (!formatted) return null;
+    return 'ETA: ' + formatted;
+  }
+  function _withMaintenanceEta(message) {
+    var base = String(message == null ? '' : message).trim();
+    var eta = _maintenanceEtaLabel();
+    if (!eta) return base;
+    if (!base) return eta;
+    return base + ' ' + eta;
   }
   function openMaintenanceSettingsModal() {
     if (!_canToggleShopState) return;
@@ -1071,10 +1085,11 @@
 
   function renderComingSoonTab(c) {
     var titleMap = { items: 'Items', queue: 'Queue', logs: 'Logs', users: 'Users' };
+    var message = _withMaintenanceEta(_disabledMessageLabel());
     c.innerHTML =
       '<div class="shop-empty sa-coming-soon-tab">' +
         '<div class="sa-coming-soon-title">' + titleMap[_activeTab] + '</div>' +
-        '<div>' + esc(_disabledMessageLabel()) + '</div>' +
+        '<div>' + esc(message) + '</div>' +
       '</div>';
   }
   function _renderAdminMaintenanceUnavailable(c) {
@@ -1082,6 +1097,7 @@
     var msg = activeSettings.admin_visible === false
       ? 'Admin Shop is currently hidden for your audience.'
       : 'All Admin Shop sections are currently hidden for your audience.';
+    msg = _withMaintenanceEta(msg);
     c.innerHTML =
       '<div class="shop-maintenance-hero shop-maintenance-hero--full">' +
         '<div class="shop-maintenance-hero-title">Admin Shop Unavailable</div>' +

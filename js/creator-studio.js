@@ -29,6 +29,9 @@
     allow_user_edit: true,
     affected_user_types: null,
   };
+  var _maintenanceSettings = {
+    eta_iso: null,
+  };
 
   /* helpers */
   function esc(s) {
@@ -43,6 +46,12 @@
     var t = String(v).trim().toLowerCase();
     if (!t) return !!fallback;
     return t === '1' || t === 'true' || t === 'yes' || t === 'on';
+  }
+  function _normalizeMaintenanceSettings(raw) {
+    var base = { eta_iso: null };
+    if (!raw || typeof raw !== 'object') return base;
+    base.eta_iso = raw.eta_iso ? String(raw.eta_iso) : null;
+    return base;
   }
   function _normalizeAdminMaintenanceSettings(raw) {
     var base = {
@@ -82,6 +91,30 @@
     }
     return base;
   }
+  function _fmtMaintenanceDateTime(isoText) {
+    if (!isoText) return null;
+    var d = new Date(isoText);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+  function _maintenanceEtaLabel() {
+    if (!_maintenanceSettings || !_maintenanceSettings.eta_iso) return null;
+    var label = _fmtMaintenanceDateTime(_maintenanceSettings.eta_iso) || _maintenanceSettings.eta_iso;
+    return label ? 'ETA: ' + label : null;
+  }
+  function _withMaintenanceEta(message) {
+    var base = String(message == null ? '' : message).trim();
+    var eta = _maintenanceEtaLabel();
+    if (!eta) return base;
+    if (!base) return eta;
+    return base + ' ' + eta;
+  }
   function _isCreatorScopeVisible(scope) {
     if (_adminMaintenanceSettings.admin_visible === false) return false;
     var key = _CREATOR_SCOPE_FLAGS[scope];
@@ -94,20 +127,20 @@
     return _isCreatorScopeVisible('queue') && _adminMaintenanceSettings.allow_queue_actions !== false;
   }
   function _creatorMaintenanceMessage(scope, action) {
+    var message = 'This action is unavailable during maintenance.';
     if (_adminMaintenanceSettings.admin_visible === false) {
-      return 'Creator Studio is currently hidden for your audience.';
+      message = 'Creator Studio is currently hidden for your audience.';
+    } else {
+      var scopeKey = _CREATOR_SCOPE_FLAGS[scope];
+      if (scopeKey && _adminMaintenanceSettings[scopeKey] === false) {
+        message = (_CREATOR_TAB_LABELS[scope] || 'This section') + ' is currently hidden for your audience.';
+      } else if (action === 'items_edit' && _adminMaintenanceSettings.allow_item_edit === false) {
+        message = 'Item edits are disabled during maintenance.';
+      } else if (action === 'queue_actions' && _adminMaintenanceSettings.allow_queue_actions === false) {
+        message = 'Queue actions are disabled during maintenance.';
+      }
     }
-    var scopeKey = _CREATOR_SCOPE_FLAGS[scope];
-    if (scopeKey && _adminMaintenanceSettings[scopeKey] === false) {
-      return (_CREATOR_TAB_LABELS[scope] || 'This section') + ' is currently hidden for your audience.';
-    }
-    if (action === 'items_edit' && _adminMaintenanceSettings.allow_item_edit === false) {
-      return 'Item edits are disabled during maintenance.';
-    }
-    if (action === 'queue_actions' && _adminMaintenanceSettings.allow_queue_actions === false) {
-      return 'Queue actions are disabled during maintenance.';
-    }
-    return 'This action is unavailable during maintenance.';
+    return _withMaintenanceEta(message);
   }
   function _renderMaintenanceUnavailable(c, msg, title) {
     c.innerHTML =
@@ -140,12 +173,21 @@
     _adminMaintenanceSettings = _normalizeAdminMaintenanceSettings(raw);
     if (_shellBuilt) _syncCreatorTabsVisibility();
   }
+  function _ingestMaintenanceSettings(raw) {
+    if (!raw || typeof raw !== 'object') return;
+    _maintenanceSettings = _normalizeMaintenanceSettings(raw);
+  }
+  function _ingestMaintenancePayload(payload) {
+    if (!payload || typeof payload !== 'object') return;
+    _ingestAdminMaintenanceSettings(payload.admin_maintenance_settings || {});
+    _ingestMaintenanceSettings(payload.maintenance_settings || {});
+  }
   function _isMaintenanceRestrictedPayload(payload) {
     return !!(payload && typeof payload === 'object' && payload.maintenance_restricted);
   }
   function _handleMaintenanceRestriction(payload, options) {
     if (!_isMaintenanceRestrictedPayload(payload)) return false;
-    _ingestAdminMaintenanceSettings(payload.admin_maintenance_settings || {});
+    _ingestMaintenancePayload(payload);
     var opts = options || {};
     if (opts.notify !== false && window.showToast) {
       window.showToast('\u26a0 ' + (payload.error || 'This action is unavailable during maintenance.'), 'warn');
@@ -161,7 +203,7 @@
     return fetch(url, opts).then(function (r) {
       return r.json().catch(function () { return null; }).then(function (d) {
         if (_isMaintenanceRestrictedPayload(d)) {
-          _ingestAdminMaintenanceSettings(d.admin_maintenance_settings || {});
+          _ingestMaintenancePayload(d);
         }
         return { ok: r.ok, status: r.status, data: d };
       });
