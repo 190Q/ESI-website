@@ -1259,7 +1259,7 @@ from shop.admin import (
     get_user_notes, add_user_note, delete_user_note,
     set_user_limits,
     admin_refund_purchase, admin_reject_refund,
-    get_approved_privilege_level, ensure_privilege_approval,
+    get_approved_privilege_level, ensure_privilege_approval, get_pending_privilege_approval_for_user,
     get_pending_privilege_approvals, approve_privilege, reject_privilege,
 )
 from shop.creator import (
@@ -2089,6 +2089,21 @@ def shop_request_refund():
 
 # Shop admin endpoints
 _SHOP_ADMIN = _CHIEF_PLUS | _PARLIAMENT_PLUS  # read access
+def _resolve_effective_shop_admin_level(discord_id: str, username: str, actual_level: int) -> tuple[int, bool]:
+    """Resolve effective shop-admin level and whether an escalation is pending."""
+    approved_level = get_approved_privilege_level(discord_id)
+    privilege_pending = actual_level > approved_level
+    if privilege_pending:
+        ensure_privilege_approval(discord_id, username, actual_level, approved_level)
+        pending = get_pending_privilege_approval_for_user(discord_id)
+        if pending:
+            try:
+                pending_previous_level = int(pending.get("previous_level") or 0)
+            except (TypeError, ValueError):
+                pending_previous_level = 0
+            approved_level = max(approved_level, pending_previous_level)
+    effective_level = min(actual_level, approved_level)
+    return effective_level, privilege_pending
 def _require_shop_admin(
     require_shop_enabled: bool = True,
     maintenance_scope: str | None = None,
@@ -2103,7 +2118,7 @@ def _require_shop_admin(
 
     Privilege escalations (nothing→chief, chief→parliament) require owner
     approval before taking effect.  Until approved, the user's effective
-    privilege is capped at their previously approved level.
+    privilege remains capped at their previously effective level.
     """
     user, err = _require_login()
     if err:
@@ -2121,17 +2136,12 @@ def _require_shop_admin(
     # Determine the user's actual role-based level
     actual_level = 2 if (user_roles & _PARLIAMENT_PLUS) else 1  # 1=chief, 2=parliament
     discord_id = user.get("id", "")
-    approved_level = get_approved_privilege_level(discord_id)
+    username = user.get("nick") or user.get("username", "")
+    effective_level, privilege_pending = _resolve_effective_shop_admin_level(
+        discord_id, username, actual_level
+    )
 
-    # If their actual level exceeds approved, auto-create an approval request
-    if actual_level > approved_level:
-        username = user.get("nick") or user.get("username", "")
-        ensure_privilege_approval(discord_id, username, actual_level, approved_level)
-
-    # Cap effective level at what the owner has approved
-    effective_level = min(actual_level, approved_level)
-
-    if effective_level <= 0:
+    if privilege_pending and effective_level <= 0:
         return None, False, (jsonify({"error": "Your shop admin privileges are pending owner approval"}), 403)
 
     is_parliament = effective_level >= 2
@@ -2164,17 +2174,16 @@ def admin_shop_state():
     # Compute effective privilege level (capped by owner approval)
     discord_id = user.get("id", "")
     if is_owner:
+        effective_level = 3
         effective_parliament = True
         privilege_pending = False
     else:
         actual_level = 2 if (user_roles & _PARLIAMENT_PLUS) else (1 if (user_roles & _CHIEF_PLUS) else 0)
-        approved_level = get_approved_privilege_level(discord_id)
-        if actual_level > approved_level:
-            username = user.get("nick") or user.get("username", "")
-            ensure_privilege_approval(discord_id, username, actual_level, approved_level)
-        effective_level = min(actual_level, approved_level)
+        username = user.get("nick") or user.get("username", "")
+        effective_level, privilege_pending = _resolve_effective_shop_admin_level(
+            discord_id, username, actual_level
+        )
         effective_parliament = effective_level >= 2
-        privilege_pending = actual_level > approved_level
     _maybe_notify_owner_maintenance_eta_elapsed()
 
     state = _shop_get_state() or {}
@@ -2191,7 +2200,7 @@ def admin_shop_state():
     maintenance_view_only = bool((not enabled) and maintenance_settings_effective.get("shop_visible", True))
     admin_maintenance_restricted = not _maintenance_flag(admin_maintenance_settings_effective, "admin_visible", True)
     # privilege_blocked: user has admin roles but zero approved access
-    privilege_blocked = privilege_pending and effective_level <= 0 if not is_owner else False
+    privilege_blocked = privilege_pending and effective_level <= 0
 
     return jsonify({
         **state,

@@ -167,7 +167,10 @@
           _effectiveAdminMaintenanceSettings = _normalizeAdminMaintenanceSettings(d.admin_maintenance_settings);
         }
         _canToggleShopState = !!(d && d.can_toggle);
-        _isParliamentFromState = !!(d && d.is_parliament);
+        if (d && typeof d.is_parliament === 'boolean') {
+          _isParliamentFromState = !!d.is_parliament;
+          _isParliament = _isParliamentFromState;
+        }
         if (cb) cb(d);
       })
       .catch(function () { if (cb) cb(null); });

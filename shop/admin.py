@@ -2984,6 +2984,29 @@ def ensure_privilege_approval(
     except sqlite3.Error:
         return None
 
+def get_pending_privilege_approval_for_user(discord_id: str) -> dict | None:
+    """Return the highest pending privilege approval for a specific user."""
+    if not discord_id or not os.path.isfile(_SHOP_DB):
+        return None
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_privilege_tables(conn)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT id, discord_id, username, requested_level, previous_level, "
+            "       status, created_at "
+            "FROM privilege_approvals "
+            "WHERE discord_id = ? AND status = 'pending' "
+            "ORDER BY requested_level DESC, created_at DESC "
+            "LIMIT 1",
+            (discord_id,),
+        ).fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except sqlite3.Error:
+        return None
+
 
 def get_pending_privilege_approvals() -> list:
     """Return all pending privilege approvals (for the owner's queue view)."""
