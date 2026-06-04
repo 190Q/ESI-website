@@ -3725,14 +3725,25 @@
     ep_adjusted:        'EP Adjusted',
     purchase_rejected:  'Purchase Rejected',
     user_limits_changed:'User Limits Changed',
+    creator_application_submitted: 'Creator App Submitted',
     creator_application_approved:  'Creator App Approved',
     creator_application_rejected:  'Creator App Rejected',
+    creator_commission_granted:    'Creator Commission Granted',
     creator_item_request_submitted:'Creator Request Submitted',
     creator_item_request_approved: 'Creator Request Approved',
     creator_item_request_rejected: 'Creator Request Rejected',
+    privilege_approval_created: 'Privilege Approval Created',
+    privilege_approved: 'Privilege Approved',
+    privilege_rejected: 'Privilege Rejected',
   };
 
   var _ACTION_TYPES = Object.keys(_ACTION_LABELS);
+  function _actionLabel(action) {
+    var key = String(action || '');
+    if (!key) return '';
+    var normalized = key.indexOf('privillege_') === 0 ? ('privilege_' + key.slice('privillege_'.length)) : key;
+    return _ACTION_LABELS[normalized] || _ACTION_LABELS[key] || key;
+  }
 
   function fetchChanges(cb) {
     var qs = 'page=' + _changesPage + '&per_page=25';
@@ -3750,7 +3761,7 @@
   function _fmtChangesTarget(row) {
     var d = row.details || {};
     var a = row.action;
-    if (a === 'creator_application_approved' || a === 'creator_application_rejected') return esc(d.username || d.discord_id || row.target_id || '\u2014');
+    if (a === 'creator_application_submitted' || a === 'creator_application_approved' || a === 'creator_application_rejected') return esc(d.username || d.discord_id || row.target_id || '\u2014');
     if (a === 'creator_item_request_submitted' || a === 'creator_item_request_approved' || a === 'creator_item_request_rejected') return esc(d.item_id || d.item_name || row.target_id || '\u2014');
     if (a === 'items_reordered') return d.item_name ? esc(d.item_name) : (d.item_id ? esc(d.item_id) : '\u2014');
     if (d.item_id) return esc(d.item_id);
@@ -3852,6 +3863,25 @@
   function _fmtChangesWhat(row) {
     var d = row.details || {};
     var a = row.action;
+    if (a === 'creator_application_submitted') {
+      var _cap = [];
+      if (d.discord_id) _cap.push(esc(d.discord_id));
+      if (d.uuid) _cap.push(esc(d.uuid));
+      return _cap.join(' \u00b7 ') || '\u2014';
+    }
+    if (a === 'privilege_approval_created' || a === 'privillege_approval_created') {
+      var _requested = d.level_name || (d.requested_level >= 2 ? 'Parliament' : (d.requested_level >= 1 ? 'Chief' : null));
+      var _previous = d.previous_level >= 2 ? 'Parliament' : (d.previous_level >= 1 ? 'Chief' : 'None');
+      var _pp = [];
+      if (_requested) _pp.push('Requested: ' + esc(_requested));
+      _pp.push('Previous: ' + esc(_previous));
+      return _pp.join(' \u00b7 ');
+    }
+    if (a === 'privilege_approved' || a === 'privilege_rejected' || a === 'privillege_approved' || a === 'privillege_rejected') {
+      if (d.level_name) return 'Level: ' + esc(d.level_name);
+      if (d.level != null) return 'Level: ' + esc(String(d.level));
+      return '\u2014';
+    }
     if (a === 'item_edited') {
       if (d.changes) return _fmtItemDiff(d.changes);
       if (d.type) return 'type: ' + esc(d.type);
@@ -3991,7 +4021,7 @@
     html += '<select class="sa-filter-input" id="saChgAction"><option value="">All actions</option>' +
       _ACTION_TYPES.map(function (a) {
         return '<option value="' + esc(a) + '"' + (_changesFilters.action === a ? ' selected' : '') + '>' +
-          esc(_ACTION_LABELS[a] || a) + '</option>';
+          esc(_actionLabel(a)) + '</option>';
       }).join('') + '</select>';
     html += '<span class="sa-filter-label">From:</span><input type="date" class="sa-filter-input" id="saChgFrom" value="' + esc(_changesFilters.date_from) + '" />';
     html += '<span class="sa-filter-label">To:</span><input type="date" class="sa-filter-input" id="saChgTo" value="' + esc(_changesFilters.date_to) + '" />';
@@ -4004,11 +4034,12 @@
       html += '<div class="sa-row sa-log-row sa-chg-row" style="justify-content:center;color:var(--text-faint);grid-column:1/-1;">No records found.</div>';
     }
     (_changesData.rows || []).forEach(function (row) {
+      var _actionText = _actionLabel(row.action);
       html += '<div class="sa-row sa-log-row sa-chg-row">';
       html += '<span>' + fmtDate(row.timestamp) + '</span>';
       html += '<span>' + esc(row.actor) + '</span>';
       html += '<span><span class="sa-log-type sa-log-type--change">' +
-        esc(_ACTION_LABELS[row.action] || row.action) + '</span></span>';
+        '<span class=\"sa-log-type__label\" title=\"' + esc(_actionText) + '\">' + esc(_actionText) + '</span></span></span>';
       html += '<span class="sa-chg-target">' + _fmtChangesTarget(row) + '</span>';
       html += '<span class="sa-chg-changes">' + _fmtChangesWhat(row) + '</span>';
       html += '</div>';
@@ -4182,12 +4213,13 @@
       outbid:    { icon: _svg.dash,  cls: 'outbid' },
     };
     feed.forEach(function (f) {
+      var _fType = String(f.type || '');
       html += '<div class="sa-row sa-log-row">';
       html += '<span>' + fmtDate(f.date) + '</span>';
       html += '<span>' + esc(f.user) + '</span>';
       html += '<span>' + esc(f.item) + '</span>';
-      html += '<span><span class="sa-log-type sa-log-type--' + f.type + '">' +
-        (_typeIcons[f.type] || '') + ' ' + f.type + '</span></span>';
+      html += '<span><span class="sa-log-type sa-log-type--' + _fType + '">' +
+        (_typeIcons[_fType] || '') + '<span class="sa-log-type__label" title="' + esc(_fType) + '">' + esc(_fType) + '</span></span></span>';
       html += '<span class="sa-log-ep"><span class="sa-log-ep-total">' + num(f.ep) + ' EP</span>' +
         '<span class="sa-log-ep-split">' + num(f.clean) + 'c + ' + num(f.dirty) + 'd</span></span>';
       var sc = _statusCfg[f.status] || { icon: '', cls: 'active' };
@@ -4754,9 +4786,10 @@
       html += '<div class="su-recent-row su-recent-hdr"><span>Date</span><span>Type</span><span>Item</span><span>EP</span><span>Status</span></div>';
       (u.recent || []).forEach(function (r) {
         var sc = _sc[r.status] || 'active';
+        var _rType = String(r.type || '');
         html += '<div class="su-recent-row">';
         html += '<span class="su-recent-date">' + fmtDate(r.date) + '</span>';
-        html += '<span><span class="sa-log-type sa-log-type--' + esc(r.type) + '">' + (_ti[r.type] || '') + ' ' + esc(r.type) + '</span></span>';
+        html += '<span><span class="sa-log-type sa-log-type--' + esc(_rType) + '">' + (_ti[_rType] || '') + '<span class="sa-log-type__label" title="' + esc(_rType) + '">' + esc(_rType) + '</span></span></span>';
         html += '<span class="su-item">' + esc(r.item || 'N/A') + '</span>';
         html += '<span>' + num(r.ep) + ' EP</span>';
         html += '<span><span class="sa-log-status sa-log-status--' + sc + '">' + esc(r.status) + '</span></span>';
