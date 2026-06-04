@@ -1834,6 +1834,7 @@
   var _ieActiveVariant = -1;  // -1 = General tab
   var _IE_MAX_TABS = 11;      // includes the permanent General tab
   var _creatorsCache = null;  // lazy-loaded [{discord_id, username}]
+  var _ieEditBaselineSnapshot = null;
 
   function _ieSaveVariantData(modal) {
     if (_ieActiveVariant < 0 || _ieActiveVariant >= _ieVariants.length) return;
@@ -1949,6 +1950,7 @@
         var moved = _ieImages.splice(fromIdx, 1)[0];
         _ieImages.splice(toIdx, 0, moved);
         _ieRenderImageList(container);
+        container.dispatchEvent(new CustomEvent('ie:images-changed', { bubbles: true }));
       });
     });
   }
@@ -1968,6 +1970,7 @@
         if (data.ok) {
           _ieImages.push({ name: file.name, url: data.url });
           _ieRenderImageList(listEl);
+          listEl.dispatchEvent(new CustomEvent('ie:images-changed', { bubbles: true }));
         } else {
           showToast('\u26a0 ' + (data.error || 'Upload failed'), 'warn');
           if (addBtn) addBtn.style.display = _ieImages.length >= 3 ? 'none' : '';
@@ -1984,6 +1987,7 @@
     var bd    = document.getElementById('saModalBackdrop');
     _ieVariants = [];
     _ieActiveVariant = -1;
+    _ieEditBaselineSnapshot = null;
 
     // Edit mode: seed variant state from existing item data
     if (!isNew && item) {
@@ -2028,7 +2032,7 @@
                 spend_order: item.spend_order || 'clean_first',
                 cooldown_type: _iCd.type, cooldown_num: String(_iCd.n),
                 activate_at: item.activate_at || '', deactivate_at: item.deactivate_at || '',
-                active: 'true',
+                active: item.active !== false ? 'true' : 'false',
               };
             })()
           });
@@ -2543,6 +2547,7 @@
             pill.remove();
             _ieCatSyncHidden(ch);
             if (cg) cg.placeholder = _ieCatTags.length ? '' : 'Type and press Space or Enter\u2026';
+            _syncEditSubmitButton();
           });
           pill.appendChild(x);
           cc.insertBefore(pill, cg);
@@ -2556,6 +2561,40 @@
       if (_cdT && _cdN) _cdN.style.display = (_cdT.value === 'days' || _cdT.value === 'cycles') ? '' : 'none';
       var _dT = modal.querySelector('#ieDurType'), _dN = modal.querySelector('#ieDurHrs');
       if (_dT && _dN) _dN.style.display = _dT.value === 'eoc_minus_2' ? 'none' : '';
+      _syncEditSubmitButton();
+    }
+    var submitBtn = modal.querySelector('#ieSubmit');
+    function _serializeEditorState() {
+      try { return JSON.stringify(_ieCollect(modal)); }
+      catch (_) { return ''; }
+    }
+    function _isEditDirty() {
+      if (isNew) return true;
+      if (!_ieEditBaselineSnapshot) return false;
+      return _serializeEditorState() !== _ieEditBaselineSnapshot;
+    }
+    function _syncEditSubmitButton() {
+      if (!submitBtn) return;
+      if (isNew) {
+        submitBtn.style.display = '';
+        if (!submitBtn.disabled) submitBtn.textContent = 'Create Item';
+        return;
+      }
+      var dirty = _isEditDirty();
+      submitBtn.style.display = dirty ? '' : 'none';
+      if (!submitBtn.disabled) submitBtn.textContent = 'Save Changes';
+    }
+    if (!isNew) {
+      modal.addEventListener('input', _syncEditSubmitButton);
+      modal.addEventListener('change', _syncEditSubmitButton);
+      modal.addEventListener('ie:images-changed', _syncEditSubmitButton);
+      modal.addEventListener('click', function (e) {
+        if (e.target.closest('.ie-rank-chip') ||
+            e.target.closest('.ie-tag-x') ||
+            e.target.closest('.ie-img-row-btn')) {
+          _syncEditSubmitButton();
+        }
+      });
     }
 
     // Type toggle (bin/auction sections) + auction variant constraint
@@ -2777,12 +2816,14 @@
         pill.remove();
         _ieCatSyncHidden(catHidden);
         _catUpdatePlaceholder();
+        _syncEditSubmitButton();
       });
       pill.appendChild(x);
       catContainer.insertBefore(pill, catGhost);
       catGhost.value = '';
       _ieCatSyncHidden(catHidden);
       _catUpdatePlaceholder();
+      _syncEditSubmitButton();
     }
 
     function _catUpdatePlaceholder() {
@@ -2799,6 +2840,7 @@
         pill.remove();
         _ieCatSyncHidden(catHidden);
         _catUpdatePlaceholder();
+        _syncEditSubmitButton();
       });
     });
 
@@ -2816,6 +2858,7 @@
           pill.remove();
           _ieCatSyncHidden(catHidden);
           _catUpdatePlaceholder();
+          _syncEditSubmitButton();
         }
       }
     });
@@ -2924,6 +2967,7 @@
       chip.addEventListener('click', function () {
         var s = parseInt(chip.dataset.state) || 0;
         chip.dataset.state = s === 0 ? 1 : (s === 1 ? -1 : 0);
+        _syncEditSubmitButton();
       });
     });
 
@@ -2941,6 +2985,10 @@
       });
     }
     _ieRenderImageList(imgList);
+    if (!isNew && !_ieEditBaselineSnapshot) {
+      _ieEditBaselineSnapshot = _serializeEditorState();
+    }
+    _syncEditSubmitButton();
 
     // Upload button
     if (imgAddBtn && imgFileInput) {
@@ -2962,12 +3010,15 @@
         if (e.target.closest('.ie-img-row-up') && idx > 0) {
           tmp = _ieImages[idx]; _ieImages[idx] = _ieImages[idx - 1]; _ieImages[idx - 1] = tmp;
           _ieRenderImageList(imgList);
+          _syncEditSubmitButton();
         } else if (e.target.closest('.ie-img-row-down') && idx < _ieImages.length - 1) {
           tmp = _ieImages[idx]; _ieImages[idx] = _ieImages[idx + 1]; _ieImages[idx + 1] = tmp;
           _ieRenderImageList(imgList);
+          _syncEditSubmitButton();
         } else if (e.target.closest('.ie-img-row-remove')) {
           _ieImages.splice(idx, 1);
           _ieRenderImageList(imgList);
+          _syncEditSubmitButton();
         }
       });
     }
@@ -3000,11 +3051,13 @@
     }
 
     // submit
-    modal.querySelector('#ieSubmit').addEventListener('click', function () {
-      var btn = this;
+    if (!submitBtn) return;
+    submitBtn.addEventListener('click', function () {
+      var btn = submitBtn;
       var fields = _ieCollect(modal);
       if (!fields.name) { showToast('\u26a0 Name is required.', 'warn'); return; }
       if (isNew && !fields.id) { showToast('\u26a0 ID is required.', 'warn'); return; }
+      if (!isNew && !_isEditDirty()) { showToast('\u26a0 No changes to save.', 'warn'); _syncEditSubmitButton(); return; }
       // Validate Accepts Dirty EP / Spend Order consistency
       if (fields.variants && fields.variants.length) {
         // Per-variant validation
@@ -3057,12 +3110,12 @@
           _notifyShopUpdated();
         } else {
           showToast('\u26a0 ' + (res.data.error || 'Save failed'), 'warn');
-          btn.disabled = false; btn.textContent = isNew ? 'Create Item' : 'Save Changes';
+          btn.disabled = false; _syncEditSubmitButton();
         }
       })
       .catch(function () {
         showToast('\u26a0 Network error', 'warn');
-        btn.disabled = false; btn.textContent = isNew ? 'Create Item' : 'Save Changes';
+        btn.disabled = false; _syncEditSubmitButton();
       });
     });
   }

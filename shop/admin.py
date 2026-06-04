@@ -1400,6 +1400,45 @@ def _build_item(fields: dict) -> dict:
 
     return item
 
+def _collapse_default_single_variant(item: dict) -> dict:
+    """Treat legacy top-level and implicit single-variant shapes as equivalent."""
+    if not isinstance(item, dict):
+        return {}
+    out = dict(item)
+    if out.get("type") == "auction":
+        return out
+    variants = out.get("variants")
+    if not isinstance(variants, list) or len(variants) != 1:
+        return out
+    v = variants[0]
+    if not isinstance(v, dict):
+        return out
+    v_name = (v.get("name") or "").strip()
+    v_label = (v.get("label") or "").strip().lower()
+    if v_name:
+        return out
+    if v_label not in ("", "variant", "variant 1"):
+        return out
+    shared_keys = (
+        "price", "stock", "max_quantity", "accepts_dirty_ep", "spend_order",
+        "cooldown", "activate_at", "deactivate_at", "active",
+    )
+    for key in shared_keys:
+        if v.get(key) != out.get(key):
+            return out
+    out.pop("variants", None)
+    return out
+
+def _canonical_item_for_compare(raw_item: dict | None) -> dict:
+    """Build a stable, semantic representation for no-op checks and diffs."""
+    if not isinstance(raw_item, dict):
+        return {}
+    canonical = _build_item(dict(raw_item))
+    return _collapse_default_single_variant(canonical)
+
+def _items_semantically_equal(old_item: dict | None, new_item: dict | None) -> bool:
+    return _canonical_item_for_compare(old_item) == _canonical_item_for_compare(new_item)
+
 def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
                      actor: str = "unknown") -> dict:
     """Create (is_new=True) or fully update (is_new=False) an item in shop_items.json.
@@ -1495,6 +1534,8 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
                 fields["creator_discord_id"] = items[idx]["creator_discord_id"]
             fields["id"] = item_id
             item = _build_item(fields)
+            if _items_semantically_equal(old_item, item):
+                return {"error": "No changes to save"}
             items[idx] = item
 
         try:
@@ -1573,11 +1614,13 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
     if is_new:
         _log_details["item"] = dict(item)
     elif old_item is not None:
+        _old_for_diff = _canonical_item_for_compare(old_item)
+        _new_for_diff = _canonical_item_for_compare(item)
         _diff = {}
-        for _k in sorted(set(old_item.keys()) | set(item.keys())):
+        for _k in sorted(set(_old_for_diff.keys()) | set(_new_for_diff.keys())):
             if _k == "id":
                 continue
-            _ov, _nv = old_item.get(_k), item.get(_k)
+            _ov, _nv = _old_for_diff.get(_k), _new_for_diff.get(_k)
             if _ov != _nv:
                 _diff[_k] = [_ov, _nv]
         if _diff:
