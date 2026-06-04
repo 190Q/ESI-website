@@ -969,6 +969,7 @@ select.sa-filter-input { cursor: pointer; }
 
 /* Log row grid */
 .sa-log-row { grid-template-columns: 1.3fr 1fr 1fr 0.7fr 1fr 0.8fr; }
+.sa-log-row > span { min-width: 0; }
 
 /* Type pills */
 .sa-log-type {
@@ -982,6 +983,22 @@ select.sa-filter-input { cursor: pointer; }
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: capitalize;
+  white-space: nowrap;
+  max-width: 100%;
+  min-width: 0;
+  overflow: visible;
+}
+.sa-log-type svg {
+  flex-shrink: 0;
+}
+.sa-log-type__label {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  padding-left: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .sa-log-type--purchase {
@@ -1538,6 +1555,11 @@ select.sa-filter-input { cursor: pointer; }
 
 /* Changes log row: 5-column grid */
 .sa-log-row.sa-chg-row { grid-template-columns: 1.3fr 1fr 0.7fr 1fr 1.5fr; }
+.sa-log-row.sa-chg-row > span:not(.sa-chg-changes) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .sa-chg-target { font-size: 0.78rem; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sa-chg-changes { font-size: 0.76rem; color: var(--text-secondary); word-break: break-word; line-height: 1.5; }
 .sa-chg-field { color: var(--text-faint); font-weight: 600; }
