@@ -3897,32 +3897,163 @@ def _points_player_table(uuid):
 
 
 def _points_guild_ranks_and_members():
-    """Return (guild_ranks_by_lower_username, set_of_guild_usernames_lower) from the latest api DB."""
+    """Return (guild_ranks, guild_members, guild_uuids) from the latest api DB."""
     db = _get_latest_api_db()
     if not db:
-        return {}, set()
+        return {}, set(), {}
     try:
         conn = _sqlite3.connect(db)
         c = conn.cursor()
-        c.execute("SELECT username, guild_rank FROM player_stats")
+        c.execute("SELECT username, guild_rank, uuid FROM player_stats")
         ranks = {}
         members = set()
+        uuids = {}
         for row in c.fetchall():
             uname = (row[0] or "").strip()
             if not uname:
                 continue
             members.add(uname.lower())
             ranks[uname.lower()] = (row[1] or "").lower()
+            if row[2]:
+                uuids[uname.lower()] = row[2]
         conn.close()
-        return ranks, members
+        return ranks, members, uuids
     except Exception:
-        return {}, set()
+        return {}, set(), {}
 
 
 def _points_is_dirty_reason(reason):
     """Mirror utils.esi_points.is_dirty_reason: True if the EP reason is dirty for HR."""
     r = (reason or "").strip().lower()
-    return r in {"guild raid", "war"} or r.startswith("quest")
+    return r == "war" or r.startswith("guild raid") or r.startswith("quest")
+
+
+def _points_graph_graid_ep_by_username(cycle_id):
+    """Infer per-player guild-raid EP + per-day breakdown from cached graph metrics."""
+    if cycle_id <= 0:
+        return {}
+    activity = _fetch_cache("/cache/activity")
+    if not isinstance(activity, dict):
+        return {}
+    members = activity.get("members") or {}
+    if not isinstance(members, dict):
+        return {}
+
+    start, end = _points_get_cycle_bounds(cycle_id)
+    start_day = start.date().isoformat()
+    end_day = end.date().isoformat()
+    inferred = {}
+
+    for key, entry in members.items():
+        if not isinstance(entry, dict):
+            continue
+        username = (entry.get("username") or key or "").strip()
+        ulow = username.lower()
+        if not ulow:
+            continue
+        dates = entry.get("metricDates")
+        graids = entry.get("guildRaids")
+        if not isinstance(dates, list) or not isinstance(graids, list):
+            continue
+        daily_ep = {}
+        for i, day in enumerate(dates):
+            if i >= len(graids):
+                break
+            if not isinstance(day, str):
+                continue
+            if day <= start_day or day > end_day:
+                continue
+            val = int(round(_safe_number(graids[i])))
+            if val > 0:
+                daily_ep[day] = daily_ep.get(day, 0) + (val * 10)
+        if daily_ep:
+            ordered_days = sorted(daily_ep.keys())
+            inferred[ulow] = {
+                "total_ep": sum(daily_ep.values()),
+                "daily_ep": [
+                    {"day": day, "ep": int(daily_ep[day])}
+                    for day in ordered_days
+                ],
+            }
+
+    return inferred
+
+
+def _points_graph_entry_total_and_daily(per_user, username_lower):
+    """Read one graph-fallback entry into (total_ep, daily_ep_rows)."""
+    entry = per_user.get(username_lower, 0)
+    if isinstance(entry, dict):
+        total_ep = int(_safe_number(entry.get("total_ep", 0)))
+        daily_ep = entry.get("daily_ep")
+        if not isinstance(daily_ep, list):
+            daily_ep = []
+        return total_ep, daily_ep
+    return int(_safe_number(entry)), []
+
+def _points_recorded_graid_ep(history_rows, cycle_id):
+    """Return Guild Raid EP already recorded in history for one cycle."""
+    return sum(
+        int(h.get("points_gained") or 0)
+        for h in (history_rows or [])
+        if h.get("cycle_id") == cycle_id
+        and (h.get("reason") or "").strip().lower().startswith("guild raid")
+    )
+
+
+def _points_apply_graph_graid_fallback(username, cycle_ids, cycle_history, cycle_graid_ep_by_user):
+    """Return (missing_ep, synthetic_rows) from graph-inferred guild-raid EP."""
+    ulow = (username or "").strip().lower()
+    if not ulow or not isinstance(cycle_graid_ep_by_user, dict):
+        return 0, []
+
+    missing_total = 0
+    synthetic_rows = []
+    for cid in cycle_ids:
+        per_user = cycle_graid_ep_by_user.get(cid) or {}
+        expected, daily_ep = _points_graph_entry_total_and_daily(per_user, ulow)
+        if expected <= 0:
+            continue
+        recorded = _points_recorded_graid_ep(cycle_history, cid)
+        missing = max(0, expected - recorded)
+        if missing <= 0:
+            continue
+        missing_total += missing
+        remaining = missing
+        for day_row in sorted(daily_ep, key=lambda r: (r.get("day") or ""), reverse=True):
+            day = (day_row.get("day") or "").strip()
+            if not day:
+                continue
+            day_ep = int(_safe_number(day_row.get("ep", 0)))
+            if day_ep <= 0:
+                continue
+            chunk = min(day_ep, remaining)
+            if chunk <= 0:
+                continue
+            synthetic_rows.append({
+                "record_id": None,
+                "username": username,
+                "points_gained": chunk,
+                "cycle_id": cid,
+                "reason": "Guild Raid",
+                "timestamp": f"{day}T23:59:59+00:00",
+                "is_dirty": 1,
+            })
+            remaining -= chunk
+            if remaining <= 0:
+                break
+        if remaining > 0:
+            cycle_start, _ = _points_get_cycle_bounds(cid)
+            synthetic_rows.append({
+                "record_id": None,
+                "username": username,
+                "points_gained": remaining,
+                "cycle_id": cid,
+                "reason": "Guild Raid",
+                "timestamp": cycle_start.isoformat(),
+                "is_dirty": 1,
+            })
+
+    return missing_total, synthetic_rows
 
 
 def _points_fetch_player_history(uuid):
@@ -3963,17 +4094,22 @@ def _points_calc_le(username, total_points, history, guild_ranks):
     if rank in _POINTS_HR_RANKS:
         le_points = sum(
             r["points_gained"] for r in (history or [])
-            if (r.get("reason") or "").lower() not in {"guild raid", "war"}
-            and not (r.get("reason") or "").lower().startswith("quest")
+            if not _points_is_dirty_reason(r.get("reason"))
         )
         return le_points / _POINTS_LE_DIVISOR
     return (total_points or 0) / _POINTS_LE_DIVISOR
 
 
-def _points_rows_for_cycles(cycle_ids, guild_members):
-    """Return list of {uuid, username, points, clean_ep, dirty_ep} summed across the given cycles, restricted to guild members."""
+def _points_rows_for_cycles(cycle_ids, guild_members, guild_uuids=None, cycle_graid_ep_by_user=None, history_cache=None):
+    """Return list of {uuid, username, points, clean_ep, dirty_ep} including graph-fallback guild-raid EP."""
     if not cycle_ids:
         return []
+    cycle_ids = list(cycle_ids)
+    guild_uuids = guild_uuids or {}
+    cycle_graid_ep_by_user = cycle_graid_ep_by_user or {}
+    history_cache = history_cache if history_cache is not None else {}
+
+    rows = []
     try:
         conn = _sqlite3.connect(_POINTS_DB)
         c = conn.cursor()
@@ -3986,49 +4122,126 @@ def _points_rows_for_cycles(cycle_ids, guild_members):
         rows = c.fetchall()
         conn.close()
     except _sqlite3.OperationalError:
-        return []
+        rows = []
+
     out = []
+    seen_users = set()
+
     for uuid, username, pts, clean, dirty in rows:
-        if guild_members and (username or "").lower() not in guild_members:
+        ulow = (username or "").lower()
+        if guild_members and ulow not in guild_members:
             continue
         total = int(pts or 0)
         if total <= 0:
             continue
-        out.append({"uuid": uuid, "username": username, "points": total,
-                     "clean_ep": int(clean or 0), "dirty_ep": int(dirty or 0)})
-    return out
 
-
-def _points_build_leaderboard(cycle_ids, guild_ranks, guild_members, history_cache):
-    """Build a ranked leaderboard for a set of cycles. history_cache is mutated as a memoization store."""
-    rows = _points_rows_for_cycles(cycle_ids, guild_members)
-    enriched = []
-    for r in rows:
-        uuid = r["uuid"]
         if uuid not in history_cache:
             history_cache[uuid] = _points_fetch_player_history(uuid)
         history = history_cache[uuid]
-        cycle_history = [h for h in history if h["cycle_id"] in cycle_ids]
-        le = _points_calc_le(r["username"], r["points"], cycle_history, guild_ranks)
-        clean = r.get("clean_ep", 0)
-        dirty = r.get("dirty_ep", 0)
-        # Fallback: if persisted values are both 0 but points > 0, compute from history
-        if clean == 0 and dirty == 0 and r["points"] > 0:
+        cycle_history = [h for h in history if h.get("cycle_id") in cycle_ids]
+        fallback_ep, _ = _points_apply_graph_graid_fallback(
+            username, cycle_ids, cycle_history, cycle_graid_ep_by_user
+        )
+        if fallback_ep > 0:
+            total += fallback_ep
+            dirty = int(dirty or 0) + fallback_ep
+
+        out.append({
+            "uuid": uuid,
+            "username": username,
+            "points": total,
+            "clean_ep": int(clean or 0),
+            "dirty_ep": int(dirty or 0),
+            "fallback_ep": int(fallback_ep or 0),
+        })
+        seen_users.add(ulow)
+
+    fallback_users = set()
+    for cid in cycle_ids:
+        per_user = cycle_graid_ep_by_user.get(cid) or {}
+        if isinstance(per_user, dict):
+            fallback_users.update(per_user.keys())
+
+    for ulow in sorted(fallback_users):
+        if ulow in seen_users:
+            continue
+        if guild_members and ulow not in guild_members:
+            continue
+
+        username = ulow
+        uuid = guild_uuids.get(ulow)
+        if uuid and uuid not in history_cache:
+            history_cache[uuid] = _points_fetch_player_history(uuid)
+        cycle_history = []
+        if uuid:
+            cycle_history = [h for h in (history_cache.get(uuid) or []) if h.get("cycle_id") in cycle_ids]
+
+        fallback_ep, _ = _points_apply_graph_graid_fallback(
+            username, cycle_ids, cycle_history, cycle_graid_ep_by_user
+        )
+        if fallback_ep <= 0:
+            continue
+
+        out.append({
+            "uuid": uuid,
+            "username": username,
+            "points": int(fallback_ep),
+            "clean_ep": 0,
+            "dirty_ep": int(fallback_ep),
+            "fallback_ep": int(fallback_ep),
+        })
+
+    return out
+
+
+def _points_build_leaderboard(cycle_ids, guild_ranks, guild_members, history_cache, guild_uuids=None, cycle_graid_ep_by_user=None):
+    """Build a ranked leaderboard for a set of cycles with graph-fallback guild-raid EP."""
+    rows = _points_rows_for_cycles(
+        cycle_ids,
+        guild_members,
+        guild_uuids=guild_uuids,
+        cycle_graid_ep_by_user=cycle_graid_ep_by_user,
+        history_cache=history_cache,
+    )
+    enriched = []
+    for r in rows:
+        uuid = r.get("uuid")
+        base_history = []
+        if uuid:
+            if uuid not in history_cache:
+                history_cache[uuid] = _points_fetch_player_history(uuid)
+            base_history = history_cache.get(uuid) or []
+        cycle_history = [h for h in base_history if h.get("cycle_id") in cycle_ids]
+
+        fallback_ep, synthetic_rows = _points_apply_graph_graid_fallback(
+            r["username"], cycle_ids, cycle_history, cycle_graid_ep_by_user or {}
+        )
+        effective_history = cycle_history + synthetic_rows
+        effective_points = int(r.get("points") or 0)
+
+        le = _points_calc_le(r["username"], effective_points, effective_history, guild_ranks)
+        clean = int(r.get("clean_ep", 0))
+        dirty = int(r.get("dirty_ep", 0))
+        if clean == 0 and dirty == 0 and effective_points > 0:
             rank = guild_ranks.get((r["username"] or "").lower(), "")
             if rank in _POINTS_HR_RANKS:
-                dirty = sum(h["points_gained"] for h in cycle_history if _points_is_dirty_reason(h.get("reason")))
-                clean = r["points"] - dirty
+                dirty = sum(h["points_gained"] for h in effective_history if _points_is_dirty_reason(h.get("reason")))
+                clean = effective_points - dirty
             else:
-                clean = r["points"]
+                clean = effective_points
+        elif fallback_ep > 0 and clean > 0:
+            clean = max(0, clean - fallback_ep)
+
         enriched.append({
             "uuid": uuid,
             "username": r["username"],
-            "points": r["points"],
+            "points": effective_points,
             "clean_ep": clean,
             "dirty_ep": dirty,
             "le": le,
             "rank": (guild_ranks.get((r["username"] or "").lower(), "") or None),
         })
+
     enriched.sort(key=lambda x: (x["points"], x["le"]), reverse=True)
     for i, p in enumerate(enriched, 1):
         p["position"] = i
@@ -4050,12 +4263,36 @@ def guild_points():
 
     current_cycle = _points_get_cycle_id()
     previous_cycle = current_cycle - 1
-    guild_ranks, guild_members = _points_guild_ranks_and_members()
+    guild_ranks, guild_members, guild_uuids = _points_guild_ranks_and_members()
+    cycle_graid_ep_by_user = {
+        current_cycle: _points_graph_graid_ep_by_username(current_cycle)
+    }
     history_cache = {}
 
-    current_board = _points_build_leaderboard([current_cycle], guild_ranks, guild_members, history_cache)
-    previous_board = _points_build_leaderboard([previous_cycle], guild_ranks, guild_members, history_cache)
-    both_board = _points_build_leaderboard([previous_cycle, current_cycle], guild_ranks, guild_members, history_cache)
+    current_board = _points_build_leaderboard(
+        [current_cycle],
+        guild_ranks,
+        guild_members,
+        history_cache,
+        guild_uuids=guild_uuids,
+        cycle_graid_ep_by_user=cycle_graid_ep_by_user,
+    )
+    previous_board = _points_build_leaderboard(
+        [previous_cycle],
+        guild_ranks,
+        guild_members,
+        history_cache,
+        guild_uuids=guild_uuids,
+        cycle_graid_ep_by_user=cycle_graid_ep_by_user,
+    )
+    both_board = _points_build_leaderboard(
+        [previous_cycle, current_cycle],
+        guild_ranks,
+        guild_members,
+        history_cache,
+        guild_uuids=guild_uuids,
+        cycle_graid_ep_by_user=cycle_graid_ep_by_user,
+    )
 
     current_meta = _points_cycle_meta(current_cycle)
     previous_meta = _points_cycle_meta(previous_cycle)
@@ -4078,6 +4315,12 @@ def guild_points():
 def player_points(username: str):
     if not os.path.exists(_POINTS_DB):
         return jsonify({"available": False, "username": username})
+    current_cycle = _points_get_cycle_id()
+    previous_cycle = current_cycle - 1
+    guild_ranks, guild_members, guild_uuids = _points_guild_ranks_and_members()
+    cycle_graid_ep_by_user = {
+        current_cycle: _points_graph_graid_ep_by_username(current_cycle)
+    }
 
     # resolve uuid from points DB (case-insensitive)
     try:
@@ -4092,15 +4335,11 @@ def player_points(username: str):
         conn.close()
     except _sqlite3.OperationalError:
         row = None
+    resolved_name = row[1] if row else username
+    uuid = row[0] if row else guild_uuids.get((username or "").lower())
 
-    if not row:
+    if not uuid:
         return jsonify({"available": True, "username": username, "found": False})
-
-    uuid, resolved_name = row
-
-    current_cycle = _points_get_cycle_id()
-    previous_cycle = current_cycle - 1
-    guild_ranks, guild_members = _points_guild_ranks_and_members()
 
     # points per cycle for this player
     try:
@@ -4120,25 +4359,63 @@ def player_points(username: str):
     # build the three leaderboards so we can stamp per-section ranks
     history_cache = {uuid: history}
     boards = {
-        "current":  _points_build_leaderboard([current_cycle],                    guild_ranks, guild_members, history_cache),
-        "previous": _points_build_leaderboard([previous_cycle],                   guild_ranks, guild_members, history_cache),
-        "both":     _points_build_leaderboard([previous_cycle, current_cycle],    guild_ranks, guild_members, history_cache),
+        "current": _points_build_leaderboard(
+            [current_cycle],
+            guild_ranks,
+            guild_members,
+            history_cache,
+            guild_uuids=guild_uuids,
+            cycle_graid_ep_by_user=cycle_graid_ep_by_user,
+        ),
+        "previous": _points_build_leaderboard(
+            [previous_cycle],
+            guild_ranks,
+            guild_members,
+            history_cache,
+            guild_uuids=guild_uuids,
+            cycle_graid_ep_by_user=cycle_graid_ep_by_user,
+        ),
+        "both": _points_build_leaderboard(
+            [previous_cycle, current_cycle],
+            guild_ranks,
+            guild_members,
+            history_cache,
+            guild_uuids=guild_uuids,
+            cycle_graid_ep_by_user=cycle_graid_ep_by_user,
+        ),
     }
 
     def _section(cycle_ids, meta, board_key):
         pts = sum(cycle_rows.get(cid, {}).get("points", 0) for cid in cycle_ids)
         clean = sum(cycle_rows.get(cid, {}).get("clean_ep", 0) for cid in cycle_ids)
         dirty = sum(cycle_rows.get(cid, {}).get("dirty_ep", 0) for cid in cycle_ids)
-        # Fallback: if persisted values are both 0 but points > 0, compute from history
         cycle_history = [h for h in history if h["cycle_id"] in cycle_ids]
+        fallback_ep, synthetic_rows = _points_apply_graph_graid_fallback(
+            resolved_name,
+            cycle_ids,
+            cycle_history,
+            cycle_graid_ep_by_user,
+        )
+        pts += int(fallback_ep or 0)
+        if fallback_ep > 0:
+            dirty += int(fallback_ep)
+        effective_history = cycle_history + synthetic_rows
+        effective_history.sort(key=lambda h: h.get("timestamp") or "", reverse=True)
         if clean == 0 and dirty == 0 and pts > 0:
             rank = guild_ranks.get((resolved_name or "").lower(), "")
             if rank in _POINTS_HR_RANKS:
-                dirty = sum(h["points_gained"] for h in cycle_history if _points_is_dirty_reason(h.get("reason")))
+                dirty = sum(
+                    h["points_gained"]
+                    for h in effective_history
+                    if _points_is_dirty_reason(h.get("reason"))
+                )
                 clean = pts - dirty
             else:
                 clean = pts
-        le = _points_calc_le(resolved_name, pts, cycle_history, guild_ranks)
+        elif fallback_ep > 0 and clean > 0:
+            clean = max(0, clean - int(fallback_ep))
+
+        le = _points_calc_le(resolved_name, pts, effective_history, guild_ranks)
         board = boards[board_key]
         entry = next((p for p in board["players"] if p["uuid"] == uuid), None)
         return {
@@ -4147,7 +4424,7 @@ def player_points(username: str):
             "clean_ep": clean,
             "dirty_ep": dirty,
             "le": le,
-            "history": cycle_history,
+            "history": effective_history,
             "leaderboard_position": entry["position"] if entry else None,
             "leaderboard_size": board["total_players"],
         }

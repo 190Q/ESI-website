@@ -21,10 +21,22 @@ load_dotenv(os.path.join(_BASE_DIR, ".env"))
 # `.env.local` is gitignored so it never lands on the production server.
 load_dotenv(os.path.join(_BASE_DIR, ".env.local"), override=True)
 
-_ESI_BOT_DIR = (
-    os.environ.get("ESI_BOT_DIR")
-    or os.path.join(os.path.dirname(_BASE_DIR), "ESI-Bot")
-)
+def _resolve_esi_bot_dir():
+    """Resolve which local ESI-Bot checkout should provide runtime data."""
+    env_dir = (os.environ.get("ESI_BOT_DIR") or "").strip()
+    if env_dir:
+        return env_dir
+
+    sibling = os.path.join(os.path.dirname(_BASE_DIR), "ESI-Bot")
+    parent_sibling = os.path.join(os.path.dirname(os.path.dirname(_BASE_DIR)), "ESI-Bot")
+    if os.path.isdir(parent_sibling):
+        return parent_sibling
+    if os.path.isdir(sibling):
+        return sibling
+    return sibling
+
+
+_ESI_BOT_DIR = _resolve_esi_bot_dir()
 _DATA_FOLDER            = os.path.join(_ESI_BOT_DIR, "data")
 _ASPECTS_JSON           = os.path.join(_DATA_FOLDER, "aspects.json")
 _INACTIVITY_JSON        = os.path.join(_DATA_FOLDER, "inactivity_exemptions.json")
