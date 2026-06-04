@@ -785,12 +785,15 @@ function _renderRankTree(userRoles) {
       promoWrap.appendChild(hintEl);
 
       if (promo.method === 'apply' && promo.formType && _ESI_APP_FORMS[promo.formType]) {
-        var applyBtn = document.createElement('button');
-        applyBtn.className = 'rank-tree-apply-btn';
-        applyBtn.textContent = 'Apply';
-        applyBtn.setAttribute('data-form-type', promo.formType);
-        applyBtn.addEventListener('click', function () { _openApplyForm(promo.formType); });
-        promoWrap.appendChild(applyBtn);
+        var promoForm = _ESI_APP_FORMS[promo.formType];
+        if (_userCanApplyForForm(userRoles, promoForm)) {
+          var applyBtn = document.createElement('button');
+          applyBtn.className = 'rank-tree-apply-btn';
+          applyBtn.textContent = 'Apply';
+          applyBtn.setAttribute('data-form-type', promo.formType);
+          applyBtn.addEventListener('click', function () { _openApplyForm(promo.formType); });
+          promoWrap.appendChild(applyBtn);
+        }
       }
       info.appendChild(promoWrap);
     }
@@ -837,9 +840,7 @@ function _renderEchelonGrid(userRoles) {
     // Apply button for echelon roles that support it
     if (role.applyForm && !has && _ESI_APP_FORMS[role.applyForm]) {
       var form = _ESI_APP_FORMS[role.applyForm];
-      // check rank requirement
-      var meetsRank = !form.requireRank || _userHasMinRank(userRoles, form.requireRank);
-      if (meetsRank) {
+      if (_userCanApplyForForm(userRoles, form)) {
         var ecApply = document.createElement('button');
         ecApply.className = 'echelon-apply-btn';
         ecApply.textContent = 'Apply';
@@ -870,12 +871,31 @@ function _userHasMinRank(userRoles, minRankName) {
   return false;
 }
 
+function _userCanApplyForForm(userRoles, form) {
+  if (!form) return false;
+  if (form.requireRank && !_userHasMinRank(userRoles || [], form.requireRank)) {
+    return false;
+  }
+  if (form.requireCitizen) {
+    var citizenRoleId = ESI_CITIZEN_ROLE && ESI_CITIZEN_ROLE.id;
+    if (!citizenRoleId || !(userRoles || []).includes(citizenRoleId)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /* Application form */
 var _applyFormType = null;
 
 function _openApplyForm(formType) {
   var form = _ESI_APP_FORMS[formType];
   if (!form) return;
+  var userRoles = (state.user && state.user.roles) || [];
+  if (!_userCanApplyForForm(userRoles, form)) {
+    showToast('\u26A0 You do not meet the requirements for this application.', 'warn');
+    return;
+  }
   _applyFormType = formType;
 
   // hide tabs + tab panels, show the form
@@ -946,6 +966,11 @@ document.getElementById('accountApplySubmit').addEventListener('click', function
   if (!_applyFormType) return;
   var form = _ESI_APP_FORMS[_applyFormType];
   if (!form) return;
+  var userRoles = (state.user && state.user.roles) || [];
+  if (!_userCanApplyForForm(userRoles, form)) {
+    showToast('\u26A0 You do not meet the requirements for this application.', 'warn');
+    return;
+  }
   var answers = [];
   var allFilled = true;
   (form.questions || []).forEach(function (_, idx) {

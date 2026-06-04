@@ -412,8 +412,9 @@ _APPLICATION_FORMS = {
     "pride": {
         "title": "Sindrian Pride Application",
         "requireRank": None,
+        "requireCitizen": True,
         "requirements": [
-            "Open to all guild members.",
+            "Must have the Sindrian Citizen role.",
         ],
         "questions": [
             "Why do you want to join Sindrian Pride?",
@@ -668,7 +669,7 @@ _CLIENT_CONFIG = {
     "citizenRole": {"id": _ROLE_CITIZEN, "name": "Sindrian Citizen", "color": "#4acf5e"},
     "medals":  _medals_for_client(),
     "badges":  _build_badge_catalog(),
-    "applicationForms": {k: {"title": v["title"], "requireRank": v["requireRank"], "requirements": v.get("requirements", []), "questions": v["questions"]} for k, v in _APPLICATION_FORMS.items()},
+    "applicationForms": {k: {"title": v["title"], "requireRank": v["requireRank"], "requireCitizen": bool(v.get("requireCitizen")), "requirements": v.get("requirements", []), "questions": v["questions"]} for k, v in _APPLICATION_FORMS.items()},
     "guildId": DISCORD_GUILD_ID,
     "devMode": DEV_MODE,
     "serverTimezone": _SERVER_TIMEZONE,

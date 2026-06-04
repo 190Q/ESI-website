@@ -3500,6 +3500,8 @@ def submit_application():
     user_roles = set(user.get("roles") or [])
     if not _user_has_min_rank(list(user_roles), form["requireRank"]):
         return jsonify({"error": "You do not meet the rank requirement for this application."}), 403
+    if form.get("requireCitizen") and _ROLE_CITIZEN not in user_roles:
+        return jsonify({"error": "You must have the Sindrian Citizen role for this application."}), 403
     # validate answers
     answers = body.get("answers")
     if not isinstance(answers, list) or len(answers) != len(form["questions"]):
