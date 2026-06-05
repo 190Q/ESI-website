@@ -207,6 +207,9 @@
       || type === 'wave-interference'
       || type === 'penrose-tiling';
   }
+  function _isDotsPatternType(type) {
+    return type === 'dots-grid' || type === 'dots-random';
+  }
 
   function _withSeed(cfg, seed) {
     return {
@@ -232,7 +235,8 @@
   function _buildExpandedNoRepeatSvg(cfg, tileSvg, tileWidth, tileHeight, areaScaleX, areaScaleY) {
     var scaleX = Math.max(1, Math.round(areaScaleX || 1));
     var scaleY = Math.max(1, Math.round(areaScaleY || 1));
-    if (_isStochasticPatternType(cfg.type)) {
+    var shouldReseedExpanded = _isStochasticPatternType(cfg.type) && cfg.type !== 'dots-random';
+    if (shouldReseedExpanded) {
       var isDualAxisExpansion = scaleX > 1 && scaleY > 1;
       var maxStochasticScale = isDualAxisExpansion ? 8 : 24;
       scaleX = Math.min(scaleX, maxStochasticScale);
@@ -256,8 +260,34 @@
         height: watercolorBuilt.height || height,
       };
     }
+    if (cfg.type === 'dots-grid') {
+      var expandedGridCfg = _withSeed(cfg, cfg.seed);
+      expandedGridCfg.sizeX = width;
+      expandedGridCfg.sizeY = height;
+      expandedGridCfg.motifBaseSize = Math.max(1, Math.min(tileWidth, tileHeight));
+      var gridBuilt = _buildDotsGrid(expandedGridCfg);
+      if (!gridBuilt || !gridBuilt.svg) return null;
+      return {
+        svg: gridBuilt.svg,
+        width: gridBuilt.width || width,
+        height: gridBuilt.height || height,
+      };
+    }
+    if (cfg.type === 'dots-random') {
+      var expandedDotsCfg = _withSeed(cfg, cfg.seed);
+      expandedDotsCfg.sizeX = width;
+      expandedDotsCfg.sizeY = height;
+      expandedDotsCfg.motifBaseSize = Math.max(1, Math.min(tileWidth, tileHeight));
+      var dotsBuilt = _buildDotsRandom(expandedDotsCfg);
+      if (!dotsBuilt || !dotsBuilt.svg) return null;
+      return {
+        svg: dotsBuilt.svg,
+        width: dotsBuilt.width || width,
+        height: dotsBuilt.height || height,
+      };
+    }
 
-    if (_isStochasticPatternType(cfg.type)) {
+    if (shouldReseedExpanded) {
       for (var row = 0; row < scaleY; row++) {
         for (var col = 0; col < scaleX; col++) {
           var idx = row * scaleX + col + 1;
@@ -354,28 +384,66 @@
   }
 
   function _buildDotsGrid(cfg) {
-    var w = cfg.size;
-    var h = cfg.size;
-    var radius = Math.max(0.6, w * (0.03 + cfg.density * 0.11));
-    var svg = _svgOpen(w, h)
-      + '<circle cx="' + _fmt(w / 2) + '" cy="' + _fmt(h / 2) + '" r="' + _fmt(radius) + '" fill="' + cfg.color + '" fill-opacity="' + _fmt(cfg.opacity) + '"/>'
-      + _svgClose();
+    var w = cfg.sizeX || cfg.size;
+    var h = cfg.sizeY || cfg.size;
+    var motifBase = Math.max(1, cfg.motifBaseSize || cfg.size);
+    var cells = 2 + Math.round(cfg.density * 4);
+    var baseStep = motifBase / cells;
+    var cols = Math.max(1, Math.round(w / baseStep));
+    var rows = Math.max(1, Math.round(h / baseStep));
+    var stepX = w / cols;
+    var stepY = h / rows;
+    var radius = Math.max(0.45, Math.min(stepX, stepY) * (0.18 + cfg.density * 0.12));
+    var svg = _svgOpen(w, h);
+    for (var row = 0; row < rows; row++) {
+      var y = (row + 0.5) * stepY;
+      for (var col = 0; col < cols; col++) {
+        var x = (col + 0.5) * stepX;
+        var usePrimary = ((row + col) % 2) === 0;
+        var color = usePrimary ? cfg.color : cfg.color2;
+        var alpha = _clamp(cfg.opacity * (usePrimary ? 1 : 0.78), 0.02, 1);
+        svg += '<circle cx="' + _fmt(x) + '" cy="' + _fmt(y) + '" r="' + _fmt(radius) + '" fill="' + color + '" fill-opacity="' + _fmt(alpha) + '"/>';
+      }
+    }
+    svg += _svgClose();
     return { svg: svg, width: w, height: h };
   }
 
   function _buildDotsRandom(cfg) {
     var rng = _seededRng(cfg.seed + 101);
-    var w = cfg.size;
-    var h = cfg.size;
-    var count = Math.round(8 + cfg.density * 28);
+    var w = cfg.sizeX || cfg.size;
+    var h = cfg.sizeY || cfg.size;
+    var motifBase = Math.max(1, cfg.motifBaseSize || cfg.size);
+    var areaFactor = Math.max(1, (w * h) / (motifBase * motifBase));
+    var count = Math.round((8 + cfg.density * 28) * areaFactor);
+    var useFullWrap = areaFactor <= 1.2;
     var svg = _svgOpen(w, h);
     for (var i = 0; i < count; i++) {
       var x = rng() * w;
       var y = rng() * h;
-      var radius = w * (0.012 + rng() * (0.03 + cfg.density * 0.08));
+      var radius = motifBase * (0.012 + rng() * (0.03 + cfg.density * 0.08));
       var color = i % 3 === 0 ? cfg.color2 : cfg.color;
       var alpha = _clamp(cfg.opacity * (0.4 + rng() * 0.8), 0.03, 1);
-      svg += '<circle cx="' + _fmt(x) + '" cy="' + _fmt(y) + '" r="' + _fmt(radius) + '" fill="' + color + '" fill-opacity="' + _fmt(alpha) + '"/>';
+      if (useFullWrap) {
+        for (var ox = -1; ox <= 1; ox++) {
+          for (var oy = -1; oy <= 1; oy++) {
+            svg += '<circle cx="' + _fmt(x + (ox * w)) + '" cy="' + _fmt(y + (oy * h)) + '" r="' + _fmt(radius) + '" fill="' + color + '" fill-opacity="' + _fmt(alpha) + '"/>';
+          }
+        }
+      } else {
+        var reach = radius + 1.5;
+        var xOffsets = [0];
+        var yOffsets = [0];
+        if (x - reach < 0) xOffsets.push(w);
+        if (x + reach > w) xOffsets.push(-w);
+        if (y - reach < 0) yOffsets.push(h);
+        if (y + reach > h) yOffsets.push(-h);
+        for (var xi = 0; xi < xOffsets.length; xi++) {
+          for (var yi = 0; yi < yOffsets.length; yi++) {
+            svg += '<circle cx="' + _fmt(x + xOffsets[xi]) + '" cy="' + _fmt(y + yOffsets[yi]) + '" r="' + _fmt(radius) + '" fill="' + color + '" fill-opacity="' + _fmt(alpha) + '"/>';
+          }
+        }
+      }
     }
     svg += _svgClose();
     return { svg: svg, width: w, height: h };
@@ -955,16 +1023,35 @@
     var resolvedSizeY = sizeY;
     var position = 'top left';
     var resolvedRepeat = cfg.repeat;
+    var preserveRepeatModes = _isDotsPatternType(cfg.type);
 
     if (cfg.repeat === 'space') {
-      if (hasFixedTargets) {
-        resolvedRepeat = 'repeat';
+      if (preserveRepeatModes) {
+        if (built.svg && width > 0 && height > 0) {
+          var dotsSpaceScale = Math.max(2, Math.min(cfg.noRepeatScale, 3));
+          var expandedSpace = _buildExpandedNoRepeatSvg(cfg, built.svg, width, height, dotsSpaceScale, dotsSpaceScale);
+          if (expandedSpace && expandedSpace.svg) {
+            image = _svgToCssUrl(expandedSpace.svg);
+            resolvedSizeX = _fmt(expandedSpace.width) + 'px';
+            resolvedSizeY = _fmt(expandedSpace.height) + 'px';
+            position = 'top left';
+            resolvedRepeat = 'repeat';
+          } else {
+            resolvedRepeat = 'space';
+          }
+        } else {
+          resolvedRepeat = 'space';
+        }
       } else {
-        var spaceTileCountX = width > 0 ? Math.floor(viewportWidth / width) : 0;
-        var spaceTileCountY = height > 0 ? Math.floor(viewportHeight / height) : 0;
-        var repeatX = spaceTileCountX >= 3 ? 'space' : 'repeat';
-        var repeatY = spaceTileCountY >= 3 ? 'space' : 'repeat';
-        resolvedRepeat = repeatX === repeatY ? repeatX : (repeatX + ' ' + repeatY);
+        if (hasFixedTargets) {
+          resolvedRepeat = 'repeat';
+        } else {
+          var spaceTileCountX = width > 0 ? Math.floor(viewportWidth / width) : 0;
+          var spaceTileCountY = height > 0 ? Math.floor(viewportHeight / height) : 0;
+          var repeatX = spaceTileCountX >= 3 ? 'space' : 'repeat';
+          var repeatY = spaceTileCountY >= 3 ? 'space' : 'repeat';
+          resolvedRepeat = repeatX === repeatY ? repeatX : (repeatX + ' ' + repeatY);
+        }
       }
     } else if (cfg.repeat === 'no-repeat') {
       if (built.svg && width > 0 && height > 0) {
@@ -996,6 +1083,27 @@
         }
       }
       resolvedRepeat = cfg.repeat;
+    } else if (cfg.repeat === 'round') {
+      if (preserveRepeatModes && built.svg && width > 0 && height > 0) {
+        var roundCfg = _withSeed(cfg, cfg.seed);
+        roundCfg.sizeX = viewportWidth;
+        roundCfg.sizeY = viewportHeight;
+        roundCfg.motifBaseSize = Math.max(1, Math.min(width, height));
+        var roundBuilt = cfg.type === 'dots-grid'
+          ? _buildDotsGrid(roundCfg)
+          : _buildDotsRandom(roundCfg);
+        if (roundBuilt && roundBuilt.svg) {
+          image = _svgToCssUrl(roundBuilt.svg);
+          resolvedSizeX = _fmt(roundBuilt.width || viewportWidth) + 'px';
+          resolvedSizeY = _fmt(roundBuilt.height || viewportHeight) + 'px';
+          position = 'top left';
+          resolvedRepeat = 'repeat';
+        } else {
+          resolvedRepeat = 'round';
+        }
+      } else {
+        resolvedRepeat = 'round';
+      }
     }
     _ROOT.style.setProperty('--theme-pattern-image', image);
     _ROOT.style.setProperty('--theme-pattern-body-image', cfg.applyBody ? image : 'none');
