@@ -18,8 +18,6 @@
     'noise-grain',
     'topographic-contours',
     'watercolor-blobs',
-    'paper-texture',
-    'voronoi-diagram',
     'truchet-tiles',
     'wave-interference',
     'penrose-tiling',
@@ -119,9 +117,6 @@
       'watercolour-blobs': 'watercolor-blobs',
       'watercolor-clobs': 'watercolor-blobs',
       'watercolour-clobs': 'watercolor-blobs',
-      'paper-texture': 'paper-texture',
-      'voronoi': 'voronoi-diagram',
-      'voronoi-diagram': 'voronoi-diagram',
       'truchet': 'truchet-tiles',
       'truchet-tiles': 'truchet-tiles',
       'turchet-tiles': 'truchet-tiles',
@@ -201,8 +196,6 @@
       || type === 'noise-grain'
       || type === 'topographic-contours'
       || type === 'watercolor-blobs'
-      || type === 'paper-texture'
-      || type === 'voronoi-diagram'
       || type === 'truchet-tiles'
       || type === 'wave-interference'
       || type === 'penrose-tiling';
@@ -235,7 +228,10 @@
   function _buildExpandedNoRepeatSvg(cfg, tileSvg, tileWidth, tileHeight, areaScaleX, areaScaleY) {
     var scaleX = Math.max(1, Math.round(areaScaleX || 1));
     var scaleY = Math.max(1, Math.round(areaScaleY || 1));
-    var shouldReseedExpanded = _isStochasticPatternType(cfg.type) && cfg.type !== 'dots-random';
+    var shouldReseedExpanded = _isStochasticPatternType(cfg.type)
+      && cfg.type !== 'dots-random'
+      && cfg.type !== 'topographic-contours'
+      && cfg.type !== 'penrose-tiling';
     if (shouldReseedExpanded) {
       var isDualAxisExpansion = scaleX > 1 && scaleY > 1;
       var maxStochasticScale = isDualAxisExpansion ? 8 : 24;
@@ -285,6 +281,58 @@
         width: dotsBuilt.width || width,
         height: dotsBuilt.height || height,
       };
+    }
+    if (cfg.type === 'noise-grain') {
+      var expandedNoiseCfg = _withSeed(cfg, cfg.seed);
+      expandedNoiseCfg.sizeX = width;
+      expandedNoiseCfg.sizeY = height;
+      expandedNoiseCfg.motifBaseSize = Math.max(1, Math.min(tileWidth, tileHeight));
+      var noiseBuilt = _buildNoiseGrain(expandedNoiseCfg);
+      if (!noiseBuilt || !noiseBuilt.svg) return null;
+      return {
+        svg: noiseBuilt.svg,
+        width: noiseBuilt.width || width,
+        height: noiseBuilt.height || height,
+      };
+    }
+    if (cfg.type === 'topographic-contours') {
+      var expandedTopoCfg = _withSeed(cfg, cfg.seed);
+      expandedTopoCfg.sizeX = width;
+      expandedTopoCfg.sizeY = height;
+      expandedTopoCfg.motifBaseSize = Math.max(1, Math.min(tileWidth, tileHeight));
+      var topoBuilt = _buildTopographic(expandedTopoCfg);
+      if (!topoBuilt || !topoBuilt.svg) return null;
+      return {
+        svg: topoBuilt.svg,
+        width: topoBuilt.width || width,
+        height: topoBuilt.height || height,
+      };
+    }
+    if (cfg.type === 'wave-interference') {
+      var expandedWaveCfg = _withSeed(cfg, cfg.seed);
+      expandedWaveCfg.sizeX = width;
+      expandedWaveCfg.sizeY = height;
+      expandedWaveCfg.motifBaseSize = Math.max(1, Math.min(tileWidth, tileHeight));
+      var waveBuilt = _buildWaveInterference(expandedWaveCfg);
+      if (!waveBuilt || !waveBuilt.svg) return null;
+      return {
+        svg: waveBuilt.svg,
+        width: waveBuilt.width || width,
+        height: waveBuilt.height || height,
+      };
+    }
+    if (cfg.type === 'penrose-tiling') {
+      var penroseInner = _svgInner(tileSvg);
+      if (!penroseInner) return null;
+      var penroseId = 'tp-pen-' + String(Math.abs((cfg.seed || 0) % 1000000));
+      var penroseSvg = _svgOpen(width, height) + '<defs><g id="' + penroseId + '">' + penroseInner + '</g></defs>';
+      for (var py = 0; py < scaleY; py++) {
+        for (var px = 0; px < scaleX; px++) {
+          penroseSvg += '<use href="#' + penroseId + '" transform="translate(' + _fmt(px * tileWidth) + ' ' + _fmt(py * tileHeight) + ')"/>';
+        }
+      }
+      penroseSvg += _svgClose();
+      return { svg: penroseSvg, width: width, height: height };
     }
 
     if (shouldReseedExpanded) {
@@ -414,9 +462,14 @@
     var w = cfg.sizeX || cfg.size;
     var h = cfg.sizeY || cfg.size;
     var motifBase = Math.max(1, cfg.motifBaseSize || cfg.size);
-    var areaFactor = Math.max(1, (w * h) / (motifBase * motifBase));
+    var rawAreaFactor = Math.max(1, (w * h) / (motifBase * motifBase));
+    var areaFactor = rawAreaFactor <= 16
+      ? rawAreaFactor
+      : (16 + (Math.sqrt(rawAreaFactor - 16) * 4));
     var count = Math.round((8 + cfg.density * 28) * areaFactor);
-    var useFullWrap = areaFactor <= 1.2;
+    var maxCount = rawAreaFactor > 1 ? 5500 : 9000;
+    count = _clamp(count, 8, maxCount);
+    var useFullWrap = rawAreaFactor <= 1.2;
     var svg = _svgOpen(w, h);
     for (var i = 0; i < count; i++) {
       var x = rng() * w;
@@ -565,14 +618,21 @@
 
   function _buildNoiseGrain(cfg) {
     var rng = _seededRng(cfg.seed + 307);
-    var w = cfg.size;
-    var h = cfg.size;
-    var count = Math.round(90 + cfg.density * 260);
+    var w = cfg.sizeX || cfg.size;
+    var h = cfg.sizeY || cfg.size;
+    var motifBase = Math.max(1, cfg.motifBaseSize || cfg.size);
+    var rawAreaFactor = Math.max(1, (w * h) / (motifBase * motifBase));
+    var areaFactor = rawAreaFactor <= 16
+      ? rawAreaFactor
+      : (16 + (Math.sqrt(rawAreaFactor - 16) * 4));
+    var count = Math.round((90 + cfg.density * 260) * areaFactor);
+    var maxCount = rawAreaFactor > 1 ? 5200 : 9000;
+    count = _clamp(count, 64, maxCount);
     var svg = _svgOpen(w, h);
     for (var i = 0; i < count; i++) {
       var x = rng() * w;
       var y = rng() * h;
-      var grain = 0.45 + rng() * 1.8;
+      var grain = Math.max(0.35, motifBase * (0.0038 + rng() * (0.01 + cfg.density * 0.012)));
       var color = i % 2 ? cfg.color : cfg.color2;
       var alpha = _clamp(cfg.opacity * (0.12 + rng() * 0.42), 0.01, 0.7);
       svg += '<rect x="' + _fmt(x) + '" y="' + _fmt(y) + '" width="' + _fmt(grain) + '" height="' + _fmt(grain) + '"'
@@ -584,14 +644,27 @@
 
   function _buildTopographic(cfg) {
     var rng = _seededRng(cfg.seed + 401);
-    var w = cfg.size;
-    var h = cfg.size;
-    var lineCount = 4 + Math.round(cfg.density * 8);
+    var w = cfg.sizeX || cfg.size;
+    var h = cfg.sizeY || cfg.size;
+    var motifBase = Math.max(1, cfg.motifBaseSize || cfg.size);
+    var rawHeightScale = Math.max(1, h / motifBase);
+    var rawWidthScale = Math.max(1, w / motifBase);
+    var expandedScale = rawHeightScale > 1.2 || rawWidthScale > 1.2;
+    var heightScale = rawHeightScale <= 10
+      ? rawHeightScale
+      : (10 + (Math.sqrt(rawHeightScale - 10) * 2.4));
+    var widthScale = rawWidthScale <= 10
+      ? rawWidthScale
+      : (10 + (Math.sqrt(rawWidthScale - 10) * 2.4));
+    var lineCount = Math.max(4, Math.round((4 + cfg.density * 8) * heightScale));
+    var maxLineCount = expandedScale ? 180 : 420;
+    lineCount = _clamp(lineCount, 4, maxLineCount);
     var stroke = Math.max(0.25, cfg.lineWidth);
-    var ampBase = Math.max(3, h * (0.028 + cfg.density * 0.09));
+    var ampBase = Math.max(3, motifBase * (0.028 + cfg.density * 0.09));
     var safeMargin = Math.max(stroke * 2, ampBase * 1.15);
     var usableHeight = Math.max(1, h - (safeMargin * 2));
-    var samples = 40 + Math.round(cfg.density * 24);
+    var maxSamples = expandedScale ? 220 : 480;
+    var samples = _clamp(Math.round((40 + cfg.density * 24) * widthScale), 40, maxSamples);
     var edgeBleed = Math.max(1.25, stroke * 1.8);
     var svg = _svgOpen(w, h);
     for (var i = 0; i < lineCount; i++) {
@@ -603,7 +676,15 @@
       var color = i % 2 ? cfg.color : cfg.color2;
       var alpha = _clamp(cfg.opacity * (0.62 + rng() * 0.45), 0.05, 1);
       var width = stroke * (0.9 + rng() * 0.8);
-      svg += '<path d="' + path + '" fill="none" stroke="' + color + '" stroke-opacity="' + _fmt(alpha) + '" stroke-width="' + _fmt(width) + '" stroke-linecap="round" stroke-linejoin="round"/>';
+      var reach = amp + (width * 1.25);
+      var yOffsets = [0];
+      if (y - reach < 0) yOffsets.push(h);
+      if (y + reach > h) yOffsets.push(-h);
+      for (var yi = 0; yi < yOffsets.length; yi++) {
+        var offsetY = yOffsets[yi];
+        var transform = offsetY ? ' transform="translate(0 ' + _fmt(offsetY) + ')"' : '';
+        svg += '<path d="' + path + '"' + transform + ' fill="none" stroke="' + color + '" stroke-opacity="' + _fmt(alpha) + '" stroke-width="' + _fmt(width) + '" stroke-linecap="round" stroke-linejoin="round"/>';
+      }
     }
     svg += _svgClose();
     return { svg: svg, width: w, height: h };
@@ -649,99 +730,6 @@
     return { svg: svg, width: w, height: h };
   }
 
-  function _buildPaperTexture(cfg) {
-    var rng = _seededRng(cfg.seed + 601);
-    var w = cfg.size;
-    var h = cfg.size;
-    var fibers = 80 + Math.round(cfg.density * 220);
-    var flecks = 26 + Math.round(cfg.density * 76);
-    var speckles = 220 + Math.round(cfg.density * 520);
-    var stroke = Math.max(0.24, cfg.lineWidth * 0.85);
-    var rough = _clamp(cfg.roughness * 0.7 + 0.2, 0.18, 1);
-    var baseAlphaA = _clamp(cfg.opacity * (0.55 + cfg.density * 0.2), 0.08, 1);
-    var baseAlphaB = _clamp(cfg.opacity * (0.34 + cfg.density * 0.18), 0.05, 0.95);
-    var svg = _svgOpen(w, h)
-      + '<rect x="0" y="0" width="' + _fmt(w) + '" height="' + _fmt(h) + '" fill="' + cfg.color2 + '" fill-opacity="' + _fmt(baseAlphaA) + '"/>'
-      + '<rect x="0" y="0" width="' + _fmt(w) + '" height="' + _fmt(h) + '" fill="' + cfg.color + '" fill-opacity="' + _fmt(baseAlphaB) + '"/>';
-    for (var i = 0; i < fibers; i++) {
-      var x1 = rng() * w;
-      var y1 = rng() * h;
-      var len = w * (0.06 + rng() * (0.1 + cfg.density * 0.08));
-      var angle = rng() * Math.PI * 2;
-      var x2 = x1 + Math.cos(angle) * len;
-      var y2 = y1 + Math.sin(angle) * len;
-      var alpha = _clamp(cfg.opacity * (0.22 + rng() * 0.72), 0.04, 1);
-      var color = (i % 3) ? cfg.color2 : cfg.color;
-      var width = stroke * (0.55 + rng() * 1.25);
-      svg += '<line x1="' + _fmt(x1) + '" y1="' + _fmt(y1) + '" x2="' + _fmt(x2) + '" y2="' + _fmt(y2) + '"'
-        + ' stroke="' + color + '" stroke-opacity="' + _fmt(alpha) + '" stroke-width="' + _fmt(width) + '" stroke-linecap="round"/>';
-    }
-    for (var f = 0; f < flecks; f++) {
-      var cx = rng() * w;
-      var cy = rng() * h;
-      var radius = w * (0.008 + rng() * 0.03);
-      var points = 5 + Math.floor(rng() * 5);
-      var blobPath = _blobPath(cx, cy, radius, points, rng, rough);
-      var fleckColor = (f % 2) ? cfg.color : cfg.color2;
-      var fleckAlpha = _clamp(cfg.opacity * (0.16 + rng() * 0.42), 0.03, 0.85);
-      svg += '<path d="' + blobPath + '" fill="' + fleckColor + '" fill-opacity="' + _fmt(fleckAlpha) + '"/>';
-    }
-    for (var j = 0; j < speckles; j++) {
-      var x = rng() * w;
-      var y = rng() * h;
-      var r = 0.35 + rng() * 1.35;
-      var dotColor = (j % 4 === 0) ? cfg.color : cfg.color2;
-      var alphaDot = _clamp(cfg.opacity * (0.14 + rng() * 0.5), 0.03, 0.9);
-      svg += '<circle cx="' + _fmt(x) + '" cy="' + _fmt(y) + '" r="' + _fmt(r) + '" fill="' + dotColor + '" fill-opacity="' + _fmt(alphaDot) + '"/>';
-    }
-    svg += _svgClose();
-    return { svg: svg, width: w, height: h };
-  }
-
-  function _buildVoronoi(cfg) {
-    var rng = _seededRng(cfg.seed + 701);
-    var w = cfg.size;
-    var h = cfg.size;
-    var pointCount = 9 + Math.round(cfg.density * 18);
-    var points = [];
-    var minDist = w * 0.07;
-    var maxDist = w * 0.58;
-    var stroke = Math.max(0.2, cfg.lineWidth * 0.9);
-    for (var i = 0; i < pointCount; i++) {
-      points.push({ x: rng() * w, y: rng() * h });
-    }
-
-    var svg = _svgOpen(w, h);
-    for (var a = 0; a < points.length; a++) {
-      for (var b = a + 1; b < points.length; b++) {
-        var p1 = points[a];
-        var p2 = points[b];
-        var dx = p2.x - p1.x;
-        var dy = p2.y - p1.y;
-        var dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < minDist || dist > maxDist) continue;
-        var mx = (p1.x + p2.x) / 2;
-        var my = (p1.y + p2.y) / 2;
-        var ux = -dy / dist;
-        var uy = dx / dist;
-        var seg = Math.min(w * 0.24, dist * 0.42);
-        var x1 = mx - ux * seg;
-        var y1 = my - uy * seg;
-        var x2 = mx + ux * seg;
-        var y2 = my + uy * seg;
-        var color = (a + b) % 2 ? cfg.color : cfg.color2;
-        var alpha = _clamp(cfg.opacity * (0.25 + (1 - (dist / maxDist)) * 0.8), 0.03, 0.9);
-        svg += '<line x1="' + _fmt(x1) + '" y1="' + _fmt(y1) + '" x2="' + _fmt(x2) + '" y2="' + _fmt(y2) + '"'
-          + ' stroke="' + color + '" stroke-opacity="' + _fmt(alpha) + '" stroke-width="' + _fmt(stroke) + '"/>';
-      }
-    }
-    for (var p = 0; p < points.length; p++) {
-      svg += '<circle cx="' + _fmt(points[p].x) + '" cy="' + _fmt(points[p].y) + '" r="' + _fmt(Math.max(0.45, stroke * 0.6)) + '"'
-        + ' fill="' + cfg.color + '" fill-opacity="' + _fmt(cfg.opacity * 0.7) + '"/>';
-    }
-    svg += _svgClose();
-    return { svg: svg, width: w, height: h };
-  }
 
   function _buildTruchet(cfg) {
     var rng = _seededRng(cfg.seed + 809);
@@ -776,26 +764,40 @@
   }
 
   function _buildWaveInterference(cfg) {
-    var w = cfg.size;
-    var h = cfg.size;
+    var w = cfg.sizeX || cfg.size;
+    var h = cfg.sizeY || cfg.size;
+    var motifBase = Math.max(1, cfg.motifBaseSize || cfg.size);
+    var rawWidthScale = Math.max(1, w / motifBase);
+    var rawHeightScale = Math.max(1, h / motifBase);
+    var expandedScale = rawHeightScale > 1.2 || rawWidthScale > 1.2;
+    var widthScale = rawWidthScale <= 10
+      ? rawWidthScale
+      : (10 + (Math.sqrt(rawWidthScale - 10) * 2.4));
+    var heightScale = rawHeightScale <= 10
+      ? rawHeightScale
+      : (10 + (Math.sqrt(rawHeightScale - 10) * 2.4));
     var stroke = Math.max(0.2, cfg.lineWidth * 0.68);
     var phaseBase = ((cfg.angle % 360) * Math.PI) / 180;
-    var sampleCount = 54 + Math.round(cfg.density * 24);
+    var rawSampleScale = Math.max(widthScale, heightScale);
+    var sampleScale = rawSampleScale <= 6
+      ? rawSampleScale
+      : (6 + (Math.sqrt(rawSampleScale - 6) * 1.7));
+    var maxSampleCount = expandedScale ? 170 : 96;
+    var sampleCount = _clamp(Math.round((54 + cfg.density * 24) * sampleScale), 54, maxSampleCount);
     var edgeBleed = Math.max(1.2, stroke * 2.4);
-
-    var rowCount = 4 + Math.round(cfg.density * 7);
-    var colCount = 4 + Math.round(cfg.density * 7);
+    var baseRowCount = 4 + Math.round(cfg.density * 7);
+    var baseColCount = 4 + Math.round(cfg.density * 7);
+    var maxAxisCount = expandedScale ? 72 : 24;
+    var rowCount = _clamp(Math.round(baseRowCount * heightScale), 4, maxAxisCount);
+    var colCount = _clamp(Math.round(baseColCount * widthScale), 4, maxAxisCount);
     var spacingY = h / rowCount;
     var spacingX = w / colCount;
-
     var ampY = Math.max(1.35, spacingY * (0.2 + cfg.density * 0.24));
     var ampX = Math.max(1.35, spacingX * (0.2 + cfg.density * 0.24));
     var cyclesA = 1 + Math.round(cfg.density * 2);
     var cyclesB = cyclesA + 1;
-
     var alphaA = _clamp((cfg.opacity * 1.45) + 0.14, 0.2, 0.68);
     var alphaB = _clamp((cfg.opacity * 0.7) + 0.05, 0.08, 0.3);
-
     var svg = _svgOpen(w, h);
 
     for (var i = -1; i <= rowCount; i++) {
@@ -913,8 +915,6 @@
       case 'noise-grain': return _buildNoiseGrain(cfg);
       case 'topographic-contours': return _buildTopographic(cfg);
       case 'watercolor-blobs': return _buildWatercolorBlobs(cfg);
-      case 'paper-texture': return _buildPaperTexture(cfg);
-      case 'voronoi-diagram': return _buildVoronoi(cfg);
       case 'truchet-tiles': return _buildTruchet(cfg);
       case 'wave-interference': return _buildWaveInterference(cfg);
       case 'penrose-tiling': return _buildPenrose(cfg);
@@ -1024,12 +1024,15 @@
     var position = 'top left';
     var resolvedRepeat = cfg.repeat;
     var preserveRepeatModes = _isDotsPatternType(cfg.type);
+    var isTopographic = cfg.type === 'topographic-contours';
+    var isPenrose = cfg.type === 'penrose-tiling';
+    var preserveNoRepeat = isTopographic || isPenrose;
 
     if (cfg.repeat === 'space') {
       if (preserveRepeatModes) {
         if (built.svg && width > 0 && height > 0) {
-          var dotsSpaceScale = Math.max(2, Math.min(cfg.noRepeatScale, 3));
-          var expandedSpace = _buildExpandedNoRepeatSvg(cfg, built.svg, width, height, dotsSpaceScale, dotsSpaceScale);
+          var spaceScale = Math.max(2, Math.min(cfg.noRepeatScale, 3));
+          var expandedSpace = _buildExpandedNoRepeatSvg(cfg, built.svg, width, height, spaceScale, spaceScale);
           if (expandedSpace && expandedSpace.svg) {
             image = _svgToCssUrl(expandedSpace.svg);
             resolvedSizeX = _fmt(expandedSpace.width) + 'px';
@@ -1055,18 +1058,30 @@
       }
     } else if (cfg.repeat === 'no-repeat') {
       if (built.svg && width > 0 && height > 0) {
-        var expanded = _buildExpandedNoRepeatSvg(cfg, built.svg, width, height, cfg.noRepeatScale, cfg.noRepeatScale);
+        var noRepeatScaleX = cfg.noRepeatScale;
+        var noRepeatScaleY = cfg.noRepeatScale;
+        if (preserveNoRepeat) {
+          var minNoRepeatScaleX = Math.max(1, Math.ceil(viewportWidth / width));
+          var minNoRepeatScaleY = Math.max(1, Math.ceil(viewportHeight / height));
+          if (isPenrose) {
+            minNoRepeatScaleX += 1;
+            minNoRepeatScaleY += 1;
+          }
+          noRepeatScaleX = Math.max(noRepeatScaleX, minNoRepeatScaleX);
+          noRepeatScaleY = Math.max(noRepeatScaleY, minNoRepeatScaleY);
+        }
+        var expanded = _buildExpandedNoRepeatSvg(cfg, built.svg, width, height, noRepeatScaleX, noRepeatScaleY);
         if (expanded && expanded.svg) {
           image = _svgToCssUrl(expanded.svg);
           resolvedSizeX = _fmt(expanded.width) + 'px';
           resolvedSizeY = _fmt(expanded.height) + 'px';
           position = 'top left';
-          resolvedRepeat = 'repeat';
+          resolvedRepeat = preserveNoRepeat ? 'no-repeat' : 'repeat';
         } else {
-          resolvedRepeat = 'repeat';
+          resolvedRepeat = preserveNoRepeat ? 'no-repeat' : 'repeat';
         }
       } else {
-        resolvedRepeat = 'repeat';
+        resolvedRepeat = preserveNoRepeat ? 'no-repeat' : 'repeat';
       }
     } else if (cfg.repeat === 'repeat-x' || cfg.repeat === 'repeat-y') {
       if (built.svg && width > 0 && height > 0) {
@@ -1084,14 +1099,19 @@
       }
       resolvedRepeat = cfg.repeat;
     } else if (cfg.repeat === 'round') {
-      if (preserveRepeatModes && built.svg && width > 0 && height > 0) {
+      if ((preserveRepeatModes || isTopographic) && built.svg && width > 0 && height > 0) {
         var roundCfg = _withSeed(cfg, cfg.seed);
         roundCfg.sizeX = viewportWidth;
         roundCfg.sizeY = viewportHeight;
         roundCfg.motifBaseSize = Math.max(1, Math.min(width, height));
-        var roundBuilt = cfg.type === 'dots-grid'
-          ? _buildDotsGrid(roundCfg)
-          : _buildDotsRandom(roundCfg);
+        var roundBuilt = null;
+        if (cfg.type === 'dots-grid') {
+          roundBuilt = _buildDotsGrid(roundCfg);
+        } else if (cfg.type === 'dots-random') {
+          roundBuilt = _buildDotsRandom(roundCfg);
+        } else if (cfg.type === 'topographic-contours') {
+          roundBuilt = _buildTopographic(roundCfg);
+        }
         if (roundBuilt && roundBuilt.svg) {
           image = _svgToCssUrl(roundBuilt.svg);
           resolvedSizeX = _fmt(roundBuilt.width || viewportWidth) + 'px';
