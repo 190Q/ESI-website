@@ -5,6 +5,15 @@
   var _lastSignature = '';
   var _applyQueued = false;
   var _raf = window.requestAnimationFrame || function (cb) { return setTimeout(cb, 16); };
+  var _USER_AGENT = String((typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : '').toLowerCase();
+  var _IS_FIREFOX_BROWSER = _USER_AGENT.indexOf('firefox') !== -1;
+  var _IS_CHROMIUM_BROWSER = !_IS_FIREFOX_BROWSER && (
+    _USER_AGENT.indexOf('chrome') !== -1
+    || _USER_AGENT.indexOf('chromium') !== -1
+    || _USER_AGENT.indexOf('crios') !== -1
+    || _USER_AGENT.indexOf('edg/') !== -1
+    || _USER_AGENT.indexOf('opr/') !== -1
+  );
 
   var _PATTERN_TYPES = [
     'dots-grid',
@@ -695,21 +704,28 @@
     var w = cfg.sizeX || cfg.size;
     var h = cfg.sizeY || cfg.size;
     var motifBase = Math.max(1, cfg.motifBaseSize || cfg.size);
+    var useGpuFriendlyMode = _IS_CHROMIUM_BROWSER;
     var areaFactor = Math.max(1, (w * h) / (motifBase * motifBase));
     var blur = Math.max(1.2, motifBase * (0.022 + cfg.density * 0.02));
     var blobCount = Math.max(3, Math.round((3 + Math.round(cfg.density * 4)) * areaFactor));
+    if (useGpuFriendlyMode) {
+      blobCount = Math.max(3, Math.min(120, Math.round(blobCount * 0.58)));
+    }
+    var useBlurFilter = !useGpuFriendlyMode;
     var filterId = 'wc-blur-' + String(Math.abs(cfg.seed % 1000000));
-    var svg = _svgOpen(w, h)
-      + '<defs><filter id="' + filterId + '" x="' + _fmt(-w) + '" y="' + _fmt(-h) + '" width="' + _fmt(w * 3) + '" height="' + _fmt(h * 3) + '" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="' + _fmt(blur) + '"/></filter></defs>';
+    var svg = _svgOpen(w, h);
+    if (useBlurFilter) {
+      svg += '<defs><filter id="' + filterId + '" x="' + _fmt(-w) + '" y="' + _fmt(-h) + '" width="' + _fmt(w * 3) + '" height="' + _fmt(h * 3) + '" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="' + _fmt(blur) + '"/></filter></defs>';
+    }
     for (var i = 0; i < blobCount; i++) {
       var cx = rng() * w;
       var cy = rng() * h;
-      var radius = motifBase * (0.16 + rng() * 0.22);
-      var points = 7 + Math.floor(rng() * 4);
+      var radius = motifBase * (useGpuFriendlyMode ? (0.18 + rng() * 0.24) : (0.16 + rng() * 0.22));
+      var points = useGpuFriendlyMode ? (6 + Math.floor(rng() * 3)) : (7 + Math.floor(rng() * 4));
       var path = _blobPath(cx, cy, radius, points, rng, cfg.roughness);
       var color = i % 2 ? cfg.color : cfg.color2;
-      var alpha = _clamp(cfg.opacity * (0.22 + rng() * 0.5), 0.04, 0.75);
-      var reach = (radius * (1.1 + cfg.roughness * 0.85)) + blur * 3;
+      var alpha = _clamp(cfg.opacity * (useGpuFriendlyMode ? (0.18 + rng() * 0.32) : (0.22 + rng() * 0.5)), 0.03, 0.75);
+      var reach = (radius * (1.1 + cfg.roughness * 0.85)) + (useBlurFilter ? (blur * 3) : 0);
       var xWrap = [0];
       var yWrap = [0];
       if (cx - reach < 0) xWrap.push(w);
@@ -722,7 +738,8 @@
           var ty = yWrap[yIdx];
           var transform = '';
           if (tx || ty) transform = ' transform="translate(' + _fmt(tx) + ' ' + _fmt(ty) + ')"';
-          svg += '<path d="' + path + '"' + transform + ' fill="' + color + '" fill-opacity="' + _fmt(alpha) + '" filter="url(#' + filterId + ')"/>';
+          var filterAttr = useBlurFilter ? (' filter="url(#' + filterId + ')"') : '';
+          svg += '<path d="' + path + '"' + transform + ' fill="' + color + '" fill-opacity="' + _fmt(alpha) + '"' + filterAttr + '/>';
         }
       }
     }
