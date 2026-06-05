@@ -175,6 +175,26 @@
     return String(svgText).slice(open + 1, close);
   }
 
+  function _hasFixedPatternTargets() {
+    if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') return false;
+    var selector = '.theme-pattern-surface, .theme-pattern-surface-soft, .sidebar, .content-area, .site-footer, .shop-modal, .owed-aspects-popup, .modal';
+    var nodes = [];
+    if (document.body) nodes.push(document.body);
+    try {
+      var matched = document.querySelectorAll(selector);
+      for (var i = 0; i < matched.length; i++) nodes.push(matched[i]);
+    } catch (_err) {}
+    for (var j = 0; j < nodes.length; j++) {
+      var node = nodes[j];
+      if (!node || node.nodeType !== 1 || typeof node.getBoundingClientRect !== 'function') continue;
+      var rect = node.getBoundingClientRect();
+      if (!rect || rect.width < 1 || rect.height < 1) continue;
+      var attachment = String(getComputedStyle(node).backgroundAttachment || '').toLowerCase();
+      if (attachment.indexOf('fixed') !== -1) return true;
+    }
+    return false;
+  }
+
   function _isStochasticPatternType(type) {
     return type === 'dots-random'
       || type === 'cross-random'
@@ -887,6 +907,9 @@
 
   function apply() {
     var cfg = _readConfig();
+    var viewportWidth = Math.max(window.innerWidth || 0, _ROOT.clientWidth || 0, 1);
+    var viewportHeight = Math.max(window.innerHeight || 0, _ROOT.clientHeight || 0, 1);
+    var hasFixedTargets = _hasFixedPatternTargets();
     var signature = [
       cfg.theme,
       cfg.type,
@@ -904,6 +927,9 @@
       cfg.blendMode,
       cfg.applyBody ? '1' : '0',
       _fmt(cfg.noRepeatScale),
+      String(viewportWidth),
+      String(viewportHeight),
+      hasFixedTargets ? '1' : '0',
     ].join('|');
 
     if (signature === _lastSignature) return;
@@ -930,7 +956,17 @@
     var position = 'top left';
     var resolvedRepeat = cfg.repeat;
 
-    if (cfg.repeat === 'no-repeat') {
+    if (cfg.repeat === 'space') {
+      if (hasFixedTargets) {
+        resolvedRepeat = 'repeat';
+      } else {
+        var spaceTileCountX = width > 0 ? Math.floor(viewportWidth / width) : 0;
+        var spaceTileCountY = height > 0 ? Math.floor(viewportHeight / height) : 0;
+        var repeatX = spaceTileCountX >= 3 ? 'space' : 'repeat';
+        var repeatY = spaceTileCountY >= 3 ? 'space' : 'repeat';
+        resolvedRepeat = repeatX === repeatY ? repeatX : (repeatX + ' ' + repeatY);
+      }
+    } else if (cfg.repeat === 'no-repeat') {
       if (built.svg && width > 0 && height > 0) {
         var expanded = _buildExpandedNoRepeatSvg(cfg, built.svg, width, height, cfg.noRepeatScale, cfg.noRepeatScale);
         if (expanded && expanded.svg) {
@@ -947,8 +983,6 @@
       }
     } else if (cfg.repeat === 'repeat-x' || cfg.repeat === 'repeat-y') {
       if (built.svg && width > 0 && height > 0) {
-        var viewportWidth = Math.max(window.innerWidth || 0, _ROOT.clientWidth || 0, 1);
-        var viewportHeight = Math.max(window.innerHeight || 0, _ROOT.clientHeight || 0, 1);
         var minSpanScaleX = cfg.repeat === 'repeat-y' ? Math.ceil(viewportWidth / width) : 1;
         var minSpanScaleY = cfg.repeat === 'repeat-x' ? Math.ceil(viewportHeight / height) : 1;
         var axisScaleX = cfg.repeat === 'repeat-y' ? Math.max(cfg.noRepeatScale, minSpanScaleX) : 1;
