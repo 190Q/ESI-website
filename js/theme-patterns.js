@@ -172,7 +172,7 @@
 
   function _hasFixedPatternTargets() {
     if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') return false;
-    var selector = '.theme-pattern-surface, .theme-pattern-surface-soft, .sidebar, .content-area, .site-footer, .shop-modal, .owed-aspects-popup, .modal';
+    var selector = '.theme-pattern-surface, .theme-pattern-surface-soft, .navbar, .sidebar, .content-area, .site-footer, .shop-modal, .owed-aspects-popup, .modal';
     var nodes = [];
     if (document.body) nodes.push(document.body);
     try {

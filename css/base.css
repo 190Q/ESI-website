@@ -72,6 +72,7 @@ body::-webkit-scrollbar-corner { background: var(--green-deep); }
   top: 0; left: 0; right: 0;
   height: var(--navbar-h);
   background: linear-gradient(90deg, var(--green-deep) 0%, var(--navbar-bg-mid) 50%, var(--green-deep) 100%);
+  background-color: var(--green-deep);
   border-bottom: 2px solid var(--gold-dim);
   display: flex;
   align-items: center;
@@ -483,6 +484,7 @@ select, option { font-family: inherit; }
   padding-bottom: 20px;
   border-bottom: 1px solid var(--border);
   position: relative;
+  background-image: none !important;
 }
 .panel-header::after {
   content: '⚜';
