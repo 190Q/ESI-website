@@ -29,12 +29,34 @@ html {
 body {
   font-family: var(--font-body);
   background-color: var(--parchment);
+  background-image: var(--theme-pattern-body-image);
+  background-size: var(--theme-pattern-size-x) var(--theme-pattern-size-y);
+  background-repeat: var(--theme-pattern-repeat-resolved);
+  background-position: var(--theme-pattern-position-resolved);
+  background-blend-mode: var(--theme-pattern-blend-mode-resolved);
   color: var(--text-main);
   height: 100vh;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--gold-dim) var(--green-deep);
+}
+
+/* Pattern helpers for custom themes */
+.theme-pattern-surface,
+.theme-pattern-surface-soft {
+  background-size: var(--theme-pattern-size-x) var(--theme-pattern-size-y) !important;
+  background-repeat: var(--theme-pattern-repeat-resolved) !important;
+  background-position: var(--theme-pattern-position-resolved) !important;
+  background-blend-mode: var(--theme-pattern-blend-mode-resolved) !important;
+}
+.theme-pattern-surface {
+  background-image: var(--theme-pattern-image) !important;
+}
+.theme-pattern-surface-soft {
+  background-image:
+    linear-gradient(rgba(var(--white-rgb), 0.01), rgba(var(--white-rgb), 0.01)),
+    var(--theme-pattern-image) !important;
 }
 
 /* Scrollbar */
@@ -436,7 +458,7 @@ select, option { font-family: inherit; }
   min-width: 0;
   padding: 40px 48px 60px;
   transition: margin-left var(--transition);
-  height: calc(100vh - var(--navbar-h) - var(--footer-bottom));
+  min-height: calc(100vh - var(--navbar-h));
 }
 
 /* Panels */
@@ -2437,8 +2459,8 @@ select, option { font-family: inherit; }
 
 /* Site footer */
 .site-footer {
-  margin: 60px -48px -60px;
-  padding: 0 48px 20px;
+  margin: 60px -20px -28px;
+  padding: 0 20px 20px;
   border-top: 1px solid var(--border);
   background: linear-gradient(180deg, rgba(var(--green-deep-rgb), 0.6) 0%, var(--green-deep) 100%);
   font-family: var(--font-body);

@@ -22,6 +22,39 @@
     --img-medal-sindrian-eagle:   url('/path/to/your/sindrian_eagle.png');
     --img-medal-valliance:        url('/path/to/your/valliance.png');
     */
+    /* Pattern generator (js/theme-patterns.js)
+       Set --theme-pattern-enabled: 1 and choose one pattern type:
+       - dots-grid (organized dots)
+       - dots-random (random dots)
+       - cross-grid (organized plus/crosses)
+       - cross-random (random plus/crosses)
+       - diagonal-lines
+       - checkerboard
+       - hexagonal-tiling
+       - graph-paper
+       - noise-grain
+       - topographic-contours
+       - watercolor-blobs
+       - paper-texture
+       - voronoi-diagram
+       - truchet-tiles (alias: turchet-tiles)
+       - wave-interference (alias: moire)
+       - penrose-tiling
+    */
+    --theme-pattern-enabled: 1;
+    --theme-pattern-type: topographic-contours;
+    --theme-pattern-size: 140px;
+    --theme-pattern-density: 0.55;
+    --theme-pattern-opacity: 0.32;
+    --theme-pattern-line-width: 1.1;
+    --theme-pattern-angle: 45;
+    --theme-pattern-seed: 12;
+    --theme-pattern-roughness: 0.65;
+    --theme-pattern-color: rgba(255, 255, 255, 0.24);
+    --theme-pattern-color-2: rgba(255, 255, 255, 0.1);
+    --theme-pattern-repeat: repeat;
+    --theme-pattern-blend-mode: normal;
+    --theme-pattern-apply-body: 1;
 
     --green-dark:      #1A1A1A;
     --green-mid:       #2A2A2A;
@@ -49,3 +82,14 @@
     --maintenance-text: #0A0A0A;
     --banner-bg-rgb:   16, 16, 16;
   }
+
+/* Optional: apply the generated pattern on specific surfaces too.
+[data-theme="dark"] .stat-card,
+[data-theme="dark"] .info-card,
+[data-theme="dark"] .panel-header {
+    background-image: var(--theme-pattern-image);
+    background-size: var(--theme-pattern-size-x) var(--theme-pattern-size-y);
+    background-repeat: var(--theme-pattern-repeat-resolved);
+    background-blend-mode: var(--theme-pattern-blend-mode-resolved);
+}
+*/

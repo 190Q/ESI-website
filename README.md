@@ -23,6 +23,7 @@ Authentication is done through Discord OAuth2. The management sections are gated
 Users can upload their own `.css` files via Settings to override the default colour theme or font. Example files are included in `public/examples/` to use as a starting point:
 
 - **`public/examples/themes/dark.css`** - a dark colour theme. Override any of the CSS custom properties defined in `css/themes.css` inside a `[data-theme="your-name"]` selector. You only need to include the variables you want to change; the rest fall through to the defaults.
+  - Includes pattern controls powered by `js/theme-patterns.js` (`--theme-pattern-*`). Set `--theme-pattern-enabled: 1`, choose `--theme-pattern-type`, and adjust size/density/opacity/seed to add generated backgrounds without writing JS.
 - **`public/examples/fonts/cormorant-font/`** - a custom font. Include `@font-face` declarations for your font files, then map the three font variables (`--font-display`, `--font-heading`, `--font-body`) inside a `[data-font="your-name"]` selector.
 
 The `data-theme` / `data-font` attribute value in the CSS is used as the display name in the settings dropdown. If the file doesn't contain one, the filename is used instead.

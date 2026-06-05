@@ -188,6 +188,31 @@
 
   /* Banner */
   --banner-bg-rgb: 20, 32, 20;
+  /* Theme pattern engine (set these inside your theme CSS) */
+  --theme-pattern-enabled: 0;
+  --theme-pattern-type: none;
+  --theme-pattern-size: 120px;
+  --theme-pattern-density: 0.5;
+  --theme-pattern-opacity: 0.35;
+  --theme-pattern-line-width: 1.2;
+  --theme-pattern-angle: 45;
+  --theme-pattern-seed: 7;
+  --theme-pattern-roughness: 0.6;
+  --theme-pattern-color: rgba(var(--white-rgb), 0.28);
+  --theme-pattern-color-2: rgba(var(--white-rgb), 0.14);
+  --theme-pattern-repeat: repeat;
+  --theme-pattern-blend-mode: normal;
+  --theme-pattern-apply-body: 1;
+
+  /* Theme pattern engine (runtime output from js/theme-patterns.js) */
+  --theme-pattern-image: none;
+  --theme-pattern-body-image: none;
+  --theme-pattern-size-x: auto;
+  --theme-pattern-size-y: auto;
+  --theme-pattern-repeat-resolved: repeat;
+  --theme-pattern-position-resolved: top left;
+  --theme-pattern-blend-mode-resolved: normal;
+  --theme-pattern-active: 0;
 
   /* Misc */
   --maintenance-text: #0f1d0f;
