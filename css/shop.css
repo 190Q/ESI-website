@@ -397,9 +397,9 @@
   background: var(--gold);
   border: 2px solid var(--surface-2);
   box-shadow: 0 1px 4px rgba(var(--black-rgb), 0.4);
-  cursor: grab;
+  cursor: pointer;
 }
-.sf-range::-webkit-slider-thumb:active { cursor: grabbing; }
+.sf-range::-webkit-slider-thumb:active { cursor: pointer; }
 .sf-range::-moz-range-thumb {
   pointer-events: all;
   width: 16px; height: 16px;
@@ -407,7 +407,7 @@
   background: var(--gold);
   border: 2px solid var(--surface-2);
   box-shadow: 0 1px 4px rgba(var(--black-rgb), 0.4);
-  cursor: grab;
+  cursor: pointer;
 }
 .sf-range-min { z-index: 3; }
 .sf-range-max { z-index: 4; }
