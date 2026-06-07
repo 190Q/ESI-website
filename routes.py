@@ -4019,7 +4019,23 @@ def _points_recorded_graid_ep(history_rows, cycle_id):
         if h.get("cycle_id") == cycle_id
         and (h.get("reason") or "").strip().lower().startswith("guild raid")
     )
-
+    
+def _points_recorded_graid_ep_by_day(history_rows, cycle_id):
+    """Return {YYYY-MM-DD: ep} of recorded Guild Raid EP for one cycle."""
+    daily = {}
+    for h in (history_rows or []):
+        if h.get("cycle_id") != cycle_id:
+            continue
+        if not (h.get("reason") or "").strip().lower().startswith("guild raid"):
+            continue
+        ts = (h.get("timestamp") or "").strip()
+        if not ts:
+            continue
+        day = ts.split("T", 1)[0]
+        if not day:
+            continue
+        daily[day] = daily.get(day, 0) + int(h.get("points_gained") or 0)
+    return daily
 
 def _points_apply_graph_graid_fallback(
     username,
@@ -4044,8 +4060,8 @@ def _points_apply_graph_graid_fallback(
         missing = max(0, expected - recorded)
         if missing <= 0:
             continue
-        missing_total += missing
-        remaining = missing
+        recorded_daily = _points_recorded_graid_ep_by_day(cycle_history, cid)
+        allocated = 0
         for day_row in sorted(daily_ep, key=lambda r: (r.get("day") or ""), reverse=True):
             day = (day_row.get("day") or "").strip()
             if not day:
@@ -4053,7 +4069,8 @@ def _points_apply_graph_graid_fallback(
             day_ep = int(_safe_number(day_row.get("ep", 0)))
             if day_ep <= 0:
                 continue
-            chunk = min(day_ep, remaining)
+            recorded_day_ep = int(recorded_daily.get(day, 0))
+            chunk = max(0, day_ep - recorded_day_ep)
             if chunk <= 0:
                 continue
             synthetic_rows.append({
@@ -4065,9 +4082,8 @@ def _points_apply_graph_graid_fallback(
                 "timestamp": f"{day}T23:59:59+00:00",
                 "is_dirty": 1 if mark_dirty else 0,
             })
-            remaining -= chunk
-            if remaining <= 0:
-                break
+            allocated += chunk
+        remaining = max(0, missing - allocated)
         if remaining > 0:
             cycle_start, _ = _points_get_cycle_bounds(cid)
             synthetic_rows.append({
@@ -4079,6 +4095,8 @@ def _points_apply_graph_graid_fallback(
                 "timestamp": cycle_start.isoformat(),
                 "is_dirty": 1 if mark_dirty else 0,
             })
+            allocated += remaining
+        missing_total += allocated
 
     return missing_total, synthetic_rows
 
