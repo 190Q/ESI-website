@@ -3935,12 +3935,48 @@ def _points_effective_is_dirty(row, is_hr):
     if reason_dirty:
         return 0
     return 1 if int(_safe_number((row or {}).get("is_dirty", 0))) == 1 else 0
+def _points_expand_grouped_reason_rows(history_rows):
+    """Split grouped reason rows into per-event chunks."""
+    chunk_by_reason = {
+        "guild raid": 10,
+        "war": 1,
+    }
+
+    expanded = []
+    for row in (history_rows or []):
+        if not isinstance(row, dict):
+            continue
+        reason = (row.get("reason") or "").strip().lower()
+        points = int(_safe_number(row.get("points_gained", 0)))
+        chunk = None
+        for prefix, unit in chunk_by_reason.items():
+            if reason.startswith(prefix):
+                chunk = unit
+                break
+        if chunk is None or points <= chunk:
+            expanded.append(row)
+            continue
+
+        full_chunks = points // chunk
+        remainder = points % chunk
+        for i in range(full_chunks):
+            part = dict(row)
+            part["points_gained"] = chunk
+            if i > 0:
+                part["record_id"] = None
+            expanded.append(part)
+        if remainder > 0:
+            tail = dict(row)
+            tail["points_gained"] = remainder
+            tail["record_id"] = None
+            expanded.append(tail)
+    return expanded
 
 
 def _points_normalize_history_for_rank(history_rows, is_hr):
     """Return a copy of history rows with rank-aware is_dirty normalization."""
     out = []
-    for row in (history_rows or []):
+    for row in _points_expand_grouped_reason_rows(history_rows):
         if not isinstance(row, dict):
             continue
         normalized = dict(row)
