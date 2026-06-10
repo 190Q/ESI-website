@@ -122,9 +122,23 @@ def _audit_bot_permissions():
 
     Required permissions:
       - View Channels
-      - Send Messages / Send Messages in Threads
-      - Create Public Threads / Create Private Threads
+      - Manage Channels
+      - Manage Roles
+      - Create Invite
+      - Manage nicknames
+      - Send Messages and Create Posts
+      - Send Messages in Threads and Posts
+      - Create Public Threads
+      - Create Private Threads
+      - Embed Links
+      - Attach Files
+      - Add Reactions
+      - Use External Emojis
+      - Manage Messages
+      - Manage Threads and Posts
       - Read Message History
+      - Connect
+      - Move Members
     The bot also needs the Server Members Intent in the developer portal.
     """
     import sys as _sys
