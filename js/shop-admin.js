@@ -1624,7 +1624,7 @@
           h += '<span class="am-bid-time">' + fmtDate(b.placed_at) + '</span>';
           h += '<span class="am-bid-actions">';
           if (b.is_winning) h += '<span class="am-bid-status am-bid-status--win">Winning</span> ';
-          if (_canParliamentEditShopAdmin('items', 'items_edit')) h += '<button class="am-bid-remove" data-remove-bid="' + esc(b.bid_id) + '" aria-label="Remove bid">' + _svg.close + '</button>';
+          if (data.status === 'active' && b.is_winning && _canParliamentEditShopAdmin('items', 'items_edit')) h += '<button class="am-bid-remove" data-remove-bid="' + esc(b.bid_id) + '" aria-label="Remove bid">' + _svg.close + '</button>';
           h += '</span>';
           h += '</div>';
         });

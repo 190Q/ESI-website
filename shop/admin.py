@@ -459,36 +459,53 @@ def admin_remove_bid(bid_id: str, chief_name: str, reason: str | None = None) ->
         return {"error": "Bid not found"}
 
     auction_id = bid["auction_id"]
+    auction = conn.execute(
+        "SELECT status, current_highest_bid, current_highest_bidder_uuid "
+        "FROM auctions WHERE auction_id = ?",
+        (auction_id,),
+    ).fetchone()
+    if not auction:
+        conn.rollback(); conn.close()
+        return {"error": "Auction not found"}
+    if auction["status"] != "active":
+        conn.rollback(); conn.close()
+        return {"error": "Only bids from active auctions can be removed"}
     bidder_uuid = bid["uuid"]
     bid_amount = bid["amount"]
-    was_winning = bool(bid["is_winning"])
+    is_top_bid = (
+        bool(bid["is_winning"])
+        and bidder_uuid == auction["current_highest_bidder_uuid"]
+        and int(bid_amount or 0) == int(auction["current_highest_bid"] or 0)
+    )
+    if not is_top_bid:
+        conn.rollback(); conn.close()
+        return {"error": "Only the current top bid can be removed"}
 
     # Delete the bid
     conn.execute("DELETE FROM bids WHERE bid_id = ?", (bid_id,))
 
-    # If it was the winning bid, recalculate the new highest
-    if was_winning:
-        new_top = conn.execute(
-            "SELECT bid_id, uuid, amount FROM bids "
-            "WHERE auction_id = ? ORDER BY amount DESC LIMIT 1",
+    # Recalculate the new highest
+    new_top = conn.execute(
+        "SELECT bid_id, uuid, amount FROM bids "
+        "WHERE auction_id = ? ORDER BY amount DESC LIMIT 1",
+        (auction_id,),
+    ).fetchone()
+    if new_top:
+        conn.execute(
+            "UPDATE bids SET is_winning = 1 WHERE bid_id = ?",
+            (new_top["bid_id"],),
+        )
+        conn.execute(
+            "UPDATE auctions SET current_highest_bid = ?, current_highest_bidder_uuid = ? "
+            "WHERE auction_id = ?",
+            (new_top["amount"], new_top["uuid"], auction_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE auctions SET current_highest_bid = 0, current_highest_bidder_uuid = NULL "
+            "WHERE auction_id = ?",
             (auction_id,),
-        ).fetchone()
-        if new_top:
-            conn.execute(
-                "UPDATE bids SET is_winning = 1 WHERE bid_id = ?",
-                (new_top["bid_id"],),
-            )
-            conn.execute(
-                "UPDATE auctions SET current_highest_bid = ?, current_highest_bidder_uuid = ? "
-                "WHERE auction_id = ?",
-                (new_top["amount"], new_top["uuid"], auction_id),
-            )
-        else:
-            conn.execute(
-                "UPDATE auctions SET current_highest_bid = 0, current_highest_bidder_uuid = NULL "
-                "WHERE auction_id = ?",
-                (auction_id,),
-            )
+        )
 
     conn.commit()
     conn.close()
