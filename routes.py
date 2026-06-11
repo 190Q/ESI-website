@@ -126,6 +126,7 @@ def _audit_bot_permissions():
       - Manage Roles
       - Create Invite
       - Manage nicknames
+      - Time out members
       - Send Messages and Create Posts
       - Send Messages in Threads and Posts
       - Create Public Threads
