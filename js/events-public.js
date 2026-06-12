@@ -461,7 +461,7 @@
         var badges = g.prizes.map(function (p) {
           var typeKey = p.type || 'other';
           return '<span class="ev-prize-badge ev-prize-' + esc(typeKey) + '">' +
-            '\ud83c\udfc6 ' + esc(prizeTypeLabel(typeKey)) +
+            esc(prizeTypeLabel(typeKey)) +
             ': ' + formatPrizeValue(p) +
           '</span>';
         }).join('');
