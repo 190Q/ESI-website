@@ -4,6 +4,12 @@
   var panel = document.getElementById('panel-guild-info');
   if (!panel) return;
 
+  var _PANEL_HEADER =
+    '<div class="panel-header">' +
+      '<h1 class="panel-title">Guild Info</h1>' +
+      '<p class="panel-subtitle">Manage guild information posts</p>' +
+    '</div>';
+
   /* state */
   var _state        = null;   // /state: {access, tier, is_full, can_approve, can_approve_privilege, privilege_pending, privilege_blocked, devMode, ...}
   var _posts        = null;
@@ -209,6 +215,7 @@
   // Access-pending gate for privileged users awaiting approval
   function _applyPrivilegeBlockedState() {
     setHTML(panel,
+      _PANEL_HEADER +
       '<div class="auth-gate">' +
         '<div class="auth-gate-card">' +
           '<svg class="auth-gate-icon" viewBox="0 0 24 24" fill="none" ' +
@@ -290,7 +297,7 @@
     tabs += '<button class="gi-tab" data-tab="logs">Logs</button>';
 
     setHTML(panel,
-      '<div class="gi-header"><div class="gi-title">Guild Info</div></div>' +
+      _PANEL_HEADER +
       '<div class="gi-tabs" id="giTabs">' + tabs + '</div>' +
       '<div id="giContent"></div>' +
       '<div class="gi-modal-backdrop" id="giModalBackdrop"><div class="gi-modal" id="giModal"></div></div>'
@@ -669,7 +676,7 @@
     var submitLabel = isParliament ? 'Submit for approval' : (isEdit ? 'Save changes' : 'Create post');
     var cached = isEdit ? _postCache[String(post.id)] : null;   // reuse an already-loaded body
     var needFetch = isEdit && !cached;
-    var origTitle = '', origBody = '';   // baseline for edit change-detection
+    var origTitle = '', origSegments = [];   // baseline for edit change-detection
     showModal(
       '<div class="gi-modal-title">' + (isEdit ? 'Edit post' : 'New post') + '</div>' +
       (isParliament ? '<div class="gi-modal-sub">This will be queued for approval.</div>' : '') +
@@ -677,9 +684,12 @@
       '<div class="gi-form"' + (needFetch ? ' style="display:none"' : '') + ' id="giForm">' +
         '<label class="gi-label">Title</label>' +
         '<input type="text" class="gi-input" id="giTitle" maxlength="' + _MAX_TITLE + '" placeholder="Post title" />' +
-        '<label class="gi-label">Body</label>' +
-        '<textarea class="gi-textarea" id="giBody" rows="12" placeholder="Post body\u2026"></textarea>' +
-        '<div class="gi-split-hint" id="giSplitHint"></div>' +
+        '<label class="gi-label">Messages <span class="gi-label-sub">\u2014 each box is one Discord message</span></label>' +
+        '<div class="gi-msgs" id="giMsgs"></div>' +
+        '<div class="gi-msgs-bar">' +
+          '<button type="button" class="gi-btn gi-btn--sm" id="giAddMsg">+ Add message</button>' +
+          '<span class="gi-split-hint" id="giSplitHint"></span>' +
+        '</div>' +
         '<div class="gi-modal-actions">' +
           '<button class="gi-btn" data-close>Cancel</button>' +
           '<button class="gi-btn gi-btn--primary" id="giSubmit">' + esc(submitLabel) + '</button>' +
@@ -687,41 +697,106 @@
       '</div>'
     );
     var titleEl = document.getElementById('giTitle');
-    var bodyEl  = document.getElementById('giBody');
+    var msgsEl  = document.getElementById('giMsgs');
     var hintEl  = document.getElementById('giSplitHint');
+    var addBtn  = document.getElementById('giAddMsg');
     var submitBtn = document.getElementById('giSubmit');
 
-    function updateHint() {
-      var len = bodyEl.value.length;
-      var n = splitBody(bodyEl.value).length;
-      hintEl.textContent = len.toLocaleString() + ' characters \u00b7 ' + n + ' Discord message' + (n === 1 ? '' : 's');
-      hintEl.className = 'gi-split-hint' + (n > 1 ? ' gi-split-hint--multi' : '');
+    function readSegments() {
+      return Array.prototype.slice.call(msgsEl.querySelectorAll('.gi-msg-body'))
+        .map(function (t) { return t.value; });
     }
+    // The messages that will actually be posted: non-empty boxes, in order
+    function cleanSegments() {
+      return readSegments().filter(function (s) { return s.trim() !== ''; });
+    }
+
+    // Append one message box (optionally pre-filled) and wire its events
+    function addMessage(text, focusIt) {
+      var row = document.createElement('div');
+      row.className = 'gi-msg';
+      row.innerHTML =                       // static skeleton only; no user content
+        '<div class="gi-msg-head">' +
+          '<span class="gi-msg-n"></span>' +
+          '<button type="button" class="gi-msg-del" title="Remove message" aria-label="Remove message">\u00d7</button>' +
+        '</div>' +
+        '<textarea class="gi-textarea gi-msg-body" rows="5" placeholder="Message content\u2026"></textarea>' +
+        '<div class="gi-msg-count"></div>';
+      msgsEl.appendChild(row);
+      var ta = row.querySelector('.gi-msg-body');
+      ta.value = text == null ? '' : String(text);          // .value, never innerHTML
+      ta.addEventListener('input', onChange);
+      row.querySelector('.gi-msg-del').addEventListener('click', function () {
+        if (msgsEl.children.length <= 1) ta.value = '';     // keep at least one box
+        else msgsEl.removeChild(row);
+        onChange();
+      });
+      if (focusIt) ta.focus();
+    }
+
+    // Renumber boxes, refresh per-message + total counters, then gate submit
+    function onChange() {
+      var rows = Array.prototype.slice.call(msgsEl.querySelectorAll('.gi-msg'));
+      var total = 0, count = 0, over = false;
+      rows.forEach(function (row, i) {
+        var ta = row.querySelector('.gi-msg-body');
+        var len = ta.value.length;
+        total += len;
+        if (ta.value.trim() !== '') count++;
+        if (len > _MAX_BODY) over = true;
+        var n = row.querySelector('.gi-msg-n');
+        if (n) n.textContent = 'Message ' + (i + 1);
+        var cnt = row.querySelector('.gi-msg-count');
+        if (cnt) {
+          cnt.textContent = len.toLocaleString() + ' / ' + _MAX_BODY.toLocaleString();
+          cnt.className = 'gi-msg-count' + (len > _MAX_BODY ? ' gi-msg-count--over' : '');
+        }
+        var del = row.querySelector('.gi-msg-del');
+        if (del) del.style.visibility = rows.length > 1 ? '' : 'hidden';
+      });
+      if (hintEl) {
+        var txt = count + ' message' + (count === 1 ? '' : 's') +
+                  ' \u00b7 ' + total.toLocaleString() + ' characters';
+        if (over) txt += ' \u00b7 a message is over ' + _MAX_BODY.toLocaleString() + ' and will be auto-split';
+        hintEl.textContent = txt;
+        hintEl.className = 'gi-split-hint' + (over ? ' gi-split-hint--multi' : '');
+      }
+      recomputeSubmit();
+    }
+
+    // Rebuild the boxes from a segments array and set the edit baseline
+    function loadSegments(segs) {
+      msgsEl.innerHTML = '';
+      var clean = (segs || []).filter(function (s) { return String(s).trim() !== ''; });
+      (clean.length ? clean : ['']).forEach(function (s) { addMessage(s, false); });
+      origSegments = clean.slice();
+      onChange();
+    }
+
     // The submit button is shown only when there is something worth saving
     function _hasSubmittable() {
       var t = titleEl.value.trim();
-      if (!t || !bodyEl.value.trim()) return false;
+      var segs = cleanSegments();
+      if (!t || !segs.length) return false;
       if (!isEdit) return true;
-      return t !== String(origTitle).trim() || bodyEl.value !== String(origBody);
+      if (t !== String(origTitle).trim()) return true;
+      return JSON.stringify(segs) !== JSON.stringify(origSegments);
     }
     function recomputeSubmit() { if (submitBtn) submitBtn.style.display = _hasSubmittable() ? '' : 'none'; }
 
-    bodyEl.addEventListener('input', function () { updateHint(); recomputeSubmit(); });
     titleEl.addEventListener('input', recomputeSubmit);
-    updateHint();
-    recomputeSubmit();
+    if (addBtn) addBtn.addEventListener('click', function () { addMessage('', true); onChange(); });
 
     submitBtn.addEventListener('click', function () {
-      submitPost(isEdit ? post.id : null, titleEl.value, bodyEl.value, this, isEdit,
-                 { title: origTitle, body: origBody });
+      submitPost(isEdit ? post.id : null, titleEl.value, cleanSegments(), this, isEdit,
+                 { title: origTitle, segments: origSegments });
     });
 
     if (isEdit && cached) {                 // populate instantly from cache (no fetch)
       titleEl.value = cached.title || post.title || '';
-      bodyEl.value = cached.body || '';
-      origTitle = titleEl.value; origBody = bodyEl.value;
-      updateHint();
-      recomputeSubmit();
+      origTitle = titleEl.value;
+      loadSegments(cached.segments && cached.segments.length ? cached.segments
+                   : (cached.body ? [cached.body] : []));
       titleEl.focus();
     } else if (isEdit) {                    // first time: fetch the body, then cache it
       apiGet('/api/admin/guild-info/posts/' + encodeURIComponent(post.id)).then(function (res) {
@@ -730,42 +805,44 @@
         if (res.ok && res.data && !res.data.error) {
           _cachePost(res.data);
           titleEl.value = res.data.title || post.title || '';
-          bodyEl.value = res.data.body || '';
-          origTitle = titleEl.value; origBody = bodyEl.value;
+          origTitle = titleEl.value;
+          loadSegments(res.data.segments && res.data.segments.length ? res.data.segments
+                       : (res.data.body ? [res.data.body] : []));
         } else {
           titleEl.value = post.title || '';
-          origTitle = titleEl.value; origBody = '';
+          origTitle = titleEl.value;
+          loadSegments([]);
           toast('\u26a0 Could not load the current body; editing from blank.', 'warn');
         }
-        updateHint();
-        recomputeSubmit();
         titleEl.focus();
       }).catch(function () {
         var ld = document.querySelector('#giModal .gi-loading'); if (ld) ld.remove();
         var form = document.getElementById('giForm'); if (form) form.style.display = '';
       });
-    } else {
+    } else {                                // brand-new post: start with one empty message
+      loadSegments([]);
       titleEl.focus();
     }
   }
 
-  function submitPost(threadId, title, body, btn, isEdit, orig) {
+  function submitPost(threadId, title, segments, btn, isEdit, orig) {
     title = (title || '').trim();
     if (!title) { toast('\u26a0 Title is required.', 'warn'); return; }
-    if (!body || !body.trim()) { toast('\u26a0 Body is required.', 'warn'); return; }
+    segments = (segments || []).filter(function (s) { return String(s).trim() !== ''; });
+    if (!segments.length) { toast('\u26a0 Body is required.', 'warn'); return; }
     // For edits, only send the fields that actually changed so we never queue a no-op request
     var payload;
     if (isEdit) {
       var o = orig || {};
       payload = {};
       if (title !== String(o.title == null ? '' : o.title).trim()) payload.title = title;
-      if (body !== String(o.body == null ? '' : o.body)) payload.body = body;
-      if (!('title' in payload) && !('body' in payload)) {
+      if (JSON.stringify(segments) !== JSON.stringify(o.segments || [])) payload.segments = segments;
+      if (!('title' in payload) && !('segments' in payload)) {
         toast('\u2139 No changes to save.', 'info');
         return;
       }
     } else {
-      payload = { title: title, body: body };
+      payload = { title: title, segments: segments };
     }
     var origLabel = btn.textContent;
     btn.disabled = true; btn.textContent = 'Working\u2026';
@@ -780,12 +857,12 @@
         } else {
           toast('\u2713 Post ' + (isEdit ? 'updated' : 'created') + '.', 'success');
           if (res.data.warning) toast('\u26a0 ' + res.data.warning, 'warn');
-          // Refresh the body cache with what we just saved (split/join is lossless).
+          // Refresh the body cache with exactly the segments we just saved
           var savedId = isEdit ? String(threadId) : (res.data.id != null ? String(res.data.id) : null);
           if (savedId != null) {
             var prev = _postCache[savedId];
             _postCache[savedId] = {
-              id: savedId, title: title, body: body, segments: splitBody(body),
+              id: savedId, title: title, body: segments.join(''), segments: segments,
               archived: prev ? prev.archived : false, at: 0,
             };
           }
@@ -1298,11 +1375,11 @@
     if (_initDone) return;
     if (!window.state || !window.state.loggedIn) {
       if (window.renderAuthGate) window.renderAuthGate(panel);
-      else setHTML(panel, '<div class="gi-login">Log in to manage guild info.</div>');
+      else setHTML(panel, _PANEL_HEADER + '<div class="gi-login">Log in to manage guild info.</div>');
       return; // retry on next activation / after login reload
     }
     _initDone = true;
-    setHTML(panel, loadingHTML('Loading\u2026'));
+    setHTML(panel, _PANEL_HEADER + loadingHTML('Loading…'));
     fetchState(function (d) {
       if (d && d.privilege_blocked) {
         _applyPrivilegeBlockedState();
@@ -1310,7 +1387,7 @@
         return;
       }
       if (!d || !d.access) {
-        setHTML(panel, emptyHTML('You do not have access to Guild Info.'));
+        setHTML(panel, _PANEL_HEADER + emptyHTML('You do not have access to Guild Info.'));
         _initDone = false; // allow re-check if roles change later
         return;
       }

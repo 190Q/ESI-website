@@ -301,12 +301,14 @@ def _list_body_messages(thread_id: str) -> list | None:
 
 def _thread_summary(t: dict) -> dict:
     meta = t.get("thread_metadata") or {}
+    # Discord's message_count excludes the thread's initial (root) message
+    mc = t.get("message_count")
     return {
         "id": str(t.get("id")),
         "title": t.get("name") or "",
         "archived": bool(meta.get("archived")),
         "locked": bool(meta.get("locked")),
-        "message_count": t.get("message_count"),
+        "message_count": (mc + 1) if isinstance(mc, int) else mc,
         "created_at": meta.get("create_timestamp"),
     }
 

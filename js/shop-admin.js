@@ -4,6 +4,12 @@
   var panel = document.getElementById('panel-shop-admin');
   if (!panel) return;
 
+  var _PANEL_HEADER =
+    '<div class="panel-header">' +
+      '<h1 class="panel-title">Manage Shop</h1>' +
+      '<p class="panel-subtitle">Administer shop items, orders, and users</p>' +
+    '</div>';
+
   var _items = null;
   var _auctions = null;
   var _activeTab    = 'items';
@@ -937,6 +943,7 @@
     _writeShopAdminTabToUrl(_activeTab);
 
     panel.innerHTML =
+      _PANEL_HEADER +
       '<div class="sa-state-banner" id="saStateBanner"></div>' +
       '<div class="shop-tabs" id="saTabs">' +
         '<button class="shop-tab' + (_activeTab === 'items' ? ' active' : '') + '" data-tab="items">Items</button>' +
@@ -5205,6 +5212,7 @@
 
   function _applyAdminBannedState() {
     panel.innerHTML =
+      _PANEL_HEADER +
       '<div class="shop-banned-notice">' +
         '<div class="shop-banned-icon">' +
           '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>' +
@@ -5219,6 +5227,7 @@
 
   function _applyPrivilegeBlockedState() {
     panel.innerHTML =
+      _PANEL_HEADER +
       '<div class="auth-gate">' +
         '<div class="auth-gate-card">' +
           '<svg class="auth-gate-icon" viewBox="0 0 24 24" fill="none" ' +
@@ -5792,7 +5801,7 @@
       if (window.renderAuthGate) {
         window.renderAuthGate(panel);
       } else {
-        panel.innerHTML = '<div class="shop-login-prompt">Log in to access the shop admin.</div>';
+        panel.innerHTML = _PANEL_HEADER + '<div class="shop-login-prompt">Log in to access the shop admin.</div>';
       }
       return;
     }
