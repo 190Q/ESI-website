@@ -54,6 +54,7 @@
       if (f === 'events' && p[1] === 'manage') panel = 'events-manage';
       if (f === 'shop' && p[1] === 'admin') panel = 'shop-admin';
       if (f === 'shop' && p[1] === 'studio') panel = 'creator-studio';
+      if (f === 'guild' && p[1] === 'info') panel = 'guild-info';
       if (panel !== 'player') {
         css += '#panel-player.panel.active{display:none!important}';
         css += '#panel-' + panel + '.panel{display:block!important;flex:1!important}';
@@ -101,6 +102,7 @@
               if (n.shop) css += '#shopNavItem{display:list-item!important}';
               if (n.creatorStudio) css += '#creatorStudioNavItem{display:list-item!important}';
               if (n.shopAdmin) css += '#shopAdminNavItem{display:list-item!important}';
+              if (n.guildInfo) css += '#guildInfoNavItem{display:list-item!important}';
               if (n.manage) {
                 css += '#manageSection{display:block!important}';
                 if (!n.inactivity) css += '#manageSection li:has([data-panel="inactivity"]){display:none!important}';

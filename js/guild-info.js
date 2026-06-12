@@ -1,0 +1,1332 @@
+(function () {
+  'use strict';
+
+  var panel = document.getElementById('panel-guild-info');
+  if (!panel) return;
+
+  /* state */
+  var _state        = null;   // /state: {access, tier, is_full, can_approve, can_approve_privilege, privilege_pending, privilege_blocked, devMode, ...}
+  var _posts        = null;
+  var _postsError   = '';
+  var _queue        = null;
+  var _privReqs     = null;
+  var _logs         = null;
+  var _logsPage     = 1;
+  var _logsHasMore  = false;
+  var _activeTab    = 'posts';
+  var _shellBuilt   = false;
+  var _initDone     = false;
+  var _preloadDone  = false;
+  var _openView     = null;   // thread id of the currently open View modal (or null)
+  var _postsAt      = 0;      // ms epoch of the last successful posts fetch
+  var _postsSig     = '';     // signature of the last-drawn posts (skip redundant redraws)
+  var _queueAt      = 0;      // ms epoch of the last successful queue fetch
+  var _queueFilter  = 'all';  // queue pill filter: all | create | edit | delete
+  var _queueSort    = 'oldest'; // queue order: oldest (backend default) | newest
+  var _logsAt       = 0;      // ms epoch of the last successful logs (page 1) fetch
+  var _postCache    = {};     // thread_id -> { id, title, body, segments, archived, at }
+  var _TTL          = 120000; // stale-while-revalidate window (2 min): serve cache, refresh quietly after
+  var _mdCtx        = {};     // { mentions, roles, channels } id->name maps for the open View body
+
+  // Discord limits mirrored from guild_info/forum.py
+  var _MAX_TITLE = 100;
+  var _MAX_BODY  = 2000;
+
+  /* small helpers */
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // Rule: never assign user content to innerHTML without sanitising it first
+  function setHTML(el, html) {
+    if (!el) return;
+    el.innerHTML = window.DOMPurify ? window.DOMPurify.sanitize(html) : html;
+  }
+
+  function toast(msg, type) { if (window.showToast) window.showToast(msg, type); }
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso);
+    return d.toLocaleString();
+  }
+
+  function loadingHTML(text) {
+    return '<div class="gi-loading"><span class="loading-spinner"></span> ' + esc(text || 'Loading\u2026') + '</div>';
+  }
+  function emptyHTML(text) {
+    return '<div class="gi-empty">' + esc(text || 'Nothing here.') + '</div>';
+  }
+
+  /* fetch wrappers (always return {ok,status,data}) */
+  function _wrap(r) {
+    return r.json().then(
+      function (d) { return { ok: r.ok, status: r.status, data: d || {} }; },
+      function () { return { ok: r.ok, status: r.status, data: {} }; }
+    );
+  }
+  function apiGet(url) {
+    return fetch(url, { credentials: 'same-origin' }).then(_wrap);
+  }
+  function apiSend(method, url, body) {
+    return fetch(url, {
+      method: method, credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    }).then(_wrap);
+  }
+  function apiPost(url, body)  { return apiSend('POST', url, body); }
+  function apiPatch(url, body) { return apiSend('PATCH', url, body); }
+  function apiDelete(url) {
+    return fetch(url, { method: 'DELETE', credentials: 'same-origin' }).then(_wrap);
+  }
+
+  /* body splitting (mirror of guild_info/forum.py split_body)
+     Kept faithful so the per-message preview matches what the server will
+     produce. A future "choose split points" UI can pass an explicit
+     `segments` array instead; the backend already accepts it. */
+  function splitBody(text, maxLen) {
+    maxLen = maxLen || _MAX_BODY;
+    text = text == null ? '' : String(text);
+    if (text.length <= maxLen) return [text];
+    var chunks = [];
+    var remaining = text;
+    var seps = ['\n\n', '\n', ' '];
+    while (remaining.length > maxLen) {
+      var win = remaining.slice(0, maxLen);
+      var cut = maxLen;
+      for (var i = 0; i < seps.length; i++) {
+        var idx = win.lastIndexOf(seps[i]);
+        if (idx > 0) { cut = idx + seps[i].length; break; }
+      }
+      chunks.push(remaining.slice(0, cut));
+      remaining = remaining.slice(cut);
+    }
+    if (remaining) chunks.push(remaining);
+    return chunks;
+  }
+
+  function _actionLabel(action) {
+    return {
+      create: 'Create', edit_body: 'Edit body', edit_title: 'Edit title',
+      edit: 'Edit', delete: 'Delete',
+    }[action] || (action || 'Request');
+  }
+  // Group the granular actions into the Queue's filter buckets.
+  function _queueCat(action) {
+    if (action === 'create') return 'create';
+    if (action === 'delete') return 'delete';
+    if (action === 'privilege' || action === 'privilege_request') return 'privilege';
+    return 'edit';   // edit, edit_body, edit_title
+  }
+  function _logActionLabel(action) {
+    return {
+      action_executed: 'Executed', action_failed: 'Failed',
+      request_submitted: 'Submitted', request_approved: 'Approved',
+      request_denied: 'Denied', request_failed: 'Failed',
+    }[action] || (action || '');
+  }
+  function _logActionClass(action) {
+    return {
+      action_executed: ' gi-log-action--ok', request_approved: ' gi-log-action--ok',
+      action_failed: ' gi-log-action--fail', request_failed: ' gi-log-action--fail',
+      request_denied: ' gi-log-action--deny',
+    }[action] || '';
+  }
+  function _logDetail(e) {
+    if (!e || !e.details) return e && e.target_id ? ('#' + e.target_id) : '';
+    var d;
+    try { d = JSON.parse(e.details); } catch (x) { return String(e.details); }
+    var parts = [];
+    if (d.action)    parts.push(_actionLabel(d.action));
+    if (d.title)     parts.push('"' + d.title + '"');
+    if (d.thread_id) parts.push('thread ' + d.thread_id);
+    if (d.reason)    parts.push('reason: ' + d.reason);
+    if (d.error)     parts.push('error: ' + d.error);
+    if (d.warning)   parts.push('warning: ' + d.warning);
+    return parts.join(' \u00b7 ') || (e.target_id ? ('#' + e.target_id) : '');
+  }
+
+  /* nav reveal + badge */
+  function _revealNav() {
+    window._guildInfoServerAccess = true;
+    var nav = document.getElementById('guildInfoNavItem');
+    if (nav) nav.style.display = '';
+    var manage = document.getElementById('manageSection');
+    if (manage) manage.style.display = 'block';
+    try {
+      var nc = JSON.parse(localStorage.getItem('esi_nav_cache') || '{}');
+      nc.guildInfo = true; nc.manage = true;
+      localStorage.setItem('esi_nav_cache', JSON.stringify(nc));
+    } catch (e) { /* ignore cache errors */ }
+  }
+
+  // Privilege requests count toward the badge only for Emperor/OWNER approvers
+  function _privBadgeCount() {
+    return (_state && _state.can_approve_privilege && Array.isArray(_privReqs)) ? _privReqs.length : 0;
+  }
+
+  function _updateNavBadge() {
+    var navItem = document.querySelector('[data-panel="guild-info"]');
+    if (!navItem) return;
+    var count = (_queue || []).length + _privBadgeCount();
+    var badge = navItem.querySelector('.nav-upcoming-badge');
+    if (count > 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'nav-upcoming-badge';
+        badge.setAttribute('aria-hidden', 'true');
+        navItem.appendChild(badge);
+      }
+      badge.textContent = count > 9 ? '9+' : String(count);
+      navItem.setAttribute('title', count + ' pending request' + (count === 1 ? '' : 's'));
+    } else if (badge) {
+      badge.remove();
+      navItem.removeAttribute('title');
+    }
+  }
+
+  function _updateQueueTabBadge() {
+    var btn = document.querySelector('#giTabs [data-tab="queue"]');
+    if (!btn) return;
+    var count = (_queue || []).length + _privBadgeCount();
+    var badge = btn.querySelector('.gi-tab-badge');
+    if (count > 0) {
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'gi-tab-badge';
+        btn.appendChild(badge);
+      }
+      badge.textContent = String(count);
+    } else if (badge) {
+      badge.remove();
+    }
+  }
+
+  // Access-pending gate for privileged users awaiting approval
+  function _applyPrivilegeBlockedState() {
+    setHTML(panel,
+      '<div class="auth-gate">' +
+        '<div class="auth-gate-card">' +
+          '<svg class="auth-gate-icon" viewBox="0 0 24 24" fill="none" ' +
+            'stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+            '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>' +
+          '</svg>' +
+          '<div class="auth-gate-title">Access Pending</div>' +
+          '<div class="auth-gate-text">' +
+            'Your Guild Info privileges are pending approval. You\'ll gain access ' +
+            'once an approver has reviewed your request.' +
+          '</div>' +
+        '</div>' +
+      '</div>'
+    );
+    window._guildInfoPrivBlocked = true;
+    var nav = document.getElementById('guildInfoNavItem');
+    if (nav) nav.style.display = 'none';
+  }
+
+  /* state */
+  function fetchState(cb) {
+    fetch('/api/admin/guild-info/state', { credentials: 'same-origin' })
+      .then(function (r) {
+        if (r.status === 403) return null;
+        return r.ok ? r.json() : null;
+      })
+      .then(function (d) {
+        if (d) { d.access = true; _state = d; }
+        else if (!_state) { _state = { access: false }; }
+        if (cb) cb(_state);
+      })
+      .catch(function () { if (cb) cb(null); });
+  }
+
+  // Called eagerly after login
+  window.preloadGuildInfoBadge = function () {
+    if (_preloadDone) return;
+    _preloadDone = true;
+    fetchState(function (d) {
+      if (!d || !d.access) return;
+      if (d.privilege_blocked) return;   // access pending -> keep nav hidden
+      _revealNav();
+      if (d.can_approve) fetchQueue(function () { _updateNavBadge(); });
+    });
+  };
+
+  /* modal */
+  function showModal(html) {
+    _openView = null;
+    var m = document.getElementById('giModal');
+    var bd = document.getElementById('giModalBackdrop');
+    if (!m || !bd) return;
+    setHTML(m, html);
+    bd.classList.add('open');
+    bindClose();
+  }
+  function setModalContent(html) { setHTML(document.getElementById('giModal'), html); bindClose(); }
+  function closeModal() {
+    _openView = null;
+    var bd = document.getElementById('giModalBackdrop');
+    if (bd) bd.classList.remove('open');
+  }
+  function bindClose() {
+    var m = document.getElementById('giModal');
+    if (!m) return;
+    m.querySelectorAll('[data-close]').forEach(function (b) {
+      b.addEventListener('click', closeModal);
+    });
+  }
+
+  /* shell */
+  function buildShell() {
+    if (_shellBuilt) return;
+    _shellBuilt = true;
+    var canApprove = !!(_state && _state.can_approve);
+
+    var tabs = '<button class="gi-tab active" data-tab="posts">Posts</button>';
+    if (canApprove) tabs += '<button class="gi-tab" data-tab="queue">Queue</button>';
+    tabs += '<button class="gi-tab" data-tab="logs">Logs</button>';
+
+    setHTML(panel,
+      '<div class="gi-header"><div class="gi-title">Guild Info</div></div>' +
+      '<div class="gi-tabs" id="giTabs">' + tabs + '</div>' +
+      '<div id="giContent"></div>' +
+      '<div class="gi-modal-backdrop" id="giModalBackdrop"><div class="gi-modal" id="giModal"></div></div>'
+    );
+
+    document.getElementById('giTabs').addEventListener('click', function (e) {
+      var btn = e.target.closest('.gi-tab');
+      if (!btn) return;
+      var tab = btn.dataset.tab;
+      if (tab === _activeTab) return;
+      _activeTab = tab;
+      document.querySelectorAll('#giTabs .gi-tab').forEach(function (t) { t.classList.remove('active'); });
+      btn.classList.add('active');
+      renderTab();
+    });
+
+    document.getElementById('giModalBackdrop').addEventListener('click', function (e) {
+      if (e.target === this) closeModal();
+    });
+  }
+
+  function renderTab() {
+    var c = document.getElementById('giContent');
+    if (!c) return;
+    if (_activeTab === 'queue')      renderQueue(c);
+    else if (_activeTab === 'logs')  renderLogs(c);
+    else                             renderPosts(c);
+  }
+
+  /* Posts tab */
+  function _cachePost(p) {
+    if (!p || p.id == null) return;
+    _postCache[String(p.id)] = {
+      id: String(p.id), title: p.title || '', body: p.body || '',
+      segments: p.segments || null, archived: !!p.archived, at: Date.now(),
+    };
+  }
+
+  function fetchPosts(cb) {
+    apiGet('/api/admin/guild-info/posts').then(function (res) {
+      if (res.ok && res.data && !res.data.error) {
+        _posts = res.data.posts || [];
+        _postsError = '';
+        _postsAt = Date.now();
+      } else if (_posts == null) {
+        // Preserve any cached posts when a background refresh fails
+        _postsError = (res.data && res.data.error) || 'Failed to load posts.';
+      }
+      if (cb) cb();
+    }).catch(function () { if (_posts == null) _postsError = 'Network error.'; if (cb) cb(); });
+  }
+
+  function renderPosts(c) {
+    if (_posts != null) {                       // serve instantly from cache
+      drawPosts(c);
+      if (Date.now() - _postsAt > _TTL) {       // refresh quietly when stale
+        fetchPosts(function () {
+          if (_activeTab === 'posts' && _postsSig !== _postsSignature()) drawPosts(c);
+        });
+      }
+      return;
+    }
+    setHTML(c, loadingHTML('Loading posts\u2026'));
+    fetchPosts(function () {
+      if (_activeTab !== 'posts') return;
+      drawPosts(c);
+    });
+  }
+
+  function _postsSignature() {
+    return (_posts == null) ? ('E:' + _postsError) : JSON.stringify(_posts);
+  }
+
+  function drawPosts(c) {
+    _postsSig = _postsSignature();
+    var head = '<div class="gi-toolbar"><button class="gi-btn gi-btn--primary" id="giNewPost">+ New post</button></div>';
+    if (_posts == null) {
+      setHTML(c, head + emptyHTML(_postsError || 'Could not load posts.'));
+    } else if (!_posts.length) {
+      setHTML(c, head + emptyHTML('No guild-info posts yet.'));
+    } else {
+      var rows = _posts.map(function (p) {
+        var badges = '';
+        if (p.archived) badges += '<span class="gi-pill gi-pill--muted">Archived</span>';
+        if (p.locked)   badges += '<span class="gi-pill gi-pill--muted">Locked</span>';
+        if (p.pending_request) badges += '<span class="gi-pill gi-pill--pending">Change pending</span>';
+        var mc = (p.message_count != null)
+          ? '<span class="gi-meta-dim">' + esc(p.message_count) + ' message' + (p.message_count === 1 ? '' : 's') + '</span>'
+          : '';
+        // A post with a pending request is locked for editing until it's resolved/deleted
+        var editBtn = p.pending_request
+          ? '<button class="gi-btn gi-btn--sm" data-act="edit" data-id="' + esc(p.id) + '" disabled title="A change to this post is pending approval">Edit</button>'
+          : '<button class="gi-btn gi-btn--sm" data-act="edit" data-id="' + esc(p.id) + '">Edit</button>';
+        return '<div class="gi-card">' +
+            '<div class="gi-card-main">' +
+              '<div class="gi-card-title">' + esc(p.title || '(untitled)') + '</div>' +
+              '<div class="gi-card-meta">' + badges + mc + '</div>' +
+            '</div>' +
+            '<div class="gi-card-actions">' +
+              '<button class="gi-btn gi-btn--sm" data-act="view" data-id="' + esc(p.id) + '">View</button>' +
+              editBtn +
+              '<button class="gi-btn gi-btn--sm gi-btn--danger" data-act="delete" data-id="' + esc(p.id) + '">Delete</button>' +
+            '</div>' +
+          '</div>';
+      }).join('');
+      setHTML(c, head + '<div class="gi-list">' + rows + '</div>');
+    }
+    var newBtn = document.getElementById('giNewPost');
+    if (newBtn) newBtn.addEventListener('click', function () { openPostEditor(null); });
+    c.querySelectorAll('[data-act]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-id');
+        var act = btn.getAttribute('data-act');
+        var post = (_posts || []).filter(function (p) { return String(p.id) === String(id); })[0] || { id: id };
+        if (act === 'view') openPostView(id);
+        else if (act === 'edit') openPostEditor(post);
+        else if (act === 'delete') confirmDeletePost(post);
+      });
+    });
+  }
+
+  /* Discord-flavoured markdown -> sanitised HTML (read-only View) */
+  function _mdEsc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function _mdUrl(url) {
+    try {
+      var u = new URL(url, window.location.origin);
+      return (u.protocol === 'https:' || u.protocol === 'http:') ? url : null;
+    } catch (e) { return null; }
+  }
+  function _mdRel(d) {             // relative time for <t:unix:R>
+    var s = Math.round((d.getTime() - Date.now()) / 1000);
+    var abs = Math.abs(s);
+    var units = [['year', 31536000], ['month', 2592000], ['day', 86400], ['hour', 3600], ['minute', 60], ['second', 1]];
+    for (var i = 0; i < units.length; i++) {
+      if (abs >= units[i][1] || units[i][0] === 'second') {
+        var v = Math.round(s / units[i][1]);
+        if (window.Intl && Intl.RelativeTimeFormat) {
+          return new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }).format(v, units[i][0]);
+        }
+        return v < 0 ? (-v + ' ' + units[i][0] + ' ago') : ('in ' + v + ' ' + units[i][0]);
+      }
+    }
+    return '';
+  }
+  function _mdTime(unix, style) {  // Discord <t:unix:style> -> localized string
+    var d = new Date(unix * 1000);
+    if (isNaN(d.getTime())) return '';
+    switch (style) {
+      case 't': return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      case 'T': return d.toLocaleTimeString();
+      case 'd': return d.toLocaleDateString();
+      case 'D': return d.toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' });
+      case 'F': return d.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) +
+                       ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      case 'R': return _mdRel(d);
+      default:  return d.toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' }) +
+                       ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+  }
+  function _mdStyle(s) {           // bold/italic/underline/strike/spoiler (order matters)
+    return String(s)
+      .replace(/\|\|([\s\S]+?)\|\|/g, '<span class="gi-spoiler" role="button" tabindex="0">$1</span>')
+      .replace(/\*\*\*([\s\S]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+      .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/__([\s\S]+?)__/g, '<u>$1</u>')
+      .replace(/~~([\s\S]+?)~~/g, '<s>$1</s>')
+      .replace(/\*([\s\S]+?)\*/g, '<em>$1</em>')
+      .replace(/(^|[^\w*])_([^_\n]+?)_(?![\w])/g, '$1<em>$2</em>');
+  }
+  function _mdInline(text) {
+    var store = [];
+    function stash(html) { store.push(html); return '\x00' + (store.length - 1) + '\x00'; }
+    var escs = [];
+    text = String(text == null ? '' : text).replace(/\\([\\`*_~|>#\[\]()\-.!])/g, function (_m, ch) {
+      escs.push(ch); return '\x02' + (escs.length - 1) + '\x02';
+    });
+    // inline code (double then single backtick) - kept literal
+    text = text.replace(/``([^`]+?)``|`([^`]+?)`/g, function (_m, d, s) {
+      return stash('<code class="gi-md-code">' + _mdEsc(d != null ? d : s) + '</code>');
+    });
+    // Discord mentions / custom emoji / timestamps -> stashed pills (pre-escape)
+    var ctx = _mdCtx || {};
+    text = text
+      .replace(/<(a?):(\w{2,32}):(\d+)>/g, function (_m, anim, name, id) {
+        var url = 'https://cdn.discordapp.com/emojis/' + id + (anim ? '.gif' : '.png') + '?size=44';
+        return stash('<img class="gi-emoji" src="' + _mdEsc(url) + '" alt=":' + _mdEsc(name) + ':" title=":' + _mdEsc(name) + ':">');
+      })
+      .replace(/<#(\d+)>/g, function (_m, id) {
+        var nm = (ctx.channels && ctx.channels[id]) || 'channel';
+        return stash('<span class="gi-mention gi-mention--channel">#' + _mdEsc(nm) + '</span>');
+      })
+      .replace(/<@&(\d+)>/g, function (_m, id) {
+        var r = ctx.roles && ctx.roles[id];
+        var nm = (r && r.name) || 'role';
+        var st = (r && r.color)
+          ? ' style="color:' + r.color + ';background-color:' + r.color + '22;border-color:' + r.color + '55"'
+          : '';
+        return stash('<span class="gi-mention gi-mention--role"' + st + '>@' + _mdEsc(nm) + '</span>');
+      })
+      .replace(/<@!?(\d+)>/g, function (_m, id) {
+        var nm = (ctx.mentions && ctx.mentions[id]) || 'user';
+        return stash('<span class="gi-mention gi-mention--user">@' + _mdEsc(nm) + '</span>');
+      })
+      .replace(/<\/([\w -]{1,64}):(\d+)>/g, function (_m, name) {
+        return stash('<span class="gi-mention gi-mention--cmd">/' + _mdEsc(name) + '</span>');
+      })
+      .replace(/<t:(-?\d+)(?::([tTdDfFR]))?>/g, function (_m, ts, sty) {
+        return stash('<span class="gi-mention gi-mention--time" title="' + _mdEsc(_mdTime(+ts, 'F')) + '">' + _mdEsc(_mdTime(+ts, sty || 'f')) + '</span>');
+      })
+      .replace(/(^|[^\w@])@(everyone|here)\b/g, function (_m, pre, w) {
+        return pre + stash('<span class="gi-mention gi-mention--everyone">@' + w + '</span>');
+      });
+    text = _mdEsc(text);
+    // masked links [label](url)
+    text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|\/[^)\s]*)\)/g, function (m, label, url) {
+      var safe = _mdUrl(url);
+      return safe ? stash('<a href="' + _mdEsc(safe) + '" target="_blank" rel="noopener noreferrer">' + _mdStyle(label) + '</a>') : m;
+    });
+    // bare URLs
+    text = text.replace(/(^|[\s(])(https?:\/\/[^\s<>()]+)/g, function (m, pre, url) {
+      var safe = _mdUrl(url);
+      return safe ? pre + stash('<a href="' + _mdEsc(safe) + '" target="_blank" rel="noopener noreferrer">' + _mdEsc(url) + '</a>') : m;
+    });
+    // inline styling (also applied to masked-link labels above)
+    text = _mdStyle(text);
+    // restore code/link placeholders, then escaped chars
+    text = text.replace(/\x00(\d+)\x00/g, function (_m, i) { return store[+i]; });
+    text = text.replace(/\x02(\d+)\x02/g, function (_m, i) { return _mdEsc(escs[+i]); });
+    return text;
+  }
+  function _mdList(lines) {
+    var items = [];
+    lines.forEach(function (l) {
+      var m = l.match(/^(\s*)(?:[-*]|\d+\.)\s+(.*)$/);
+      if (m) items.push({ indent: m[1].replace(/\t/g, '  ').length, ordered: /^\s*\d+\./.test(l), content: m[2] });
+      else if (items.length) items[items.length - 1].content += '\n' + l.trim();
+    });
+    var pos = 0;
+    function build() {
+      var base = items[pos].indent;
+      var ordered = items[pos].ordered;
+      var html = ordered ? '<ol class="gi-md-list">' : '<ul class="gi-md-list">';
+      while (pos < items.length && items[pos].indent >= base) {
+        var it = items[pos++];
+        var inner = _mdInline(it.content).replace(/\n/g, '<br>');
+        var child = (pos < items.length && items[pos].indent > base) ? build() : '';
+        html += '<li>' + inner + child + '</li>';
+      }
+      return html + (ordered ? '</ol>' : '</ul>');
+    }
+    return items.length ? build() : '';
+  }
+  function _mdToHtml(src) {
+    var lines = String(src == null ? '' : src).replace(/\r\n?/g, '\n').split('\n');
+    var out = [], para = [], i = 0;
+    function flush() {
+      if (!para.length) return;
+      out.push('<p>' + _mdInline(para.join('\n')).replace(/\n/g, '<br>') + '</p>');
+      para = [];
+    }
+    while (i < lines.length) {
+      var line = lines[i];
+      var fence = line.match(/^```(\w*)\s*$/);
+      if (fence) {
+        flush();
+        var buf = []; i++;
+        while (i < lines.length && !/^```\s*$/.test(lines[i])) { buf.push(lines[i]); i++; }
+        i++;
+        out.push('<pre class="gi-md-pre"><code>' + _mdEsc(buf.join('\n')) + '</code></pre>');
+        continue;
+      }
+      if (/^>>> /.test(line)) {
+        flush();
+        var rest = [line.replace(/^>>> /, '')]; i++;
+        while (i < lines.length) { rest.push(lines[i]); i++; }
+        out.push('<blockquote class="gi-md-quote">' + _mdInline(rest.join('\n')).replace(/\n/g, '<br>') + '</blockquote>');
+        continue;
+      }
+      if (/^> ?/.test(line)) {
+        flush();
+        var q = [];
+        while (i < lines.length && /^> ?/.test(lines[i])) { q.push(lines[i].replace(/^> ?/, '')); i++; }
+        out.push('<blockquote class="gi-md-quote">' + _mdInline(q.join('\n')).replace(/\n/g, '<br>') + '</blockquote>');
+        continue;
+      }
+      var h = line.match(/^(#{1,3})\s+(.*\S)\s*$/);
+      if (h) {
+        flush();
+        var lvl = h[1].length;
+        out.push('<h' + lvl + ' class="gi-md-h gi-md-h' + lvl + '">' + _mdInline(h[2]) + '</h' + lvl + '>');
+        continue;
+      }
+      if (/^\s*(?:[-*]|\d+\.)\s+/.test(line)) {
+        flush();
+        var ll = [];
+        while (i < lines.length && (/^\s*(?:[-*]|\d+\.)\s+/.test(lines[i]) || (ll.length && /^\s+\S/.test(lines[i])))) { ll.push(lines[i]); i++; }
+        out.push(_mdList(ll));
+        continue;
+      }
+      if (/^\s*$/.test(line)) { flush(); i++; continue; }
+      para.push(line); i++;
+    }
+    flush();
+    return out.join('');
+  }
+  function _renderBody(el, text, ctx) {
+    if (!el) return;
+    _mdCtx = ctx || {};   // mention/role/channel maps consumed by _mdInline
+    if (window.DOMPurify) {
+      el.innerHTML = window.DOMPurify.sanitize(_mdToHtml(text), { ADD_ATTR: ['target', 'rel', 'style'] });
+    } else {
+      el.textContent = text == null ? '' : String(text);  // no sanitiser -> safe plain text
+    }
+    el.querySelectorAll('.gi-spoiler').forEach(function (sp) {
+      function reveal() { sp.classList.add('gi-spoiler--shown'); }
+      sp.addEventListener('click', reveal);
+      sp.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); reveal(); }
+      });
+    });
+  }
+
+  function _renderPostView(p) {
+    var segCount = (p.segments && p.segments.length) || 1;
+    showModal(
+      '<div class="gi-modal-title" id="giViewTitle"></div>' +
+      '<div class="gi-modal-sub">' + segCount + ' message' + (segCount === 1 ? '' : 's') +
+        (p.archived ? ' \u00b7 archived' : '') + '</div>' +
+      '<div class="gi-body-preview gi-md" id="giViewBody"></div>' +
+      '<div class="gi-modal-actions"><button class="gi-btn" data-close>Close</button></div>'
+    );
+    _openView = String(p.id == null ? '' : p.id);
+    // title stays plain text; body is rendered as sanitised Discord-style markdown
+    var tEl = document.getElementById('giViewTitle'); if (tEl) tEl.textContent = p.title || '(untitled)';
+    _renderBody(document.getElementById('giViewBody'), p.body || '', {
+      mentions: p.mentions, roles: p.roles, channels: p.channels,
+    });
+  }
+
+  function openPostView(threadId) {
+    var cached = _postCache[String(threadId)];
+    if (cached) {                                   // show cached body instantly
+      _renderPostView(cached);
+      if (Date.now() - cached.at > _TTL) {          // refresh quietly when stale
+        apiGet('/api/admin/guild-info/posts/' + encodeURIComponent(threadId)).then(function (res) {
+          if (res.ok && res.data && !res.data.error) {
+            _cachePost(res.data);
+            if (_openView === String(threadId)) _renderPostView(res.data);
+          }
+        }).catch(function () { /* keep showing the cached copy */ });
+      }
+      return;
+    }
+    showModal(loadingHTML('Loading\u2026'));
+    apiGet('/api/admin/guild-info/posts/' + encodeURIComponent(threadId)).then(function (res) {
+      if (!(res.ok && res.data && !res.data.error)) {
+        setModalContent(emptyHTML((res.data && res.data.error) || 'Failed to load post.') +
+          '<div class="gi-modal-actions"><button class="gi-btn" data-close>Close</button></div>');
+        return;
+      }
+      _cachePost(res.data);
+      _renderPostView(res.data);
+    }).catch(function () {
+      setModalContent(emptyHTML('Network error.') +
+        '<div class="gi-modal-actions"><button class="gi-btn" data-close>Close</button></div>');
+    });
+  }
+
+  function openPostEditor(post) {
+    var isEdit = !!(post && post.id);
+    var isParliament = _state && _state.tier === 'parliament';
+    var submitLabel = isParliament ? 'Submit for approval' : (isEdit ? 'Save changes' : 'Create post');
+    var cached = isEdit ? _postCache[String(post.id)] : null;   // reuse an already-loaded body
+    var needFetch = isEdit && !cached;
+    var origTitle = '', origBody = '';   // baseline for edit change-detection
+    showModal(
+      '<div class="gi-modal-title">' + (isEdit ? 'Edit post' : 'New post') + '</div>' +
+      (isParliament ? '<div class="gi-modal-sub">This will be queued for approval.</div>' : '') +
+      (needFetch ? loadingHTML('Loading current content\u2026') : '') +
+      '<div class="gi-form"' + (needFetch ? ' style="display:none"' : '') + ' id="giForm">' +
+        '<label class="gi-label">Title</label>' +
+        '<input type="text" class="gi-input" id="giTitle" maxlength="' + _MAX_TITLE + '" placeholder="Post title" />' +
+        '<label class="gi-label">Body</label>' +
+        '<textarea class="gi-textarea" id="giBody" rows="12" placeholder="Post body\u2026"></textarea>' +
+        '<div class="gi-split-hint" id="giSplitHint"></div>' +
+        '<div class="gi-modal-actions">' +
+          '<button class="gi-btn" data-close>Cancel</button>' +
+          '<button class="gi-btn gi-btn--primary" id="giSubmit">' + esc(submitLabel) + '</button>' +
+        '</div>' +
+      '</div>'
+    );
+    var titleEl = document.getElementById('giTitle');
+    var bodyEl  = document.getElementById('giBody');
+    var hintEl  = document.getElementById('giSplitHint');
+    var submitBtn = document.getElementById('giSubmit');
+
+    function updateHint() {
+      var len = bodyEl.value.length;
+      var n = splitBody(bodyEl.value).length;
+      hintEl.textContent = len.toLocaleString() + ' characters \u00b7 ' + n + ' Discord message' + (n === 1 ? '' : 's');
+      hintEl.className = 'gi-split-hint' + (n > 1 ? ' gi-split-hint--multi' : '');
+    }
+    // The submit button is shown only when there is something worth saving
+    function _hasSubmittable() {
+      var t = titleEl.value.trim();
+      if (!t || !bodyEl.value.trim()) return false;
+      if (!isEdit) return true;
+      return t !== String(origTitle).trim() || bodyEl.value !== String(origBody);
+    }
+    function recomputeSubmit() { if (submitBtn) submitBtn.style.display = _hasSubmittable() ? '' : 'none'; }
+
+    bodyEl.addEventListener('input', function () { updateHint(); recomputeSubmit(); });
+    titleEl.addEventListener('input', recomputeSubmit);
+    updateHint();
+    recomputeSubmit();
+
+    submitBtn.addEventListener('click', function () {
+      submitPost(isEdit ? post.id : null, titleEl.value, bodyEl.value, this, isEdit,
+                 { title: origTitle, body: origBody });
+    });
+
+    if (isEdit && cached) {                 // populate instantly from cache (no fetch)
+      titleEl.value = cached.title || post.title || '';
+      bodyEl.value = cached.body || '';
+      origTitle = titleEl.value; origBody = bodyEl.value;
+      updateHint();
+      recomputeSubmit();
+      titleEl.focus();
+    } else if (isEdit) {                    // first time: fetch the body, then cache it
+      apiGet('/api/admin/guild-info/posts/' + encodeURIComponent(post.id)).then(function (res) {
+        var ld = document.querySelector('#giModal .gi-loading'); if (ld) ld.remove();
+        var form = document.getElementById('giForm'); if (form) form.style.display = '';
+        if (res.ok && res.data && !res.data.error) {
+          _cachePost(res.data);
+          titleEl.value = res.data.title || post.title || '';
+          bodyEl.value = res.data.body || '';
+          origTitle = titleEl.value; origBody = bodyEl.value;
+        } else {
+          titleEl.value = post.title || '';
+          origTitle = titleEl.value; origBody = '';
+          toast('\u26a0 Could not load the current body; editing from blank.', 'warn');
+        }
+        updateHint();
+        recomputeSubmit();
+        titleEl.focus();
+      }).catch(function () {
+        var ld = document.querySelector('#giModal .gi-loading'); if (ld) ld.remove();
+        var form = document.getElementById('giForm'); if (form) form.style.display = '';
+      });
+    } else {
+      titleEl.focus();
+    }
+  }
+
+  function submitPost(threadId, title, body, btn, isEdit, orig) {
+    title = (title || '').trim();
+    if (!title) { toast('\u26a0 Title is required.', 'warn'); return; }
+    if (!body || !body.trim()) { toast('\u26a0 Body is required.', 'warn'); return; }
+    // For edits, only send the fields that actually changed so we never queue a no-op request
+    var payload;
+    if (isEdit) {
+      var o = orig || {};
+      payload = {};
+      if (title !== String(o.title == null ? '' : o.title).trim()) payload.title = title;
+      if (body !== String(o.body == null ? '' : o.body)) payload.body = body;
+      if (!('title' in payload) && !('body' in payload)) {
+        toast('\u2139 No changes to save.', 'info');
+        return;
+      }
+    } else {
+      payload = { title: title, body: body };
+    }
+    var origLabel = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Working\u2026';
+    var req = isEdit
+      ? apiPatch('/api/admin/guild-info/posts/' + encodeURIComponent(threadId), payload)
+      : apiPost('/api/admin/guild-info/posts', payload);
+    req.then(function (res) {
+      if (res.ok && (res.data.ok || res.data.id)) {
+        if (res.data.queued) {
+          toast('\u2713 Submitted for approval.', 'success');
+          _queue = null;                       // a new pending request now exists
+        } else {
+          toast('\u2713 Post ' + (isEdit ? 'updated' : 'created') + '.', 'success');
+          if (res.data.warning) toast('\u26a0 ' + res.data.warning, 'warn');
+          // Refresh the body cache with what we just saved (split/join is lossless).
+          var savedId = isEdit ? String(threadId) : (res.data.id != null ? String(res.data.id) : null);
+          if (savedId != null) {
+            var prev = _postCache[savedId];
+            _postCache[savedId] = {
+              id: savedId, title: title, body: body, segments: splitBody(body),
+              archived: prev ? prev.archived : false, at: 0,
+            };
+          }
+        }
+        closeModal();
+        _posts = null; _logs = null;           // list + logs may have changed
+        if (_activeTab === 'posts') renderPosts(document.getElementById('giContent'));
+      } else if (res.status === 409) {
+        // Someone already has a change pending: reflect the lock in the list
+        toast('\u26a0 ' + (res.data.error || 'A change is already pending.'), 'warn');
+        closeModal();
+        _posts = null;
+        if (_activeTab === 'posts') renderPosts(document.getElementById('giContent'));
+      } else {
+        toast('\u26a0 ' + (res.data.error || 'Failed.'), 'warn');
+        btn.disabled = false; btn.textContent = origLabel;
+      }
+    }).catch(function () {
+      toast('\u26a0 Network error.', 'warn');
+      btn.disabled = false; btn.textContent = origLabel;
+    });
+  }
+
+  function confirmDeletePost(post) {
+    var isParliament = _state && _state.tier === 'parliament';
+    showModal(
+      '<div class="gi-modal-title">Delete post</div>' +
+      '<div class="gi-modal-text">' + (isParliament
+        ? 'Submit a request to delete this post? An approver must confirm it.'
+        : 'Permanently delete this post? This cannot be undone.') + '</div>' +
+      '<div class="gi-confirm-name" id="giDelName"></div>' +
+      '<div class="gi-modal-actions">' +
+        '<button class="gi-btn" data-close>Cancel</button>' +
+        '<button class="gi-btn gi-btn--danger" id="giDelConfirm">' + (isParliament ? 'Submit request' : 'Delete') + '</button>' +
+      '</div>'
+    );
+    var nameEl = document.getElementById('giDelName');
+    if (nameEl) nameEl.textContent = post.title || ('#' + post.id);
+    document.getElementById('giDelConfirm').addEventListener('click', function () {
+      var b = this, orig = b.textContent;
+      b.disabled = true; b.textContent = 'Working\u2026';
+      apiDelete('/api/admin/guild-info/posts/' + encodeURIComponent(post.id)).then(function (res) {
+        if (res.ok && (res.data.ok || res.data.id)) {
+          toast(isParliament ? '\u2713 Delete request submitted.' : '\u2713 Post deleted.', 'success');
+          closeModal();
+          if (!isParliament) delete _postCache[String(post.id)];   // really gone
+          // A delete shifts the queue
+          _posts = null; _logs = null; _queue = null;
+          if (_state && _state.can_approve) fetchQueue(function () { _updateNavBadge(); _updateQueueTabBadge(); });
+          else _updateNavBadge();
+          if (_activeTab === 'posts') renderPosts(document.getElementById('giContent'));
+        } else {
+          toast('\u26a0 ' + (res.data.error || 'Failed.'), 'warn');
+          b.disabled = false; b.textContent = orig;
+        }
+      }).catch(function () { toast('\u26a0 Network error.', 'warn'); b.disabled = false; b.textContent = orig; });
+    });
+  }
+
+  /* Queue tab (approvers only) */
+  function fetchQueue(cb) {
+    apiGet('/api/admin/guild-info/queue').then(function (res) {
+      if (res.ok && res.data && Array.isArray(res.data.queue)) {
+        _queue = res.data.queue; _queueAt = Date.now();
+        _privReqs = Array.isArray(res.data.privilege_requests) ? res.data.privilege_requests : [];
+      }
+      else if (res.status === 403) { _queue = []; _privReqs = []; }
+      else if (_queue == null) _queue = [];
+      if (cb) cb(res);
+    }).catch(function () { if (cb) cb(null); });
+  }
+
+  function renderQueue(c) {
+    if (_queue != null) {                       // serve instantly from cache
+      drawQueue(c);
+      if (Date.now() - _queueAt > _TTL) {       // refresh quietly when stale
+        fetchQueue(function () { if (_activeTab === 'queue') drawQueue(c); });
+      }
+      return;
+    }
+    setHTML(c, loadingHTML('Loading queue\u2026'));
+    fetchQueue(function () { if (_activeTab === 'queue') drawQueue(c); });
+  }
+
+  // A content request's body of detail: shows what each request would change
+  function _qChangeRows(r) {
+    var oldT = (r.prev_title != null && String(r.prev_title) !== '') ? r.prev_title : null;
+    var oldB = (r.prev_body  != null && String(r.prev_body)  !== '') ? r.prev_body  : null;
+    var out = '';
+    if (r.action === 'edit_title' && oldT != null) {
+      out += '<div class="gi-q-row"><span class="gi-q-k">From</span><span class="gi-q-v gi-q-old" data-otitle></span></div>' +
+             '<div class="gi-q-row"><span class="gi-q-k">To</span><span class="gi-q-v" data-title></span></div>';
+    } else if (r.action === 'delete' && oldT != null) {
+      out += '<div class="gi-q-row"><span class="gi-q-k">Post</span><span class="gi-q-v" data-otitle></span></div>';
+    } else if (r.action === 'create' || r.action === 'edit_title') {
+      out += '<div class="gi-q-row"><span class="gi-q-k">Title</span><span class="gi-q-v" data-title></span></div>';
+    }
+    if (r.thread_id) {
+      out += '<div class="gi-q-row"><span class="gi-q-k">Thread</span><span class="gi-q-v">' + esc(r.thread_id) + '</span></div>';
+    }
+    if (r.action === 'edit_body' && oldB != null) {
+      out += '<div class="gi-q-row"><span class="gi-q-k">Before</span></div>' +
+             '<div class="gi-q-body gi-q-old" data-obody></div>' +
+             '<div class="gi-q-row"><span class="gi-q-k">After</span></div>' +
+             '<div class="gi-q-body" data-body></div>';
+    } else if (r.action === 'create' || r.action === 'edit_body') {
+      out += '<div class="gi-q-body" data-body></div>';
+    }
+    return out;
+  }
+
+  function _diffTokens(text) {
+    return String(text == null ? '' : text).match(/\s+|\S+/g) || [];
+  }
+
+  function _diffOps(oldStr, newStr) {
+    var a = _diffTokens(oldStr), b = _diffTokens(newStr);
+    var n = a.length, m = b.length;
+    if (n * m > 250000) {
+      return [{ t: 'del', s: String(oldStr == null ? '' : oldStr) },
+              { t: 'ins', s: String(newStr == null ? '' : newStr) }];
+    }
+    var dp = new Array(n + 1);
+    for (var i = 0; i <= n; i++) dp[i] = new Array(m + 1).fill(0);
+    for (i = n - 1; i >= 0; i--) {
+      for (var j = m - 1; j >= 0; j--) {
+        dp[i][j] = (a[i] === b[j]) ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+    var ops = [], x = 0, y = 0;
+    while (x < n && y < m) {
+      if (a[x] === b[y]) { ops.push({ t: 'eq', s: a[x] }); x++; y++; }
+      else if (dp[x + 1][y] >= dp[x][y + 1]) { ops.push({ t: 'del', s: a[x] }); x++; }
+      else { ops.push({ t: 'ins', s: b[y] }); y++; }
+    }
+    while (x < n) { ops.push({ t: 'del', s: a[x] }); x++; }
+    while (y < m) { ops.push({ t: 'ins', s: b[y] }); y++; }
+    return ops;
+  }
+
+  function _fillDiff(el, ops, side) {
+    if (!el) return;
+    el.textContent = '';
+    var changed = side === 'old' ? 'del' : 'ins';
+    var cls = side === 'old' ? 'gi-d-del' : 'gi-d-ins';
+    ops.forEach(function (o) {
+      if (o.t === 'eq') {
+        el.appendChild(document.createTextNode(o.s));
+      } else if (o.t === changed) {
+        var span = document.createElement('span');
+        span.className = cls;
+        span.textContent = o.s;
+        el.appendChild(span);
+      }
+    });
+  }
+
+  function drawQueue(c) {
+    _updateNavBadge();
+    _updateQueueTabBadge();
+    if (_queue == null) { setHTML(c, emptyHTML('Could not load the queue.')); return; }
+
+    // Privilege requests are only shown to Emperor/OWNER approvers
+    var privReqs = (_state && _state.can_approve_privilege && Array.isArray(_privReqs)) ? _privReqs : [];
+
+    // Counts per category power the pill badges (shown even when zero)
+    var counts = { all: _queue.length + privReqs.length, create: 0, edit: 0, delete: 0, privilege: privReqs.length };
+    _queue.forEach(function (r) { counts[_queueCat(r.action)]++; });
+    function pill(key, label) {
+      return '<button class="gi-q-pill' + (_queueFilter === key ? ' active' : '') +
+        '" data-qf="' + key + '">' + label +
+        ' <span class="gi-q-count">' + counts[key] + '</span></button>';
+    }
+    var filters = '<div class="gi-q-filters" id="giQueueFilters">' +
+      pill('all', 'All') + pill('create', 'Create') +
+      pill('edit', 'Edit') + pill('delete', 'Delete') +
+      pill('privilege', 'Privilege') +
+      '<span class="gi-q-sort" id="giQueueSort">' +
+        (_queueSort === 'newest' ? 'Newest first' : 'Oldest first') +
+      '</span>' +
+    '</div>';
+
+    // Render order honours the sort toggle (backend default is oldest-first)
+    var ordered = _queue.slice().sort(function (a, b) {
+      var cmp = String(a.created_at || '').localeCompare(String(b.created_at || ''));
+      return _queueSort === 'newest' ? -cmp : cmp;
+    });
+    var rows = ordered.map(function (r) {
+      var cat = _queueCat(r.action);
+      var hidden = _queueFilter !== 'all' && _queueFilter !== cat;
+      return '<div class="gi-q-card' + (hidden ? ' gi-q-hidden' : '') +
+          '" data-id="' + esc(r.id) + '" data-qcat="' + cat +
+          '" data-qdate="' + esc(r.created_at) + '">' +
+          '<div class="gi-q-head">' +
+            '<span class="gi-q-action gi-q-action--' + esc(r.action) + '">' + esc(_actionLabel(r.action)) + '</span>' +
+            '<span class="gi-q-who" data-who></span>' +
+            '<span class="gi-q-when">' + esc(fmtDate(r.created_at)) + '</span>' +
+          '</div>' +
+          _qChangeRows(r) +
+          '<div class="gi-q-actions">' +
+            '<button class="gi-btn gi-btn--sm gi-btn--primary" data-qact="approve" data-id="' + esc(r.id) + '">Review &amp; approve</button>' +
+            '<button class="gi-btn gi-btn--sm gi-btn--danger" data-qact="deny" data-id="' + esc(r.id) + '">Deny</button>' +
+          '</div>' +
+        '</div>';
+    }).join('');
+    var privRows = privReqs.map(function (p) {
+      var hidden = _queueFilter !== 'all' && _queueFilter !== 'privilege';
+      return '<div class="gi-q-card' + (hidden ? ' gi-q-hidden' : '') +
+          '" data-id="' + esc(p.id) + '" data-qkind="privilege" data-qcat="privilege"' +
+          ' data-qdate="' + esc(p.created_at) + '">' +
+          '<div class="gi-q-head">' +
+            '<span class="gi-q-action gi-q-action--privilege_request">Privilege request</span>' +
+            '<span class="gi-q-who" data-pwho></span>' +
+            '<span class="gi-q-when">' + esc(fmtDate(p.created_at)) + '</span>' +
+          '</div>' +
+          '<div class="gi-q-row"><span class="gi-q-k">Wants</span><span class="gi-q-v">Guild Info access</span></div>' +
+          '<div class="gi-q-actions">' +
+            '<button class="gi-btn gi-btn--sm gi-btn--primary" data-qact="priv-approve" data-id="' + esc(p.id) + '">Approve</button>' +
+            '<button class="gi-btn gi-btn--sm gi-btn--danger" data-qact="priv-deny" data-id="' + esc(p.id) + '">Reject</button>' +
+          '</div>' +
+        '</div>';
+    }).join('');
+    var listInner = (rows + privRows) || '<div class="gi-empty gi-q-empty">No pending requests.</div>';
+    setHTML(c, filters + '<div class="gi-list" id="giQueueList">' + listInner + '</div>');
+
+    // user content -> textContent
+    _queue.forEach(function (r) {
+      var card = c.querySelector('.gi-q-card[data-id="' + r.id + '"]:not([data-qkind])');
+      if (!card) return;
+      var whoEl = card.querySelector('[data-who]');   if (whoEl) whoEl.textContent = r.requested_by_name || r.requested_by_id || 'Unknown';
+      var tEl   = card.querySelector('[data-title]'); if (tEl) tEl.textContent = r.title || '';
+      var otEl  = card.querySelector('[data-otitle]'); if (otEl) otEl.textContent = r.prev_title || '';
+      // Body before/after highlights word-level inserts (After) and removals (Before)
+      var bEl   = card.querySelector('[data-body]');
+      var obEl  = card.querySelector('[data-obody]');
+      if (obEl && bEl) {
+        var bodyOps = _diffOps(r.prev_body || '', r.body || '');
+        _fillDiff(obEl, bodyOps, 'old');
+        _fillDiff(bEl, bodyOps, 'new');
+      } else {
+        if (bEl) bEl.textContent = r.body || '';
+        if (obEl) obEl.textContent = r.prev_body || '';
+      }
+    });
+    // privilege requests: requester name via textContent (never innerHTML)
+    var privCards = c.querySelectorAll('.gi-q-card[data-qkind="privilege"]');
+    privReqs.forEach(function (p, i) {
+      var card = privCards[i]; if (!card) return;
+      var w = card.querySelector('[data-pwho]');
+      if (w) w.textContent = p.username || p.discord_id || 'Unknown';
+    });
+
+    // filter pills + sort toggle
+    var fbar = document.getElementById('giQueueFilters');
+    if (fbar) {
+      fbar.addEventListener('click', function (e) {
+        var p = e.target.closest('.gi-q-pill');
+        if (p) {
+          _queueFilter = p.dataset.qf;
+          fbar.querySelectorAll('.gi-q-pill').forEach(function (x) { x.classList.remove('active'); });
+          p.classList.add('active');
+          _applyQueueFilter(c);
+          return;
+        }
+        var s = e.target.closest('.gi-q-sort');
+        if (s) {
+          _queueSort = _queueSort === 'newest' ? 'oldest' : 'newest';
+          s.textContent = _queueSort === 'newest' ? 'Newest first' : 'Oldest first';
+          _resortQueue();
+        }
+      });
+    }
+
+    c.querySelectorAll('[data-qact]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-id');
+        var qact = btn.getAttribute('data-qact');
+        if (qact === 'priv-approve') { _approvePrivilege(id, btn); return; }
+        if (qact === 'priv-deny')    { _denyPrivilege(id, btn); return; }
+        var req = (_queue || []).filter(function (x) { return String(x.id) === String(id); })[0];
+        if (!req) return;
+        if (qact === 'approve') openApprove(req);
+        else openDeny(req);
+      });
+    });
+  }
+
+  // Show/hide cards to match the active pill, then reconcile the empty note
+  function _applyQueueFilter(c) {
+    var scope = c || document;
+    scope.querySelectorAll('.gi-q-card').forEach(function (card) {
+      var match = _queueFilter === 'all' || _queueFilter === card.dataset.qcat;
+      card.classList.toggle('gi-q-hidden', !match);
+    });
+    _checkQueueEmpty();
+  }
+
+  // Reorder existing card nodes by date without a full re-render
+  function _resortQueue() {
+    var list = document.getElementById('giQueueList');
+    if (!list) return;
+    var cards = Array.prototype.slice.call(list.querySelectorAll('.gi-q-card'));
+    cards.sort(function (a, b) {
+      var cmp = String(a.dataset.qdate || '').localeCompare(String(b.dataset.qdate || ''));
+      return _queueSort === 'newest' ? -cmp : cmp;
+    });
+    cards.forEach(function (card) { list.appendChild(card); });
+  }
+
+  // Surface a hint when the active filter leaves no visible cards
+  function _checkQueueEmpty() {
+    var list = document.getElementById('giQueueList');
+    if (!list) return;
+    var visible = list.querySelectorAll('.gi-q-card:not(.gi-q-hidden)');
+    var empty = list.querySelector('.gi-q-empty');
+    if (!visible.length && !empty) {
+      var div = document.createElement('div');
+      div.className = 'gi-empty gi-q-empty';
+      div.textContent = 'No matching requests.';
+      list.appendChild(div);
+    } else if (visible.length && empty) {
+      empty.remove();
+    }
+  }
+
+  function openApprove(req) {
+    var hasTitle = (req.action === 'create' || req.action === 'edit_title');
+    var hasBody  = (req.action === 'create' || req.action === 'edit_body');
+    var isDelete = req.action === 'delete';
+    showModal(
+      '<div class="gi-modal-title">Approve: ' + esc(_actionLabel(req.action)) + '</div>' +
+      '<div class="gi-modal-sub" id="giApWho"></div>' +
+      (hasTitle ? '<label class="gi-label">Title</label><input type="text" class="gi-input" id="giApTitle" maxlength="' + _MAX_TITLE + '" />' : '') +
+      (hasBody  ? '<label class="gi-label">Body</label><textarea class="gi-textarea" id="giApBody" rows="10"></textarea><div class="gi-split-hint" id="giApHint"></div>' : '') +
+      (isDelete ? '<div class="gi-modal-text">Approving will permanently delete this post.</div>' : '') +
+      '<div class="gi-modal-actions">' +
+        '<button class="gi-btn" data-close>Cancel</button>' +
+        '<button class="gi-btn gi-btn--primary" id="giApConfirm">Approve</button>' +
+      '</div>'
+    );
+    var whoEl = document.getElementById('giApWho');
+    if (whoEl) whoEl.textContent = 'Requested by ' + (req.requested_by_name || req.requested_by_id || 'Unknown') + ' \u00b7 ' + fmtDate(req.created_at);
+    var titleEl = document.getElementById('giApTitle');
+    if (titleEl) titleEl.value = req.title || '';
+    var bodyEl = document.getElementById('giApBody');
+    if (bodyEl) {
+      bodyEl.value = req.body || '';
+      var hintEl = document.getElementById('giApHint');
+      var uh = function () {
+        var n = splitBody(bodyEl.value).length;
+        hintEl.textContent = bodyEl.value.length.toLocaleString() + ' characters \u00b7 ' + n + ' message' + (n === 1 ? '' : 's');
+        hintEl.className = 'gi-split-hint' + (n > 1 ? ' gi-split-hint--multi' : '');
+      };
+      bodyEl.addEventListener('input', uh); uh();
+    }
+    document.getElementById('giApConfirm').addEventListener('click', function () {
+      var b = this; b.disabled = true; b.textContent = 'Approving\u2026';
+      var payload = {};
+      if (hasTitle && titleEl) {
+        var t = titleEl.value.trim();
+        if (!t) { toast('\u26a0 Title cannot be empty.', 'warn'); b.disabled = false; b.textContent = 'Approve'; return; }
+        payload.title = t;
+      }
+      if (hasBody && bodyEl) {
+        if (!bodyEl.value.trim()) { toast('\u26a0 Body cannot be empty.', 'warn'); b.disabled = false; b.textContent = 'Approve'; return; }
+        payload.body = bodyEl.value;
+      }
+      apiPost('/api/admin/guild-info/queue/' + encodeURIComponent(req.id) + '/approve', payload).then(function (res) {
+        if (res.ok && res.data.ok) {
+          toast('\u2713 Approved.', 'success');
+          if (res.data.result && res.data.result.warning) toast('\u26a0 ' + res.data.result.warning, 'warn');
+          closeModal();
+          if (req.thread_id) delete _postCache[String(req.thread_id)];  // body may have changed
+          _queue = null; _posts = null; _logs = null;
+          renderQueue(document.getElementById('giContent'));
+        } else {
+          toast('\u26a0 ' + (res.data.error || 'Failed.'), 'warn');
+          b.disabled = false; b.textContent = 'Approve';
+        }
+      }).catch(function () { toast('\u26a0 Network error.', 'warn'); b.disabled = false; b.textContent = 'Approve'; });
+    });
+  }
+
+  function openDeny(req) {
+    showModal(
+      '<div class="gi-modal-title">Deny request</div>' +
+      '<div class="gi-modal-sub" id="giDenyWho"></div>' +
+      '<label class="gi-label">Reason (sent to the requester)</label>' +
+      '<textarea class="gi-textarea" id="giDenyReason" rows="4" maxlength="500" placeholder="Why are you denying this?"></textarea>' +
+      '<div class="gi-modal-actions">' +
+        '<button class="gi-btn" data-close>Cancel</button>' +
+        '<button class="gi-btn gi-btn--danger" id="giDenyConfirm">Deny &amp; notify</button>' +
+      '</div>'
+    );
+    var whoEl = document.getElementById('giDenyWho');
+    if (whoEl) whoEl.textContent = _actionLabel(req.action) + ' \u00b7 ' + (req.requested_by_name || req.requested_by_id || 'Unknown');
+    var reasonEl = document.getElementById('giDenyReason');
+    document.getElementById('giDenyConfirm').addEventListener('click', function () {
+      var reason = (reasonEl.value || '').trim();
+      if (!reason) { toast('\u26a0 A reason is required.', 'warn'); return; }
+      var b = this; b.disabled = true; b.textContent = 'Denying\u2026';
+      apiPost('/api/admin/guild-info/queue/' + encodeURIComponent(req.id) + '/deny', { reason: reason }).then(function (res) {
+        if (res.ok && res.data.ok) {
+          toast('\u2713 Request denied; the requester was notified.', 'success');
+          closeModal();
+          _queue = null; _logs = null;
+          renderQueue(document.getElementById('giContent'));
+        } else {
+          toast('\u26a0 ' + (res.data.error || 'Failed.'), 'warn');
+          b.disabled = false; b.textContent = 'Deny & notify';
+        }
+      }).catch(function () { toast('\u26a0 Network error.', 'warn'); b.disabled = false; b.textContent = 'Deny & notify'; });
+    });
+  }
+
+  /* Privilege requests (Emperor / OWNER only) */
+  function _approvePrivilege(id, btn) {
+    var orig = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Approving\u2026';
+    apiPost('/api/admin/guild-info/privilege-requests/' + encodeURIComponent(id) + '/approve', {}).then(function (res) {
+      if (res.ok && res.data.ok) {
+        toast('\u2713 Access approved.', 'success');
+        _privReqs = (_privReqs || []).filter(function (p) { return String(p.id) !== String(id); });
+        _logs = null;
+        renderQueue(document.getElementById('giContent'));
+      } else {
+        toast('\u26a0 ' + (res.data.error || 'Failed.'), 'warn');
+        btn.disabled = false; btn.textContent = orig;
+      }
+    }).catch(function () { toast('\u26a0 Network error.', 'warn'); btn.disabled = false; btn.textContent = orig; });
+  }
+
+  function _denyPrivilege(id, btn) {
+    var orig = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Rejecting\u2026';
+    apiPost('/api/admin/guild-info/privilege-requests/' + encodeURIComponent(id) + '/deny', {}).then(function (res) {
+      if (res.ok && res.data.ok) {
+        toast('\u2713 Request rejected.', 'success');
+        _privReqs = (_privReqs || []).filter(function (p) { return String(p.id) !== String(id); });
+        _logs = null;
+        renderQueue(document.getElementById('giContent'));
+      } else {
+        toast('\u26a0 ' + (res.data.error || 'Failed.'), 'warn');
+        btn.disabled = false; btn.textContent = orig;
+      }
+    }).catch(function () { toast('\u26a0 Network error.', 'warn'); btn.disabled = false; btn.textContent = orig; });
+  }
+
+  /* Logs tab */
+  function fetchLogs(page, cb) {
+    apiGet('/api/admin/guild-info/logs?page=' + page + '&per_page=50').then(function (res) {
+      if (res.ok && res.data && Array.isArray(res.data.entries)) {
+        _logs = (page === 1) ? res.data.entries : (_logs || []).concat(res.data.entries);
+        _logsHasMore = !!res.data.has_more;
+        _logsPage = page;
+        if (page === 1) _logsAt = Date.now();
+      } else if (page === 1 && _logs == null) {
+        _logs = null;
+      }
+      if (cb) cb(res);
+    }).catch(function () { if (page === 1 && _logs == null) _logs = null; if (cb) cb(null); });
+  }
+
+  function renderLogs(c) {
+    if (_logs != null) {                                     // serve instantly from cache
+      drawLogs(c);
+      if (_logsPage === 1 && Date.now() - _logsAt > _TTL) {  // refresh quietly when stale
+        fetchLogs(1, function () { if (_activeTab === 'logs') drawLogs(c); });
+      }
+      return;
+    }
+    setHTML(c, loadingHTML('Loading logs\u2026'));
+    _logsPage = 1; _logsHasMore = false;
+    fetchLogs(1, function () {
+      if (_activeTab !== 'logs') return;
+      if (_logs == null) { setHTML(c, emptyHTML('Could not load logs.')); return; }
+      drawLogs(c);
+    });
+  }
+
+  function drawLogs(c) {
+    if (!_logs.length) { setHTML(c, emptyHTML('No log entries yet.')); return; }
+    var rows = _logs.map(function () {
+      return '<div class="gi-log-row">' +
+          '<span class="gi-log-time" data-time></span>' +
+          '<span class="gi-log-actor" data-actor></span>' +
+          '<span class="gi-log-action" data-action></span>' +
+          '<span class="gi-log-det" data-det></span>' +
+        '</div>';
+    }).join('');
+    var more = _logsHasMore ? '<div class="gi-log-more"><button class="gi-btn gi-btn--sm" id="giLogsMore">Load more</button></div>' : '';
+    setHTML(c, '<div class="gi-logs">' + rows + '</div>' + more);
+    var rowEls = c.querySelectorAll('.gi-log-row');
+    _logs.forEach(function (e, i) {
+      var row = rowEls[i]; if (!row) return;
+      var t = row.querySelector('[data-time]');   if (t) t.textContent = fmtDate(e.timestamp);
+      var a = row.querySelector('[data-actor]');  if (a) a.textContent = e.actor || '';
+      var ac = row.querySelector('[data-action]'); if (ac) { ac.textContent = _logActionLabel(e.action); ac.className = 'gi-log-action' + _logActionClass(e.action); }
+      var d = row.querySelector('[data-det]');    if (d) d.textContent = _logDetail(e);
+    });
+    var moreBtn = document.getElementById('giLogsMore');
+    if (moreBtn) moreBtn.addEventListener('click', function () {
+      moreBtn.disabled = true; moreBtn.textContent = 'Loading\u2026';
+      fetchLogs(_logsPage + 1, function () { if (_activeTab === 'logs') drawLogs(c); });
+    });
+  }
+
+  /* init */
+  function initPanel() {
+    if (_initDone) return;
+    if (!window.state || !window.state.loggedIn) {
+      if (window.renderAuthGate) window.renderAuthGate(panel);
+      else setHTML(panel, '<div class="gi-login">Log in to manage guild info.</div>');
+      return; // retry on next activation / after login reload
+    }
+    _initDone = true;
+    setHTML(panel, loadingHTML('Loading\u2026'));
+    fetchState(function (d) {
+      if (d && d.privilege_blocked) {
+        _applyPrivilegeBlockedState();
+        _initDone = false; // re-check after approval on next activation
+        return;
+      }
+      if (!d || !d.access) {
+        setHTML(panel, emptyHTML('You do not have access to Guild Info.'));
+        _initDone = false; // allow re-check if roles change later
+        return;
+      }
+      _revealNav();
+      buildShell();
+      renderTab();
+      if (d.can_approve) fetchQueue(function () { _updateNavBadge(); _updateQueueTabBadge(); });
+    });
+  }
+
+  var observer = new MutationObserver(function () {
+    if (panel.classList.contains('active')) initPanel();
+  });
+  observer.observe(panel, { attributes: true, attributeFilter: ['class'] });
+  if (panel.classList.contains('active')) initPanel();
+
+  // Reveal the sidebar entry as early as possible for already-logged-in users.
+  if (window.state && window.state.loggedIn) window.preloadGuildInfoBadge();
+})();

@@ -2290,6 +2290,7 @@
     if (panel === 'events-manage')  return '/events/manage';
     if (panel === 'shop-admin')     return '/shop/admin';
     if (panel === 'creator-studio') return '/shop/studio';
+    if (panel === 'guild-info')     return '/guild/info';
     return '/' + panel;
   }
 
@@ -2299,6 +2300,7 @@
     if (panel === 'events' && parts[1] === 'manage') return 'events-manage';
     if (panel === 'shop'   && parts[1] === 'admin')  return 'shop-admin';
     if (panel === 'shop'   && parts[1] === 'studio') return 'creator-studio';
+    if (panel === 'guild'  && parts[1] === 'info')   return 'guild-info';
     return panel;
   }
 

@@ -532,6 +532,7 @@ def index():
 @app.route("/shop/<path:_path>")
 @app.route("/shop-admin")
 @app.route("/events-manage")
+@app.route("/guild/info")
 def spa_route(_path=None):
     return send_from_directory(_BASE_DIR, "index.html")
 

@@ -16,6 +16,7 @@ import '../../css/promotions.css'
 import '../../css/events.css'
 import '../../css/shop.css'
 import '../../css/shop-admin.css'
+import '../../css/guild-info.css'
 import '../../css/creator-studio.css'
 import '../../css/auth-gate.css'
 

@@ -1,4 +1,4 @@
-import { UserIcon, GroupIcon, BotIcon, ClockIcon, TrendIcon, EventIcon, CalendarIcon, ShopIcon, TagIcon, SidebarToggleIcon, SettingsIcon } from './Icons'
+import { UserIcon, GroupIcon, BotIcon, ClockIcon, TrendIcon, EventIcon, CalendarIcon, ShopIcon, TagIcon, TicketIcon, SidebarToggleIcon, SettingsIcon } from './Icons'
 
 export default function Sidebar() {
   return (
@@ -79,6 +79,12 @@ export default function Sidebar() {
               <a href="#" className="nav-item" data-panel="shop-admin">
                 <span className="nav-icon"><ShopIcon /></span>
                 <span className="nav-label">Manage Shop</span>
+              </a>
+            </li>
+            <li id="guildInfoNavItem" style={{ display: 'none' }}>
+              <a href="#" className="nav-item" data-panel="guild-info">
+                <span className="nav-icon"><TicketIcon /></span>
+                <span className="nav-label">Guild Info</span>
               </a>
             </li>
           </ul>

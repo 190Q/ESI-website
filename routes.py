@@ -36,9 +36,10 @@ from config import (
     CACHE_TTL, PLAYTIME_CACHE_TTL, BULK_PLAYTIME_REFRESH,
     CACHE_URL, ROUTES_PORT, _GATEWAY_SECRET,
     _ROLE_VALAENDOR, _ROLE_PARLIAMENT, _ROLE_CONGRESS, _ROLE_JUROR, _ROLE_CITIZEN,
-    _ROLE_GRAND_DUKE, _ROLE_ARCHDUKE,
+    _ROLE_GRAND_DUKE, _ROLE_ARCHDUKE, _ROLE_EMPEROR,
     _PARLIAMENT_PLUS, _JUROR_PLUS, _CHIEF_PLUS, _CITIZEN_PLUS,
     _EVENTS_ACCESS, _EVENTS_MANAGE_ANY,
+    _GUILD_INFO_SERVER_ID, _GUILD_INFO_FORUM_CHANNEL_ID,
     _CLIENT_CONFIG,
     _TICKET_GUILD_ID, _STAFF_ROLE_DEFS,
     PLAYER_BULK_METRIC_KEYS, GUILD_BULK_METRIC_KEYS,
@@ -60,6 +61,7 @@ from shop.state import (
     set_shop_admin_maintenance_settings as _shop_set_admin_maintenance_settings,
     claim_due_maintenance_eta_notification as _shop_claim_due_maintenance_eta_notification,
 )
+from guild_info import admin as _gi_admin
 import ipaddress
 
 # Flask app
@@ -7721,6 +7723,383 @@ def create_ticket():
     except requests.RequestException as e:
         print(f"[TICKET] GitHub request failed: {e}", file=sys.stderr)
         return jsonify({"error": "Failed to reach GitHub"}), 502
+
+
+# Guild Info management endpoints (/api/admin/guild-info/*)
+
+# Roles that always grant full rights (act immediately + approve/deny).
+_GUILD_INFO_FULL_ROLES = {_ROLE_EMPEROR}
+
+# Cache of {role_id: permission_bits} for the login guild.
+_gi_roles_cache = {"data": None, "ts": 0.0}
+_gi_roles_lock = _threading.Lock()
+_GI_ROLES_TTL = 300.0
+
+
+def _guild_roles_permissions():
+    """Return {role_id: perms_int} for the login guild, cached for a few minutes."""
+    now = time()
+    with _gi_roles_lock:
+        data = _gi_roles_cache["data"]
+        if data is not None and now - _gi_roles_cache["ts"] < _GI_ROLES_TTL:
+            return data
+    perms: dict = {}
+    if DISCORD_TOKEN and DISCORD_GUILD_ID:
+        try:
+            r = requests.get(
+                f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/roles",
+                headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+                timeout=10,
+            )
+            if r.ok:
+                for role in r.json():
+                    try:
+                        perms[str(role["id"])] = int(role.get("permissions", "0"))
+                    except (KeyError, ValueError, TypeError):
+                        continue
+        except requests.RequestException:
+            perms = {}
+    if perms:
+        with _gi_roles_lock:
+            _gi_roles_cache["data"] = perms
+            _gi_roles_cache["ts"] = now
+    return perms
+
+
+def _user_is_discord_admin(user_roles) -> bool:
+    """True if @everyone + the user's roles confer the Administrator permission."""
+    role_perms = _guild_roles_permissions()
+    if not role_perms:
+        return False
+    combined = role_perms.get(str(DISCORD_GUILD_ID), 0)  # @everyone role id == guild id
+    for rid in (user_roles or []):
+        combined |= role_perms.get(str(rid), 0)
+    return bool(combined & _PERM_ADMINISTRATOR)
+
+
+def _gi_can_approve_privilege(user) -> bool:
+    """True only for the OWNER or the Emperor role (NOT plain Discord admins).
+
+    Gates who may approve/deny *privilege* requests, distinct from the content
+    queue which any full-tier user (incl. Discord admins) may approve.
+    """
+    if _is_owner_user(user):
+        return True
+    user_roles = set(str(r) for r in (user.get("roles") or []))
+    return _ROLE_EMPEROR in user_roles
+
+
+def _gi_resolve_access(user) -> dict:
+    """Single source of truth for Guild Info access + privilege state.
+
+    Returns a dict with:
+      tier                  -> "full" | "parliament" | None
+      can_approve           -> tier == "full" (content-queue approver)
+      can_approve_privilege -> OWNER or Emperor only
+      privilege_pending     -> a privilege request exists / was just created
+      privilege_blocked     -> privileged role but not yet approved (no access)
+
+    Privileged-role users (Parliament without admin/emperor/owner) are gated:
+    on first detection a pending privilege request is created and they stay
+    access-pending until an Emperor/OWNER approves them.
+    """
+    info = {
+        "tier": None,
+        "can_approve": False,
+        "can_approve_privilege": _gi_can_approve_privilege(user),
+        "privilege_pending": False,
+        "privilege_blocked": False,
+    }
+    if _is_owner_user(user):
+        info["tier"] = "full"
+        info["can_approve"] = True
+        return info
+    user_roles = set(str(r) for r in (user.get("roles") or []))
+    if (user_roles & _GUILD_INFO_FULL_ROLES) or _user_is_discord_admin(user_roles):
+        info["tier"] = "full"
+        info["can_approve"] = True
+        return info
+    if _ROLE_PARLIAMENT in user_roles:
+        discord_id = user.get("id", "")
+        if _gi_admin.is_privilege_approved(discord_id):
+            info["tier"] = "parliament"
+        else:
+            username = user.get("nick") or user.get("username", "")
+            _gi_admin.ensure_privilege_request(discord_id, username)
+            info["privilege_pending"] = True
+            info["privilege_blocked"] = True
+        return info
+    return info
+
+
+def _require_guild_info_admin():
+    """Returns (user, tier, err).
+
+    tier == "full"       -> OWNER, Discord administrators, or the Emperor role:
+                            act immediately and approve/deny queued requests.
+    tier == "parliament" -> approved Parliament role without admin: create/edit/
+                            delete are queued for approval.
+    Anyone without access (incl. privileged users pending approval) gets a 403.
+    """
+    user, err = _require_login()
+    if err:
+        return None, None, err
+    access = _gi_resolve_access(user)
+    if access["tier"] is None:
+        return None, None, (jsonify({"error": "Insufficient permissions"}), 403)
+    return user, access["tier"], None
+
+
+def _gi_actor(user) -> str:
+    return user.get("nick") or user.get("username", "")
+
+
+def _gi_body_empty(content) -> bool:
+    if isinstance(content, (list, tuple)):
+        return not any(str(s or "").strip() for s in content)
+    return not (content or "").strip()
+
+
+def _gi_body_from_request(body: dict):
+    """Extract a body payload: a segments list (preferred) or a plain string."""
+    if isinstance(body.get("segments"), list):
+        return body.get("segments")
+    return body.get("body")
+
+
+@app.route("/api/admin/guild-info/state")
+@rate_limit(30)
+def guild_info_state():
+    user, err = _require_login()
+    if err:
+        return err
+    access = _gi_resolve_access(user)
+    # No guild-info role at all -> 403
+    if access["tier"] is None and not access["privilege_blocked"]:
+        return jsonify({"error": "Insufficient permissions"}), 403
+    return jsonify({
+        "access": True,
+        "tier": access["tier"],
+        "is_full": access["tier"] == "full",
+        "can_approve": access["can_approve"],
+        "can_approve_privilege": access["can_approve_privilege"],
+        "privilege_pending": access["privilege_pending"],
+        "privilege_blocked": access["privilege_blocked"],
+        "devMode": DEV_MODE,
+        "server_id": _GUILD_INFO_SERVER_ID,
+        "forum_channel_id": _GUILD_INFO_FORUM_CHANNEL_ID,
+    })
+
+
+@app.route("/api/admin/guild-info/posts")
+@rate_limit(30)
+def guild_info_list_posts():
+    user, tier, err = _require_guild_info_admin()
+    if err:
+        return err
+    result = _gi_admin.list_posts()
+    return jsonify(result), 200 if not result.get("error") else 502
+
+
+@app.route("/api/admin/guild-info/posts/<thread_id>")
+@rate_limit(30)
+def guild_info_get_post(thread_id):
+    user, tier, err = _require_guild_info_admin()
+    if err:
+        return err
+    result = _gi_admin.get_post(thread_id)
+    return jsonify(result), 200 if not result.get("error") else 502
+
+
+@app.route("/api/admin/guild-info/posts", methods=["POST"])
+@rate_limit(10)
+def guild_info_create_post():
+    user, tier, err = _require_guild_info_admin()
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    title = (body.get("title") or "").strip()
+    content = _gi_body_from_request(body)
+    if not title:
+        return jsonify({"error": "Title is required"}), 400
+    if _gi_body_empty(content):
+        return jsonify({"error": "Body is required"}), 400
+    actor = _gi_actor(user)
+    if tier == "full":
+        result = _gi_admin.direct_action("create", actor, title=title, body=content)
+        return jsonify(result), 200 if not result.get("error") else 502
+    req = _gi_admin.submit_request(
+        "create", title=title, body=content,
+        requester_id=user.get("id", ""), requester_name=actor,
+    )
+    return jsonify({"ok": True, "queued": True, "request": req}), 202
+
+
+@app.route("/api/admin/guild-info/posts/<thread_id>", methods=["PATCH"])
+@rate_limit(10)
+def guild_info_edit_post(thread_id):
+    user, tier, err = _require_guild_info_admin()
+    if err:
+        return err
+    # Once any change is pending, the post is locked for everyone
+    if _gi_admin.thread_has_pending_request(thread_id):
+        return jsonify({"error": "A change to this post is already pending approval. "
+                                 "Approve, deny, or delete it first."}), 409
+    body = request.get_json(silent=True) or {}
+    has_title = "title" in body
+    has_body = "body" in body or isinstance(body.get("segments"), list)
+    if not has_title and not has_body:
+        return jsonify({"error": "Nothing to update"}), 400
+    title = (body.get("title") or "").strip() if has_title else None
+    content = _gi_body_from_request(body) if has_body else None
+    if has_title and not title:
+        return jsonify({"error": "Title cannot be empty"}), 400
+    if has_body and _gi_body_empty(content):
+        return jsonify({"error": "Body cannot be empty"}), 400
+    actor = _gi_actor(user)
+    if tier == "full":
+        result = _gi_admin.direct_action(
+            "edit", actor, thread_id=thread_id,
+            title=title if has_title else None,
+            body=content if has_body else None,
+        )
+        return jsonify(result), 200 if not result.get("error") else 502
+    # Snapshot the current post so reviewers can see what the request changes
+    current = _gi_admin.get_post(thread_id)
+    prev_title = current.get("title")
+    prev_body = current.get("body")
+    queued = []
+    if has_title:
+        queued.append(_gi_admin.submit_request(
+            "edit_title", thread_id=thread_id, title=title, prev_title=prev_title,
+            requester_id=user.get("id", ""), requester_name=actor,
+        ))
+    if has_body:
+        queued.append(_gi_admin.submit_request(
+            "edit_body", thread_id=thread_id, body=content, prev_body=prev_body,
+            requester_id=user.get("id", ""), requester_name=actor,
+        ))
+    return jsonify({"ok": True, "queued": True, "requests": queued}), 202
+
+
+@app.route("/api/admin/guild-info/posts/<thread_id>", methods=["DELETE"])
+@rate_limit(10)
+def guild_info_delete_post(thread_id):
+    user, tier, err = _require_guild_info_admin()
+    if err:
+        return err
+    actor = _gi_actor(user)
+    if tier == "full":
+        result = _gi_admin.direct_action("delete", actor, thread_id=thread_id)
+        return jsonify(result), 200 if not result.get("error") else 502
+    # Deletion is the one action still allowed while a change is pending
+    if _gi_admin.thread_has_pending_delete(thread_id):
+        return jsonify({"error": "A deletion of this post is already pending approval."}), 409
+    current = _gi_admin.get_post(thread_id)
+    req = _gi_admin.submit_request(
+        "delete", thread_id=thread_id,
+        prev_title=current.get("title"), prev_body=current.get("body"),
+        requester_id=user.get("id", ""), requester_name=actor,
+    )
+    return jsonify({"ok": True, "queued": True, "request": req}), 202
+
+
+@app.route("/api/admin/guild-info/queue")
+@rate_limit(30)
+def guild_info_queue():
+    user, tier, err = _require_guild_info_admin()
+    if err:
+        return err
+    if tier != "full":
+        return jsonify({"error": "Approver access required"}), 403
+    result = {"queue": _gi_admin.get_queue()}
+    # Privilege requests are visible only to Emperor/OWNER (not plain admins)
+    if _gi_can_approve_privilege(user):
+        result["privilege_requests"] = _gi_admin.get_privilege_queue()
+    return jsonify(result)
+
+
+@app.route("/api/admin/guild-info/queue/<request_id>/approve", methods=["POST"])
+@rate_limit(10)
+def guild_info_queue_approve(request_id):
+    user, tier, err = _require_guild_info_admin()
+    if err:
+        return err
+    if tier != "full":
+        return jsonify({"error": "Approver access required"}), 403
+    body = request.get_json(silent=True) or {}
+    edited_title = body.get("title")  # None -> keep stored title
+    edited_body = _gi_body_from_request(body) if ("body" in body or isinstance(body.get("segments"), list)) else None
+    result = _gi_admin.approve_request(
+        request_id, _gi_actor(user),
+        edited_title=edited_title, edited_body=edited_body,
+    )
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/guild-info/queue/<request_id>/deny", methods=["POST"])
+@rate_limit(10)
+def guild_info_queue_deny(request_id):
+    user, tier, err = _require_guild_info_admin()
+    if err:
+        return err
+    if tier != "full":
+        return jsonify({"error": "Approver access required"}), 403
+    body = request.get_json(silent=True) or {}
+    reason = (body.get("reason") or "").strip()[:500]
+    if not reason:
+        return jsonify({"error": "Reason is required"}), 400
+    result = _gi_admin.deny_request(request_id, _gi_actor(user), reason)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify({"ok": True, "request_id": request_id}), 200
+
+
+@app.route("/api/admin/guild-info/privilege-requests/<request_id>/approve", methods=["POST"])
+@rate_limit(10)
+def guild_info_privilege_approve(request_id):
+    """Approve a Guild Info privilege request (Emperor / OWNER only)."""
+    user, err = _require_login()
+    if err:
+        return err
+    if not _gi_can_approve_privilege(user):
+        return jsonify({"error": "Only Emperor or the owner can approve privilege requests"}), 403
+    result = _gi_admin.approve_privilege_request(request_id, _gi_actor(user))
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify({"ok": True, "request_id": request_id}), 200
+
+
+@app.route("/api/admin/guild-info/privilege-requests/<request_id>/deny", methods=["POST"])
+@rate_limit(10)
+def guild_info_privilege_deny(request_id):
+    """Deny a Guild Info privilege request (Emperor / OWNER only)."""
+    user, err = _require_login()
+    if err:
+        return err
+    if not _gi_can_approve_privilege(user):
+        return jsonify({"error": "Only Emperor or the owner can deny privilege requests"}), 403
+    result = _gi_admin.deny_privilege_request(request_id, _gi_actor(user))
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify({"ok": True, "request_id": request_id}), 200
+
+
+@app.route("/api/admin/guild-info/logs")
+@rate_limit(30)
+def guild_info_logs():
+    user, tier, err = _require_guild_info_admin()
+    if err:
+        return err
+    try:
+        page = int(request.args.get("page", 1))
+    except (TypeError, ValueError):
+        page = 1
+    try:
+        per_page = int(request.args.get("per_page", 50))
+    except (TypeError, ValueError):
+        per_page = 50
+    return jsonify(_gi_admin.get_logs(page=page, per_page=per_page))
 
 
 # error handlers

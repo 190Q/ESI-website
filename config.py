@@ -59,6 +59,7 @@ _APPLICATIONS_JSON      = os.path.join(_WEBSITE_DATA_DIR, "applications.json")
 _EVENTS_JSON            = os.path.join(_WEBSITE_DATA_DIR, "events.json")
 _SHOP_ITEMS_JSON        = os.path.join(_WEBSITE_DATA_DIR, "shop_items.json")
 _SHOP_DB                = os.path.join(_WEBSITE_DATA_DIR, "databases", "shop.db")
+_GUILD_INFO_DB          = os.path.join(_WEBSITE_DATA_DIR, "databases", "guild_info.db")
 
 
 def _detect_server_tz_name():
@@ -178,6 +179,7 @@ _ROLE_CITIZEN    = "554889169705500672"
 
 _ROLE_GRAND_DUKE = "1396112289832243282"
 _ROLE_ARCHDUKE   = "554514823191199747"
+_ROLE_EMPEROR    = "554506531949772812"
 
 # Ticket-server staff roles
 _TICKET_GUILD_ID = "1448532791686860923"
@@ -209,6 +211,8 @@ _DONATION_MAX_EP_PER_CYCLE  = None   # set to an int to cap dirty EP from donati
 _EVENTS_ACCESS     = {_ROLE_PRIDE, _ROLE_EVENT_MANAGER, _ROLE_PARLIAMENT}
 # These roles can manage any event
 _EVENTS_MANAGE_ANY = {_ROLE_EVENT_MANAGER, _ROLE_PARLIAMENT}
+# Roles that reveal the Guild Info management page in the client nav
+_GUILD_INFO_ACCESS = {_ROLE_PARLIAMENT, _ROLE_EMPEROR}
 
 # Discord badge roles colour
 _BADGE_ROLES_COLOUR = {
@@ -489,6 +493,14 @@ _PARLI_SERVER_ID   = "802999599060221992"
 _PARLI_PARLI_ROLE  = "804211709166354432"   # Parliament role in the parli server
 _DEV_SERVER_ID     = "1442126799369670770"
 
+# Guild Info forum target
+if DEV_MODE:
+    _GUILD_INFO_SERVER_ID        = "1442126799369670770"
+    _GUILD_INFO_FORUM_CHANNEL_ID = "1514643396013330482"
+else:
+    _GUILD_INFO_SERVER_ID        = "554418045397762048"
+    _GUILD_INFO_FORUM_CHANNEL_ID = "1381289736903065662"
+
 _APPLICATION_DISCORD = {
     "congress": {
         "server":      _PARLI_SERVER_ID,
@@ -560,6 +572,7 @@ _CLIENT_CONFIG = {
         "chiefPlus":       list(_CHIEF_PLUS),
         "eventsAccess":    list(_EVENTS_ACCESS),
         "eventsManageAny": list(_EVENTS_MANAGE_ANY),
+        "guildInfoAccess": list(_GUILD_INFO_ACCESS),
         "creatorApplyRoles": [_ROLE_CITIZEN],
     },
     "staffRoles": [],

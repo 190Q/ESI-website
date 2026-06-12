@@ -32,6 +32,7 @@ export default function App() {
           <section className="panel" id="panel-shop" />
           <section className="panel" id="panel-creator-studio" />
           <section className="panel" id="panel-shop-admin" />
+          <section className="panel" id="panel-guild-info" />
           <section className="panel" id="panel-inactivity" />
           <section className="panel" id="panel-promotions" />
           <section className="panel" id="panel-events-manage" />
