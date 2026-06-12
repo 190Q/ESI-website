@@ -307,18 +307,6 @@
       });
     });
 
-    var criteriaRow = panel.querySelector('.prom-criteria-row');
-    var sentinel = document.createElement('div');
-    sentinel.style.cssText = 'height:1px;margin-top:-1px;pointer-events:none;';
-    criteriaRow.parentElement.insertBefore(sentinel, criteriaRow);
-
-    var stickyObserver = new IntersectionObserver(function(entries) {
-      var isStuck = !entries[0].isIntersecting;
-      criteriaRow.style.paddingTop = isStuck ? '2.9em' : '0px';
-    }, { threshold: [1] });
-
-    stickyObserver.observe(sentinel);
-
     renderTable();
   }
 
