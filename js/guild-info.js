@@ -1003,17 +1003,35 @@
     req.then(function (res) {
       if (res.ok && (res.data.ok || res.data.id)) {
         if (res.data.queued) {
+          // Queued for approval: the post is unchanged for now, so leave the list as-is
           toast('\u2713 Submitted for approval.', 'success');
-          _queue = null;                       // a new pending request now exists
+          _queue = null; _logs = null;         // a new pending request + log entry now exist
+          closeModal();
         } else {
+          // Direct change (full tier): reflect it in the cached list in place, no refetch
           toast('\u2713 Post ' + (isEdit ? 'updated' : 'created') + '.', 'success');
           if (res.data.warning) toast('\u26a0 ' + res.data.warning, 'warn');
           var savedId = isEdit ? String(threadId) : (res.data.id != null ? String(res.data.id) : null);
-          if (savedId != null) delete _postCache[savedId];
+          if (savedId != null) delete _postCache[savedId];   // body cache may hold stale staged urls
+          var msgCount = segments.reduce(function (n, s) { return n + splitBody(s).length; }, 0);
+          if (Array.isArray(_posts)) {
+            if (isEdit) {
+              var entry = _posts.filter(function (p) { return String(p.id) === savedId; })[0];
+              if (entry) { entry.title = title; entry.message_count = msgCount; }
+            } else if (savedId != null) {
+              _posts.push({ id: savedId, title: title, archived: false, locked: false,
+                            pending_request: false, message_count: msgCount });
+            }
+            // Keep the same alphabetical order the server returns
+            _posts.sort(function (a, b) {
+              var x = (a.title || '').toLowerCase(), y = (b.title || '').toLowerCase();
+              return x < y ? -1 : (x > y ? 1 : 0);
+            });
+          }
+          _logs = null;                        // a log entry was created
+          closeModal();
+          if (_activeTab === 'posts' && Array.isArray(_posts)) drawPosts(document.getElementById('giContent'));
         }
-        closeModal();
-        _posts = null; _logs = null;           // list + logs may have changed
-        if (_activeTab === 'posts') renderPosts(document.getElementById('giContent'));
       } else if (res.status === 409) {
         // Someone already has a change pending: reflect the lock in the list
         toast('\u26a0 ' + (res.data.error || 'A change is already pending.'), 'warn');
