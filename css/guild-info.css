@@ -311,6 +311,62 @@
 }
 .gi-msgs-bar .gi-split-hint { margin-top: 0; }
 
+/* Per-message image attachments (editor) */
+.gi-msg-imgs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.gi-msg-imgs:empty { display: none; }
+.gi-msg-img {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface-3);
+}
+.gi-msg-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gi-msg-img-ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 4px;
+  font-size: 0.62rem;
+  color: var(--text-faint);
+  text-align: center;
+  word-break: break-word;
+}
+.gi-msg-img-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  line-height: 16px;
+  text-align: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(var(--black-rgb), 0.65);
+  color: var(--text-main);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.gi-msg-img-del:hover { background: var(--danger); color: #fff; }
+.gi-msg-imgbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+.gi-msg-imghint { font-size: 0.7rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
 /* Read-only body preview */
 .gi-body-preview {
   background: var(--surface);
@@ -389,6 +445,27 @@
   transition: color var(--transition), background var(--transition);
 }
 .gi-spoiler--shown { background: var(--surface-3); color: inherit; cursor: text; }
+
+/* Per-message blocks + image strips (View modal; strip reused by queue/approve) */
+.gi-view-msgs { display: flex; flex-direction: column; gap: 14px; }
+.gi-view-msg { display: flex; flex-direction: column; gap: 8px; }
+.gi-view-imgs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.gi-view-img {
+  display: block;
+  width: 120px;
+  height: 120px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface-3);
+  transition: border-color var(--transition);
+}
+.gi-view-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gi-view-img:hover { border-color: var(--gold-dim); }
 .gi-md .gi-mention {
   padding: 0 4px;
   border-radius: 4px;
@@ -542,6 +619,20 @@
 .gi-q-v.gi-q-old { text-decoration: line-through; text-decoration-color: rgba(var(--danger-rgb, 220, 70, 70), 0.55); }
 /* Inline word-level diff carries the emphasis now */
 .gi-q-body.gi-q-old { border-style: dashed; }
+/* Attachment previews (queue cards + approve modal) */
+.gi-q-imgs { margin: 8px 0 4px; }
+.gi-q-imgs:empty { display: none; }
+.gi-q-imgs .gi-view-img { width: 84px; height: 84px; }
+.gi-ap-imgwarn {
+  margin-top: 8px;
+  padding: 8px 10px;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--gold-dim);
+  background: rgba(var(--gold-rgb), 0.08);
+  border: 1px solid var(--gold-dim);
+  border-radius: var(--radius);
+}
 .gi-d-del {
   background: rgba(var(--danger-rgb, 220, 70, 70), 0.16);
   color: var(--danger);

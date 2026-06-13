@@ -7867,6 +7867,19 @@ def _gi_body_from_request(body: dict):
     return body.get("body")
 
 
+def _gi_attachments_from_request(body: dict):
+    """Per-message image lists parallel to the body segments, or ``None``."""
+    atts = body.get("attachments")
+    return atts if isinstance(atts, list) else None
+
+
+def _gi_atts_nonempty(atts) -> bool:
+    """True if any message in *atts* carries at least one image."""
+    if not isinstance(atts, (list, tuple)):
+        return False
+    return any(isinstance(m, (list, tuple)) and len(m) for m in atts)
+
+
 @app.route("/api/admin/guild-info/state")
 @rate_limit(30)
 def guild_info_state():
@@ -7911,6 +7924,55 @@ def guild_info_get_post(thread_id):
     return jsonify(result), 200 if not result.get("error") else 502
 
 
+@app.route("/api/admin/guild-info/posts/upload-image", methods=["POST"])
+@rate_limit(10)
+def guild_info_upload_image():
+    """Stage an image for a guild-info post message. Returns the served URL.
+
+    The file is saved under ``images/guild-info/`` and referenced by the create/
+    edit payloads via its staged ``file`` name; ``forum`` uploads it to Discord
+    as a native attachment and deletes the staged copy on success.
+    """
+    user, tier, err = _require_guild_info_admin()
+    if err:
+        return err
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files["file"]
+    if not f or not f.filename:
+        return jsonify({"error": "No file selected"}), 400
+    _ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+    _ALLOWED_FMT = {"PNG", "JPEG", "GIF", "WEBP"}
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in _ALLOWED_EXT:
+        return jsonify({"error": "Unsupported type. Use PNG, JPG, GIF or WebP."}), 400
+    f.seek(0, 2); size = f.tell(); f.seek(0)
+    if size > 2 * 1024 * 1024:
+        return jsonify({"error": "Image must be smaller than 2 MB"}), 400
+    # Validate actual file content via Pillow magic-byte check
+    try:
+        from PIL import Image as _PIL_Image
+        img = _PIL_Image.open(f)
+        img.verify()          # raises if the header is corrupt or not a real image
+        if img.format not in _ALLOWED_FMT:
+            return jsonify({"error": f"File content is {img.format}, not a supported image type."}), 400
+    except Exception:
+        return jsonify({"error": "File does not appear to be a valid image."}), 400
+    finally:
+        f.seek(0)             # reset after Pillow reads the stream
+    import uuid as _uid_local
+    filename = _uid_local.uuid4().hex + ext
+    save_dir = os.path.join(_BASE_DIR, "images", "guild-info")
+    os.makedirs(save_dir, exist_ok=True)
+    f.save(os.path.join(save_dir, filename))
+    return jsonify({
+        "ok": True,
+        "url": "/images/guild-info/" + filename,
+        "file": filename,
+        "name": os.path.basename(f.filename),
+    })
+
+
 @app.route("/api/admin/guild-info/posts", methods=["POST"])
 @rate_limit(10)
 def guild_info_create_post():
@@ -7920,16 +7982,18 @@ def guild_info_create_post():
     body = request.get_json(silent=True) or {}
     title = (body.get("title") or "").strip()
     content = _gi_body_from_request(body)
+    atts = _gi_attachments_from_request(body)
     if not title:
         return jsonify({"error": "Title is required"}), 400
-    if _gi_body_empty(content):
+    if _gi_body_empty(content) and not _gi_atts_nonempty(atts):
         return jsonify({"error": "Body is required"}), 400
     actor = _gi_actor(user)
     if tier == "full":
-        result = _gi_admin.direct_action("create", actor, title=title, body=content)
+        result = _gi_admin.direct_action("create", actor, title=title,
+                                         body=content, attachments=atts)
         return jsonify(result), 200 if not result.get("error") else 502
     req = _gi_admin.submit_request(
-        "create", title=title, body=content,
+        "create", title=title, body=content, attachments=atts,
         requester_id=user.get("id", ""), requester_name=actor,
     )
     return jsonify({"ok": True, "queued": True, "request": req}), 202
@@ -7952,9 +8016,10 @@ def guild_info_edit_post(thread_id):
         return jsonify({"error": "Nothing to update"}), 400
     title = (body.get("title") or "").strip() if has_title else None
     content = _gi_body_from_request(body) if has_body else None
+    atts = _gi_attachments_from_request(body) if has_body else None
     if has_title and not title:
         return jsonify({"error": "Title cannot be empty"}), 400
-    if has_body and _gi_body_empty(content):
+    if has_body and _gi_body_empty(content) and not _gi_atts_nonempty(atts):
         return jsonify({"error": "Body cannot be empty"}), 400
     actor = _gi_actor(user)
     if tier == "full":
@@ -7962,6 +8027,7 @@ def guild_info_edit_post(thread_id):
             "edit", actor, thread_id=thread_id,
             title=title if has_title else None,
             body=content if has_body else None,
+            attachments=atts if has_body else None,
         )
         return jsonify(result), 200 if not result.get("error") else 502
     # Snapshot the current post so reviewers can see what the request changes
@@ -7976,7 +8042,8 @@ def guild_info_edit_post(thread_id):
         ))
     if has_body:
         queued.append(_gi_admin.submit_request(
-            "edit_body", thread_id=thread_id, body=content, prev_body=prev_body,
+            "edit_body", thread_id=thread_id, body=content, attachments=atts,
+            prev_body=prev_body,
             requester_id=user.get("id", ""), requester_name=actor,
         ))
     return jsonify({"ok": True, "queued": True, "requests": queued}), 202
@@ -8030,9 +8097,11 @@ def guild_info_queue_approve(request_id):
     body = request.get_json(silent=True) or {}
     edited_title = body.get("title")  # None -> keep stored title
     edited_body = _gi_body_from_request(body) if ("body" in body or isinstance(body.get("segments"), list)) else None
+    edited_atts = _gi_attachments_from_request(body) if isinstance(body.get("segments"), list) else None
     result = _gi_admin.approve_request(
         request_id, _gi_actor(user),
         edited_title=edited_title, edited_body=edited_body,
+        edited_attachments=edited_atts,
     )
     return jsonify(result), 200 if result.get("ok") else 400
 

@@ -37,6 +37,8 @@
   // Discord limits mirrored from guild_info/forum.py
   var _MAX_TITLE = 100;
   var _MAX_BODY  = 2000;
+  var _MAX_IMAGES = 3;                 // images allowed per message (mirror backend)
+  var _IMG_EXT  = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
 
   /* small helpers */
   function esc(s) {
@@ -88,6 +90,10 @@
   function apiPatch(url, body) { return apiSend('PATCH', url, body); }
   function apiDelete(url) {
     return fetch(url, { method: 'DELETE', credentials: 'same-origin' }).then(_wrap);
+  }
+  // multipart upload (no JSON Content-Type so the browser sets the boundary)
+  function apiUpload(url, formData) {
+    return fetch(url, { method: 'POST', credentials: 'same-origin', body: formData }).then(_wrap);
   }
 
   /* body splitting (mirror of guild_info/forum.py split_body)
@@ -332,7 +338,8 @@
     if (!p || p.id == null) return;
     _postCache[String(p.id)] = {
       id: String(p.id), title: p.title || '', body: p.body || '',
-      segments: p.segments || null, archived: !!p.archived, at: Date.now(),
+      segments: p.segments || null, attachments: p.attachments || null,
+      archived: !!p.archived, at: Date.now(),
     };
   }
 
@@ -624,20 +631,56 @@
     });
   }
 
+  // Build a DOM image strip from attachment dicts ({url,name})
+  function _buildImageStrip(imgs, cls) {
+    if (!imgs || !imgs.length) return null;
+    var wrap = document.createElement('div');
+    wrap.className = cls || 'gi-view-imgs';
+    imgs.forEach(function (im) {
+      var src = _mdUrl(im && im.url);
+      if (!src) return;
+      var a = document.createElement('a');
+      a.href = src; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.className = 'gi-view-img';
+      var img = document.createElement('img');
+      img.src = src;                       // property assignment, never innerHTML
+      img.alt = (im && im.name) || '';
+      img.loading = 'lazy';
+      a.appendChild(img);
+      wrap.appendChild(a);
+    });
+    return wrap.children.length ? wrap : null;
+  }
+
   function _renderPostView(p) {
-    var segCount = (p.segments && p.segments.length) || 1;
+    var segs = (p.segments && p.segments.length) ? p.segments : [p.body || ''];
+    var atts = p.attachments || [];
+    var segCount = segs.length || 1;
     showModal(
       '<div class="gi-modal-title" id="giViewTitle"></div>' +
       '<div class="gi-modal-sub">' + segCount + ' message' + (segCount === 1 ? '' : 's') +
         (p.archived ? ' \u00b7 archived' : '') + '</div>' +
-      '<div class="gi-body-preview gi-md" id="giViewBody"></div>' +
+      '<div class="gi-view-msgs" id="giViewBody"></div>' +
       '<div class="gi-modal-actions"><button class="gi-btn" data-close>Close</button></div>'
     );
     _openView = String(p.id == null ? '' : p.id);
     // title stays plain text; body is rendered as sanitised Discord-style markdown
     var tEl = document.getElementById('giViewTitle'); if (tEl) tEl.textContent = p.title || '(untitled)';
-    _renderBody(document.getElementById('giViewBody'), p.body || '', {
-      mentions: p.mentions, roles: p.roles, channels: p.channels,
+    var host = document.getElementById('giViewBody');
+    var ctx = { mentions: p.mentions, roles: p.roles, channels: p.channels };
+    // Render each message as its own block
+    segs.forEach(function (seg, i) {
+      var block = document.createElement('div');
+      block.className = 'gi-view-msg';
+      if (seg != null && String(seg).trim() !== '') {
+        var bodyEl = document.createElement('div');
+        bodyEl.className = 'gi-body-preview gi-md';
+        _renderBody(bodyEl, seg, ctx);
+        block.appendChild(bodyEl);
+      }
+      var strip = _buildImageStrip(atts[i]);
+      if (strip) block.appendChild(strip);
+      if (block.children.length) host.appendChild(block);
     });
   }
 
@@ -676,7 +719,7 @@
     var submitLabel = isParliament ? 'Submit for approval' : (isEdit ? 'Save changes' : 'Create post');
     var cached = isEdit ? _postCache[String(post.id)] : null;   // reuse an already-loaded body
     var needFetch = isEdit && !cached;
-    var origTitle = '', origSegments = [];   // baseline for edit change-detection
+    var origTitle = '', origSegments = [], origAttachments = [];   // baseline for edit change-detection
     showModal(
       '<div class="gi-modal-title">' + (isEdit ? 'Edit post' : 'New post') + '</div>' +
       (isParliament ? '<div class="gi-modal-sub">This will be queued for approval.</div>' : '') +
@@ -702,17 +745,89 @@
     var addBtn  = document.getElementById('giAddMsg');
     var submitBtn = document.getElementById('giSubmit');
 
-    function readSegments() {
-      return Array.prototype.slice.call(msgsEl.querySelectorAll('.gi-msg-body'))
-        .map(function (t) { return t.value; });
+    // Stable identity for one image: existing attachments keep by Discord id
+    function _imgKey(im) {
+      if (!im) return '';
+      if (im.id != null) return 'id:' + im.id;
+      if (im.file != null) return 'file:' + im.file;
+      return 'url:' + (im.url || '');
     }
-    // The messages that will actually be posted: non-empty boxes, in order
-    function cleanSegments() {
-      return readSegments().filter(function (s) { return s.trim() !== ''; });
+    function _imgSig(images) { return (images || []).map(_imgKey); }
+
+    function readRows() {
+      return Array.prototype.slice.call(msgsEl.querySelectorAll('.gi-msg')).map(function (row) {
+        return { text: row.querySelector('.gi-msg-body').value, images: (row._giImages || []).slice() };
+      });
+    }
+    // The messages that will actually be posted: those with text OR an image
+    function cleanRows() {
+      return readRows().filter(function (r) { return r.text.trim() !== '' || r.images.length; });
     }
 
-    // Append one message box (optionally pre-filled) and wire its events
-    function addMessage(text, focusIt) {
+    // Redraw one row's thumbnail strip from row._giImages (DOM only, no innerHTML)
+    function renderRowImages(row) {
+      var strip = row.querySelector('.gi-msg-imgs');
+      if (!strip) return;
+      var imgs = row._giImages || [];
+      strip.textContent = '';
+      imgs.forEach(function (im, idx) {
+        var cell = document.createElement('div');
+        cell.className = 'gi-msg-img';
+        var src = _mdUrl(im && im.url);
+        if (src) {
+          var image = document.createElement('img');
+          image.src = src; image.alt = (im && im.name) || '';   // .src property, never innerHTML
+          cell.appendChild(image);
+        } else {
+          var ph = document.createElement('span');
+          ph.className = 'gi-msg-img-ph';
+          ph.textContent = (im && im.name) || 'image';
+          cell.appendChild(ph);
+        }
+        var del = document.createElement('button');
+        del.type = 'button'; del.className = 'gi-msg-img-del';
+        del.title = 'Remove image'; del.setAttribute('aria-label', 'Remove image');
+        del.textContent = '\u00d7';
+        del.addEventListener('click', function () {
+          (row._giImages || []).splice(idx, 1);
+          renderRowImages(row); onChange();
+        });
+        cell.appendChild(del);
+        strip.appendChild(cell);
+      });
+      var addb = row.querySelector('.gi-msg-addimg');
+      if (addb) addb.disabled = imgs.length >= _MAX_IMAGES;
+      var hint = row.querySelector('.gi-msg-imghint');
+      if (hint) hint.textContent = imgs.length ? (imgs.length + ' / ' + _MAX_IMAGES) : '';
+    }
+
+    // Validate + upload selected files for one row, then track them as images
+    function uploadRowFiles(row, fileList) {
+      var files = Array.prototype.slice.call(fileList || []);
+      if (!files.length) return;
+      row._giImages = row._giImages || [];
+      files.forEach(function (file) {
+        if ((row._giImages || []).length >= _MAX_IMAGES) {
+          toast('\u26a0 Up to ' + _MAX_IMAGES + ' images per message.', 'warn'); return;
+        }
+        var ext = (file.name.split('.').pop() || '').toLowerCase();
+        if (_IMG_EXT.indexOf(ext) === -1) { toast('\u26a0 ' + file.name + ': use PNG, JPG, GIF or WebP.', 'warn'); return; }
+        if (file.size > 2 * 1024 * 1024) { toast('\u26a0 ' + file.name + ' is larger than 2 MB.', 'warn'); return; }
+        var fd = new FormData(); fd.append('file', file);
+        apiUpload('/api/admin/guild-info/posts/upload-image', fd).then(function (res) {
+          if (res.ok && res.data && res.data.ok && res.data.file) {
+            if ((row._giImages || []).length >= _MAX_IMAGES) return;
+            row._giImages.push({ file: res.data.file, name: res.data.name || file.name, url: res.data.url });
+            renderRowImages(row); onChange();
+          } else {
+            toast('\u26a0 ' + ((res.data && res.data.error) || ('Upload failed: ' + file.name)), 'warn');
+          }
+        }).catch(function () { toast('\u26a0 Upload failed: ' + file.name, 'warn'); });
+      });
+    }
+
+    // Append one message box (pre-filled with text + images) and wire its events
+    function addMessage(text, images, focusIt) {
       var row = document.createElement('div');
       row.className = 'gi-msg';
       row.innerHTML =                       // static skeleton only; no user content
@@ -721,13 +836,24 @@
           '<button type="button" class="gi-msg-del" title="Remove message" aria-label="Remove message">\u00d7</button>' +
         '</div>' +
         '<textarea class="gi-textarea gi-msg-body" rows="5" placeholder="Message content\u2026"></textarea>' +
+        '<div class="gi-msg-imgs"></div>' +
+        '<div class="gi-msg-imgbar">' +
+          '<button type="button" class="gi-btn gi-btn--sm gi-msg-addimg">+ Add image</button>' +
+          '<span class="gi-msg-imghint"></span>' +
+        '</div>' +
+        '<input type="file" class="gi-msg-file" accept="image/png,image/jpeg,image/gif,image/webp" multiple style="display:none" />' +
         '<div class="gi-msg-count"></div>';
       msgsEl.appendChild(row);
       var ta = row.querySelector('.gi-msg-body');
       ta.value = text == null ? '' : String(text);          // .value, never innerHTML
       ta.addEventListener('input', onChange);
+      row._giImages = (images || []).slice();
+      renderRowImages(row);
+      var fileInput = row.querySelector('.gi-msg-file');
+      row.querySelector('.gi-msg-addimg').addEventListener('click', function () { fileInput.click(); });
+      fileInput.addEventListener('change', function () { uploadRowFiles(row, fileInput.files); fileInput.value = ''; });
       row.querySelector('.gi-msg-del').addEventListener('click', function () {
-        if (msgsEl.children.length <= 1) ta.value = '';     // keep at least one box
+        if (msgsEl.children.length <= 1) { ta.value = ''; row._giImages = []; renderRowImages(row); }   // keep at least one box
         else msgsEl.removeChild(row);
         onChange();
       });
@@ -742,7 +868,7 @@
         var ta = row.querySelector('.gi-msg-body');
         var len = ta.value.length;
         total += len;
-        if (ta.value.trim() !== '') count++;
+        if (ta.value.trim() !== '' || (row._giImages || []).length) count++;
         if (len > _MAX_BODY) over = true;
         var n = row.querySelector('.gi-msg-n');
         if (n) n.textContent = 'Message ' + (i + 1);
@@ -764,39 +890,47 @@
       recomputeSubmit();
     }
 
-    // Rebuild the boxes from a segments array and set the edit baseline
-    function loadSegments(segs) {
+    // Rebuild the boxes from segments + parallel attachments; set the edit baseline
+    function loadSegments(segs, atts) {
       msgsEl.innerHTML = '';
-      var clean = (segs || []).filter(function (s) { return String(s).trim() !== ''; });
-      (clean.length ? clean : ['']).forEach(function (s) { addMessage(s, false); });
-      origSegments = clean.slice();
+      atts = atts || [];
+      var rows = (segs || []).map(function (s, i) {
+        return { text: String(s == null ? '' : s), images: Array.isArray(atts[i]) ? atts[i].slice() : [] };
+      });
+      var clean = rows.filter(function (r) { return r.text.trim() !== '' || r.images.length; });
+      (clean.length ? clean : [{ text: '', images: [] }]).forEach(function (r) { addMessage(r.text, r.images, false); });
+      origSegments = clean.map(function (r) { return r.text; });
+      origAttachments = clean.map(function (r) { return _imgSig(r.images); });
       onChange();
     }
 
     // The submit button is shown only when there is something worth saving
     function _hasSubmittable() {
       var t = titleEl.value.trim();
-      var segs = cleanSegments();
-      if (!t || !segs.length) return false;
+      var rows = cleanRows();
+      if (!t || !rows.length) return false;
       if (!isEdit) return true;
       if (t !== String(origTitle).trim()) return true;
-      return JSON.stringify(segs) !== JSON.stringify(origSegments);
+      var segs = rows.map(function (r) { return r.text; });
+      if (JSON.stringify(segs) !== JSON.stringify(origSegments)) return true;
+      var sigs = rows.map(function (r) { return _imgSig(r.images); });
+      return JSON.stringify(sigs) !== JSON.stringify(origAttachments);
     }
     function recomputeSubmit() { if (submitBtn) submitBtn.style.display = _hasSubmittable() ? '' : 'none'; }
 
     titleEl.addEventListener('input', recomputeSubmit);
-    if (addBtn) addBtn.addEventListener('click', function () { addMessage('', true); onChange(); });
+    if (addBtn) addBtn.addEventListener('click', function () { addMessage('', [], true); onChange(); });
 
     submitBtn.addEventListener('click', function () {
-      submitPost(isEdit ? post.id : null, titleEl.value, cleanSegments(), this, isEdit,
-                 { title: origTitle, segments: origSegments });
+      submitPost(isEdit ? post.id : null, titleEl.value, cleanRows(), this, isEdit,
+                 { title: origTitle, segments: origSegments, attachments: origAttachments });
     });
 
     if (isEdit && cached) {                 // populate instantly from cache (no fetch)
       titleEl.value = cached.title || post.title || '';
       origTitle = titleEl.value;
       loadSegments(cached.segments && cached.segments.length ? cached.segments
-                   : (cached.body ? [cached.body] : []));
+                   : (cached.body ? [cached.body] : []), cached.attachments);
       titleEl.focus();
     } else if (isEdit) {                    // first time: fetch the body, then cache it
       apiGet('/api/admin/guild-info/posts/' + encodeURIComponent(post.id)).then(function (res) {
@@ -807,11 +941,11 @@
           titleEl.value = res.data.title || post.title || '';
           origTitle = titleEl.value;
           loadSegments(res.data.segments && res.data.segments.length ? res.data.segments
-                       : (res.data.body ? [res.data.body] : []));
+                       : (res.data.body ? [res.data.body] : []), res.data.attachments);
         } else {
           titleEl.value = post.title || '';
           origTitle = titleEl.value;
-          loadSegments([]);
+          loadSegments([], []);
           toast('\u26a0 Could not load the current body; editing from blank.', 'warn');
         }
         titleEl.focus();
@@ -820,29 +954,46 @@
         var form = document.getElementById('giForm'); if (form) form.style.display = '';
       });
     } else {                                // brand-new post: start with one empty message
-      loadSegments([]);
+      loadSegments([], []);
       titleEl.focus();
     }
   }
 
-  function submitPost(threadId, title, segments, btn, isEdit, orig) {
+  function submitPost(threadId, title, rows, btn, isEdit, orig) {
     title = (title || '').trim();
     if (!title) { toast('\u26a0 Title is required.', 'warn'); return; }
-    segments = (segments || []).filter(function (s) { return String(s).trim() !== ''; });
-    if (!segments.length) { toast('\u26a0 Body is required.', 'warn'); return; }
+    rows = (rows || []).filter(function (r) { return r.text.trim() !== '' || (r.images && r.images.length); });
+    if (!rows.length) { toast('\u26a0 Body is required.', 'warn'); return; }
+    var segments = rows.map(function (r) { return r.text; });
+    // Existing attachments are kept by Discord id; new uploads carry their staged file
+    var attachments = rows.map(function (r) {
+      return (r.images || []).map(function (im) {
+        return im.id != null
+          ? { id: im.id, name: im.name, url: im.url }
+          : { file: im.file, name: im.name, url: im.url };
+      });
+    });
+    var sigs = rows.map(function (r) {
+      return (r.images || []).map(function (im) {
+        return im.id != null ? 'id:' + im.id : (im.file != null ? 'file:' + im.file : 'url:' + (im.url || ''));
+      });
+    });
     // For edits, only send the fields that actually changed so we never queue a no-op request
     var payload;
     if (isEdit) {
       var o = orig || {};
       payload = {};
       if (title !== String(o.title == null ? '' : o.title).trim()) payload.title = title;
-      if (JSON.stringify(segments) !== JSON.stringify(o.segments || [])) payload.segments = segments;
+      var segChanged = JSON.stringify(segments) !== JSON.stringify(o.segments || []);
+      var attChanged = JSON.stringify(sigs) !== JSON.stringify(o.attachments || []);
+      // Body and attachments travel together so the server can make them authoritative
+      if (segChanged || attChanged) { payload.segments = segments; payload.attachments = attachments; }
       if (!('title' in payload) && !('segments' in payload)) {
         toast('\u2139 No changes to save.', 'info');
         return;
       }
     } else {
-      payload = { title: title, segments: segments };
+      payload = { title: title, segments: segments, attachments: attachments };
     }
     var origLabel = btn.textContent;
     btn.disabled = true; btn.textContent = 'Working\u2026';
@@ -857,15 +1008,8 @@
         } else {
           toast('\u2713 Post ' + (isEdit ? 'updated' : 'created') + '.', 'success');
           if (res.data.warning) toast('\u26a0 ' + res.data.warning, 'warn');
-          // Refresh the body cache with exactly the segments we just saved
           var savedId = isEdit ? String(threadId) : (res.data.id != null ? String(res.data.id) : null);
-          if (savedId != null) {
-            var prev = _postCache[savedId];
-            _postCache[savedId] = {
-              id: savedId, title: title, body: segments.join(''), segments: segments,
-              archived: prev ? prev.archived : false, at: 0,
-            };
-          }
+          if (savedId != null) delete _postCache[savedId];
         }
         closeModal();
         _posts = null; _logs = null;           // list + logs may have changed
@@ -967,9 +1111,11 @@
       out += '<div class="gi-q-row"><span class="gi-q-k">Before</span></div>' +
              '<div class="gi-q-body gi-q-old" data-obody></div>' +
              '<div class="gi-q-row"><span class="gi-q-k">After</span></div>' +
-             '<div class="gi-q-body" data-body></div>';
+             '<div class="gi-q-body" data-body></div>' +
+             '<div class="gi-q-imgs" data-qimgs></div>';
     } else if (r.action === 'create' || r.action === 'edit_body') {
-      out += '<div class="gi-q-body" data-body></div>';
+      out += '<div class="gi-q-body" data-body></div>' +
+             '<div class="gi-q-imgs" data-qimgs></div>';
     }
     return out;
   }
@@ -1106,6 +1252,14 @@
         if (bEl) bEl.textContent = r.body || '';
         if (obEl) obEl.textContent = r.prev_body || '';
       }
+      // Flattened image attachments preview what the request will post
+      var imgsEl = card.querySelector('[data-qimgs]');
+      if (imgsEl) {
+        var flat = [];
+        (r.attachments || []).forEach(function (m) { (m || []).forEach(function (im) { if (im) flat.push(im); }); });
+        var strip = _buildImageStrip(flat);
+        if (strip) imgsEl.appendChild(strip);
+      }
     });
     // privilege requests: requester name via textContent (never innerHTML)
     var privCards = c.querySelectorAll('.gi-q-card[data-qkind="privilege"]');
@@ -1192,11 +1346,18 @@
     var hasTitle = (req.action === 'create' || req.action === 'edit_title');
     var hasBody  = (req.action === 'create' || req.action === 'edit_body');
     var isDelete = req.action === 'delete';
+    // Flatten the request's per-message images for a read-only preview
+    var attImgs = [];
+    (req.attachments || []).forEach(function (m) { (m || []).forEach(function (im) { if (im) attImgs.push(im); }); });
+    var attCount = attImgs.length;
     showModal(
       '<div class="gi-modal-title">Approve: ' + esc(_actionLabel(req.action)) + '</div>' +
       '<div class="gi-modal-sub" id="giApWho"></div>' +
       (hasTitle ? '<label class="gi-label">Title</label><input type="text" class="gi-input" id="giApTitle" maxlength="' + _MAX_TITLE + '" />' : '') +
       (hasBody  ? '<label class="gi-label">Body</label><textarea class="gi-textarea" id="giApBody" rows="10"></textarea><div class="gi-split-hint" id="giApHint"></div>' : '') +
+      (attCount ? '<label class="gi-label">Images <span class="gi-label-sub">\u2014 ' + attCount + ' attached</span></label>' +
+                  '<div id="giApImgs"></div>' +
+                  '<div class="gi-ap-imgwarn">Editing the body may change how it splits into messages and can unlink or misalign these images. Approve without editing the body to keep them as submitted.</div>' : '') +
       (isDelete ? '<div class="gi-modal-text">Approving will permanently delete this post.</div>' : '') +
       '<div class="gi-modal-actions">' +
         '<button class="gi-btn" data-close>Cancel</button>' +
@@ -1218,6 +1379,10 @@
       };
       bodyEl.addEventListener('input', uh); uh();
     }
+    if (attCount) {
+      var imgHost = document.getElementById('giApImgs');
+      if (imgHost) { var strip = _buildImageStrip(attImgs); if (strip) imgHost.appendChild(strip); }
+    }
     document.getElementById('giApConfirm').addEventListener('click', function () {
       var b = this; b.disabled = true; b.textContent = 'Approving\u2026';
       var payload = {};
@@ -1227,8 +1392,11 @@
         payload.title = t;
       }
       if (hasBody && bodyEl) {
-        if (!bodyEl.value.trim()) { toast('\u26a0 Body cannot be empty.', 'warn'); b.disabled = false; b.textContent = 'Approve'; return; }
-        payload.body = bodyEl.value;
+        var newBody = bodyEl.value;
+        // An empty body is allowed only when the post keeps image attachments
+        if (!newBody.trim() && !attCount) { toast('\u26a0 Body cannot be empty.', 'warn'); b.disabled = false; b.textContent = 'Approve'; return; }
+        // Send the body only when it actually changed
+        if (newBody !== (req.body || '')) payload.body = newBody;
       }
       apiPost('/api/admin/guild-info/queue/' + encodeURIComponent(req.id) + '/approve', payload).then(function (res) {
         if (res.ok && res.data.ok) {

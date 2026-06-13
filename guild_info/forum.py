@@ -18,6 +18,9 @@ These helpers talk to Discord with the bot token and return plain dicts (an
 ``error`` key signals failure). No Flask here.
 """
 
+import json
+import mimetypes
+import os
 import re
 import threading
 import time
@@ -31,6 +34,10 @@ _TIMEOUT = 15
 # Discord limits: forum thread name <= 100 chars, message content <= 2000 chars
 _MAX_TITLE = 100
 _MAX_BODY = 2000
+
+_STAGE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "images", "guild-info"
+)
 
 _bot_id_lock = threading.Lock()
 _bot_id_cache: dict = {"id": None}
@@ -49,6 +56,10 @@ _MEMBER_TTL = 600  # seconds
 
 def _headers() -> dict:
     return {"Authorization": f"Bot {DISCORD_TOKEN}", "Content-Type": "application/json"}
+
+def _auth_headers() -> dict:
+    """Authorization only - for multipart calls where `requests` sets the type."""
+    return {"Authorization": f"Bot {DISCORD_TOKEN}"}
 
 def _err(resp, fallback: str) -> dict:
     """Build an error dict from a failed Discord response."""
@@ -244,17 +255,130 @@ def normalize_segments(body) -> list:
 def _body_is_empty(segments: list) -> bool:
     return not any((s or "").strip() for s in segments)
 
-def _post_message(thread_id: str, content: str):
+def _atts_empty(seg_atts) -> bool:
+    return not any(isinstance(a, (list, tuple)) and len(a) for a in (seg_atts or []))
+
+def _normalize_with_attachments(body, attachments):
+    """Like :func:`normalize_segments` but keeps a per-message attachment list
+    aligned 1:1 with the returned segments.
+
+    *attachments* is a list parallel to the provided body segments. When a
+    provided segment is auto-split, its images ride on the last resulting piece.
+    Empty text segments are dropped unless they carry images (Discord allows an
+    attachment-only message). Always returns at least one segment.
+    """
+    parts = list(body) if isinstance(body, (list, tuple)) else [body]
+    atts = list(attachments) if isinstance(attachments, (list, tuple)) else []
+    out_segs: list = []
+    out_atts: list = []
+    for i, part in enumerate(parts):
+        pieces = split_body("" if part is None else str(part))
+        part_att = atts[i] if i < len(atts) else None
+        for j, piece in enumerate(pieces):
+            out_segs.append(piece)
+            out_atts.append(part_att if j == len(pieces) - 1 else None)
+    segs: list = []
+    seg_atts: list = []
+    for s, a in zip(out_segs, out_atts):
+        if s != "" or (isinstance(a, (list, tuple)) and len(a)):
+            segs.append(s)
+            seg_atts.append(a)
+    if not segs:
+        return [""], [None]
+    return segs, seg_atts
+
+def _guess_ct(name: str) -> str:
+    return mimetypes.guess_type(name or "")[0] or "application/octet-stream"
+
+def _read_staged(name):
+    """Return ``(safe_name, bytes)`` for a staged upload, or ``None`` if missing."""
+    raw = "" if name is None else str(name)
+    safe = os.path.basename(raw)
+    if not safe or safe != raw:
+        return None
+    path = os.path.join(_STAGE_DIR, safe)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "rb") as fh:
+            return safe, fh.read()
+    except OSError:
+        return None
+
+def _delete_staged(name) -> None:
+    """Best-effort removal of a staged upload once it's been sent to Discord."""
+    try:
+        safe = os.path.basename("" if name is None else str(name))
+        if safe:
+            path = os.path.join(_STAGE_DIR, safe)
+            if os.path.isfile(path):
+                os.unlink(path)
+    except OSError:
+        pass
+
+def _build_message_files(images):
+    """Build the Discord attachment payload for one message.
+
+    *images* is a list whose items are either ``{"id": <discord_id>}`` (keep an
+    existing attachment) or ``{"file": <staged>, "name": ...}`` (a freshly
+    uploaded image to send). Returns ``(attachments_meta, files, staged_names)``;
+    *files* feeds ``requests(..., files=...)`` and *staged_names* are consumed
+    staged files to delete on success.
+    """
+    meta: list = []
+    files: list = []
+    staged: list = []
+    idx = 0
+    for img in (images or []):
+        if not isinstance(img, dict):
+            continue
+        if img.get("id"):                       # keep an existing Discord attachment
+            meta.append({"id": str(img["id"])})
+            continue
+        rd = _read_staged(img.get("file"))
+        if not rd:
+            continue
+        fname, data = rd
+        display = img.get("name") or fname
+        meta.append({"id": idx, "filename": display})
+        files.append((f"files[{idx}]", (display, data, _guess_ct(display))))
+        staged.append(img.get("file"))
+        idx += 1
+    return meta, files, staged
+
+def _post_message(thread_id: str, content: str, images=None):
+    """POST a follow-up message. Returns ``(response, staged_names)``."""
+    meta, files, staged = _build_message_files(images)
+    if files or meta:
+        payload = {"content": content, "attachments": meta}
+        return requests.post(
+            f"{DISCORD_API}/channels/{thread_id}/messages",
+            data={"payload_json": json.dumps(payload)}, files=files or None,
+            headers=_auth_headers(), timeout=_TIMEOUT,
+        ), staged
     return requests.post(
         f"{DISCORD_API}/channels/{thread_id}/messages",
         json={"content": content}, headers=_headers(), timeout=_TIMEOUT,
-    )
+    ), staged
 
-def _edit_message(thread_id: str, message_id: str, content: str):
+def _edit_message(thread_id: str, message_id: str, content: str, images=None):
+    """PATCH a message. When *images* is not ``None`` its attachments become
+    authoritative (kept ids stay, others are removed, new files added); when it
+    is ``None`` existing attachments are left untouched. Returns
+    ``(response, staged_names)``.
+    """
+    if images is None:
+        return requests.patch(
+            f"{DISCORD_API}/channels/{thread_id}/messages/{message_id}",
+            json={"content": content}, headers=_headers(), timeout=_TIMEOUT,
+        ), []
+    meta, files, staged = _build_message_files(images)
+    payload = {"content": content, "attachments": meta}
     return requests.patch(
         f"{DISCORD_API}/channels/{thread_id}/messages/{message_id}",
-        json={"content": content}, headers=_headers(), timeout=_TIMEOUT,
-    )
+        data={"payload_json": json.dumps(payload)}, files=files or None,
+        headers=_auth_headers(), timeout=_TIMEOUT,
+    ), staged
 
 def _delete_message(thread_id: str, message_id: str):
     return requests.delete(
@@ -364,6 +488,21 @@ def list_posts(include_archived: bool = True) -> dict:
     posts = sorted(seen.values(), key=lambda p: (p.get("title") or "").casefold())
     return {"posts": posts}
 
+def _public_attachments(atts) -> list:
+    """Shape Discord attachment dicts for the client (id, name, url, type, size)."""
+    out = []
+    for a in (atts or []):
+        if not isinstance(a, dict):
+            continue
+        out.append({
+            "id": str(a.get("id")),
+            "name": a.get("filename") or "",
+            "url": a.get("url") or "",
+            "content_type": a.get("content_type") or "",
+            "size": a.get("size"),
+        })
+    return out
+
 def get_post(thread_id: str) -> dict:
     """Fetch a single post's title + body (as segments and joined text)."""
     if not DISCORD_TOKEN:
@@ -381,6 +520,7 @@ def get_post(thread_id: str) -> dict:
 
     body_msgs = _list_body_messages(thread_id) or []
     segments = [m.get("content") or "" for m in body_msgs]
+    attachments = [_public_attachments(m.get("attachments") or []) for m in body_msgs]
     message_ids = [str(m.get("id")) for m in body_msgs]
     meta = t.get("thread_metadata") or {}
     body_text = "".join(segments)
@@ -389,6 +529,7 @@ def get_post(thread_id: str) -> dict:
         "id": str(t.get("id")),
         "title": t.get("name") or "",
         "segments": segments,
+        "attachments": attachments,
         "body": body_text,
         "message_ids": message_ids,
         "archived": bool(meta.get("archived")),
@@ -398,60 +539,83 @@ def get_post(thread_id: str) -> dict:
         "channels": maps["channels"],
     }
 
-def create_post(title: str, body) -> dict:
-    """Create a forum post: root message + follow-up messages for extra segments."""
+def create_post(title: str, body, attachments=None) -> dict:
+    """Create a forum post: root message + follow-up messages for extra segments.
+
+    Each segment may carry images (parallel *attachments* list); they are sent
+    as native Discord attachments on their message.
+    """
     if not DISCORD_TOKEN:
         return {"error": "Discord bot token is not configured"}
     title = (title or "").strip()
     if not title:
         return {"error": "Title is required"}
-    segments = normalize_segments(body)
-    if _body_is_empty(segments):
+    segments, seg_atts = _normalize_with_attachments(body, attachments)
+    if _body_is_empty(segments) and _atts_empty(seg_atts):
         return {"error": "Body is required"}
 
+    staged_all: list = []
     try:
-        r = requests.post(
-            f"{DISCORD_API}/channels/{_GUILD_INFO_FORUM_CHANNEL_ID}/threads",
-            json={"name": title[:_MAX_TITLE], "message": {"content": segments[0]}},
-            headers=_headers(), timeout=_TIMEOUT,
-        )
+        root_meta, root_files, root_staged = _build_message_files(seg_atts[0])
+        if root_files or root_meta:
+            payload = {"name": title[:_MAX_TITLE],
+                       "message": {"content": segments[0], "attachments": root_meta}}
+            r = requests.post(
+                f"{DISCORD_API}/channels/{_GUILD_INFO_FORUM_CHANNEL_ID}/threads",
+                data={"payload_json": json.dumps(payload)}, files=root_files or None,
+                headers=_auth_headers(), timeout=_TIMEOUT,
+            )
+        else:
+            r = requests.post(
+                f"{DISCORD_API}/channels/{_GUILD_INFO_FORUM_CHANNEL_ID}/threads",
+                json={"name": title[:_MAX_TITLE], "message": {"content": segments[0]}},
+                headers=_headers(), timeout=_TIMEOUT,
+            )
         if not r.ok:
             return _err(r, "Failed to create post")
         data = r.json()
     except requests.RequestException as exc:
         return {"error": str(exc)}
+    staged_all.extend(root_staged)
 
     thread_id = str(data.get("id"))
     root_id = str((data.get("message") or {}).get("id") or thread_id)
     message_ids = [root_id]
     failed = 0
-    for seg in segments[1:]:
+    for i in range(1, len(segments)):
         try:
-            mr = _post_message(thread_id, seg)
+            mr, staged = _post_message(thread_id, segments[i], seg_atts[i])
             if mr.ok:
                 message_ids.append(str(mr.json().get("id")))
+                staged_all.extend(staged)
             else:
                 failed += 1
         except requests.RequestException:
             failed += 1
 
+    if not failed:
+        for s in staged_all:
+            _delete_staged(s)
     result = {"id": thread_id, "title": data.get("name") or title,
               "message_ids": message_ids, "segment_count": len(segments)}
     if failed:
         result["warning"] = f"Post created but {failed} follow-up message(s) failed"
     return result
 
-def edit_body(thread_id: str, body) -> dict:
+def edit_body(thread_id: str, body, attachments=None) -> dict:
     """Replace a post's body, reconciling existing messages with new segments.
 
     Edits existing bot messages in place, creates follow-ups for extra segments,
-    and deletes leftover follow-up messages (never the root). Only works for
-    bot-authored posts.
+    and deletes leftover follow-up messages (never the root). When *attachments*
+    is provided (parallel to the body segments) each message's attachments are
+    made authoritative; otherwise existing attachments are left untouched. Only
+    works for bot-authored posts.
     """
     if not DISCORD_TOKEN:
         return {"error": "Discord bot token is not configured"}
-    segments = normalize_segments(body)
-    if _body_is_empty(segments):
+    manage = attachments is not None
+    segments, seg_atts = _normalize_with_attachments(body, attachments)
+    if _body_is_empty(segments) and _atts_empty(seg_atts):
         return {"error": "Body is required"}
 
     existing = _list_body_messages(thread_id)
@@ -462,21 +626,26 @@ def edit_body(thread_id: str, body) -> dict:
         existing = [{"id": str(thread_id)}]
 
     message_ids: list = []
+    staged_all: list = []
     failed = 0
     try:
         for i, seg in enumerate(segments):
+            imgs = seg_atts[i] if manage else None
             if i < len(existing):
                 mid = str(existing[i]["id"])
-                er = _edit_message(thread_id, mid, seg)
+                er, staged = _edit_message(thread_id, mid, seg, imgs)
                 if i == 0 and not er.ok:
                     return _err(er, "Failed to edit post body")
                 if not er.ok:
                     failed += 1
+                else:
+                    staged_all.extend(staged)
                 message_ids.append(mid)
             else:
-                mr = _post_message(thread_id, seg)
+                mr, staged = _post_message(thread_id, seg, imgs)
                 if mr.ok:
                     message_ids.append(str(mr.json().get("id")))
+                    staged_all.extend(staged)
                 else:
                     failed += 1
         # Delete any leftover follow-up messages (index 0 / root is always kept)
@@ -488,6 +657,9 @@ def edit_body(thread_id: str, body) -> dict:
     except requests.RequestException as exc:
         return {"error": str(exc)}
 
+    if not failed:
+        for s in staged_all:
+            _delete_staged(s)
     result = {"id": str(thread_id), "message_ids": message_ids,
               "segment_count": len(segments)}
     if failed:

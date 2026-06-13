@@ -5,9 +5,26 @@ from guild_info import db, forum
 # segment choices through the queue without ambiguity (a real body could itself
 # look like JSON), segmented bodies are stored with this NUL-prefixed sentinel.
 _SEG_SENTINEL = "\u0000seg\u0000"
+# When a request also carries per-message image attachments, the body is stored
+# as a JSON object {"segments": [...], "attachments": [...]} behind this second
+# sentinel so segments and their images replay together at approval time.
+_SEGX_SENTINEL = "\u0000segx\u0000"
 
-def _encode_body(body) -> str | None:
-    """Serialize a body (str or list of segments) for the requests table."""
+def _encode_body(body, attachments=None) -> str | None:
+    """Serialize a body (str or list of segments) for the requests table.
+
+    When *attachments* is provided (a list parallel to the body segments) the
+    body and attachments are stored together so they survive the queue intact.
+    """
+    if attachments is not None:
+        if isinstance(body, (list, tuple)):
+            segs = list(body)
+        elif body is None:
+            segs = []
+        else:
+            segs = [body]
+        payload = {"segments": segs, "attachments": list(attachments)}
+        return _SEGX_SENTINEL + json.dumps(payload, ensure_ascii=False)
     if body is None:
         return None
     if isinstance(body, (list, tuple)):
@@ -15,9 +32,18 @@ def _encode_body(body) -> str | None:
     return str(body)
 
 def _decode_body(stored):
-    """Inverse of :func:`_encode_body`. Returns a list (segments) or a string."""
+    """Inverse of :func:`_encode_body`.
+
+    Returns ``None``, a ``{"segments", "attachments"}`` dict (segx blob), a list
+    of segments (seg blob), or a plain string.
+    """
     if stored is None:
         return None
+    if isinstance(stored, str) and stored.startswith(_SEGX_SENTINEL):
+        try:
+            return json.loads(stored[len(_SEGX_SENTINEL):])
+        except ValueError:
+            return stored[len(_SEGX_SENTINEL):]
     if isinstance(stored, str) and stored.startswith(_SEG_SENTINEL):
         try:
             return json.loads(stored[len(_SEG_SENTINEL):])
@@ -25,15 +51,48 @@ def _decode_body(stored):
             return stored[len(_SEG_SENTINEL):]
     return stored
 
-def _body_view(stored) -> dict:
-    """Decode a stored body into display fields: ``segments`` + joined ``body``."""
+def _unpack_body(stored):
+    """Decode a stored body into ``(body, attachments)`` for the forum helpers.
+
+    *body* is a segments list or string; *attachments* is the parallel
+    per-message image list, or ``None`` when the request stored no images.
+    """
     decoded = _decode_body(stored)
+    if isinstance(decoded, dict):
+        return decoded.get("segments"), decoded.get("attachments")
+    return decoded, None
+
+def _staged_files(stored) -> list:
+    """Collect staged (not-yet-sent) upload filenames referenced by a request."""
+    _, attachments = _unpack_body(stored)
+    out: list = []
+    for msg_imgs in (attachments or []):
+        for img in (msg_imgs or []):
+            if isinstance(img, dict) and img.get("file"):
+                out.append(img["file"])
+    return out
+
+def _body_view(stored) -> dict:
+    """Decode a stored body into display fields: ``segments`` + joined ``body``.
+
+    Includes ``attachments`` (parallel to ``segments``) when the request carried
+    per-message images.
+    """
+    decoded = _decode_body(stored)
+    attachments = None
+    if isinstance(decoded, dict):
+        attachments = decoded.get("attachments")
+        decoded = decoded.get("segments")
     if decoded is None:
-        return {"segments": [], "body": ""}
-    if isinstance(decoded, (list, tuple)):
+        view = {"segments": [], "body": ""}
+    elif isinstance(decoded, (list, tuple)):
         segs = [("" if s is None else str(s)) for s in decoded]
-        return {"segments": segs, "body": "".join(segs)}
-    return {"segments": [decoded], "body": decoded}
+        view = {"segments": segs, "body": "".join(segs)}
+    else:
+        view = {"segments": [decoded], "body": decoded}
+    if attachments is not None:
+        view["attachments"] = attachments
+    return view
 
 def list_posts() -> dict:
     """List posts, flagging any that have a pending request (edit-locked)."""
@@ -69,12 +128,16 @@ def _cancel_thread_requests(thread_id, actor: str, exclude_id: str | None = None
                        "reason": "post deleted"})
 
 def execute_action(action: str, *, thread_id: str | None = None,
-                   title: str | None = None, body=None) -> dict:
-    """Run a single forum action. Returns the forum helper dict (may hold ``error``)."""
+                   title: str | None = None, body=None, attachments=None) -> dict:
+    """Run a single forum action. Returns the forum helper dict (may hold ``error``).
+
+    *attachments* (when not ``None``) is a per-message image list parallel to the
+    body segments; it is forwarded to the create/edit helpers.
+    """
     if action == "create":
-        return forum.create_post(title, body)
+        return forum.create_post(title, body, attachments)
     if action == "edit_body":
-        return forum.edit_body(thread_id, body)
+        return forum.edit_body(thread_id, body, attachments)
     if action == "edit_title":
         return forum.edit_title(thread_id, title)
     if action == "edit":  # combined title and/or body
@@ -83,8 +146,8 @@ def execute_action(action: str, *, thread_id: str | None = None,
             last = forum.edit_title(thread_id, title)
             if last.get("error"):
                 return last
-        if body is not None:
-            last = forum.edit_body(thread_id, body)
+        if body is not None or attachments is not None:
+            last = forum.edit_body(thread_id, body, attachments)
             if last.get("error"):
                 return last
         return last
@@ -93,9 +156,10 @@ def execute_action(action: str, *, thread_id: str | None = None,
     return {"error": f"Unknown action: {action}"}
 
 def direct_action(action: str, actor: str, *, thread_id: str | None = None,
-                  title: str | None = None, body=None) -> dict:
+                  title: str | None = None, body=None, attachments=None) -> dict:
     """Execute a forum action immediately (full-rights tier) and log it."""
-    result = execute_action(action, thread_id=thread_id, title=title, body=body)
+    result = execute_action(action, thread_id=thread_id, title=title, body=body,
+                            attachments=attachments)
     if result.get("error"):
         db.log_action(actor, "action_failed", thread_id,
                       {"action": action, "error": result["error"]})
@@ -109,12 +173,13 @@ def direct_action(action: str, actor: str, *, thread_id: str | None = None,
     return result
 
 def submit_request(action: str, *, thread_id: str | None = None,
-                   title: str | None = None, body=None,
+                   title: str | None = None, body=None, attachments=None,
                    prev_title: str | None = None, prev_body: str | None = None,
                    requester_id: str, requester_name: str | None = None) -> dict:
     """Enqueue a pending request (Parliament tier) and log the submission."""
     req = db.create_request(
-        action, thread_id=thread_id, title=title, body=_encode_body(body),
+        action, thread_id=thread_id, title=title,
+        body=_encode_body(body, attachments),
         prev_title=prev_title, prev_body=prev_body,
         requested_by_id=requester_id, requested_by_name=requester_name,
     )
@@ -131,11 +196,14 @@ def get_logs(page: int = 1, per_page: int = 50) -> dict:
     return db.get_logs(page=page, per_page=per_page)
 
 def approve_request(request_id: str, actor: str, edited_title=None,
-                    edited_body=None) -> dict:
+                    edited_body=None, edited_attachments=None) -> dict:
     """Approve a pending request, optionally editing its content first.
 
     Executes the underlying forum action; marks the request approved on success
-    or failed otherwise. Returns ``{"ok": True, ...}`` or ``{"error": ...}``.
+    or failed otherwise. When the approver leaves the body untouched
+    (``edited_body is None``), the request's stored segments *and* attachments
+    are replayed so images survive. Returns ``{"ok": True, ...}`` or
+    ``{"error": ...}``.
     """
     req = db.get_request(request_id)
     if not req:
@@ -145,10 +213,15 @@ def approve_request(request_id: str, actor: str, edited_title=None,
 
     action = req["action"]
     title = edited_title if edited_title is not None else req.get("title")
-    body = edited_body if edited_body is not None else _decode_body(req.get("body"))
+    if edited_body is not None or edited_attachments is not None:
+        body = edited_body
+        attachments = edited_attachments
+    else:
+        body, attachments = _unpack_body(req.get("body"))
     thread_id = req.get("thread_id")
 
-    result = execute_action(action, thread_id=thread_id, title=title, body=body)
+    result = execute_action(action, thread_id=thread_id, title=title, body=body,
+                            attachments=attachments)
     if result.get("error"):
         db.resolve_request(request_id, "failed", actor, deny_reason=result["error"])
         db.log_action(actor, "request_failed", request_id,
@@ -180,6 +253,9 @@ def deny_request(request_id: str, actor: str, reason: str) -> dict:
     db.resolve_request(request_id, "denied", actor, deny_reason=reason)
     db.log_action(actor, "request_denied", request_id,
                   {"action": req["action"], "reason": reason})
+    # The post was never created/edited, so any staged uploads are now orphaned
+    for f in _staged_files(req.get("body")):
+        forum._delete_staged(f)
     return {
         "ok": True,
         "request_id": request_id,
