@@ -8057,7 +8057,12 @@ def guild_info_delete_post(thread_id):
         return err
     actor = _gi_actor(user)
     if tier == "full":
-        result = _gi_admin.direct_action("delete", actor, thread_id=thread_id)
+        # Resolve the post's title first so the audit log records what was deleted
+        current = _gi_admin.get_post(thread_id)
+        result = _gi_admin.direct_action(
+            "delete", actor, thread_id=thread_id,
+            title=current.get("title") if isinstance(current, dict) else None,
+        )
         return jsonify(result), 200 if not result.get("error") else 502
     # Deletion is the one action still allowed while a change is pending
     if _gi_admin.thread_has_pending_delete(thread_id):

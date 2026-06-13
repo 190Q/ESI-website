@@ -139,26 +139,53 @@
       action_executed: 'Executed', action_failed: 'Failed',
       request_submitted: 'Submitted', request_approved: 'Approved',
       request_denied: 'Denied', request_failed: 'Failed',
+      request_cancelled: 'Cancelled',
+      privilege_requested: 'Access requested', privilege_approved: 'Access granted',
+      privilege_denied: 'Access denied',
     }[action] || (action || '');
   }
   function _logActionClass(action) {
     return {
       action_executed: ' gi-log-action--ok', request_approved: ' gi-log-action--ok',
+      privilege_approved: ' gi-log-action--ok',
       action_failed: ' gi-log-action--fail', request_failed: ' gi-log-action--fail',
-      request_denied: ' gi-log-action--deny',
+      request_denied: ' gi-log-action--deny', privilege_denied: ' gi-log-action--deny',
+      request_cancelled: ' gi-log-action--deny',
     }[action] || '';
   }
-  function _logDetail(e) {
-    if (!e || !e.details) return e && e.target_id ? ('#' + e.target_id) : '';
-    var d;
-    try { d = JSON.parse(e.details); } catch (x) { return String(e.details); }
+  // A combined "edit" with a `changed` list -> "Edit title", "Edit title & body"
+  function _logOpLabel(d) {
+    if (d.action === 'edit' && Array.isArray(d.changed) && d.changed.length) {
+      var names = { title: 'title', body: 'body', images: 'images' };
+      var p = d.changed.map(function (k) { return names[k] || k; });
+      var joined = p.length > 1 ? (p.slice(0, -1).join(', ') + ' & ' + p[p.length - 1]) : p[0];
+      return 'Edit ' + joined;
+    }
+    return _actionLabel(d.action);
+  }
+  function _logDetail(e, titleMap) {
+    if (!e) return '';
+    var d = {};
+    if (e.details) {
+      try { d = JSON.parse(e.details) || {}; } catch (x) { return String(e.details); }
+    }
     var parts = [];
-    if (d.action)    parts.push(_actionLabel(d.action));
-    if (d.title)     parts.push('"' + d.title + '"');
-    if (d.thread_id) parts.push('thread ' + d.thread_id);
-    if (d.reason)    parts.push('reason: ' + d.reason);
-    if (d.error)     parts.push('error: ' + d.error);
-    if (d.warning)   parts.push('warning: ' + d.warning);
+    if (d.action) parts.push(_logOpLabel(d));
+    // Which post: an explicit title, else resolved from the posts list by thread id
+    var tid = d.thread_id || e.target_id;
+    var title = (d.title != null && d.title !== '') ? d.title
+              : (titleMap && tid != null ? titleMap[String(tid)] : '');
+    if (title) parts.push('\u201c' + title + '\u201d');
+    if (d.messages != null && (d.action === 'create' || d.action === 'edit_body' || d.action === 'edit')) {
+      parts.push(d.messages + ' message' + (d.messages === 1 ? '' : 's'));
+    }
+    if (d.images) parts.push(d.images + ' image' + (d.images === 1 ? '' : 's'));
+    if (d.edited) parts.push('edited before approval');
+    if (!title && d.username) parts.push(d.username);
+    if (!title && !d.username && tid != null) parts.push('#' + tid);
+    if (d.reason)  parts.push('reason: ' + d.reason);
+    if (d.error)   parts.push('error: ' + d.error);
+    if (d.warning) parts.push('warning: ' + d.warning);
     return parts.join(' \u00b7 ') || (e.target_id ? ('#' + e.target_id) : '');
   }
 
@@ -1531,6 +1558,9 @@
 
   function drawLogs(c) {
     if (!_logs.length) { setHTML(c, emptyHTML('No log entries yet.')); return; }
+    // Resolve post titles by thread id so edits show which post they touched
+    var titleMap = {};
+    (_posts || []).forEach(function (p) { if (p && p.id != null) titleMap[String(p.id)] = p.title || ''; });
     var rows = _logs.map(function () {
       return '<div class="gi-log-row">' +
           '<span class="gi-log-time" data-time></span>' +
@@ -1547,7 +1577,7 @@
       var t = row.querySelector('[data-time]');   if (t) t.textContent = fmtDate(e.timestamp);
       var a = row.querySelector('[data-actor]');  if (a) a.textContent = e.actor || '';
       var ac = row.querySelector('[data-action]'); if (ac) { ac.textContent = _logActionLabel(e.action); ac.className = 'gi-log-action' + _logActionClass(e.action); }
-      var d = row.querySelector('[data-det]');    if (d) d.textContent = _logDetail(e);
+      var d = row.querySelector('[data-det]');    if (d) d.textContent = _logDetail(e, titleMap);
     });
     var moreBtn = document.getElementById('giLogsMore');
     if (moreBtn) moreBtn.addEventListener('click', function () {

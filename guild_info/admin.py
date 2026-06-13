@@ -127,6 +127,34 @@ def _cancel_thread_requests(thread_id, actor: str, exclude_id: str | None = None
                       {"action": c.get("action"), "thread_id": str(thread_id),
                        "reason": "post deleted"})
 
+def _log_details(action: str, *, thread_id=None, title=None, body=None,
+                 attachments=None) -> dict:
+    """Build a rich audit-log detail dict for a content action.
+
+    Captures which parts a combined edit touched and the message/image counts so
+    the Logs view shows what actually changed instead of a bare action name.
+    """
+    details: dict = {"action": action}
+    if thread_id:
+        details["thread_id"] = str(thread_id)
+    if title is not None and str(title) != "":
+        details["title"] = title
+    if action == "edit":
+        changed = []
+        if title is not None:
+            changed.append("title")
+        if body is not None or attachments is not None:
+            changed.append("body")
+        if changed:
+            details["changed"] = changed
+    if body is not None:
+        segs = list(body) if isinstance(body, (list, tuple)) else [body]
+        details["messages"] = len(segs)
+    if attachments is not None:
+        details["images"] = sum(len(m) for m in attachments
+                                if isinstance(m, (list, tuple)))
+    return details
+
 def execute_action(action: str, *, thread_id: str | None = None,
                    title: str | None = None, body=None, attachments=None) -> dict:
     """Run a single forum action. Returns the forum helper dict (may hold ``error``).
@@ -160,13 +188,15 @@ def direct_action(action: str, actor: str, *, thread_id: str | None = None,
     """Execute a forum action immediately (full-rights tier) and log it."""
     result = execute_action(action, thread_id=thread_id, title=title, body=body,
                             attachments=attachments)
+    details = _log_details(action, thread_id=result.get("id") or thread_id,
+                           title=title, body=body, attachments=attachments)
     if result.get("error"):
-        db.log_action(actor, "action_failed", thread_id,
-                      {"action": action, "error": result["error"]})
+        details["error"] = result["error"]
+        db.log_action(actor, "action_failed", thread_id, details)
     else:
-        db.log_action(actor, "action_executed", result.get("id") or thread_id,
-                      {"action": action, "title": title,
-                       "warning": result.get("warning")})
+        if result.get("warning"):
+            details["warning"] = result["warning"]
+        db.log_action(actor, "action_executed", result.get("id") or thread_id, details)
         # A deleted post takes its pending requests with it
         if action == "delete" and thread_id:
             _cancel_thread_requests(thread_id, actor)
@@ -183,8 +213,12 @@ def submit_request(action: str, *, thread_id: str | None = None,
         prev_title=prev_title, prev_body=prev_body,
         requested_by_id=requester_id, requested_by_name=requester_name,
     )
-    db.log_action(requester_name or requester_id, "request_submitted", req["id"],
-                  {"action": action, "thread_id": thread_id, "title": title})
+    db.log_action(
+        requester_name or requester_id, "request_submitted", req["id"],
+        _log_details(action, thread_id=thread_id,
+                     title=title if title is not None else prev_title,
+                     body=body, attachments=attachments),
+    )
     return _public_request(req)
 
 
@@ -220,20 +254,25 @@ def approve_request(request_id: str, actor: str, edited_title=None,
         body, attachments = _unpack_body(req.get("body"))
     thread_id = req.get("thread_id")
 
+    log_title = title if title is not None else req.get("prev_title")
     result = execute_action(action, thread_id=thread_id, title=title, body=body,
                             attachments=attachments)
     if result.get("error"):
         db.resolve_request(request_id, "failed", actor, deny_reason=result["error"])
-        db.log_action(actor, "request_failed", request_id,
-                      {"action": action, "error": result["error"]})
+        fail_details = _log_details(action, thread_id=thread_id, title=log_title,
+                                    body=body, attachments=attachments)
+        fail_details["error"] = result["error"]
+        db.log_action(actor, "request_failed", request_id, fail_details)
         return {"error": result["error"]}
 
     result_thread = result.get("id") or thread_id
     db.resolve_request(request_id, "approved", actor, result_thread_id=result_thread)
-    db.log_action(actor, "request_approved", request_id,
-                  {"action": action, "thread_id": result_thread,
-                   "edited": edited_title is not None or edited_body is not None,
-                   "warning": result.get("warning")})
+    ok_details = _log_details(action, thread_id=result_thread, title=log_title,
+                              body=body, attachments=attachments)
+    ok_details["edited"] = edited_title is not None or edited_body is not None
+    if result.get("warning"):
+        ok_details["warning"] = result["warning"]
+    db.log_action(actor, "request_approved", request_id, ok_details)
     # Approving a delete removes the post, so drop any other pending requests for it
     if action == "delete" and thread_id:
         _cancel_thread_requests(thread_id, actor, exclude_id=request_id)
@@ -251,8 +290,12 @@ def deny_request(request_id: str, actor: str, reason: str) -> dict:
         return {"error": "Request is not pending"}
 
     db.resolve_request(request_id, "denied", actor, deny_reason=reason)
-    db.log_action(actor, "request_denied", request_id,
-                  {"action": req["action"], "reason": reason})
+    deny_details = _log_details(
+        req["action"], thread_id=req.get("thread_id"),
+        title=req.get("title") if req.get("title") else req.get("prev_title"),
+    )
+    deny_details["reason"] = reason
+    db.log_action(actor, "request_denied", request_id, deny_details)
     # The post was never created/edited, so any staged uploads are now orphaned
     for f in _staged_files(req.get("body")):
         forum._delete_staged(f)
