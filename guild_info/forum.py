@@ -361,7 +361,7 @@ def list_posts(include_archived: bool = True) -> dict:
             continue
         seen[tid] = _thread_summary(t)
 
-    posts = sorted(seen.values(), key=lambda p: int(p["id"]), reverse=True)
+    posts = sorted(seen.values(), key=lambda p: (p.get("title") or "").casefold())
     return {"posts": posts}
 
 def get_post(thread_id: str) -> dict:
