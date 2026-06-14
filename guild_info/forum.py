@@ -185,11 +185,10 @@ def _resolve_mentions(body_msgs: list, body_text: str) -> dict:
     users: dict = {}
     for m in body_msgs:
         for u in (m.get("mentions") or []):
-            member = u.get("member") or {}
-            nm = member.get("nick") or u.get("global_name") or u.get("username")
-            if nm:
-                users[str(u.get("id"))] = nm
-    # Resolve every <@id> actually in the body
+            nick = (u.get("member") or {}).get("nick")
+            if nick:
+                users[str(u.get("id"))] = nick
+    # Resolve every remaining <@id> in the body to its server nickname
     for uid in set(re.findall(r"<@!?(\d+)>", body_text)):
         if uid not in users:
             users[uid] = _get_member_name(uid) or "unknown-user"
