@@ -34,6 +34,17 @@
   var _postCache    = {};     // thread_id -> { id, title, body, segments, archived, at }
   var _postFetchInFlight = {}; // thread_id -> Promise resolving one shared /posts/:id fetch
   var _TTL          = 120000; // stale-while-revalidate window (2 min): serve cache, refresh quietly after
+  var _POSTS_LS_KEY = 'esi_gi_posts_cache_v1';
+  var _POST_BODY_LS_KEY = 'esi_gi_post_bodies_cache_v1';
+  var _POST_LS_MAX_AGE = 24 * 60 * 60 * 1000; // keep post cache across reloads for up to 24h
+  var _POSTS_FORCE_REFRESH_FLAG = 'esi_gi_posts_force_refresh_once_v1';
+  var _POSTS_INSTANCE_LEASE_KEY = 'esi_gi_posts_instance_lease_v1';
+  var _POSTS_INSTANCE_LEASE_TTL = 45000; // another tab is considered active while its lease is fresh
+  var _POSTS_INSTANCE_HEARTBEAT_MS = 10000;
+  var _postsInstanceId = 'gi_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  var _postsLeaseHeartbeat = null;
+  var _postsBootRefetchWanted = false;
+  var _postsBootRefetchChecked = false;
   var _mdCtx        = {};     // { mentions, roles, channels } id->name maps for the open View body
   var _postsView    = (function () {  // posts layout: 'list' | 'gallery' (remembered across sessions)
     try { return localStorage.getItem('esi_gi_posts_view') === 'gallery' ? 'gallery' : 'list'; }
@@ -61,6 +72,137 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
+  function _normBodyText(s) {
+    return String(s == null ? '' : s).replace(/\r\n?/g, '\n');
+  }
+  function _safeParseJSON(raw) {
+    try { return JSON.parse(raw); } catch (e) { return null; }
+  }
+  function _persistPostsList() {
+    try {
+      if (!Array.isArray(_posts)) return;
+      localStorage.setItem(_POSTS_LS_KEY, JSON.stringify({ at: _postsAt || Date.now(), posts: _posts }));
+    } catch (e) { /* ignore cache errors */ }
+  }
+  function _clearPostsListCache() {
+    try { localStorage.removeItem(_POSTS_LS_KEY); } catch (e) { /* ignore */ }
+  }
+  function _persistPostBodies() {
+    try {
+      var ids = Object.keys(_postCache || {});
+      if (!ids.length) { localStorage.removeItem(_POST_BODY_LS_KEY); return; }
+      ids.sort(function (a, b) { return (_postCache[b].at || 0) - (_postCache[a].at || 0); });
+      ids = ids.slice(0, 80); // keep recent posts only
+      var slim = {};
+      ids.forEach(function (id) { slim[id] = _postCache[id]; });
+      localStorage.setItem(_POST_BODY_LS_KEY, JSON.stringify({ at: Date.now(), cache: slim }));
+    } catch (e) { /* ignore cache errors */ }
+  }
+  function _hydratePostCaches() {
+    var now = Date.now();
+    try {
+      var pWrap = _safeParseJSON(localStorage.getItem(_POSTS_LS_KEY));
+      if (pWrap && Array.isArray(pWrap.posts)) {
+        var pat = +pWrap.at || 0;
+        if (!pat || now - pat <= _POST_LS_MAX_AGE) {
+          _posts = pWrap.posts;
+          _postsAt = pat || now;
+        }
+      }
+    } catch (e1) { /* ignore */ }
+    try {
+      var cWrap = _safeParseJSON(localStorage.getItem(_POST_BODY_LS_KEY));
+      var src = cWrap && cWrap.cache;
+      if (src && typeof src === 'object') {
+        var out = {};
+        Object.keys(src).forEach(function (id) {
+          var it = src[id];
+          if (!it || typeof it !== 'object') return;
+          var at = +it.at || 0;
+          if (at && now - at > _POST_LS_MAX_AGE) return;
+          out[id] = it;
+        });
+        _postCache = out;
+      }
+    } catch (e2) { /* ignore */ }
+  }
+  _hydratePostCaches();
+  function _setForcedPostsRefetchIntent() {
+    try { sessionStorage.setItem(_POSTS_FORCE_REFRESH_FLAG, '1'); } catch (e) { /* ignore */ }
+  }
+  function _consumeForcedPostsRefetchIntent() {
+    try {
+      var wanted = sessionStorage.getItem(_POSTS_FORCE_REFRESH_FLAG) === '1';
+      if (wanted) sessionStorage.removeItem(_POSTS_FORCE_REFRESH_FLAG);
+      return wanted;
+    } catch (e) { return false; }
+  }
+  function _wireHardRefreshIntentCapture() {
+    window.addEventListener('keydown', function (ev) {
+      var k = String(ev && ev.key || '').toLowerCase();
+      var ctrlLike = !!(ev && (ev.ctrlKey || ev.metaKey));
+      // Keyboard hard refreshes we can reliably detect before unload
+      if (ctrlLike && (k === 'f5' || (k === 'r' && ev.shiftKey))) {
+        _setForcedPostsRefetchIntent();
+      }
+    }, true);
+  }
+  function _readPostsInstanceLease() {
+    try { return _safeParseJSON(localStorage.getItem(_POSTS_INSTANCE_LEASE_KEY)); }
+    catch (e) { return null; }
+  }
+  function _isPostsInstanceLeaseAlive(lease, now) {
+    if (!lease || typeof lease !== 'object') return false;
+    if (!lease.id) return false;
+    var at = +lease.at || 0;
+    if (!at) return false;
+    return (now - at) <= _POSTS_INSTANCE_LEASE_TTL;
+  }
+  function _writePostsInstanceLease() {
+    try {
+      localStorage.setItem(_POSTS_INSTANCE_LEASE_KEY, JSON.stringify({ id: _postsInstanceId, at: Date.now() }));
+    } catch (e) { /* ignore */ }
+  }
+  function _maintainPostsInstanceLease() {
+    var now = Date.now();
+    var lease = _readPostsInstanceLease();
+    if (!_isPostsInstanceLeaseAlive(lease, now) || String(lease.id) === _postsInstanceId) {
+      _writePostsInstanceLease();
+    }
+  }
+  function _startPostsInstanceLeaseHeartbeat() {
+    if (_postsLeaseHeartbeat) return;
+    _maintainPostsInstanceLease();
+    _postsLeaseHeartbeat = setInterval(_maintainPostsInstanceLease, _POSTS_INSTANCE_HEARTBEAT_MS);
+  }
+  function _releasePostsInstanceLease() {
+    if (_postsLeaseHeartbeat) {
+      clearInterval(_postsLeaseHeartbeat);
+      _postsLeaseHeartbeat = null;
+    }
+    try {
+      var lease = _readPostsInstanceLease();
+      if (lease && String(lease.id) === _postsInstanceId) {
+        localStorage.removeItem(_POSTS_INSTANCE_LEASE_KEY);
+      }
+    } catch (e) { /* ignore */ }
+  }
+  function _bootstrapPostsRefetchPolicy() {
+    var now = Date.now();
+    var lease = _readPostsInstanceLease();
+    var hasActivePeer = _isPostsInstanceLeaseAlive(lease, now) && String(lease.id) !== _postsInstanceId;
+    _postsBootRefetchWanted = _consumeForcedPostsRefetchIntent() || !hasActivePeer;
+    _startPostsInstanceLeaseHeartbeat();
+    window.addEventListener('beforeunload', _releasePostsInstanceLease);
+    window.addEventListener('pagehide', _releasePostsInstanceLease);
+  }
+  function _consumeBootPostsRefetch() {
+    if (_postsBootRefetchChecked) return false;
+    _postsBootRefetchChecked = true;
+    return _postsBootRefetchWanted;
+  }
+  _wireHardRefreshIntentCapture();
+  _bootstrapPostsRefetchPolicy();
   function _needsFastBodyRender(text) {
     var s = String(text == null ? '' : text);
     if (s.length < 700) return false;
@@ -148,8 +290,13 @@
   }
   function apiPost(url, body)  { return apiSend('POST', url, body); }
   function apiPatch(url, body) { return apiSend('PATCH', url, body); }
-  function apiDelete(url) {
-    return fetch(url, { method: 'DELETE', credentials: 'same-origin' }).then(_wrap);
+  function apiDelete(url, body) {
+    var opts = { method: 'DELETE', credentials: 'same-origin' };
+    if (body && typeof body === 'object') {
+      opts.headers = { 'Content-Type': 'application/json' };
+      opts.body = JSON.stringify(body);
+    }
+    return fetch(url, opts).then(_wrap);
   }
   // multipart upload (no JSON Content-Type so the browser sets the boundary)
   function apiUpload(url, formData) {
@@ -447,6 +594,7 @@
       mentions: p.mentions || null, roles: p.roles || null, channels: p.channels || null,
       archived: !!p.archived, at: Date.now(),
     };
+    _persistPostBodies();
   }
 
   function _dropPostCache(id) {
@@ -454,6 +602,7 @@
     if (!id) return;
     delete _postCache[id];
     delete _postFetchInFlight[id];
+    _persistPostBodies();
   }
 
   function _fetchPostOnce(id) {
@@ -509,12 +658,15 @@
     });
   }
 
-  function fetchPosts(cb) {
-    apiGet('/api/admin/guild-info/posts').then(function (res) {
+  function fetchPosts(cb, opts) {
+    var force = !!(opts && opts.force);
+    var url = '/api/admin/guild-info/posts' + (force ? ('?_=' + Date.now()) : '');
+    apiGet(url).then(function (res) {
       if (res.ok && res.data && !res.data.error) {
         _posts = res.data.posts || [];
         _postsError = '';
         _postsAt = Date.now();
+        _persistPostsList();
       } else if (_posts == null) {
         // Preserve any cached posts when a background refresh fails
         _postsError = (res.data && res.data.error) || 'Failed to load posts.';
@@ -524,12 +676,12 @@
   }
 
   function renderPosts(c) {
-    if (_posts != null) {                       // serve instantly from cache
+    if (_posts != null) {                       // serve instantly from memory/localStorage cache
       drawPosts(c);
-      if (Date.now() - _postsAt > _TTL) {       // refresh quietly when stale
+      if (_consumeBootPostsRefetch()) {
         fetchPosts(function () {
-          if (_activeTab === 'posts' && _postsSig !== _postsSignature()) drawPosts(c);
-        });
+          if (_activeTab === 'posts') drawPosts(c);
+        }, { force: true });
       }
       return;
     }
@@ -538,6 +690,14 @@
       if (_activeTab !== 'posts') return;
       drawPosts(c);
     });
+  }
+  function _refreshPostsNow(btn) {
+    var orig = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Refreshing\u2026'; }
+    fetchPosts(function () {
+      if (_activeTab === 'posts') drawPosts(document.getElementById('giContent'));
+      if (btn) { btn.disabled = false; btn.textContent = orig; }
+    }, { force: true });
   }
 
   function _postsSignature() {
@@ -553,6 +713,7 @@
         '<button class="gi-view-btn' + (_postsView === 'list' ? ' active' : '') + '" data-view="list" title="List view" aria-label="List view">' + _ICON_LIST + '</button>' +
         '<button class="gi-view-btn' + (_postsView === 'gallery' ? ' active' : '') + '" data-view="gallery" title="Gallery view" aria-label="Gallery view">' + _ICON_GALLERY + '</button>' +
       '</div>' +
+      '<button class="gi-btn gi-btn--sm" id="giRefreshPosts">Refresh</button>' +
       '<button class="gi-btn gi-btn--primary" id="giNewPost">+ New post</button>' +
     '</div>';
     if (_posts == null) {
@@ -567,6 +728,8 @@
     }
     var newBtn = document.getElementById('giNewPost');
     if (newBtn) newBtn.addEventListener('click', function () { openPostEditor(null); });
+    var refreshBtn = document.getElementById('giRefreshPosts');
+    if (refreshBtn) refreshBtn.addEventListener('click', function () { _refreshPostsNow(refreshBtn); });
     var toggle = document.getElementById('giViewToggle');
     if (toggle) toggle.addEventListener('click', function (e) {
       var b = e.target.closest('.gi-view-btn');
@@ -834,7 +997,7 @@
   function _mdStyle(s) {           // bold/underline/strike/spoiler (line-scoped, cheap)
     return String(s).split('\n').map(function (ln) {
       return ln
-        .replace(/\|\|([^|\n]+?)\|\|/g, '<span class=\"gi-spoiler\" role=\"button\" tabindex=\"0\">$1</span>')
+        .replace(/\|\|([^|\n]+?)\|\|/g, '<span class="gi-spoiler" role="button" tabindex="0">$1</span>')
         .replace(/\*\*\*([^*\n]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
         .replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>')
         .replace(/__([^_\n]+?)__/g, '<u>$1</u>')
@@ -1340,6 +1503,41 @@
       titleEl.focus();
     }
   }
+  function _verifyPostBeforeMutate(threadId, expectedTitle, expectedBody) {
+    var id = String(threadId == null ? '' : threadId);
+    if (!id) {
+      return Promise.resolve({ ok: false, reason: 'error', message: 'Invalid post id.' });
+    }
+    return apiGet('/api/admin/guild-info/posts/' + encodeURIComponent(id) + '?_=' + Date.now())
+      .then(function (res) {
+        if (!res.ok || !res.data || res.data.error) {
+          var st = (res.data && res.data.status) || res.status || 0;
+          if (st === 404) {
+            return { ok: false, reason: 'missing', message: 'This post no longer exists. Refresh the posts list.' };
+          }
+          return { ok: false, reason: 'error', message: (res.data && res.data.error) || 'Could not verify the latest post state.' };
+        }
+        _cachePost(res.data);
+        var curTitle = String(res.data.title == null ? '' : res.data.title);
+        var curBody = _normBodyText(res.data.body);
+        if (expectedTitle != null && String(expectedTitle) !== curTitle) {
+          return {
+            ok: false, reason: 'mismatch',
+            message: 'This post title changed since you opened it. Refresh and try again.',
+          };
+        }
+        if (expectedBody != null && _normBodyText(expectedBody) !== curBody) {
+          return {
+            ok: false, reason: 'mismatch',
+            message: 'This post body changed since you opened it. Refresh and try again.',
+          };
+        }
+        return { ok: true, current: res.data };
+      })
+      .catch(function () {
+        return { ok: false, reason: 'error', message: 'Network error while validating the latest post state.' };
+      });
+  }
 
   function submitPost(threadId, title, rows, btn, isEdit, orig) {
     title = (title || '').trim();
@@ -1362,9 +1560,13 @@
     });
     // For edits, only send the fields that actually changed so we never queue a no-op request
     var payload;
+    var expectedTitle = null;
+    var expectedBody = null;
     if (isEdit) {
       var o = orig || {};
       payload = {};
+      expectedTitle = String(o.title == null ? '' : o.title);
+      expectedBody = (o.segments || []).map(function (s) { return String(s == null ? '' : s); }).join('');
       if (title !== String(o.title == null ? '' : o.title).trim()) payload.title = title;
       var segChanged = JSON.stringify(segments) !== JSON.stringify(o.segments || []);
       var attChanged = JSON.stringify(sigs) !== JSON.stringify(o.attachments || []);
@@ -1374,15 +1576,23 @@
         toast('\u2139 No changes to save.', 'info');
         return;
       }
+      payload.expected_title = expectedTitle;
+      payload.expected_body = expectedBody;
     } else {
       payload = { title: title, segments: segments, attachments: attachments };
     }
     var origLabel = btn.textContent;
     btn.disabled = true; btn.textContent = 'Working\u2026';
-    var req = isEdit
-      ? apiPatch('/api/admin/guild-info/posts/' + encodeURIComponent(threadId), payload)
-      : apiPost('/api/admin/guild-info/posts', payload);
-    req.then(function (res) {
+    function refreshPostsAfterConflict() {
+      _posts = null;
+      _clearPostsListCache();
+      if (_activeTab === 'posts') renderPosts(document.getElementById('giContent'));
+    }
+    function runSubmit() {
+      var req = isEdit
+        ? apiPatch('/api/admin/guild-info/posts/' + encodeURIComponent(threadId), payload)
+        : apiPost('/api/admin/guild-info/posts', payload);
+      req.then(function (res) {
       if (res.ok && (res.data.ok || res.data.id)) {
         if (res.data.queued) {
           // Queued for approval: the post is unchanged for now, so leave the list as-is
@@ -1411,17 +1621,16 @@
               var x = (a.title || '').toLowerCase(), y = (b.title || '').toLowerCase();
               return x < y ? -1 : (x > y ? 1 : 0);
             });
+            _persistPostsList();
           }
           _logs = null;                        // a log entry was created
           closeModal();
           if (_activeTab === 'posts' && Array.isArray(_posts)) drawPosts(document.getElementById('giContent'));
         }
       } else if (res.status === 409) {
-        // Someone already has a change pending: reflect the lock in the list
-        toast('\u26a0 ' + (res.data.error || 'A change is already pending.'), 'warn');
+        toast('\u26a0 ' + (res.data.error || 'This post changed since you opened it. Refresh and try again.'), 'warn');
         closeModal();
-        _posts = null;
-        if (_activeTab === 'posts') renderPosts(document.getElementById('giContent'));
+        refreshPostsAfterConflict();
       } else {
         toast('\u26a0 ' + (res.data.error || 'Failed.'), 'warn');
         btn.disabled = false; btn.textContent = origLabel;
@@ -1430,10 +1639,30 @@
       toast('\u26a0 Network error.', 'warn');
       btn.disabled = false; btn.textContent = origLabel;
     });
+    }
+    if (!isEdit) { runSubmit(); return; }
+    _verifyPostBeforeMutate(threadId, expectedTitle, expectedBody).then(function (check) {
+      if (check.ok) { runSubmit(); return; }
+      toast('\u26a0 ' + (check.message || 'Could not validate current post state.'), 'warn');
+      if (check.reason === 'missing' || check.reason === 'mismatch') {
+        closeModal();
+        refreshPostsAfterConflict();
+        return;
+      }
+      btn.disabled = false; btn.textContent = origLabel;
+    });
   }
 
   function confirmDeletePost(post) {
     var isParliament = _state && _state.tier === 'parliament';
+    var cached = _postCache[String(post.id)] || null;
+    var expectedTitle = (post && post.title != null) ? String(post.title)
+      : (cached && cached.title != null ? String(cached.title) : null);
+    var expectedBody = null;
+    if (cached) {
+      expectedBody = (cached.body != null) ? String(cached.body)
+        : ((cached.segments || []).map(function (s) { return String(s == null ? '' : s); }).join(''));
+    }
     showModal(
       '<div class="gi-modal-title">Delete post</div>' +
       '<div class="gi-modal-text">' + (isParliament
@@ -1450,21 +1679,44 @@
     document.getElementById('giDelConfirm').addEventListener('click', function () {
       var b = this, orig = b.textContent;
       b.disabled = true; b.textContent = 'Working\u2026';
-      apiDelete('/api/admin/guild-info/posts/' + encodeURIComponent(post.id)).then(function (res) {
+      _verifyPostBeforeMutate(post.id, expectedTitle, expectedBody).then(function (check) {
+        if (!check.ok) {
+          toast('\u26a0 ' + (check.message || 'Could not validate current post state.'), 'warn');
+          if (check.reason === 'missing' || check.reason === 'mismatch') {
+            closeModal();
+            _posts = null;
+            _clearPostsListCache();
+            if (_activeTab === 'posts') renderPosts(document.getElementById('giContent'));
+            return;
+          }
+          b.disabled = false; b.textContent = orig;
+          return;
+        }
+        var delPayload = {};
+        if (expectedTitle != null) delPayload.expected_title = expectedTitle;
+        if (expectedBody != null) delPayload.expected_body = expectedBody;
+        apiDelete('/api/admin/guild-info/posts/' + encodeURIComponent(post.id), delPayload).then(function (res) {
         if (res.ok && (res.data.ok || res.data.id)) {
           toast(isParliament ? '\u2713 Delete request submitted.' : '\u2713 Post deleted.', 'success');
           closeModal();
           if (!isParliament) _dropPostCache(String(post.id));   // really gone
           // A delete shifts the queue
-          _posts = null; _logs = null; _queue = null;
+          _posts = null; _logs = null; _queue = null; _clearPostsListCache();
           if (_state && _state.can_approve) fetchQueue(function () { _updateNavBadge(); _updateQueueTabBadge(); });
           else _updateNavBadge();
+          if (_activeTab === 'posts') renderPosts(document.getElementById('giContent'));
+        } else if (res.status === 409) {
+          toast('\u26a0 ' + (res.data.error || 'This post changed since you opened it. Refresh and try again.'), 'warn');
+          closeModal();
+          _posts = null;
+          _clearPostsListCache();
           if (_activeTab === 'posts') renderPosts(document.getElementById('giContent'));
         } else {
           toast('\u26a0 ' + (res.data.error || 'Failed.'), 'warn');
           b.disabled = false; b.textContent = orig;
         }
       }).catch(function () { toast('\u26a0 Network error.', 'warn'); b.disabled = false; b.textContent = orig; });
+      });
     });
   }
 
@@ -1806,7 +2058,7 @@
           if (res.data.result && res.data.result.warning) toast('\u26a0 ' + res.data.result.warning, 'warn');
           closeModal();
           if (req.thread_id) _dropPostCache(String(req.thread_id));  // body may have changed
-          _queue = null; _posts = null; _logs = null;
+          _queue = null; _posts = null; _logs = null; _clearPostsListCache();
           renderQueue(document.getElementById('giContent'));
         } else {
           toast('\u26a0 ' + (res.data.error || 'Failed.'), 'warn');

@@ -7880,6 +7880,22 @@ def _gi_atts_nonempty(atts) -> bool:
     return any(isinstance(m, (list, tuple)) and len(m) for m in atts)
 
 
+def _gi_norm_text(value) -> str:
+    """Normalize text for optimistic-concurrency comparisons."""
+    return str("" if value is None else value).replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _gi_result_http_status(result: dict, default: int = 502) -> int:
+    """Map a guild-info helper result status (when present) to an HTTP code."""
+    if not isinstance(result, dict):
+        return default
+    try:
+        st = int(result.get("status"))
+    except (TypeError, ValueError):
+        return default
+    return st if 100 <= st <= 599 else default
+
+
 @app.route("/api/admin/guild-info/state")
 @rate_limit(30)
 def guild_info_state():
@@ -7921,7 +7937,7 @@ def guild_info_get_post(thread_id):
     if err:
         return err
     result = _gi_admin.get_post(thread_id)
-    return jsonify(result), 200 if not result.get("error") else 502
+    return jsonify(result), 200 if not result.get("error") else _gi_result_http_status(result, 502)
 
 
 @app.route("/api/admin/guild-info/posts/upload-image", methods=["POST"])
@@ -8021,22 +8037,41 @@ def guild_info_edit_post(thread_id):
         return jsonify({"error": "Title cannot be empty"}), 400
     if has_body and _gi_body_empty(content) and not _gi_atts_nonempty(atts):
         return jsonify({"error": "Body cannot be empty"}), 400
+    # Require optimistic-concurrency snapshot fields for all edits.
+    if "expected_title" not in body or "expected_body" not in body:
+        return jsonify({"error": "Missing expected post snapshot. Refresh and try again."}), 400
+    expected_title = _gi_norm_text(body.get("expected_title"))
+    expected_body = _gi_norm_text(body.get("expected_body"))
+    current = _gi_admin.get_post(thread_id)
+    if current.get("error"):
+        status = _gi_result_http_status(current, 502)
+        if status == 404:
+            return jsonify({"error": "Post not found", "status": 404}), 404
+        return jsonify(current), status
+    current_title = _gi_norm_text(current.get("title"))
+    current_body = _gi_norm_text(current.get("body"))
+    if expected_title != current_title:
+        return jsonify({
+            "error": "This post title changed since you opened it. Refresh and try again.",
+            "conflict": "title_mismatch",
+        }), 409
+    if expected_body != current_body:
+        return jsonify({
+            "error": "This post body changed since you opened it. Refresh and try again.",
+            "conflict": "body_mismatch",
+        }), 409
     actor = _gi_actor(user)
     if tier == "full":
-        # Snapshot the current post first so the audit log can show before/after
-        current = _gi_admin.get_post(thread_id)
-        cur = current if isinstance(current, dict) else {}
         result = _gi_admin.direct_action(
             "edit", actor, thread_id=thread_id,
             title=title if has_title else None,
             body=content if has_body else None,
             attachments=atts if has_body else None,
-            prev_title=cur.get("title") if has_title else None,
-            prev_body=cur.get("body") if has_body else None,
+            prev_title=current.get("title") if has_title else None,
+            prev_body=current.get("body") if has_body else None,
         )
-        return jsonify(result), 200 if not result.get("error") else 502
+        return jsonify(result), 200 if not result.get("error") else _gi_result_http_status(result, 502)
     # Snapshot the current post so reviewers can see what the request changes
-    current = _gi_admin.get_post(thread_id)
     prev_title = current.get("title")
     prev_body = current.get("body")
     queued = []
@@ -8060,20 +8095,41 @@ def guild_info_delete_post(thread_id):
     user, tier, err = _require_guild_info_admin()
     if err:
         return err
+    body = request.get_json(silent=True) or {}
+    # Always require at least title snapshot so stale deletes are blocked server-side.
+    if "expected_title" not in body:
+        return jsonify({"error": "Missing expected post snapshot. Refresh and try again."}), 400
+    expected_title = _gi_norm_text(body.get("expected_title"))
+    has_expected_body = "expected_body" in body
+    expected_body = _gi_norm_text(body.get("expected_body")) if has_expected_body else None
+    current = _gi_admin.get_post(thread_id)
+    if current.get("error"):
+        status = _gi_result_http_status(current, 502)
+        if status == 404:
+            return jsonify({"error": "Post not found", "status": 404}), 404
+        return jsonify(current), status
+    current_title = _gi_norm_text(current.get("title"))
+    current_body = _gi_norm_text(current.get("body"))
+    if expected_title != current_title:
+        return jsonify({
+            "error": "This post title changed since you opened it. Refresh and try again.",
+            "conflict": "title_mismatch",
+        }), 409
+    if has_expected_body and expected_body != current_body:
+        return jsonify({
+            "error": "This post body changed since you opened it. Refresh and try again.",
+            "conflict": "body_mismatch",
+        }), 409
     actor = _gi_actor(user)
     if tier == "full":
-        # Resolve the post's title + body first so the audit log records what was deleted
-        current = _gi_admin.get_post(thread_id)
-        cur = current if isinstance(current, dict) else {}
         result = _gi_admin.direct_action(
             "delete", actor, thread_id=thread_id,
-            title=cur.get("title"), prev_body=cur.get("body"),
+            title=current.get("title"), prev_body=current.get("body"),
         )
-        return jsonify(result), 200 if not result.get("error") else 502
+        return jsonify(result), 200 if not result.get("error") else _gi_result_http_status(result, 502)
     # Deletion is the one action still allowed while a change is pending
     if _gi_admin.thread_has_pending_delete(thread_id):
         return jsonify({"error": "A deletion of this post is already pending approval."}), 409
-    current = _gi_admin.get_post(thread_id)
     req = _gi_admin.submit_request(
         "delete", thread_id=thread_id,
         prev_title=current.get("title"), prev_body=current.get("body"),
