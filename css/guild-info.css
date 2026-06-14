@@ -203,15 +203,20 @@
   overflow: hidden;
 }
 .gi-gcard-body {
-  flex: 1;
+  position: relative;
+  height: 114px;
   overflow: hidden;
   font-size: 0.82rem;
   line-height: 1.45;
   color: var(--text-dim);
-  /* Clamp to a few lines with an ellipsis - cheap, no mask, no JS measurement */
-  display: -webkit-box;
-  -webkit-line-clamp: 6;
-  -webkit-box-orient: vertical;
+  /* Discord-style fade: the body melts into the card at the bottom to hint there's more */
+  -webkit-mask-image: linear-gradient(to bottom, #000 65%, transparent);
+          mask-image: linear-gradient(to bottom, #000 65%, transparent);
+}
+.gi-gcard-body--empty {
+  height: auto;
+  -webkit-mask-image: none;
+          mask-image: none;
 }
 .gi-gcard-body--empty::before {
   content: 'No text content';
@@ -222,7 +227,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: auto;   /* pin to the bottom now that the body is a fixed height */
   padding-top: 10px;
   border-top: 1px solid var(--border);
 }
@@ -241,6 +246,8 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  -webkit-mask-image: none;   /* keep the skeleton crisp; the fade is only for real text */
+          mask-image: none;
   animation: gi-skel-pulse 1.5s ease-in-out infinite;
 }
 .gi-skel-line {

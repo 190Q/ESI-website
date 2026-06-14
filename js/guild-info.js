@@ -497,7 +497,7 @@
       var count = (p.message_count != null) ? String(p.message_count) : '0';
       return '<div class="gi-gcard" data-id="' + esc(p.id) + '" role="button" tabindex="0">' +
           '<div class="gi-gcard-title">' + esc(p.title || '(untitled)') + '</div>' +
-          '<div class="gi-gcard-body gi-md" data-preview></div>' +
+          '<div class="gi-gcard-body" data-preview></div>' +
           '<div class="gi-gcard-foot">' +
             '<span class="gi-gcard-count" title="' + esc(count) + ' message' + (count === '1' ? '' : 's') + '">' + _ICON_MSG + esc(count) + '</span>' +
             '<span class="gi-gcard-actions">' +
@@ -512,13 +512,18 @@
 
   // Render cached previews now; the rest get a loader + fetch only once scrolled into view
   function _fillGallery(c) {
-    (_posts || []).forEach(function (p) {
-      if (!p || p.id == null) return;
-      var cached = _postCache[String(p.id)];
-      if (!cached) return;
-      var card = c.querySelector('.gi-gcard[data-id="' + _cssId(p.id) + '"]');
-      if (card) _renderGalleryPreview(card, cached);
-    });
+    var ready = (_posts || []).filter(function (p) { return p && p.id != null && _postCache[String(p.id)]; });
+    var i = 0;
+    function chunk() {
+      if (_activeTab !== 'posts' || _postsView !== 'gallery') return;
+      var end = Math.min(i + 4, ready.length);
+      for (; i < end; i++) {
+        var card = c.querySelector('.gi-gcard[data-id="' + _cssId(ready[i].id) + '"]');
+        if (card) _renderGalleryPreview(card, _postCache[String(ready[i].id)]);
+      }
+      if (i < ready.length) requestAnimationFrame(chunk);
+    }
+    chunk();
     _observeGallery(c);
   }
 
@@ -554,26 +559,32 @@
       prev.classList.add('gi-gcard-body--empty');
       return;
     }
-    // Plain text via textContent: no markdown engine, no sanitiser, no innerHTML
+    // Keep gallery previews plain text so cards stay cheap to render even with heavy markdown posts
     prev.textContent = text;
   }
 
-  // Build a short plain-text preview. The hard length cap is applied FIRST
   function _previewText(seg, cached) {
-    var s = String(seg == null ? '' : seg).slice(0, 500);
+    var s = String(seg == null ? '' : seg).slice(0, 800);  // hard cap before any processing
     var ctx = cached || {};
+    if (!s.trim()) return '';
     s = s
       .replace(/```[\s\S]*?```/g, ' ')
-      .replace(/<a?:(\w{2,32}):\d+>/g, ':$1:')
+      .replace(/<(a?):(\w{2,32}):(\d+)>/g, function (_m, _anim, name) { return ':' + name + ':'; })
       .replace(/<#(\d+)>/g, function (_m, id) { return '#' + (((ctx.channels || {})[id]) || 'channel'); })
-      .replace(/<@&(\d+)>/g, function (_m, id) { var r = (ctx.roles || {})[id]; return '@' + ((r && r.name) || 'role'); })
+      .replace(/<@&(\d+)>/g, function (_m, id) {
+        var r = (ctx.roles || {})[id];
+        return '@' + ((r && r.name) || 'role');
+      })
       .replace(/<@!?(\d+)>/g, function (_m, id) { return '@' + (((ctx.mentions || {})[id]) || 'user'); })
-      .replace(/<\/([\w -]{1,64}):\d+>/g, '/$1')
+      .replace(/<\/([\w -]{1,64}):\d+>/g, function (_m, name) { return '/' + name; })
       .replace(/<t:-?\d+(?::[tTdDfFR])?>/g, '')
       .replace(/[*_~`>#|]/g, '')
       .replace(/\s+/g, ' ')
       .trim();
-    return s.slice(0, 240);
+    if (s.length <= 240) return s;
+    var cut = s.slice(0, 240);
+    var sp = cut.lastIndexOf(' ');
+    return (sp > 140 ? cut.slice(0, sp) : cut) + '…';
   }
 
   // Watch cards and only fetch a preview once its card scrolls near the viewport
@@ -591,10 +602,10 @@
       return;
     }
     var root = (c.closest && c.closest('.gi-modal')) || null;   // the modal is the scroll container
-    _galleryIO = new IntersectionObserver(function (entries) {
+    _galleryIO = new IntersectionObserver(function (entries, observer) {
       entries.forEach(function (en) {
         if (!en.isIntersecting) return;
-        _galleryIO.unobserve(en.target);              // each card only needs to load once
+        observer.unobserve(en.target);                // each card only needs to load once
         _enqueueGalleryFetch(c, en.target.getAttribute('data-id'));
       });
     }, { root: root, rootMargin: '200px 0px' });
@@ -614,7 +625,7 @@
   // Drain the visible-card queue a few at a time (never all at once)
   function _pumpGallery(c) {
     if (_activeTab !== 'posts' || _postsView !== 'gallery') return;   // bail if the view changed
-    var MAX = 3;
+    var MAX = 2;
     while (_galleryActive < MAX && _galleryQueue.length) {
       (function (id) {
         if (_postCache[id] || _galleryFetching[id]) return;
@@ -853,18 +864,23 @@
   function _renderBody(el, text, ctx) {
     if (!el) return;
     _mdCtx = ctx || {};   // mention/role/channel maps consumed by _mdInline
-    if (window.DOMPurify) {
-      el.innerHTML = window.DOMPurify.sanitize(_mdToHtml(text), { ADD_ATTR: ['target', 'rel', 'style', 'loading', 'decoding'] });
-    } else {
-      el.textContent = text == null ? '' : String(text);  // no sanitiser -> safe plain text
-    }
-    el.querySelectorAll('.gi-spoiler').forEach(function (sp) {
-      function reveal() { sp.classList.add('gi-spoiler--shown'); }
-      sp.addEventListener('click', reveal);
-      sp.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); reveal(); }
+    try {
+      if (window.DOMPurify) {
+        el.innerHTML = window.DOMPurify.sanitize(_mdToHtml(text), { ADD_ATTR: ['target', 'rel', 'style', 'loading', 'decoding'] });
+      } else {
+        el.textContent = text == null ? '' : String(text);  // no sanitiser -> safe plain text
+      }
+      el.querySelectorAll('.gi-spoiler').forEach(function (sp) {
+        function reveal() { sp.classList.add('gi-spoiler--shown'); }
+        sp.addEventListener('click', reveal);
+        sp.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); reveal(); }
+        });
       });
-    });
+    } catch (e) {
+      // A malformed body must never break the whole posts view
+      el.textContent = text == null ? '' : String(text);
+    }
   }
 
   // Build a DOM image strip from attachment dicts ({url,name})
@@ -1255,7 +1271,17 @@
           toast('\u2713 Post ' + (isEdit ? 'updated' : 'created') + '.', 'success');
           if (res.data.warning) toast('\u26a0 ' + res.data.warning, 'warn');
           var savedId = isEdit ? String(threadId) : (res.data.id != null ? String(res.data.id) : null);
-          if (savedId != null) delete _postCache[savedId];   // body cache may hold stale staged urls
+          if (savedId != null) {
+            var hasImages = attachments.some(function (a) { return a && a.length; });
+            if (!isEdit && !hasImages) {
+              var cacheSegs = [];
+              segments.forEach(function (s) { splitBody(s).forEach(function (piece) { cacheSegs.push(piece); }); });
+              _cachePost({ id: savedId, title: title, body: cacheSegs.join('\n\n'),
+                           segments: cacheSegs, attachments: [], archived: false });
+            } else {
+              delete _postCache[savedId];   // body cache may hold stale staged urls
+            }
+          }
           var msgCount = segments.reduce(function (n, s) { return n + splitBody(s).length; }, 0);
           if (Array.isArray(_posts)) {
             if (isEdit) {
