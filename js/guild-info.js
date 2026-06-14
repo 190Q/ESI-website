@@ -24,6 +24,7 @@
   var _initDone     = false;
   var _preloadDone  = false;
   var _openView     = null;   // thread id of the currently open View modal (or null)
+  var _viewRenderToken = 0;   // bumped on each View render so stale/async renders can bail out
   var _postsAt      = 0;      // ms epoch of the last successful posts fetch
   var _postsSig     = '';     // signature of the last-drawn posts (skip redundant redraws)
   var _queueAt      = 0;      // ms epoch of the last successful queue fetch
@@ -33,12 +34,25 @@
   var _postCache    = {};     // thread_id -> { id, title, body, segments, archived, at }
   var _TTL          = 120000; // stale-while-revalidate window (2 min): serve cache, refresh quietly after
   var _mdCtx        = {};     // { mentions, roles, channels } id->name maps for the open View body
+  var _postsView    = (function () {  // posts layout: 'list' | 'gallery' (remembered across sessions)
+    try { return localStorage.getItem('esi_gi_posts_view') === 'gallery' ? 'gallery' : 'list'; }
+    catch (e) { return 'list'; }
+  })();
+  var _galleryFetching = {};  // thread_id -> true while its body is being lazy-loaded for the gallery
+  var _galleryIO    = null;   // IntersectionObserver: only fetch previews for cards scrolled into view
+  var _galleryQueue = [];     // thread_ids that became visible and are waiting for a fetch slot
+  var _galleryActive = 0;     // in-flight gallery preview fetches (throttled by _pumpGallery)
 
   // Discord limits mirrored from guild_info/forum.py
   var _MAX_TITLE = 100;
   var _MAX_BODY  = 2000;
   var _MAX_IMAGES = 3;                 // images allowed per message (mirror backend)
   var _IMG_EXT  = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
+
+  // Inline icons (sanitised through DOMPurify like the rest of our markup)
+  var _ICON_LIST = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1" fill="currentColor" stroke="none"/></svg>';
+  var _ICON_GALLERY = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>';
+  var _ICON_MSG = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7a8.5 8.5 0 0 1-.9-3.8A8.38 8.38 0 0 1 11.5 3a8.38 8.38 0 0 1 8.5 8.5z"/></svg>';
 
   /* small helpers */
   function esc(s) {
@@ -308,8 +322,11 @@
   function setModalContent(html) { setHTML(document.getElementById('giModal'), html); bindClose(); }
   function closeModal() {
     _openView = null;
+    _viewRenderToken++;   // stop any in-flight incremental View render
     var bd = document.getElementById('giModalBackdrop');
     if (bd) bd.classList.remove('open');
+    var m = document.getElementById('giModal');
+    if (m) setHTML(m, '');   // release the (potentially large) rendered post and its images
   }
   function bindClose() {
     var m = document.getElementById('giModal');
@@ -366,6 +383,7 @@
     _postCache[String(p.id)] = {
       id: String(p.id), title: p.title || '', body: p.body || '',
       segments: p.segments || null, attachments: p.attachments || null,
+      mentions: p.mentions || null, roles: p.roles || null, channels: p.channels || null,
       archived: !!p.archived, at: Date.now(),
     };
   }
@@ -407,48 +425,239 @@
 
   function drawPosts(c) {
     _postsSig = _postsSignature();
-    var head = '<div class="gi-toolbar"><button class="gi-btn gi-btn--primary" id="giNewPost">+ New post</button></div>';
+    if (_galleryIO) { _galleryIO.disconnect(); _galleryIO = null; }   // drop any stale observer
+    _galleryQueue = [];
+    var head = '<div class="gi-toolbar">' +
+      '<div class="gi-view-toggle" id="giViewToggle">' +
+        '<button class="gi-view-btn' + (_postsView === 'list' ? ' active' : '') + '" data-view="list" title="List view" aria-label="List view">' + _ICON_LIST + '</button>' +
+        '<button class="gi-view-btn' + (_postsView === 'gallery' ? ' active' : '') + '" data-view="gallery" title="Gallery view" aria-label="Gallery view">' + _ICON_GALLERY + '</button>' +
+      '</div>' +
+      '<button class="gi-btn gi-btn--primary" id="giNewPost">+ New post</button>' +
+    '</div>';
     if (_posts == null) {
       setHTML(c, head + emptyHTML(_postsError || 'Could not load posts.'));
     } else if (!_posts.length) {
       setHTML(c, head + emptyHTML('No guild-info posts yet.'));
+    } else if (_postsView === 'gallery') {
+      setHTML(c, head + _galleryHTML());
+      _fillGallery(c);
     } else {
-      var rows = _posts.map(function (p) {
-        var badges = '';
-        if (p.archived) badges += '<span class="gi-pill gi-pill--muted">Archived</span>';
-        if (p.locked)   badges += '<span class="gi-pill gi-pill--muted">Locked</span>';
-        if (p.pending_request) badges += '<span class="gi-pill gi-pill--pending">Change pending</span>';
-        var mc = (p.message_count != null)
-          ? '<span class="gi-meta-dim">' + esc(p.message_count) + ' message' + (p.message_count === 1 ? '' : 's') + '</span>'
-          : '';
-        // A post with a pending request is locked for editing until it's resolved/deleted
-        var editBtn = p.pending_request
-          ? '<button class="gi-btn gi-btn--sm" data-act="edit" data-id="' + esc(p.id) + '" disabled title="A change to this post is pending approval">Edit</button>'
-          : '<button class="gi-btn gi-btn--sm" data-act="edit" data-id="' + esc(p.id) + '">Edit</button>';
-        return '<div class="gi-card">' +
-            '<div class="gi-card-main">' +
-              '<div class="gi-card-title">' + esc(p.title || '(untitled)') + '</div>' +
-              '<div class="gi-card-meta">' + badges + mc + '</div>' +
-            '</div>' +
-            '<div class="gi-card-actions">' +
-              '<button class="gi-btn gi-btn--sm" data-act="view" data-id="' + esc(p.id) + '">View</button>' +
-              editBtn +
-              '<button class="gi-btn gi-btn--sm gi-btn--danger" data-act="delete" data-id="' + esc(p.id) + '">Delete</button>' +
-            '</div>' +
-          '</div>';
-      }).join('');
-      setHTML(c, head + '<div class="gi-list">' + rows + '</div>');
+      setHTML(c, head + _listHTML());
     }
     var newBtn = document.getElementById('giNewPost');
     if (newBtn) newBtn.addEventListener('click', function () { openPostEditor(null); });
+    var toggle = document.getElementById('giViewToggle');
+    if (toggle) toggle.addEventListener('click', function (e) {
+      var b = e.target.closest('.gi-view-btn');
+      if (!b) return;
+      var v = b.getAttribute('data-view');
+      if (v === _postsView) return;
+      _postsView = v;
+      try { localStorage.setItem('esi_gi_posts_view', v); } catch (x) { /* ignore */ }
+      drawPosts(c);   // re-render from cached data only; a view switch never refetches
+    });
+    _wirePostActions(c);
+  }
+
+  // Current row-based list layout
+  function _listHTML() {
+    var rows = _posts.map(function (p) {
+      var badges = '';
+      if (p.archived) badges += '<span class="gi-pill gi-pill--muted">Archived</span>';
+      if (p.locked)   badges += '<span class="gi-pill gi-pill--muted">Locked</span>';
+      if (p.pending_request) badges += '<span class="gi-pill gi-pill--pending">Change pending</span>';
+      var mc = (p.message_count != null)
+        ? '<span class="gi-meta-dim">' + esc(p.message_count) + ' message' + (p.message_count === 1 ? '' : 's') + '</span>'
+        : '';
+      // A post with a pending request is locked for editing until it's resolved/deleted
+      var editBtn = p.pending_request
+        ? '<button class="gi-btn gi-btn--sm" data-act="edit" data-id="' + esc(p.id) + '" disabled title="A change to this post is pending approval">Edit</button>'
+        : '<button class="gi-btn gi-btn--sm" data-act="edit" data-id="' + esc(p.id) + '">Edit</button>';
+      return '<div class="gi-card">' +
+          '<div class="gi-card-main">' +
+            '<div class="gi-card-title">' + esc(p.title || '(untitled)') + '</div>' +
+            '<div class="gi-card-meta">' + badges + mc + '</div>' +
+          '</div>' +
+          '<div class="gi-card-actions">' +
+            '<button class="gi-btn gi-btn--sm" data-act="view" data-id="' + esc(p.id) + '">View</button>' +
+            editBtn +
+            '<button class="gi-btn gi-btn--sm gi-btn--danger" data-act="delete" data-id="' + esc(p.id) + '">Delete</button>' +
+          '</div>' +
+        '</div>';
+    }).join('');
+    return '<div class="gi-list">' + rows + '</div>';
+  }
+
+  // Discord forum-style gallery: title + body preview + message count
+  function _galleryHTML() {
+    var cards = _posts.map(function (p) {
+      var editBtn = p.pending_request
+        ? '<button class="gi-btn gi-btn--sm" data-act="edit" data-id="' + esc(p.id) + '" disabled title="A change to this post is pending approval">Edit</button>'
+        : '<button class="gi-btn gi-btn--sm" data-act="edit" data-id="' + esc(p.id) + '">Edit</button>';
+      var count = (p.message_count != null) ? String(p.message_count) : '0';
+      return '<div class="gi-gcard" data-id="' + esc(p.id) + '" role="button" tabindex="0">' +
+          '<div class="gi-gcard-title">' + esc(p.title || '(untitled)') + '</div>' +
+          '<div class="gi-gcard-body gi-md" data-preview></div>' +
+          '<div class="gi-gcard-foot">' +
+            '<span class="gi-gcard-count" title="' + esc(count) + ' message' + (count === '1' ? '' : 's') + '">' + _ICON_MSG + esc(count) + '</span>' +
+            '<span class="gi-gcard-actions">' +
+              editBtn +
+              '<button class="gi-btn gi-btn--sm gi-btn--danger" data-act="delete" data-id="' + esc(p.id) + '">Delete</button>' +
+            '</span>' +
+          '</div>' +
+        '</div>';
+    }).join('');
+    return '<div class="gi-gallery" id="giGallery">' + cards + '</div>';
+  }
+
+  // Render cached previews now; the rest get a loader + fetch only once scrolled into view
+  function _fillGallery(c) {
+    (_posts || []).forEach(function (p) {
+      if (!p || p.id == null) return;
+      var cached = _postCache[String(p.id)];
+      if (!cached) return;
+      var card = c.querySelector('.gi-gcard[data-id="' + _cssId(p.id) + '"]');
+      if (card) _renderGalleryPreview(card, cached);
+    });
+    _observeGallery(c);
+  }
+
+  // Skeleton loader shown in a card until its body preview arrives
+  function _setGalleryLoading(card) {
+    var prev = card.querySelector('[data-preview]');
+    if (!prev) return;
+    prev.classList.remove('gi-gcard-body--empty', 'gi-gcard-body--faded');
+    prev.classList.add('gi-gcard-body--loading');
+    while (prev.firstChild) prev.removeChild(prev.firstChild);
+    for (var i = 0; i < 3; i++) {
+      var ln = document.createElement('span');
+      ln.className = 'gi-skel-line';
+      prev.appendChild(ln);
+    }
+  }
+
+  function _clearGalleryLoading(card) {
+    var prev = card.querySelector('[data-preview]');
+    if (!prev) return;
+    prev.classList.remove('gi-gcard-body--loading');
+    while (prev.firstChild) prev.removeChild(prev.firstChild);
+  }
+
+  function _renderGalleryPreview(card, cached) {
+    var prev = card.querySelector('[data-preview]');
+    if (!prev) return;
+    var seg = (cached.segments && cached.segments.length) ? cached.segments[0] : (cached.body || '');
+    prev.classList.remove('gi-gcard-body--empty', 'gi-gcard-body--loading');
+    var text = _previewText(seg, cached);
+    if (!text) {
+      prev.textContent = '';
+      prev.classList.add('gi-gcard-body--empty');
+      return;
+    }
+    // Plain text via textContent: no markdown engine, no sanitiser, no innerHTML
+    prev.textContent = text;
+  }
+
+  // Build a short plain-text preview. The hard length cap is applied FIRST
+  function _previewText(seg, cached) {
+    var s = String(seg == null ? '' : seg).slice(0, 500);
+    var ctx = cached || {};
+    s = s
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/<a?:(\w{2,32}):\d+>/g, ':$1:')
+      .replace(/<#(\d+)>/g, function (_m, id) { return '#' + (((ctx.channels || {})[id]) || 'channel'); })
+      .replace(/<@&(\d+)>/g, function (_m, id) { var r = (ctx.roles || {})[id]; return '@' + ((r && r.name) || 'role'); })
+      .replace(/<@!?(\d+)>/g, function (_m, id) { return '@' + (((ctx.mentions || {})[id]) || 'user'); })
+      .replace(/<\/([\w -]{1,64}):\d+>/g, '/$1')
+      .replace(/<t:-?\d+(?::[tTdDfFR])?>/g, '')
+      .replace(/[*_~`>#|]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return s.slice(0, 240);
+  }
+
+  // Watch cards and only fetch a preview once its card scrolls near the viewport
+  function _observeGallery(c) {
+    if (!Array.isArray(_posts)) return;
+    var cards = [];
+    _posts.forEach(function (p) {
+      if (!p || p.id == null || _postCache[String(p.id)]) return;
+      var card = c.querySelector('.gi-gcard[data-id="' + _cssId(p.id) + '"]');
+      if (card) cards.push(card);
+    });
+    if (!cards.length) return;
+    if (!('IntersectionObserver' in window)) {        // old browsers: just queue them all
+      cards.forEach(function (card) { _enqueueGalleryFetch(c, card.getAttribute('data-id')); });
+      return;
+    }
+    var root = (c.closest && c.closest('.gi-modal')) || null;   // the modal is the scroll container
+    _galleryIO = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        _galleryIO.unobserve(en.target);              // each card only needs to load once
+        _enqueueGalleryFetch(c, en.target.getAttribute('data-id'));
+      });
+    }, { root: root, rootMargin: '200px 0px' });
+    cards.forEach(function (card) { _galleryIO.observe(card); });
+  }
+
+  function _enqueueGalleryFetch(c, id) {
+    if (id == null) return;
+    id = String(id);
+    if (_postCache[id] || _galleryFetching[id] || _galleryQueue.indexOf(id) !== -1) return;
+    var card = c.querySelector('.gi-gcard[data-id="' + _cssId(id) + '"]');   // loader only once visible
+    if (card) _setGalleryLoading(card);
+    _galleryQueue.push(id);
+    _pumpGallery(c);
+  }
+
+  // Drain the visible-card queue a few at a time (never all at once)
+  function _pumpGallery(c) {
+    if (_activeTab !== 'posts' || _postsView !== 'gallery') return;   // bail if the view changed
+    var MAX = 3;
+    while (_galleryActive < MAX && _galleryQueue.length) {
+      (function (id) {
+        if (_postCache[id] || _galleryFetching[id]) return;
+        _galleryFetching[id] = true;
+        _galleryActive++;
+        apiGet('/api/admin/guild-info/posts/' + encodeURIComponent(id)).then(function (res) {
+          if (res.ok && res.data && !res.data.error) _cachePost(res.data);
+        }).catch(function () { /* leave it; a later open will retry */ }).then(function () {
+          delete _galleryFetching[id];
+          _galleryActive--;
+          if (_activeTab === 'posts' && _postsView === 'gallery') {
+            var card = c.querySelector('.gi-gcard[data-id="' + _cssId(id) + '"]');
+            if (card) {
+              if (_postCache[id]) _renderGalleryPreview(card, _postCache[id]);
+              else _clearGalleryLoading(card);        // fetch failed -> stop the skeleton
+            }
+          }
+          _pumpGallery(c);
+        });
+      })(_galleryQueue.shift());
+    }
+  }
+
+  function _cssId(id) { return String(id).replace(/(["\\])/g, '\\$1'); }
+
+  // Shared wiring for both layouts: action buttons + (gallery) click-to-open
+  function _wirePostActions(c) {
     c.querySelectorAll('[data-act]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();   // keep a gallery card click from also firing
         var id = btn.getAttribute('data-id');
         var act = btn.getAttribute('data-act');
         var post = (_posts || []).filter(function (p) { return String(p.id) === String(id); })[0] || { id: id };
         if (act === 'view') openPostView(id);
         else if (act === 'edit') openPostEditor(post);
         else if (act === 'delete') confirmDeletePost(post);
+      });
+    });
+    c.querySelectorAll('.gi-gcard').forEach(function (card) {
+      function open() { openPostView(card.getAttribute('data-id')); }
+      card.addEventListener('click', open);
+      card.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(); }
       });
     });
   }
@@ -680,7 +889,8 @@
   }
 
   function _renderPostView(p) {
-    var segs = (p.segments && p.segments.length) ? p.segments : [p.body || ''];
+    // Fall back to splitting the raw body so we never render one giant string
+    var segs = (p.segments && p.segments.length) ? p.segments : splitBody(p.body || '', _MAX_BODY);
     var atts = p.attachments || [];
     var segCount = segs.length || 1;
     showModal(
@@ -695,20 +905,29 @@
     var tEl = document.getElementById('giViewTitle'); if (tEl) tEl.textContent = p.title || '(untitled)';
     var host = document.getElementById('giViewBody');
     var ctx = { mentions: p.mentions, roles: p.roles, channels: p.channels };
-    // Render each message as its own block
-    segs.forEach(function (seg, i) {
-      var block = document.createElement('div');
-      block.className = 'gi-view-msg';
-      if (seg != null && String(seg).trim() !== '') {
-        var bodyEl = document.createElement('div');
-        bodyEl.className = 'gi-body-preview gi-md';
-        _renderBody(bodyEl, seg, ctx);
-        block.appendChild(bodyEl);
+    // Render a couple of messages per frame so a long post never blocks the main thread
+    var token = ++_viewRenderToken;
+    var i = 0;
+    function renderNext() {
+      if (token !== _viewRenderToken || !host || !document.body.contains(host)) return;
+      var end = Math.min(i + 2, segs.length);
+      for (; i < end; i++) {
+        var seg = segs[i];
+        var block = document.createElement('div');
+        block.className = 'gi-view-msg';
+        if (seg != null && String(seg).trim() !== '') {
+          var bodyEl = document.createElement('div');
+          bodyEl.className = 'gi-body-preview gi-md';
+          _renderBody(bodyEl, seg, ctx);
+          block.appendChild(bodyEl);
+        }
+        var strip = _buildImageStrip(atts[i]);
+        if (strip) block.appendChild(strip);
+        if (block.children.length) host.appendChild(block);
       }
-      var strip = _buildImageStrip(atts[i]);
-      if (strip) block.appendChild(strip);
-      if (block.children.length) host.appendChild(block);
-    });
+      if (i < segs.length) requestAnimationFrame(renderNext);
+    }
+    renderNext();
   }
 
   function openPostView(threadId) {

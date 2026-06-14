@@ -58,7 +58,8 @@
 .gi-toolbar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 12px;
 }
 
@@ -143,6 +144,120 @@
   background: rgba(var(--gold-rgb), 0.14);
   color: var(--gold-light);
   border: 1px solid rgba(var(--gold-rgb), 0.3);
+}
+
+/* List / Gallery view toggle */
+.gi-view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface-3);
+}
+.gi-view-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.gi-view-btn + .gi-view-btn { border-left: 1px solid var(--border); }
+.gi-view-btn:hover { color: var(--text-main); }
+.gi-view-btn.active {
+  background: rgba(var(--gold-rgb), 0.16);
+  color: var(--gold-light);
+}
+.gi-view-btn svg { display: block; }
+
+/* Gallery layout (Discord forum-style cards) */
+.gi-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
+  gap: 14px;
+}
+.gi-gcard {
+  display: flex;
+  flex-direction: column;
+  min-height: 150px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color var(--transition), transform var(--transition);
+}
+.gi-gcard:hover { border-color: var(--gold-dim); transform: translateY(-2px); }
+.gi-gcard:focus-visible { outline: 2px solid var(--gold-dim); outline-offset: 2px; }
+.gi-gcard-title {
+  font-family: var(--font-heading);
+  font-size: 0.92rem;
+  color: var(--text-main);
+  margin-bottom: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.gi-gcard-body {
+  flex: 1;
+  overflow: hidden;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+  /* Clamp to a few lines with an ellipsis - cheap, no mask, no JS measurement */
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+}
+.gi-gcard-body--empty::before {
+  content: 'No text content';
+  color: var(--text-faint);
+  font-style: italic;
+}
+.gi-gcard-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.gi-gcard-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.74rem;
+  color: var(--text-faint);
+}
+.gi-gcard-count svg { display: block; }
+.gi-gcard-actions { display: flex; gap: 6px; margin-left: auto; }
+
+/* Per-card preview loading skeleton */
+.gi-gcard-body--loading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: gi-skel-pulse 1.5s ease-in-out infinite;
+}
+.gi-skel-line {
+  display: block;
+  height: 9px;
+  border-radius: 4px;
+  background: var(--surface-3);
+}
+.gi-skel-line:nth-child(1) { width: 92%; }
+.gi-skel-line:nth-child(2) { width: 76%; }
+.gi-skel-line:nth-child(3) { width: 58%; }
+@keyframes gi-skel-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 0.85; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gi-gcard-body--loading { animation: none; opacity: 0.6; }
 }
 
 /* Empty / loading / login states */
