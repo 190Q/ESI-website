@@ -45,12 +45,13 @@ _bot_id_cache: dict = {"id": None}
 # Guild roles/channels change rarely; cache the lookup maps used to resolve
 # mention tokens (<@&id>, <#id>) into display names
 _meta_lock = threading.Lock()
-_roles_cache: dict = {"at": 0.0, "data": None}
-_channels_cache: dict = {"at": 0.0, "data": None}
+# guild_id -> {"at": float, "data": {...}}
+_roles_cache: dict = {}
+_channels_cache: dict = {}
 _META_TTL = 300  # seconds
 
 _member_lock = threading.Lock()
-_member_cache: dict = {}   # user_id -> {"at": ts, "name": str | None}
+_member_cache: dict = {}   # (guild_id, user_id) -> {"at": ts, "name": str | None}
 _MEMBER_TTL = 600  # seconds
 
 
@@ -88,19 +89,23 @@ def _bot_user_id() -> str | None:
         _bot_id_cache["id"] = bid
     return bid
 
-def _get_guild_roles() -> dict:
+def _get_guild_roles(guild_id: str | None = None) -> dict:
     """Return ``{role_id: {"name", "color"}}`` for the guild (cached, best-effort).
 
     ``color`` is a ``#rrggbb`` string or ``None`` when the role has no colour.
     """
+    gid = str(guild_id or _GUILD_INFO_SERVER_ID or "")
+    if not gid:
+        return {}
     now = time.time()
     with _meta_lock:
-        if _roles_cache["data"] is not None and now - _roles_cache["at"] < _META_TTL:
-            return _roles_cache["data"]
+        hit = _roles_cache.get(gid)
+        if hit and hit.get("data") is not None and now - hit.get("at", 0.0) < _META_TTL:
+            return hit["data"]
     out: dict = {}
     try:
         r = requests.get(
-            f"{DISCORD_API}/guilds/{_GUILD_INFO_SERVER_ID}/roles",
+            f"{DISCORD_API}/guilds/{gid}/roles",
             headers=_headers(), timeout=_TIMEOUT,
         )
         if r.ok:
@@ -111,56 +116,68 @@ def _get_guild_roles() -> dict:
                     "color": ("#%06x" % color) if color else None,
                 }
     except requests.RequestException:
-        return _roles_cache["data"] or {}
+        with _meta_lock:
+            return ((_roles_cache.get(gid) or {}).get("data")) or {}
     with _meta_lock:
-        _roles_cache["at"] = now
-        _roles_cache["data"] = out
+        _roles_cache[gid] = {"at": now, "data": out}
     return out
 
-def _get_guild_channels() -> dict:
+def _get_guild_channels(guild_id: str | None = None) -> dict:
     """Return ``{channel_id: name}`` for the guild (cached, best-effort)."""
+    gid = str(guild_id or _GUILD_INFO_SERVER_ID or "")
+    if not gid:
+        return {}
     now = time.time()
     with _meta_lock:
-        if _channels_cache["data"] is not None and now - _channels_cache["at"] < _META_TTL:
-            return _channels_cache["data"]
+        hit = _channels_cache.get(gid)
+        if hit and hit.get("data") is not None and now - hit.get("at", 0.0) < _META_TTL:
+            return hit["data"]
     out: dict = {}
     try:
         r = requests.get(
-            f"{DISCORD_API}/guilds/{_GUILD_INFO_SERVER_ID}/channels",
+            f"{DISCORD_API}/guilds/{gid}/channels",
             headers=_headers(), timeout=_TIMEOUT,
         )
         if r.ok:
             for ch in (r.json() or []):
                 out[str(ch.get("id"))] = ch.get("name") or "channel"
     except requests.RequestException:
-        return _channels_cache["data"] or {}
+        with _meta_lock:
+            return ((_channels_cache.get(gid) or {}).get("data")) or {}
     with _meta_lock:
-        _channels_cache["at"] = now
-        _channels_cache["data"] = out
+        _channels_cache[gid] = {"at": now, "data": out}
     return out
 
-def _get_member_name(user_id: str) -> str | None:
+def _get_member_name(user_id: str, guild_id: str | None = None) -> str | None:
     """Resolve a user id to a display name (server nick > global name > username).
 
     Tries the guild member endpoint first (so we get the server nickname), then
     falls back to the global user endpoint. Cached briefly; ``None`` if unknown.
     """
+    gid = str(guild_id or _GUILD_INFO_SERVER_ID or "")
+    key = (gid, str(user_id))
     now = time.time()
     with _member_lock:
-        hit = _member_cache.get(user_id)
+        hit = _member_cache.get(key)
         if hit and now - hit["at"] < _MEMBER_TTL:
             return hit["name"]
     name = None
     try:
-        r = requests.get(
-            f"{DISCORD_API}/guilds/{_GUILD_INFO_SERVER_ID}/members/{user_id}",
-            headers=_headers(), timeout=_TIMEOUT,
-        )
-        if r.ok:
-            m = r.json() or {}
-            user = m.get("user") or {}
-            name = m.get("nick") or user.get("global_name") or user.get("username")
-        else:
+        if gid:
+            r = requests.get(
+                f"{DISCORD_API}/guilds/{gid}/members/{user_id}",
+                headers=_headers(), timeout=_TIMEOUT,
+            )
+            if r.ok:
+                m = r.json() or {}
+                user = m.get("user") or {}
+                name = (
+                    m.get("nick")
+                    or m.get("display_name")
+                    or user.get("global_name")
+                    or user.get("username")
+                )
+        if not name:
             ur = requests.get(
                 f"{DISCORD_API}/users/{user_id}",
                 headers=_headers(), timeout=_TIMEOUT,
@@ -170,12 +187,26 @@ def _get_member_name(user_id: str) -> str | None:
                 name = user.get("global_name") or user.get("username")
     except requests.RequestException:
         with _member_lock:
-            return (_member_cache.get(user_id) or {}).get("name")
+            return (_member_cache.get(key) or {}).get("name")
     with _member_lock:
-        _member_cache[user_id] = {"at": now, "name": name}
+        _member_cache[key] = {"at": now, "name": name}
     return name
 
-def _resolve_mentions(body_msgs: list, body_text: str) -> dict:
+def _channel_name_fallback(channel_id: str) -> str | None:
+    """Best-effort direct channel lookup when guild channel maps miss an id."""
+    try:
+        r = requests.get(
+            f"{DISCORD_API}/channels/{channel_id}",
+            headers=_headers(), timeout=_TIMEOUT,
+        )
+        if not r.ok:
+            return None
+        data = r.json() or {}
+        return data.get("name") or None
+    except requests.RequestException:
+        return None
+
+def _resolve_mentions(body_msgs: list, body_text: str, guild_id: str | None = None) -> dict:
     """Build id->name maps for the users/roles/channels referenced in a post.
 
     Only ids actually present in the body text are resolved, so the payload
@@ -185,25 +216,43 @@ def _resolve_mentions(body_msgs: list, body_text: str) -> dict:
     users: dict = {}
     for m in body_msgs:
         for u in (m.get("mentions") or []):
-            nick = (u.get("member") or {}).get("nick")
-            if nick:
-                users[str(u.get("id"))] = nick
+            member = u.get("member") or {}
+            name = (
+                member.get("nick")
+                or member.get("display_name")
+                or u.get("global_name")
+                or u.get("username")
+            )
+            if name:
+                users[str(u.get("id"))] = name
     # Resolve every remaining <@id> in the body to its server nickname
     for uid in set(re.findall(r"<@!?(\d+)>", body_text)):
         if uid not in users:
-            users[uid] = _get_member_name(uid) or "unknown-user"
+            users[uid] = _get_member_name(uid, guild_id=guild_id) or "unknown-user"
     roles: dict = {}
     channels: dict = {}
+    # Message payloads can include resolved channel names.
+    for m in body_msgs:
+        for ch in (m.get("mention_channels") or []):
+            cid = str(ch.get("id") or "")
+            if cid:
+                channels[cid] = ch.get("name") or "channel"
     role_ids = set(re.findall(r"<@&(\d+)>", body_text))
     chan_ids = set(re.findall(r"<#(\d+)>", body_text))
     if role_ids:
-        all_roles = _get_guild_roles()
+        all_roles = _get_guild_roles(guild_id=guild_id)
         for rid in role_ids:
             roles[rid] = all_roles.get(rid) or {"name": "role", "color": None}
     if chan_ids:
-        all_channels = _get_guild_channels()
+        all_channels = _get_guild_channels(guild_id=guild_id)
         for cid in chan_ids:
-            channels[cid] = all_channels.get(cid) or "channel"
+            if cid in channels:
+                continue
+            channels[cid] = (
+                all_channels.get(cid)
+                or _channel_name_fallback(cid)
+                or "channel"
+            )
     return {"mentions": users, "roles": roles, "channels": channels}
 
 # Body splitting logic
@@ -523,7 +572,7 @@ def get_post(thread_id: str) -> dict:
     message_ids = [str(m.get("id")) for m in body_msgs]
     meta = t.get("thread_metadata") or {}
     body_text = "".join(segments)
-    maps = _resolve_mentions(body_msgs, body_text)
+    maps = _resolve_mentions(body_msgs, body_text, guild_id=str(t.get("guild_id") or ""))
     return {
         "id": str(t.get("id")),
         "title": t.get("name") or "",

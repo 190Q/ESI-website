@@ -209,6 +209,9 @@
   font-size: 0.82rem;
   line-height: 1.45;
   color: var(--text-dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   /* Discord-style fade: the body melts into the card at the bottom to hint there's more */
   -webkit-mask-image: linear-gradient(to bottom, #000 65%, transparent);
           mask-image: linear-gradient(to bottom, #000 65%, transparent);

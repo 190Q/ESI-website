@@ -497,7 +497,7 @@
       var count = (p.message_count != null) ? String(p.message_count) : '0';
       return '<div class="gi-gcard" data-id="' + esc(p.id) + '" role="button" tabindex="0">' +
           '<div class="gi-gcard-title">' + esc(p.title || '(untitled)') + '</div>' +
-          '<div class="gi-gcard-body gi-md" data-preview></div>' +
+          '<div class="gi-gcard-body" data-preview></div>' +
           '<div class="gi-gcard-foot">' +
             '<span class="gi-gcard-count" title="' + esc(count) + ' message' + (count === '1' ? '' : 's') + '">' + _ICON_MSG + esc(count) + '</span>' +
             '<span class="gi-gcard-actions">' +
@@ -553,38 +553,27 @@
     if (!prev) return;
     var seg = (cached.segments && cached.segments.length) ? cached.segments[0] : (cached.body || '');
     prev.classList.remove('gi-gcard-body--empty', 'gi-gcard-body--loading');
+    // Keep gallery preview line handling stable even if stale CSS is cached
+    prev.style.whiteSpace = 'pre-wrap';
+    prev.style.overflowWrap = 'anywhere';
+    prev.style.wordBreak = 'break-word';
     var snippet = _previewSnippet(seg);
     if (!snippet) {
       prev.textContent = '';
       prev.classList.add('gi-gcard-body--empty');
       return;
     }
-    try {
-      _renderGalleryPreviewFormatted(prev, snippet, cached);
-    } catch (e) {
-      prev.textContent = snippet;
-    }
+    prev.textContent = snippet;
   }
 
-  function _renderGalleryPreviewFormatted(el, snippet, cached) {
-    if (!el) return;
-    _mdCtx = {
-      mentions: cached && cached.mentions,
-      roles: cached && cached.roles,
-      channels: cached && cached.channels
-    };
-    if (window.DOMPurify) {
-      el.innerHTML = window.DOMPurify.sanitize(
-        _mdPreviewHtml(snippet),
-        { ADD_ATTR: ['target', 'rel', 'style', 'loading', 'decoding'] }
-      );
-    } else {
-      el.textContent = snippet == null ? '' : String(snippet);
-    }
-  }
 
   function _previewSnippet(seg) {
-    var s = String(seg == null ? '' : seg);
+    var s = String(seg == null ? '' : seg)
+      .replace(/\r\n?/g, '\n')   // normalize CRLF/CR to LF
+      .replace(/\\n/g, '\n');    // tolerate escaped newlines from older payloads
+    s = s
+      .replace(/[ \t]{2,}(?=#{1,6}\s)/g, '\n\n')
+      .replace(/[ \t]{2,}(?=(?:[-*]\s|\d+\.\s))/g, '\n');
     if (!s.trim()) return '';
     if (s.length <= 420) return s;
     var cut = s.slice(0, 420);
@@ -594,72 +583,6 @@
     return (sp > 220 ? cut.slice(0, sp) : cut) + '…';
   }
 
-  // Lightweight preview formatter: quotes, lists, and per-line text only
-  function _mdPreviewHtml(src) {
-    var lines = String(src == null ? '' : src).replace(/\r\n?/g, '\n').split('\n');
-    var out = [];
-    var inQuote = false;
-    var listType = null;   // root context: "ul" | "ol" | null
-    var qListType = null;  // quote context: "ul" | "ol" | null
-    function closeList(inQ) {
-      if (inQ) {
-        if (!qListType) return;
-        out.push(qListType === 'ol' ? '</ol>' : '</ul>');
-        qListType = null;
-        return;
-      }
-      if (!listType) return;
-      out.push(listType === 'ol' ? '</ol>' : '</ul>');
-      listType = null;
-    }
-    function openList(kind, inQ) {
-      out.push((kind === 'ol' ? '<ol class="gi-md-list">' : '<ul class="gi-md-list">'));
-      if (inQ) qListType = kind;
-      else listType = kind;
-    }
-    function closeQuote() {
-      closeList(true);
-      if (!inQuote) return;
-      out.push('</blockquote>');
-      inQuote = false;
-    }
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i];
-      var qm = line.match(/^>\s?(.*)$/);
-      var inQ = !!qm;
-      var txt = inQ ? qm[1] : line;
-      if (inQ && !inQuote) {
-        closeList(false);
-        out.push('<blockquote class="gi-md-quote">');
-        inQuote = true;
-      } else if (!inQ && inQuote) {
-        closeQuote();
-      }
-      var trimmed = txt.trim();
-      if (!trimmed) {
-        closeList(inQ);
-        continue;
-      }
-      var ord = txt.match(/^\s*\d+\.\s+(.+)$/);
-      var bul = txt.match(/^\s*[-*]\s+(.+)$/);
-      if (ord || bul) {
-        var kind = ord ? 'ol' : 'ul';
-        var body = ord ? ord[1] : bul[1];
-        var cur = inQ ? qListType : listType;
-        if (cur !== kind) {
-          closeList(inQ);
-          openList(kind, inQ);
-        }
-        out.push('<li>' + _mdInline(body) + '</li>');
-        continue;
-      }
-      closeList(inQ);
-      out.push((inQ ? '<div>' : '<p>') + _mdInline(txt) + (inQ ? '</div>' : '</p>'));
-    }
-    closeList(false);
-    closeQuote();
-    return out.join('');
-  }
 
   // Watch cards and only fetch a preview once its card scrolls near the viewport
   function _observeGallery(c) {
