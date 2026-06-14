@@ -497,7 +497,7 @@
       var count = (p.message_count != null) ? String(p.message_count) : '0';
       return '<div class="gi-gcard" data-id="' + esc(p.id) + '" role="button" tabindex="0">' +
           '<div class="gi-gcard-title">' + esc(p.title || '(untitled)') + '</div>' +
-          '<div class="gi-gcard-body" data-preview></div>' +
+          '<div class="gi-gcard-body gi-md" data-preview></div>' +
           '<div class="gi-gcard-foot">' +
             '<span class="gi-gcard-count" title="' + esc(count) + ' message' + (count === '1' ? '' : 's') + '">' + _ICON_MSG + esc(count) + '</span>' +
             '<span class="gi-gcard-actions">' +
@@ -553,38 +553,45 @@
     if (!prev) return;
     var seg = (cached.segments && cached.segments.length) ? cached.segments[0] : (cached.body || '');
     prev.classList.remove('gi-gcard-body--empty', 'gi-gcard-body--loading');
-    var text = _previewText(seg, cached);
-    if (!text) {
+    var snippet = _previewSnippet(seg);
+    if (!snippet) {
       prev.textContent = '';
       prev.classList.add('gi-gcard-body--empty');
       return;
     }
-    // Keep gallery previews plain text so cards stay cheap to render even with heavy markdown posts
-    prev.textContent = text;
+    try {
+      _renderGalleryPreviewFormatted(prev, snippet, cached);
+    } catch (e) {
+      prev.textContent = snippet;
+    }
   }
 
-  function _previewText(seg, cached) {
-    var s = String(seg == null ? '' : seg).slice(0, 800);  // hard cap before any processing
-    var ctx = cached || {};
+  function _renderGalleryPreviewFormatted(el, snippet, cached) {
+    if (!el) return;
+    _mdCtx = {
+      mentions: cached && cached.mentions,
+      roles: cached && cached.roles,
+      channels: cached && cached.channels
+    };
+    if (window.DOMPurify) {
+      el.innerHTML = window.DOMPurify.sanitize(
+        _mdInline(snippet).replace(/\n/g, '<br>'),
+        { ADD_ATTR: ['target', 'rel', 'style', 'loading', 'decoding'] }
+      );
+    } else {
+      el.textContent = snippet == null ? '' : String(snippet);
+    }
+  }
+
+  function _previewSnippet(seg) {
+    var s = String(seg == null ? '' : seg);
     if (!s.trim()) return '';
-    s = s
-      .replace(/```[\s\S]*?```/g, ' ')
-      .replace(/<(a?):(\w{2,32}):(\d+)>/g, function (_m, _anim, name) { return ':' + name + ':'; })
-      .replace(/<#(\d+)>/g, function (_m, id) { return '#' + (((ctx.channels || {})[id]) || 'channel'); })
-      .replace(/<@&(\d+)>/g, function (_m, id) {
-        var r = (ctx.roles || {})[id];
-        return '@' + ((r && r.name) || 'role');
-      })
-      .replace(/<@!?(\d+)>/g, function (_m, id) { return '@' + (((ctx.mentions || {})[id]) || 'user'); })
-      .replace(/<\/([\w -]{1,64}):\d+>/g, function (_m, name) { return '/' + name; })
-      .replace(/<t:-?\d+(?::[tTdDfFR])?>/g, '')
-      .replace(/[*_~`>#|]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (s.length <= 240) return s;
-    var cut = s.slice(0, 240);
+    if (s.length <= 420) return s;
+    var cut = s.slice(0, 420);
+    var nl = cut.lastIndexOf('\n');
+    if (nl > 220) return cut.slice(0, nl) + '…';
     var sp = cut.lastIndexOf(' ');
-    return (sp > 140 ? cut.slice(0, sp) : cut) + '…';
+    return (sp > 220 ? cut.slice(0, sp) : cut) + '…';
   }
 
   // Watch cards and only fetch a preview once its card scrolls near the viewport
