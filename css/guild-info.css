@@ -527,6 +527,10 @@
 .gi-md em { font-style: italic; }
 .gi-md u { text-decoration: underline; }
 .gi-md s { text-decoration: line-through; opacity: 0.85; }
+.gi-body-preview a,
+.gi-body-preview a:visited { color: var(--gold-light); text-decoration: underline; }
+.gi-body-preview a:hover { text-decoration: none; }
+.gi-body-preview a strong { color: inherit; }  /* bold link text keeps the link colour */
 .gi-md a { color: var(--gold-light); text-decoration: underline; }
 .gi-md a:hover { text-decoration: none; }
 .gi-md a strong { color: inherit; }  /* bold link text keeps the link colour */
