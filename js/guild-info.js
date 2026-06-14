@@ -730,7 +730,7 @@
     text = text
       .replace(/<(a?):(\w{2,32}):(\d+)>/g, function (_m, anim, name, id) {
         var url = 'https://cdn.discordapp.com/emojis/' + id + (anim ? '.gif' : '.png') + '?size=44';
-        return stash('<img class="gi-emoji" src="' + _mdEsc(url) + '" alt=":' + _mdEsc(name) + ':" title=":' + _mdEsc(name) + ':">');
+        return stash('<img class="gi-emoji" loading="lazy" decoding="async" src="' + _mdEsc(url) + '" alt=":' + _mdEsc(name) + ':" title=":' + _mdEsc(name) + ':">');
       })
       .replace(/<#(\d+)>/g, function (_m, id) {
         var nm = (ctx.channels && ctx.channels[id]) || 'channel';
@@ -854,7 +854,7 @@
     if (!el) return;
     _mdCtx = ctx || {};   // mention/role/channel maps consumed by _mdInline
     if (window.DOMPurify) {
-      el.innerHTML = window.DOMPurify.sanitize(_mdToHtml(text), { ADD_ATTR: ['target', 'rel', 'style'] });
+      el.innerHTML = window.DOMPurify.sanitize(_mdToHtml(text), { ADD_ATTR: ['target', 'rel', 'style', 'loading', 'decoding'] });
     } else {
       el.textContent = text == null ? '' : String(text);  // no sanitiser -> safe plain text
     }
@@ -882,6 +882,7 @@
       img.src = src;                       // property assignment, never innerHTML
       img.alt = (im && im.name) || '';
       img.loading = 'lazy';
+      img.decoding = 'async';
       a.appendChild(img);
       wrap.appendChild(a);
     });
@@ -931,21 +932,16 @@
   }
 
   function openPostView(threadId) {
-    var cached = _postCache[String(threadId)];
-    if (cached) {                                   // show cached body instantly
-      _renderPostView(cached);
-      if (Date.now() - cached.at > _TTL) {          // refresh quietly when stale
-        apiGet('/api/admin/guild-info/posts/' + encodeURIComponent(threadId)).then(function (res) {
-          if (res.ok && res.data && !res.data.error) {
-            _cachePost(res.data);
-            if (_openView === String(threadId)) _renderPostView(res.data);
-          }
-        }).catch(function () { /* keep showing the cached copy */ });
-      }
+    var id = String(threadId);
+    var cached = _postCache[id];
+    if (cached) {                                   // already loaded (e.g. by the gallery): just display it, no refetch
+      _renderPostView(cached);                      // (_renderPostView sets _openView)
       return;
     }
     showModal(loadingHTML('Loading\u2026'));
-    apiGet('/api/admin/guild-info/posts/' + encodeURIComponent(threadId)).then(function (res) {
+    _openView = id;                                 // set AFTER showModal (which clears _openView)
+    apiGet('/api/admin/guild-info/posts/' + encodeURIComponent(id)).then(function (res) {
+      if (_openView !== id) return;                 // user already opened/closed something else
       if (!(res.ok && res.data && !res.data.error)) {
         setModalContent(emptyHTML((res.data && res.data.error) || 'Failed to load post.') +
           '<div class="gi-modal-actions"><button class="gi-btn" data-close>Close</button></div>');
@@ -954,6 +950,7 @@
       _cachePost(res.data);
       _renderPostView(res.data);
     }).catch(function () {
+      if (_openView !== id) return;
       setModalContent(emptyHTML('Network error.') +
         '<div class="gi-modal-actions"><button class="gi-btn" data-close>Close</button></div>');
     });
