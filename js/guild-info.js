@@ -1556,6 +1556,93 @@
     });
   }
 
+  // Build one key/value row for the log detail popup (value via textContent)
+  function _logKV(host, key, value) {
+    var row = document.createElement('div'); row.className = 'gi-q-row';
+    var k = document.createElement('span'); k.className = 'gi-q-k'; k.textContent = key;
+    var v = document.createElement('span'); v.className = 'gi-q-v';
+    v.textContent = value == null ? '' : String(value);
+    row.appendChild(k); row.appendChild(v); host.appendChild(row);
+    return v;
+  }
+  // A label-only row that introduces a body block
+  function _logSection(host, label) {
+    var row = document.createElement('div'); row.className = 'gi-q-row';
+    var k = document.createElement('span'); k.className = 'gi-q-k'; k.textContent = label;
+    row.appendChild(k); host.appendChild(row);
+  }
+  function _logBodyBox(host, extraCls) {
+    var box = document.createElement('div');
+    box.className = 'gi-q-body' + (extraCls ? (' ' + extraCls) : '');
+    host.appendChild(box);
+    return box;
+  }
+
+  // Detailed "what changed" popup for a single log entry
+  function openLogDetail(e, titleMap) {
+    var d = {}, raw = null;
+    if (e.details) {
+      try { d = JSON.parse(e.details) || {}; }
+      catch (x) { d = {}; raw = String(e.details); }
+    }
+    showModal(
+      '<div class="gi-modal-title">Log details</div>' +
+      '<div class="gi-modal-sub" id="giLogStatus"></div>' +
+      '<div class="gi-log-detail" id="giLogDetailBody"></div>' +
+      '<div class="gi-modal-actions"><button class="gi-btn" data-close>Close</button></div>'
+    );
+    var statusEl = document.getElementById('giLogStatus');
+    if (statusEl) {
+      var badge = document.createElement('span');
+      badge.className = 'gi-log-action' + _logActionClass(e.action);
+      badge.textContent = _logActionLabel(e.action) || (e.action || '');
+      statusEl.appendChild(badge);
+    }
+    var host = document.getElementById('giLogDetailBody');
+    if (!host) return;
+    _logKV(host, 'When', fmtDate(e.timestamp));
+    if (e.actor) _logKV(host, 'By', e.actor);
+    // Unparseable details: show the raw string and stop
+    if (raw != null) { _logKV(host, 'Details', raw); return; }
+    if (d.action) _logKV(host, 'Change', _logOpLabel(d));
+    // Title: before/after when it changed, else a single identifying value
+    if (d.before_title != null && d.before_title !== '') {
+      _logKV(host, 'From', d.before_title);
+      _logKV(host, 'To', d.title || '');
+    } else if (d.title != null && d.title !== '') {
+      _logKV(host, d.action === 'create' ? 'Title' : 'Post', d.title);
+    }
+    // Body: word-level diff when both sides exist, else whichever side we have
+    var hasBefore = d.before_body != null, hasAfter = d.after_body != null;
+    if (hasBefore && hasAfter) {
+      var ops = _diffOps(d.before_body, d.after_body);
+      _logSection(host, 'Before'); _fillDiff(_logBodyBox(host, 'gi-q-old'), ops, 'old');
+      _logSection(host, 'After');  _fillDiff(_logBodyBox(host), ops, 'new');
+    } else if (hasAfter) {
+      _logSection(host, d.action === 'create' ? 'Body' : 'New');
+      _logBodyBox(host).textContent = d.after_body;
+    } else if (hasBefore) {
+      _logSection(host, 'Removed');
+      _logBodyBox(host, 'gi-q-old').textContent = d.before_body;
+    }
+    // Counts
+    if (d.messages != null && (d.action === 'create' || d.action === 'edit_body' || d.action === 'edit')) {
+      _logKV(host, 'Msgs', d.messages);
+    }
+    if (d.images) _logKV(host, 'Images', d.images);
+    // Privilege actions carry a user instead of post content
+    if (d.username) _logKV(host, 'User', d.username);
+    if (d.discord_id) _logKV(host, 'ID', d.discord_id);
+    // Flags / notes
+    if (d.edited) _logKV(host, 'Edited', 'Before approval');
+    if (d.reason) _logKV(host, 'Reason', d.reason);
+    if (d.error) _logKV(host, 'Error', d.error);
+    if (d.warning) _logKV(host, 'Warning', d.warning);
+    // Thread id for content actions (audit trail)
+    var tid = d.thread_id || e.target_id;
+    if (d.action && tid) _logKV(host, 'Thread', tid);
+  }
+
   function drawLogs(c) {
     if (!_logs.length) { setHTML(c, emptyHTML('No log entries yet.')); return; }
     // Resolve post titles by thread id so edits show which post they touched
@@ -1578,6 +1665,14 @@
       var a = row.querySelector('[data-actor]');  if (a) a.textContent = e.actor || '';
       var ac = row.querySelector('[data-action]'); if (ac) { ac.textContent = _logActionLabel(e.action); ac.className = 'gi-log-action' + _logActionClass(e.action); }
       var d = row.querySelector('[data-det]');    if (d) d.textContent = _logDetail(e, titleMap);
+      row.style.cursor = 'pointer';
+      row.setAttribute('role', 'button');
+      row.setAttribute('tabindex', '0');
+      row.title = 'View details';
+      row.addEventListener('click', function () { openLogDetail(e, titleMap); });
+      row.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openLogDetail(e, titleMap); }
+      });
     });
     var moreBtn = document.getElementById('giLogsMore');
     if (moreBtn) moreBtn.addEventListener('click', function () {

@@ -127,12 +127,21 @@ def _cancel_thread_requests(thread_id, actor: str, exclude_id: str | None = None
                       {"action": c.get("action"), "thread_id": str(thread_id),
                        "reason": "post deleted"})
 
+def _join_body(body) -> str:
+    """Flatten a body (segments list or string) into one display string."""
+    if body is None:
+        return ""
+    if isinstance(body, (list, tuple)):
+        return "".join("" if s is None else str(s) for s in body)
+    return str(body)
+
 def _log_details(action: str, *, thread_id=None, title=None, body=None,
-                 attachments=None) -> dict:
+                 attachments=None, prev_title=None, prev_body=None) -> dict:
     """Build a rich audit-log detail dict for a content action.
 
-    Captures which parts a combined edit touched and the message/image counts so
-    the Logs view shows what actually changed instead of a bare action name.
+    Captures which parts a combined edit touched, the message/image counts, and
+    before/after title & body snapshots so the Logs view can show exactly what
+    changed instead of a bare action name.
     """
     details: dict = {"action": action}
     if thread_id:
@@ -153,6 +162,14 @@ def _log_details(action: str, *, thread_id=None, title=None, body=None,
     if attachments is not None:
         details["images"] = sum(len(m) for m in attachments
                                 if isinstance(m, (list, tuple)))
+    # Before/after snapshots power the Logs detail popup
+    title_changed = action == "edit_title" or (action == "edit" and title is not None)
+    if title_changed and prev_title is not None and str(prev_title) != "":
+        details["before_title"] = prev_title
+    if prev_body is not None and str(prev_body) != "":
+        details["before_body"] = _join_body(prev_body)
+    if body is not None:
+        details["after_body"] = _join_body(body)
     return details
 
 def execute_action(action: str, *, thread_id: str | None = None,
@@ -184,12 +201,14 @@ def execute_action(action: str, *, thread_id: str | None = None,
     return {"error": f"Unknown action: {action}"}
 
 def direct_action(action: str, actor: str, *, thread_id: str | None = None,
-                  title: str | None = None, body=None, attachments=None) -> dict:
+                  title: str | None = None, body=None, attachments=None,
+                  prev_title: str | None = None, prev_body: str | None = None) -> dict:
     """Execute a forum action immediately (full-rights tier) and log it."""
     result = execute_action(action, thread_id=thread_id, title=title, body=body,
                             attachments=attachments)
     details = _log_details(action, thread_id=result.get("id") or thread_id,
-                           title=title, body=body, attachments=attachments)
+                           title=title, body=body, attachments=attachments,
+                           prev_title=prev_title, prev_body=prev_body)
     if result.get("error"):
         details["error"] = result["error"]
         db.log_action(actor, "action_failed", thread_id, details)
@@ -217,7 +236,8 @@ def submit_request(action: str, *, thread_id: str | None = None,
         requester_name or requester_id, "request_submitted", req["id"],
         _log_details(action, thread_id=thread_id,
                      title=title if title is not None else prev_title,
-                     body=body, attachments=attachments),
+                     body=body, attachments=attachments,
+                     prev_title=prev_title, prev_body=prev_body),
     )
     return _public_request(req)
 
@@ -260,7 +280,9 @@ def approve_request(request_id: str, actor: str, edited_title=None,
     if result.get("error"):
         db.resolve_request(request_id, "failed", actor, deny_reason=result["error"])
         fail_details = _log_details(action, thread_id=thread_id, title=log_title,
-                                    body=body, attachments=attachments)
+                                    body=body, attachments=attachments,
+                                    prev_title=req.get("prev_title"),
+                                    prev_body=req.get("prev_body"))
         fail_details["error"] = result["error"]
         db.log_action(actor, "request_failed", request_id, fail_details)
         return {"error": result["error"]}
@@ -268,7 +290,9 @@ def approve_request(request_id: str, actor: str, edited_title=None,
     result_thread = result.get("id") or thread_id
     db.resolve_request(request_id, "approved", actor, result_thread_id=result_thread)
     ok_details = _log_details(action, thread_id=result_thread, title=log_title,
-                              body=body, attachments=attachments)
+                              body=body, attachments=attachments,
+                              prev_title=req.get("prev_title"),
+                              prev_body=req.get("prev_body"))
     ok_details["edited"] = edited_title is not None or edited_body is not None
     if result.get("warning"):
         ok_details["warning"] = result["warning"]
@@ -290,9 +314,13 @@ def deny_request(request_id: str, actor: str, reason: str) -> dict:
         return {"error": "Request is not pending"}
 
     db.resolve_request(request_id, "denied", actor, deny_reason=reason)
+    req_view = _body_view(req.get("body"))
+    deny_body = req_view.get("segments") if req["action"] in ("create", "edit_body") else None
     deny_details = _log_details(
         req["action"], thread_id=req.get("thread_id"),
         title=req.get("title") if req.get("title") else req.get("prev_title"),
+        body=deny_body,
+        prev_title=req.get("prev_title"), prev_body=req.get("prev_body"),
     )
     deny_details["reason"] = reason
     db.log_action(actor, "request_denied", request_id, deny_details)

@@ -602,6 +602,29 @@ def create_post(title: str, body, attachments=None) -> dict:
         result["warning"] = f"Post created but {failed} follow-up message(s) failed"
     return result
 
+def _message_unchanged(existing_msg: dict, seg: str, imgs, manage: bool) -> bool:
+    """True when an existing message already matches the desired segment.
+
+    Lets :func:`edit_body` skip messages that didn't change, so editing one
+    message of a multi-message post doesn't re-PATCH (and risk rate-limiting)
+    every other message.
+    """
+    if (existing_msg.get("content") or "") != (seg or ""):
+        return False
+    if not manage:
+        # Attachments are left untouched, so matching content is enough
+        return True
+    have = [str(a.get("id")) for a in (existing_msg.get("attachments") or [])]
+    want: list = []
+    for img in (imgs or []):
+        if not isinstance(img, dict):
+            continue
+        if img.get("id"):
+            want.append(str(img["id"]))
+        else:
+            return False   # a freshly staged upload always counts as a change
+    return want == have
+
 def edit_body(thread_id: str, body, attachments=None) -> dict:
     """Replace a post's body, reconciling existing messages with new segments.
 
@@ -632,7 +655,12 @@ def edit_body(thread_id: str, body, attachments=None) -> dict:
         for i, seg in enumerate(segments):
             imgs = seg_atts[i] if manage else None
             if i < len(existing):
-                mid = str(existing[i]["id"])
+                em = existing[i]
+                mid = str(em["id"])
+                # Only edit messages that actually changed
+                if _message_unchanged(em, seg, imgs, manage):
+                    message_ids.append(mid)
+                    continue
                 er, staged = _edit_message(thread_id, mid, seg, imgs)
                 if i == 0 and not er.ok:
                     return _err(er, "Failed to edit post body")
