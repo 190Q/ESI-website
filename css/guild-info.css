@@ -557,12 +557,14 @@
   background: var(--surface-3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  overflow-x: auto;
+  overflow-x: hidden;
 }
 .gi-md .gi-md-pre code {
   font-family: var(--font-body);
   font-size: 0.82rem;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   color: var(--text-main);
 }
 .gi-spoiler {

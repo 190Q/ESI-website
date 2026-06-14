@@ -1101,8 +1101,17 @@
       if (fence) {
         flush();
         var buf = []; i++;
-        while (i < lines.length && !/^```\s*$/.test(lines[i])) { buf.push(lines[i]); i++; }
-        i++;
+        while (i < lines.length) {
+          var codeLine = lines[i];
+          if (/^```\s*$/.test(codeLine)) { i++; break; }
+          var inlineClose = codeLine.match(/^(.*?)\s*```\s*$/);
+          if (inlineClose) {
+            if (inlineClose[1]) buf.push(inlineClose[1]);
+            i++;
+            break;
+          }
+          buf.push(codeLine); i++;
+        }
         out.push('<pre class="gi-md-pre"><code>' + _mdEsc(buf.join('\n')) + '</code></pre>');
         continue;
       }
