@@ -149,10 +149,10 @@ def _get_guild_channels(guild_id: str | None = None) -> dict:
     return out
 
 def _get_member_name(user_id: str, guild_id: str | None = None) -> str | None:
-    """Resolve a user id to a display name (server nick > global name > username).
+    """Resolve a user id to a display name (server nick > username).
 
-    Tries the guild member endpoint first (so we get the server nickname), then
-    falls back to the global user endpoint. Cached briefly; ``None`` if unknown.
+    Tries the guild member endpoint first (so we get the source-guild nickname),
+    then falls back to username. Cached briefly; ``None`` if unknown.
     """
     gid = str(guild_id or _GUILD_INFO_SERVER_ID or "")
     key = (gid, str(user_id))
@@ -174,7 +174,6 @@ def _get_member_name(user_id: str, guild_id: str | None = None) -> str | None:
                 name = (
                     m.get("nick")
                     or m.get("display_name")
-                    or user.get("global_name")
                     or user.get("username")
                 )
         if not name:
@@ -184,7 +183,7 @@ def _get_member_name(user_id: str, guild_id: str | None = None) -> str | None:
             )
             if ur.ok:
                 user = ur.json() or {}
-                name = user.get("global_name") or user.get("username")
+                name = user.get("username")
     except requests.RequestException:
         with _member_lock:
             return (_member_cache.get(key) or {}).get("name")
@@ -214,21 +213,34 @@ def _resolve_mentions(body_msgs: list, body_text: str, guild_id: str | None = No
     arrays), roles/channels via the cached guild lookups.
     """
     users: dict = {}
+    fallbacks: dict = {}
     for m in body_msgs:
         for u in (m.get("mentions") or []):
+            uid = str(u.get("id") or "")
+            if not uid:
+                continue
             member = u.get("member") or {}
-            name = (
+            nick = (
                 member.get("nick")
                 or member.get("display_name")
-                or u.get("global_name")
-                or u.get("username")
             )
-            if name:
-                users[str(u.get("id"))] = name
-    # Resolve every remaining <@id> in the body to its server nickname
-    for uid in set(re.findall(r"<@!?(\d+)>", body_text)):
+            if nick:
+                users[uid] = nick
+                continue
+            # Keep a username fallback from Discord's mention payload
+            fallback = u.get("username") or u.get("global_name")
+            if fallback:
+                fallbacks[uid] = fallback
+    # Resolve every mentioned <@id> in the body to source-guild nickname first
+    mention_ids = set(re.findall(r"<@!?(\d+)>", body_text))
+    mention_ids.update(fallbacks.keys())
+    for uid in mention_ids:
         if uid not in users:
-            users[uid] = _get_member_name(uid, guild_id=guild_id) or "unknown-user"
+            users[uid] = (
+                _get_member_name(uid, guild_id=guild_id)
+                or fallbacks.get(uid)
+                or "unknown-user"
+            )
     roles: dict = {}
     channels: dict = {}
     # Message payloads can include resolved channel names.

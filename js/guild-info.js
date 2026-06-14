@@ -32,6 +32,7 @@
   var _queueSort    = 'oldest'; // queue order: oldest (backend default) | newest
   var _logsAt       = 0;      // ms epoch of the last successful logs (page 1) fetch
   var _postCache    = {};     // thread_id -> { id, title, body, segments, archived, at }
+  var _postFetchInFlight = {}; // thread_id -> Promise resolving one shared /posts/:id fetch
   var _TTL          = 120000; // stale-while-revalidate window (2 min): serve cache, refresh quietly after
   var _mdCtx        = {};     // { mentions, roles, channels } id->name maps for the open View body
   var _postsView    = (function () {  // posts layout: 'list' | 'gallery' (remembered across sessions)
@@ -59,6 +60,51 @@
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function _needsFastBodyRender(text) {
+    var s = String(text == null ? '' : text);
+    if (s.length < 700) return false;
+    var lines = (s.match(/\n/g) || []).length + 1;
+    var blocks = (s.match(/(^|\n)\s*(?:>|#{1,6}\s|[-*]\s|\d+\.\s)/g) || []).length;
+    if (lines >= 16 && blocks >= 4) return true;
+    return blocks >= 8;
+  }
+  function _renderBodyFastText(text, ctx) {
+    ctx = ctx || {};
+    return String(text == null ? '' : text)
+      .replace(/<(a?):(\w{2,32}):(\d+)>/g, function (_m, _a, name) { return ':' + name + ':'; })
+      .replace(/<#(\d+)>/g, function (_m, id) { return '#' + ((ctx.channels && ctx.channels[id]) || 'channel'); })
+      .replace(/<@&(\d+)>/g, function (_m, id) {
+        var r = ctx.roles && ctx.roles[id];
+        return '@' + ((r && r.name) || 'role');
+      })
+      .replace(/<@!?(\d+)>/g, function (_m, id) { return '@' + ((ctx.mentions && ctx.mentions[id]) || 'user'); })
+      .replace(/<\/([\w -]{1,64}):(\d+)>/g, function (_m, name) { return '/' + name; })
+      .replace(/<t:(-?\d+)(?::([tTdDfFR]))?>/g, function (_m, ts, sty) { return _mdTime(+ts, sty || 'f'); });
+  }
+  function _renderBodyFastLinks(el, text) {
+    if (!el) return;
+    var s = String(text == null ? '' : text);
+    var re = /\[([^\]\n]+?)\]\((https?:\/\/[^)\s]+|\/[^)\s]*)\)/g;
+    var pos = 0;
+    var m;
+    el.textContent = '';
+    while ((m = re.exec(s))) {
+      if (m.index > pos) el.appendChild(document.createTextNode(s.slice(pos, m.index)));
+      var safe = _mdUrl(m[2]);
+      if (safe) {
+        var a = document.createElement('a');
+        a.href = safe;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = m[1];
+        el.appendChild(a);
+      } else {
+        el.appendChild(document.createTextNode(m[0]));
+      }
+      pos = re.lastIndex;
+    }
+    if (pos < s.length) el.appendChild(document.createTextNode(s.slice(pos)));
   }
 
   // Rule: never assign user content to innerHTML without sanitising it first
@@ -378,14 +424,89 @@
   }
 
   /* Posts tab */
+  function _cloneMsgAttachments(atts) {
+    if (!Array.isArray(atts)) return null;
+    return atts.map(function (msg) {
+      if (!Array.isArray(msg)) return [];
+      return msg.map(function (im) {
+        if (!im || typeof im !== 'object') return im;
+        return {
+          id: im.id, name: im.name, url: im.url, file: im.file,
+          content_type: im.content_type, size: im.size
+        };
+      });
+    });
+  }
   function _cachePost(p) {
     if (!p || p.id == null) return;
+    var segs = Array.isArray(p.segments) ? p.segments.slice() : null;
+    var body = (p.body != null) ? String(p.body) : (segs ? segs.join('') : '');
     _postCache[String(p.id)] = {
-      id: String(p.id), title: p.title || '', body: p.body || '',
-      segments: p.segments || null, attachments: p.attachments || null,
+      id: String(p.id), title: p.title || '', body: body,
+      segments: segs, attachments: _cloneMsgAttachments(p.attachments),
       mentions: p.mentions || null, roles: p.roles || null, channels: p.channels || null,
       archived: !!p.archived, at: Date.now(),
     };
+  }
+
+  function _dropPostCache(id) {
+    id = String(id == null ? '' : id);
+    if (!id) return;
+    delete _postCache[id];
+    delete _postFetchInFlight[id];
+  }
+
+  function _fetchPostOnce(id) {
+    id = String(id == null ? '' : id);
+    if (!id) return Promise.resolve(null);
+    if (_postCache[id]) return Promise.resolve(_postCache[id]);
+    if (_postFetchInFlight[id]) return _postFetchInFlight[id];
+    var req = apiGet('/api/admin/guild-info/posts/' + encodeURIComponent(id))
+      .then(function (res) {
+        if (res.ok && res.data && !res.data.error) {
+          _cachePost(res.data);
+          return _postCache[id] || null;
+        }
+        return null;
+      })
+      .catch(function () { return null; })
+      .then(function (post) {
+        delete _postFetchInFlight[id];
+        return post;
+      });
+    _postFetchInFlight[id] = req;
+    return req;
+  }
+
+  // Build a local cache entry from editor payload
+  function _cachePostFromEditor(id, title, segments, attachments) {
+    id = String(id == null ? '' : id);
+    if (!id) return;
+    var old = _postCache[id] || {};
+    var cacheSegs = [];
+    var cacheAtts = [];
+    var segs = Array.isArray(segments) ? segments : [];
+    var atts = Array.isArray(attachments) ? attachments : [];
+    segs.forEach(function (seg, i) {
+      var parts = splitBody(seg == null ? '' : String(seg));
+      var msgAtts = Array.isArray(atts[i]) ? atts[i] : [];
+      for (var j = 0; j < parts.length; j++) {
+        cacheSegs.push(parts[j]);
+        cacheAtts.push(j === parts.length - 1 ? msgAtts : []);
+      }
+    });
+    if (!cacheSegs.length) { cacheSegs = ['']; cacheAtts = [[]]; }
+    _cachePost({
+      id: id,
+      title: title || old.title || '',
+      body: cacheSegs.join(''),
+      segments: cacheSegs,
+      attachments: cacheAtts,
+      mentions: old.mentions || null,
+      roles: old.roles || null,
+      channels: old.channels || null,
+      archived: !!old.archived,
+    });
   }
 
   function fetchPosts(cb) {
@@ -628,9 +749,7 @@
         if (_postCache[id] || _galleryFetching[id]) return;
         _galleryFetching[id] = true;
         _galleryActive++;
-        apiGet('/api/admin/guild-info/posts/' + encodeURIComponent(id)).then(function (res) {
-          if (res.ok && res.data && !res.data.error) _cachePost(res.data);
-        }).catch(function () { /* leave it; a later open will retry */ }).then(function () {
+        _fetchPostOnce(id).then(function () {
           delete _galleryFetching[id];
           _galleryActive--;
           if (_activeTab === 'posts' && _postsView === 'gallery') {
@@ -712,15 +831,15 @@
                        ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
   }
-  function _mdStyle(s) {           // bold/italic/underline/strike/spoiler (order matters)
-    return String(s)
-      .replace(/\|\|([\s\S]+?)\|\|/g, '<span class="gi-spoiler" role="button" tabindex="0">$1</span>')
-      .replace(/\*\*\*([\s\S]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
-      .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/__([\s\S]+?)__/g, '<u>$1</u>')
-      .replace(/~~([\s\S]+?)~~/g, '<s>$1</s>')
-      .replace(/\*([\s\S]+?)\*/g, '<em>$1</em>')
-      .replace(/(^|[^\w*])_([^_\n]+?)_(?![\w])/g, '$1<em>$2</em>');
+  function _mdStyle(s) {           // bold/underline/strike/spoiler (line-scoped, cheap)
+    return String(s).split('\n').map(function (ln) {
+      return ln
+        .replace(/\|\|([^|\n]+?)\|\|/g, '<span class=\"gi-spoiler\" role=\"button\" tabindex=\"0\">$1</span>')
+        .replace(/\*\*\*([^*\n]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+        .replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/__([^_\n]+?)__/g, '<u>$1</u>')
+        .replace(/~~([^~\n]+?)~~/g, '<s>$1</s>');
+    }).join('\n');
   }
   function _mdInline(text) {
     var store = [];
@@ -861,11 +980,19 @@
   function _renderBody(el, text, ctx) {
     if (!el) return;
     _mdCtx = ctx || {};   // mention/role/channel maps consumed by _mdInline
+    var raw = text == null ? '' : String(text);
+    if (_needsFastBodyRender(raw)) {
+      el.classList.remove('gi-md');
+      _renderBodyFastLinks(el, _renderBodyFastText(raw, _mdCtx));
+      return;
+    }
     try {
+      el.classList.add('gi-md');
       if (window.DOMPurify) {
-        el.innerHTML = window.DOMPurify.sanitize(_mdToHtml(text), { ADD_ATTR: ['target', 'rel', 'style', 'loading', 'decoding'] });
+        el.innerHTML = window.DOMPurify.sanitize(_mdToHtml(raw), { ADD_ATTR: ['target', 'rel', 'style', 'loading', 'decoding'] });
       } else {
-        el.textContent = text == null ? '' : String(text);  // no sanitiser -> safe plain text
+        el.classList.remove('gi-md');
+        el.textContent = raw;  // no sanitiser -> safe plain text
       }
       el.querySelectorAll('.gi-spoiler').forEach(function (sp) {
         function reveal() { sp.classList.add('gi-spoiler--shown'); }
@@ -876,7 +1003,8 @@
       });
     } catch (e) {
       // A malformed body must never break the whole posts view
-      el.textContent = text == null ? '' : String(text);
+      el.classList.remove('gi-md');
+      el.textContent = raw;
     }
   }
 
@@ -931,7 +1059,7 @@
         block.className = 'gi-view-msg';
         if (seg != null && String(seg).trim() !== '') {
           var bodyEl = document.createElement('div');
-          bodyEl.className = 'gi-body-preview gi-md';
+          bodyEl.className = 'gi-body-preview';
           _renderBody(bodyEl, seg, ctx);
           block.appendChild(bodyEl);
         }
@@ -953,15 +1081,14 @@
     }
     showModal(loadingHTML('Loading\u2026'));
     _openView = id;                                 // set AFTER showModal (which clears _openView)
-    apiGet('/api/admin/guild-info/posts/' + encodeURIComponent(id)).then(function (res) {
+    _fetchPostOnce(id).then(function (post) {
       if (_openView !== id) return;                 // user already opened/closed something else
-      if (!(res.ok && res.data && !res.data.error)) {
-        setModalContent(emptyHTML((res.data && res.data.error) || 'Failed to load post.') +
+      if (!post) {
+        setModalContent(emptyHTML('Failed to load post.') +
           '<div class="gi-modal-actions"><button class="gi-btn" data-close>Close</button></div>');
         return;
       }
-      _cachePost(res.data);
-      _renderPostView(res.data);
+      _renderPostView(post);
     }).catch(function () {
       if (_openView !== id) return;
       setModalContent(emptyHTML('Network error.') +
@@ -1189,15 +1316,14 @@
                    : (cached.body ? [cached.body] : []), cached.attachments);
       titleEl.focus();
     } else if (isEdit) {                    // first time: fetch the body, then cache it
-      apiGet('/api/admin/guild-info/posts/' + encodeURIComponent(post.id)).then(function (res) {
+      _fetchPostOnce(post.id).then(function (full) {
         var ld = document.querySelector('#giModal .gi-loading'); if (ld) ld.remove();
         var form = document.getElementById('giForm'); if (form) form.style.display = '';
-        if (res.ok && res.data && !res.data.error) {
-          _cachePost(res.data);
-          titleEl.value = res.data.title || post.title || '';
+        if (full) {
+          titleEl.value = full.title || post.title || '';
           origTitle = titleEl.value;
-          loadSegments(res.data.segments && res.data.segments.length ? res.data.segments
-                       : (res.data.body ? [res.data.body] : []), res.data.attachments);
+          loadSegments(full.segments && full.segments.length ? full.segments
+                       : (full.body ? [full.body] : []), full.attachments);
         } else {
           titleEl.value = post.title || '';
           origTitle = titleEl.value;
@@ -1269,15 +1395,7 @@
           if (res.data.warning) toast('\u26a0 ' + res.data.warning, 'warn');
           var savedId = isEdit ? String(threadId) : (res.data.id != null ? String(res.data.id) : null);
           if (savedId != null) {
-            var hasImages = attachments.some(function (a) { return a && a.length; });
-            if (!isEdit && !hasImages) {
-              var cacheSegs = [];
-              segments.forEach(function (s) { splitBody(s).forEach(function (piece) { cacheSegs.push(piece); }); });
-              _cachePost({ id: savedId, title: title, body: cacheSegs.join('\n\n'),
-                           segments: cacheSegs, attachments: [], archived: false });
-            } else {
-              delete _postCache[savedId];   // body cache may hold stale staged urls
-            }
+            _cachePostFromEditor(savedId, title, segments, attachments);
           }
           var msgCount = segments.reduce(function (n, s) { return n + splitBody(s).length; }, 0);
           if (Array.isArray(_posts)) {
@@ -1336,7 +1454,7 @@
         if (res.ok && (res.data.ok || res.data.id)) {
           toast(isParliament ? '\u2713 Delete request submitted.' : '\u2713 Post deleted.', 'success');
           closeModal();
-          if (!isParliament) delete _postCache[String(post.id)];   // really gone
+          if (!isParliament) _dropPostCache(String(post.id));   // really gone
           // A delete shifts the queue
           _posts = null; _logs = null; _queue = null;
           if (_state && _state.can_approve) fetchQueue(function () { _updateNavBadge(); _updateQueueTabBadge(); });
@@ -1687,7 +1805,7 @@
           toast('\u2713 Approved.', 'success');
           if (res.data.result && res.data.result.warning) toast('\u26a0 ' + res.data.result.warning, 'warn');
           closeModal();
-          if (req.thread_id) delete _postCache[String(req.thread_id)];  // body may have changed
+          if (req.thread_id) _dropPostCache(String(req.thread_id));  // body may have changed
           _queue = null; _posts = null; _logs = null;
           renderQueue(document.getElementById('giContent'));
         } else {
