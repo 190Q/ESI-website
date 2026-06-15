@@ -11,6 +11,7 @@ from config import (
     _SHOP_DB,
     _USERNAME_MATCHES_JSON, _load_json_file,
     DISCORD_API, DISCORD_TOKEN,
+    RUN_AUCTION_WORKER,
 )
 from shop.ep_balance import (
     resolve_uuid_for_user, fetch_ep_balance, resolve_spend, InsufficientFunds,
@@ -1147,6 +1148,25 @@ def auction_close_loop():
         except Exception as exc:
             print(f"[AUCTION] Close worker error: {exc}", file=sys.stderr)
 
-def start_auction_close_worker():
-    """Start the background auction-close daemon thread."""
+_auction_worker_started = False
+
+def start_auction_close_worker() -> bool:
+    """Start the background auction-close daemon thread.
+
+    The worker must run on exactly one deployment so auction DMs are sent once.
+    It is skipped when RUN_AUCTION_WORKER is False (DEV_MODE / local testing)
+    and is idempotent within a process. Returns True if a worker thread was
+    started by this call.
+    """
+    global _auction_worker_started
+    if not RUN_AUCTION_WORKER:
+        print("[AUCTION] Close worker disabled (DEV_MODE or ESI_RUN_AUCTION_WORKER=0); "
+              "the production instance owns auction notifications.", file=sys.stderr)
+        return False
+    if _auction_worker_started:
+        print("[AUCTION] Close worker already started in this process; skipping.",
+              file=sys.stderr)
+        return False
+    _auction_worker_started = True
     threading.Thread(target=auction_close_loop, daemon=True).start()
+    return True

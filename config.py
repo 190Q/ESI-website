@@ -169,6 +169,15 @@ if _DEV_MODE_EXPLICIT and not _DEV_MODE_AUTO and DISCORD_REDIRECT_URI:
     )
     sys.exit(1)
 
+# Auction-close worker ownership
+_RUN_WORKER_ENV = str(os.environ.get("ESI_RUN_AUCTION_WORKER") or "").strip().lower()
+if _RUN_WORKER_ENV in {"1", "true", "yes", "on"}:
+    RUN_AUCTION_WORKER = True
+elif _RUN_WORKER_ENV in {"0", "false", "no", "off"}:
+    RUN_AUCTION_WORKER = False
+else:
+    RUN_AUCTION_WORKER = not DEV_MODE
+
 # discord role IDs
 
 _ROLE_VALAENDOR  = "728858956575014964"

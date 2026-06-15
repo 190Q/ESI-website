@@ -8259,12 +8259,13 @@ def bad_gateway(e):
 # startup
 
 if __name__ == "__main__":
-    start_auction_close_worker()
+    _auction_worker_on = start_auction_close_worker()
     print()
     print("  ESI Routes Service")
     print("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
     print(f"  Listening on 127.0.0.1:{ROUTES_PORT}")
-    print("  Auction close worker running (60s interval)")
+    print("  Auction close worker "
+          + ("running (60s interval)" if _auction_worker_on else "DISABLED (dev mode)"))
     print("  Press Ctrl+C to stop")
     print()
     app.run(host="127.0.0.1", port=ROUTES_PORT, debug=False, threaded=True)
