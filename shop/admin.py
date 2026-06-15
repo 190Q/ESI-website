@@ -2147,8 +2147,16 @@ def _admin_get_users_uncached() -> list:
         donated = donated_map.get(uuid, 0)
         adj     = adj_map.get(uuid, {"clean": 0, "dirty": 0})
         res     = res_ep_map.get(uuid, {"rc": 0, "rd": 0})
-        ct = max(0, raw["rc"] - spent["sc"] + adj["clean"])
-        dt = max(0, raw["rd"] - spent["sd"] + donated + adj["dirty"])
+        ct = raw["rc"] - spent["sc"] + adj["clean"]
+        dt = raw["rd"] - spent["sd"] + donated + adj["dirty"]
+        if ct < 0:
+            dt += ct
+            ct = 0
+        elif dt < 0:
+            ct += dt
+            dt = 0
+        ct = max(0, ct)
+        dt = max(0, dt)
         cr = min(res["rc"], ct)
         dr = min(res["rd"], dt)
         return {

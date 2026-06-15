@@ -275,6 +275,16 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
     # 4. Assemble final balances
     effective_clean = clean_ep - spent_clean + adj_clean
     effective_dirty = dirty_ep - spent_dirty + donated_dirty + adj_dirty
+
+    if effective_clean < 0:
+        effective_dirty += effective_clean
+        effective_clean = 0
+    elif effective_dirty < 0:
+        effective_clean += effective_dirty
+        effective_dirty = 0
+    effective_clean = max(effective_clean, 0)
+    effective_dirty = max(effective_dirty, 0)
+
     spendable_clean = effective_clean - reserved_clean
     spendable_dirty = effective_dirty - reserved_dirty
 
