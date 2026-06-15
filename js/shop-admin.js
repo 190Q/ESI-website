@@ -3991,6 +3991,12 @@
     if (a === 'creator_application_approved' || a === 'creator_application_rejected') {
       return d.reason ? esc(d.reason) : '\u2014';
     }
+    if (a === 'creator_commission_granted') {
+      var p = [];
+      if (d.commission != null) p.push('+' + num(d.commission) + ' Dirty EP');
+      if (d.ep_spent != null) p.push('from ' + num(d.ep_spent) + ' EP sale');
+      return p.join(' \u00b7 ') || '\u2014';
+    }
     if (a === 'creator_item_request_submitted' || a === 'creator_item_request_approved') {
       var p = [];
       p.push(d.request_type === 'new' ? 'New item' : 'Edit');
