@@ -185,6 +185,62 @@ _ROLE_PARLIAMENT = "600185623474601995"
 _ROLE_CONGRESS   = "1346436714901536858"
 _ROLE_JUROR      = "954566591520063510"
 _ROLE_CITIZEN    = "554889169705500672"
+# Discord servers used by application workflows
+_PARLI_SERVER_ID  = "802999599060221992"
+_PARLI_PARLI_ROLE = "804211709166354432"   # Parliament role in the parli server
+
+_DISCORD_ENV_TARGETS = {
+    "dev": {
+        "parliament_member_check_server_id": "1442126799369670770",
+        "guild_info": {
+            "server_id": "1442126799369670770",
+            "forum_channel_id": "1514643396013330482",
+        },
+        "cycle_announcement": {
+            "server_id": "1442126799369670770",
+            "announcement_channel_id": "1516496360629862430",
+            "citizen_role_id": "1457155657143947315",
+            "flame_role_id": "1457155657143947315",
+            "ep_emoji": "<:EP:1505577109853048912>",
+            "shop_url": "https://esi-dashboard.com/shop",
+        },
+        "applications": {
+            "congress": {"server_id": _PARLI_SERVER_ID, "channel_id": "1500652489379414016"},
+            "pride": {"server_id": DISCORD_GUILD_ID, "channel_id": "1500652489379414016"},
+            "viscount": {"server_id": DISCORD_GUILD_ID, "channel_id": "1500654682765262909"},
+            "count": {"server_id": DISCORD_GUILD_ID, "channel_id": "1500654682765262909"},
+            "grand_duke": {"server_id": _PARLI_SERVER_ID, "channel_id": "1500652489379414016"},
+        },
+    },
+    "prod": {
+        "parliament_member_check_server_id": _PARLI_SERVER_ID,
+        "guild_info": {
+            "server_id": "554418045397762048",
+            "forum_channel_id": "1381289736903065662",
+        },
+        "cycle_announcement": {
+            "server_id": "554418045397762048",
+            "announcement_channel_id": "555195480271880212",
+            "citizen_role_id": "554889169705500672",
+            "flame_role_id": "1501200897399590992",
+            "ep_emoji": "<:EP:1505577109853048912>",
+            "shop_url": "https://esi-dashboard.com/shop",
+        },
+        "applications": {
+            "congress": {"server_id": _PARLI_SERVER_ID, "channel_id": "804268052194787349"},
+            "pride": {"server_id": DISCORD_GUILD_ID, "channel_id": "830884793230426142"},
+            "viscount": {"server_id": DISCORD_GUILD_ID, "channel_id": "1402383960046043146"},
+            "count": {"server_id": DISCORD_GUILD_ID, "channel_id": "1443193393328164964"},
+            "grand_duke": {"server_id": _PARLI_SERVER_ID, "channel_id": "804268052194787349"},
+        },
+    },
+}
+
+_ACTIVE_DISCORD_TARGETS = _DISCORD_ENV_TARGETS["dev" if DEV_MODE else "prod"]
+_DEV_SERVER_ID = _DISCORD_ENV_TARGETS["dev"]["parliament_member_check_server_id"]
+
+# End-of-cycle EP announcement targets
+_CYCLE_ANNOUNCEMENT = dict(_ACTIVE_DISCORD_TARGETS["cycle_announcement"])
 
 _ROLE_GRAND_DUKE = "1396112289832243282"
 _ROLE_ARCHDUKE   = "554514823191199747"
@@ -498,48 +554,43 @@ _APPLICATION_FORMS = {
 }
 
 # Discord servers and channels for application posting
-_PARLI_SERVER_ID   = "802999599060221992"
-_PARLI_PARLI_ROLE  = "804211709166354432"   # Parliament role in the parli server
-_DEV_SERVER_ID     = "1442126799369670770"
+_APP_TARGETS_DEV = _DISCORD_ENV_TARGETS["dev"]["applications"]
+_APP_TARGETS_PROD = _DISCORD_ENV_TARGETS["prod"]["applications"]
 
 # Guild Info forum target
-if DEV_MODE:
-    _GUILD_INFO_SERVER_ID        = "1442126799369670770"
-    _GUILD_INFO_FORUM_CHANNEL_ID = "1514643396013330482"
-else:
-    _GUILD_INFO_SERVER_ID        = "554418045397762048"
-    _GUILD_INFO_FORUM_CHANNEL_ID = "1381289736903065662"
+_GUILD_INFO_SERVER_ID = _ACTIVE_DISCORD_TARGETS["guild_info"]["server_id"]
+_GUILD_INFO_FORUM_CHANNEL_ID = _ACTIVE_DISCORD_TARGETS["guild_info"]["forum_channel_id"]
 
 _APPLICATION_DISCORD = {
     "congress": {
-        "server":      _PARLI_SERVER_ID,
-        "channel":     "804268052194787349",
-        "dev_channel": "1500652489379414016",
+        "server":      _APP_TARGETS_PROD["congress"]["server_id"],
+        "channel":     _APP_TARGETS_PROD["congress"]["channel_id"],
+        "dev_channel": _APP_TARGETS_DEV["congress"]["channel_id"],
         "poll_hours":  24,
     },
     "pride": {
-        "server":      DISCORD_GUILD_ID,
-        "channel":     "830884793230426142",
-        "dev_channel": "1500652489379414016",
+        "server":      _APP_TARGETS_PROD["pride"]["server_id"],
+        "channel":     _APP_TARGETS_PROD["pride"]["channel_id"],
+        "dev_channel": _APP_TARGETS_DEV["pride"]["channel_id"],
         "poll_hours":  24,
         "ping_role":   _ROLE_EVENT_MANAGER,
     },
     "viscount": {
-        "server":      DISCORD_GUILD_ID,
-        "channel":     "1402383960046043146",
-        "dev_channel": "1500654682765262909",
+        "server":      _APP_TARGETS_PROD["viscount"]["server_id"],
+        "channel":     _APP_TARGETS_PROD["viscount"]["channel_id"],
+        "dev_channel": _APP_TARGETS_DEV["viscount"]["channel_id"],
         "poll_hours":  24,
     },
     "count": {
-        "server":      DISCORD_GUILD_ID,
-        "channel":     "1443193393328164964",
-        "dev_channel": "1500654682765262909",
+        "server":      _APP_TARGETS_PROD["count"]["server_id"],
+        "channel":     _APP_TARGETS_PROD["count"]["channel_id"],
+        "dev_channel": _APP_TARGETS_DEV["count"]["channel_id"],
         "poll_hours":  24,
     },
     "grand_duke": {
-        "server":      _PARLI_SERVER_ID,
-        "channel":     "804268052194787349",
-        "dev_channel": "1500652489379414016",
+        "server":      _APP_TARGETS_PROD["grand_duke"]["server_id"],
+        "channel":     _APP_TARGETS_PROD["grand_duke"]["channel_id"],
+        "dev_channel": _APP_TARGETS_DEV["grand_duke"]["channel_id"],
         "poll_hours":  48,
         "use_thread":  True,
     },

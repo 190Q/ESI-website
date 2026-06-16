@@ -19,6 +19,7 @@ from shop.ep_balance import (
 )
 from shop.items import get_item, get_item_unfiltered, _is_visible
 from shop.bin import build_user_tags, PurchaseError, _get_cycle_id, _get_cycle_bounds
+from shop.cycle_announcement import announce_previous_cycle_if_due
 from shop.leaderboard import get_user_cycle_position
 
 
@@ -1150,6 +1151,15 @@ def auction_close_loop():
             _auto_start_auctions()
         except Exception as exc:
             print(f"[AUCTION] Auto-start worker error: {exc}", file=sys.stderr)
+        try:
+            _cycle_result = announce_previous_cycle_if_due()
+            if not _cycle_result.get("ok"):
+                print(
+                    f"[CYCLE] Announcement failed: {_cycle_result.get('error', 'unknown error')}",
+                    file=sys.stderr,
+                )
+        except Exception as exc:
+            print(f"[CYCLE] Announcement worker error: {exc}", file=sys.stderr)
         try:
             _cleanup_orphaned_auctions()
         except Exception as exc:
