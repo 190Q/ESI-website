@@ -914,8 +914,21 @@ def _settle_auction(auction: sqlite3.Row, now_iso: str):
 
     # Discord DM notifications
     item_name = item.get("name", item_id)
+    bid_counts_by_uuid: dict[str, int] = {}
+    bidder_rank_by_uuid: dict[str, int] = {}
+    for bid in all_bids:
+        bidder_uuid = bid["uuid"]
+        bid_counts_by_uuid[bidder_uuid] = bid_counts_by_uuid.get(bidder_uuid, 0) + 1
+        if bidder_uuid not in bidder_rank_by_uuid:
+            bidder_rank_by_uuid[bidder_uuid] = len(bidder_rank_by_uuid) + 1
 
     if winners:
+        highest_winning_bid = max((w["amount"] for w in winners), default=0)
+        primary_winner_name = winners[0]["username"] or "Unknown"
+        if len(winners) > 1:
+            winner_display_name = f"{primary_winner_name} +{len(winners) - 1}"
+        else:
+            winner_display_name = primary_winner_name
         # DM: Auction won
         for w in winners:
             did = _resolve_discord_id_for_uuid(w["uuid"])
@@ -936,18 +949,24 @@ def _settle_auction(auction: sqlite3.Row, now_iso: str):
         for uuid in loser_uuids:
             did = _resolve_discord_id_for_uuid(uuid)
             if did:
-                # Find loser's highest bid
-                _loser_bid = max(
-                    (b["amount"] for b in all_bids if b["uuid"] == uuid), default=0
-                )
+                _user_bid_count = bid_counts_by_uuid.get(uuid, 0)
+                _user_position = bidder_rank_by_uuid.get(uuid)
                 _dm_card_in_background(
-                    did, "auction_lost", item_name, 0,
+                    did,
+                    "auction_lost",
+                    item_name,
+                    highest_winning_bid,
+                    amount_label="highest bid",
                     fields=[
-                        ("YOUR BID", f"{_loser_bid:,} EP"),
-                        ("REFUNDED", "Yes"),
-                        ("WINNER", "Other"),
+                        ("YOUR BIDS", str(_user_bid_count)),
+                        ("POSITION", f"#{_user_position}" if _user_position else "N/A"),
+                        ("WINNER", winner_display_name),
                     ],
-                    fallback_text=f"Auction for {item_name} ended. Your EP has been released.",
+                    fallback_text=(
+                        f"Auction for {item_name} ended. "
+                        f"Highest bid: {highest_winning_bid:,} EP. "
+                        f"Winner: {winner_display_name}."
+                    ),
                 )
 
         # DM: Disqualified due to insufficient EP at settlement
