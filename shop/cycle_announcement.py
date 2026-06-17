@@ -532,6 +532,8 @@ def _post_announcement(channel_id: str, content: str, target: dict) -> dict:
             return {
                 "ok": False,
                 "error": f"Discord returned {resp.status_code}: {err_text}",
+                "status_code": int(resp.status_code),
+                "discord_error_text": err_text,
             }
         msg_id = ""
         try:
@@ -582,6 +584,29 @@ def send_cycle_end_announcement(
         return {"ok": False, "error": "DISCORD_TOKEN is not configured"}
     result = _post_announcement(channel_id, message, target)
     if not result.get("ok"):
+        status_code = int(result.get("status_code") or 0)
+        discord_error_text = str(result.get("discord_error_text") or "")
+        if (
+            record_sent
+            and status_code == 403
+            and "missing permissions" in discord_error_text.lower()
+        ):
+            _record_cycle_announcement(
+                ended_cycle_id,
+                channel_id,
+                0,
+                environment=announcement_env,
+            )
+            return {
+                "ok": True,
+                "skipped": True,
+                "reason": "discord_missing_permissions_marked_announced",
+                "cycle_id": ended_cycle_id,
+                "channel_id": channel_id,
+                "target_environment": announcement_env,
+                "error": result.get("error") or "Discord returned 403: Missing Permissions",
+                **stats,
+            }
         return {
             "ok": False,
             "cycle_id": ended_cycle_id,
