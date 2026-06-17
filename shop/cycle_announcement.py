@@ -3,7 +3,7 @@ import os
 import random
 import sqlite3
 import sys
-from datetime import datetime as _dt, timezone as _tz
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
 
 import requests as _requests
 
@@ -402,6 +402,7 @@ def _build_cycle_message(ended_cycle_id: int, target: dict) -> tuple[str, dict]:
         top_user_ref = _format_user_ref(top_row.get("uuid"), top_row.get("username"), uuid_map)
 
     featured_item = created_items[0]["name"] if created_items else None
+    custom_role_colour_deadline_ts = int((new_start + _td(days=1)).timestamp())
 
     ep_emoji = target["ep_emoji"]
     citizen_role_id = target["citizen_role_id"]
@@ -476,6 +477,7 @@ def _build_cycle_message(ended_cycle_id: int, target: dict) -> tuple[str, dict]:
         f"We totaled **{total_ep:,} {ep_emoji} this cycle.**",
         "",
         f"The new cycle started on <t:{int(new_start.timestamp())}:F> and will conclude on <t:{int(new_end.timestamp())}:F>.",
+        f"If you bought a custom role colour, you have until <t:{custom_role_colour_deadline_ts}:F> to buy it again before the role is removed.",
         "",
         rng.choice(
             [
