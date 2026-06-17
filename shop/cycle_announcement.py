@@ -368,7 +368,6 @@ def _discord_error_text(err_data: dict, fallback: str) -> str:
         return f"{base} ({'; '.join(details[:4])})"
     return base
 
-
 def _resolve_cycle_announcement_target(target_environment: str | None = None) -> tuple[str, dict]:
     env = str(target_environment or _ANNOUNCEMENT_ENV).strip().lower()
     if env not in {"dev", "prod"}:
@@ -398,7 +397,6 @@ def _shop_updates_intro_line(rng: random.Random) -> str:
         "New shop drops are in! Now, bringing to you:",
     ]
     return rng.choice(options)
-
 
 def _build_cycle_message(ended_cycle_id: int, target: dict) -> tuple[str, dict]:
     ended_start, ended_end = _get_cycle_bounds(ended_cycle_id)
@@ -480,7 +478,7 @@ def _build_cycle_message(ended_cycle_id: int, target: dict) -> tuple[str, dict]:
         lines.append("")
     lines.extend(
         [
-            "🔥__**EP Leaderboard**__🔥",
+            "__**EP Leaderboard**__",
             *leaderboard_lines,
             *item_section_lines,
             "",
