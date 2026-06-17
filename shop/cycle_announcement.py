@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import re
 import sqlite3
 import sys
 from datetime import datetime as _dt, timedelta as _td, timezone as _tz
@@ -23,6 +24,10 @@ from shop.items import get_item_unfiltered
 
 _ANNOUNCEMENT_ENV = "dev" if DEV_MODE else "prod"
 _MEDAL_BY_RANK = {1: "🥇", 2: "🥈", 3: "🥉"}
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
 def _discord_headers():
@@ -129,42 +134,63 @@ def _fetch_cycle_points_rows(cycle_id: int) -> list[dict]:
             "FROM esi_points "
             "WHERE cycle_id = ? "
             "GROUP BY uuid "
-            "HAVING COALESCE(SUM(points), 0) > 0 "
-            "ORDER BY points DESC, username COLLATE NOCASE ASC",
+            "HAVING COALESCE(SUM(points), 0) > 0 ",
             (cycle_id,),
         ).fetchall()
-        conn.close()
+
+        def _safe_player_table(uuid: str) -> str | None:
+            uid = (uuid or "").strip().lower()
+            if not _UUID_RE.match(uid):
+                return None
+            return "player_" + uid.replace("-", "_")
+
+        def _first_reached_timestamp(uuid: str, target_points: int) -> str | None:
+            if target_points <= 0:
+                return None
+            table_name = _safe_player_table(uuid)
+            if not table_name:
+                return None
+            try:
+                history_rows = conn.execute(
+                    f'SELECT points_gained, timestamp FROM "{table_name}" '
+                    "WHERE cycle_id = ? "
+                    "ORDER BY timestamp ASC, record_id ASC",
+                    (cycle_id,),
+                ).fetchall()
+            except sqlite3.Error:
+                return None
+
+            running_total = 0
+            for history_row in history_rows:
+                running_total += int(history_row["points_gained"] or 0)
+                if running_total >= target_points:
+                    timestamp = (history_row["timestamp"] or "").strip()
+                    return timestamp or None
+            return None
     except sqlite3.Error as exc:
         print(f"[CYCLE] Failed to read points for cycle {cycle_id}: {exc}", file=sys.stderr)
         return []
-    out = []
+    out: list[dict] = []
     for row in rows:
+        uuid = (row["uuid"] or "").strip().lower()
+        points = int(row["points"] or 0)
         out.append(
             {
-                "uuid": (row["uuid"] or "").strip().lower(),
+                "uuid": uuid,
                 "username": (row["username"] or "").strip(),
-                "points": int(row["points"] or 0),
+                "points": points,
+                "first_reached_at": _first_reached_timestamp(uuid, points),
             }
         )
+    conn.close()
+    out.sort(
+        key=lambda row: (
+            -int(row.get("points") or 0),
+            row.get("first_reached_at") or "9999-12-31T23:59:59+00:00",
+            (row.get("username") or "").lower(),
+        )
+    )
     return out
-
-
-def _build_rank_groups(rows: list[dict], max_rank: int = 15) -> list[dict]:
-    groups: list[dict] = []
-    prev_points = None
-    rank = 0
-    for idx, row in enumerate(rows, start=1):
-        pts = int(row.get("points") or 0)
-        if prev_points is None or pts != prev_points:
-            rank = idx
-            prev_points = pts
-        if rank > max_rank:
-            break
-        if groups and groups[-1]["rank"] == rank:
-            groups[-1]["rows"].append(row)
-        else:
-            groups.append({"rank": rank, "points": pts, "rows": [row]})
-    return groups
 
 
 def _fetch_cycle_auction_winners(start_iso: str, end_iso: str) -> list[dict]:
@@ -362,7 +388,7 @@ def _flavor_line(rng: random.Random, winner_ref: str | None, featured_item: str 
             f"Auction result: {winner_ref} claimed {featured_item}.",
             f"{winner_ref} closed the cycle by winning {featured_item}.",
             f"Cycle close highlight: {winner_ref} secured {featured_item}.",
-            f"{winner_ref} took {featured_item} before reset.",
+            f"{winner_ref} took {featured_item} before anyone else could.",
         ]
         return rng.choice(options)
     if featured_item:
@@ -375,7 +401,7 @@ def _flavor_line(rng: random.Random, winner_ref: str | None, featured_item: str 
     return rng.choice(
         [
             "Another cycle in the books - and a fresh one begins now.",
-            "Cycle wrapped, scores locked, and the next chapter starts now.",
+            "Cycle wrapped, scores locked, and the next one starts now.",
             "The board is reset - welcome to a new EP cycle.",
         ]
     )
@@ -389,7 +415,6 @@ def _build_cycle_message(ended_cycle_id: int, target: dict) -> tuple[str, dict]:
 
     uuid_map = _uuid_to_discord_map()
     leaderboard_rows = _fetch_cycle_points_rows(ended_cycle_id)
-    leaderboard_groups = _build_rank_groups(leaderboard_rows, max_rank=15)
     total_ep = sum(int(row.get("points") or 0) for row in leaderboard_rows)
 
     winners = _fetch_cycle_auction_winners(ended_start_iso, ended_end_iso)
@@ -397,8 +422,8 @@ def _build_cycle_message(ended_cycle_id: int, target: dict) -> tuple[str, dict]:
     created_items = _fetch_cycle_created_items(ended_start_iso, ended_end_iso)
 
     top_user_ref = None
-    if leaderboard_groups and leaderboard_groups[0]["rows"]:
-        top_row = leaderboard_groups[0]["rows"][0]
+    if leaderboard_rows:
+        top_row = leaderboard_rows[0]
         top_user_ref = _format_user_ref(top_row.get("uuid"), top_row.get("username"), uuid_map)
 
     featured_item = created_items[0]["name"] if created_items else None
@@ -420,15 +445,11 @@ def _build_cycle_message(ended_cycle_id: int, target: dict) -> tuple[str, dict]:
     )
 
     leaderboard_lines: list[str] = []
-    for group in leaderboard_groups:
-        rank = int(group["rank"])
+    for rank, row in enumerate(leaderboard_rows[:15], start=1):
         rank_token = _MEDAL_BY_RANK.get(rank, f"#{rank}")
-        refs = " & ".join(
-            _format_user_ref(row.get("uuid"), row.get("username"), uuid_map)
-            for row in group["rows"]
-        )
+        user_ref = _format_user_ref(row.get("uuid"), row.get("username"), uuid_map)
         leaderboard_lines.append(
-            f"> {rank_token} {refs} - {int(group['points']):,} {ep_emoji}"
+            f"> {rank_token} {user_ref} - {int(row.get('points') or 0):,} {ep_emoji}"
         )
     if not leaderboard_lines:
         leaderboard_lines.append("> No EP activity was recorded for this cycle.")
@@ -490,7 +511,7 @@ def _build_cycle_message(ended_cycle_id: int, target: dict) -> tuple[str, dict]:
     ]
     return "\n".join(lines).strip(), {
         "total_ep": total_ep,
-        "leaderboard_group_count": len(leaderboard_groups),
+        "leaderboard_group_count": min(len(leaderboard_rows), 15),
         "winner_count": len(winners),
         "created_item_count": len(created_items),
     }
