@@ -381,30 +381,23 @@ def _resolve_cycle_announcement_target(target_environment: str | None = None) ->
         raise ValueError(f"Missing cycle_announcement config for environment '{env}'")
     return env, dict(target)
 
+def _winner_flavor_line(rng: random.Random, winner_ref: str, item_name: str) -> str:
+    options = [
+        f"Auction result: {winner_ref} claimed {item_name}.",
+        f"{winner_ref} closed the cycle by winning {item_name}.",
+        f"{winner_ref} secured {item_name}.",
+        f"{winner_ref} took {item_name} before anyone else could.",
+    ]
+    return rng.choice(options)
 
-def _flavor_line(rng: random.Random, winner_ref: str | None, featured_item: str | None) -> str:
-    if winner_ref and featured_item:
-        options = [
-            f"Auction result: {winner_ref} claimed {featured_item}.",
-            f"{winner_ref} closed the cycle by winning {featured_item}.",
-            f"Cycle close highlight: {winner_ref} secured {featured_item}.",
-            f"{winner_ref} took {featured_item} before anyone else could.",
-        ]
-        return rng.choice(options)
-    if featured_item:
-        options = [
-            f"\"{featured_item}\" made its debut this cycle.",
-            f"Fresh catalog highlight: \"{featured_item}\".",
-            f"New cycle, new toys - starting with \"{featured_item}\".",
-        ]
-        return rng.choice(options)
-    return rng.choice(
-        [
-            "Another cycle in the books - and a fresh one begins now.",
-            "Cycle wrapped, scores locked, and the next one starts now.",
-            "The board is reset - welcome to a new EP cycle.",
-        ]
-    )
+def _shop_updates_intro_line(rng: random.Random) -> str:
+    options = [
+        "We've got some hot new wares for sale in the shop! Now, bringing to you:",
+        "Fresh shop items just dropped! Now available:",
+        "The shop has new additions this cycle. Check out:",
+        "New shop drops are in! Now, bringing to you:",
+    ]
+    return rng.choice(options)
 
 
 def _build_cycle_message(ended_cycle_id: int, target: dict) -> tuple[str, dict]:
@@ -426,7 +419,6 @@ def _build_cycle_message(ended_cycle_id: int, target: dict) -> tuple[str, dict]:
         top_row = leaderboard_rows[0]
         top_user_ref = _format_user_ref(top_row.get("uuid"), top_row.get("username"), uuid_map)
 
-    featured_item = created_items[0]["name"] if created_items else None
     custom_role_colour_deadline_ts = int((new_start + _td(days=1)).timestamp())
 
     ep_emoji = target["ep_emoji"]
@@ -454,61 +446,60 @@ def _build_cycle_message(ended_cycle_id: int, target: dict) -> tuple[str, dict]:
     if not leaderboard_lines:
         leaderboard_lines.append("> No EP activity was recorded for this cycle.")
     flavor_lines: list[str] = []
-    if winning_auctions:
-        winner_line_templates = [
-            "Auction closed: {winner} claimed {item}.",
-            "{winner} won {item} before the cycle reset.",
-            "Finalized this cycle: {winner} secured {item}.",
-            "{winner} takes {item} with the top bid.",
-        ]
-        for win in winning_auctions:
-            winner_ref = _format_user_ref(win.get("uuid"), win.get("username"), uuid_map)
-            item_id = (win.get("item_id") or "").strip()
-            item = get_item_unfiltered(item_id) if item_id else None
-            item_name = ((item or {}).get("name") or "").strip() or "an auction item"
-            template = winner_line_templates[len(flavor_lines) % len(winner_line_templates)]
-            flavor_lines.append(template.format(winner=winner_ref, item=item_name))
-    else:
-        flavor_lines = [_flavor_line(rng, None, featured_item)]
-
+    for win in winning_auctions:
+        winner_ref = _format_user_ref(win.get("uuid"), win.get("username"), uuid_map)
+        item_id = (win.get("item_id") or "").strip()
+        item = get_item_unfiltered(item_id) if item_id else None
+        item_name = ((item or {}).get("name") or "").strip() or "an auction item"
+        flavor_lines.append(_winner_flavor_line(rng, winner_ref, item_name))
 
     item_section_lines: list[str] = []
     if created_items:
         item_lines: list[str] = []
         for item in created_items:
-            item_lines.append(f"> {item.get('name') or item.get('item_id')}")
-        item_section_lines = ["", "🆕 __New Items Created This Cycle__", *item_lines]
+            item_name = (item.get("name") or item.get("item_id") or "Unnamed item").strip()
+            item_lines.append(f"- {item_name}")
+        item_section_lines = [
+            "",
+            f"{ep_emoji}__**EP Shop Updates**__ {ep_emoji}",
+            _shop_updates_intro_line(rng),
+            *item_lines,
+        ]
 
     if top_user_ref:
         congrats = f"Congratulations to the <@&{flame_role_id}> {top_user_ref}!"
     else:
         congrats = f"Congratulations to the <@&{flame_role_id}>!"
-
-    lines = [
+    lines: list[str] = [
         f"# {ep_emoji} {title} {ep_emoji}",
         f"<@&{citizen_role_id}>",
         "",
-        *flavor_lines,
-        "",
-        "🔥__**EP Leaderboard**__🔥",
-        *leaderboard_lines,
-        *item_section_lines,
-        "",
-        congrats,
-        f"We totaled **{total_ep:,} {ep_emoji} this cycle.**",
-        "",
-        f"The new cycle started on <t:{int(new_start.timestamp())}:F> and will conclude on <t:{int(new_end.timestamp())}:F>.",
-        f"If you bought a custom role colour, you have until <t:{custom_role_colour_deadline_ts}:F> to buy it again before the role is removed.",
-        "",
-        rng.choice(
-            [
-                "Happy shopping, everyone :D",
-                "Good luck this cycle, everyone!",
-                "Enjoy the new cycle and happy shopping!",
-            ]
-        ),
-        shop_url,
     ]
+    if flavor_lines:
+        lines.extend(flavor_lines)
+        lines.append("")
+    lines.extend(
+        [
+            "🔥__**EP Leaderboard**__🔥",
+            *leaderboard_lines,
+            *item_section_lines,
+            "",
+            congrats,
+            f"We totaled **{total_ep:,} {ep_emoji} this cycle.**",
+            "",
+            f"The new cycle started on <t:{int(new_start.timestamp())}:F> and will conclude on <t:{int(new_end.timestamp())}:F>.",
+            f"If you bought a custom role colour, you have until <t:{custom_role_colour_deadline_ts}:F> to buy it again before the role is removed.",
+            "",
+            rng.choice(
+                [
+                    "Happy shopping, everyone :D",
+                    "Good luck this cycle, everyone!",
+                    "Enjoy the new cycle and happy shopping!",
+                ]
+            ),
+            shop_url,
+        ]
+    )
     return "\n".join(lines).strip(), {
         "total_ep": total_ep,
         "leaderboard_group_count": min(len(leaderboard_rows), 15),
