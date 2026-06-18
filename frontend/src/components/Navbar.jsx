@@ -1,4 +1,4 @@
-import { DiscordIcon, HelpIcon } from './Icons'
+import { DiscordIcon, HelpIcon, NavTaglineOrnamentIcon } from './Icons'
 import { resolveThemeImageKey } from '../themeImages'
 
 export default function Navbar() {
@@ -16,8 +16,10 @@ export default function Navbar() {
       </div>
 
       <nav className="navbar-center">
-        <span className="navbar-tagline">
-          {'꧁⎝ 𓆩༺\u00A0 Dashboard Portal \u00A0༻𓆪 ⎠꧂'}
+        <span className="navbar-tagline" aria-label="Dashboard Portal">
+          <NavTaglineOrnamentIcon side="left" />
+          <span className="navbar-tagline-text">Dashboard Portal</span>
+          <NavTaglineOrnamentIcon side="right" />
         </span>
       </nav>
 
