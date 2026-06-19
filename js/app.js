@@ -33,13 +33,16 @@
     navbar.classList.remove('navbar-hide-center');
     var navStyle = getComputedStyle(navbar);
     var navGap = parseFloat(navStyle.columnGap || navStyle.gap || '0') || 0;
+    var navPaddingLeft = parseFloat(navStyle.paddingLeft || '0') || 0;
+    var navPaddingRight = parseFloat(navStyle.paddingRight || '0') || 0;
+    var availableWidth = Math.max(0, Math.floor(navbar.clientWidth - navPaddingLeft - navPaddingRight));
     var neededWidth = Math.ceil(
       navbarLeft.getBoundingClientRect().width +
       navbarCenter.getBoundingClientRect().width +
       navbarRight.getBoundingClientRect().width +
       (navGap * 2)
     );
-    navbar.classList.toggle('navbar-hide-center', neededWidth > navbar.clientWidth);
+    navbar.classList.toggle('navbar-hide-center', neededWidth > availableWidth);
   }
 
   window.addEventListener('resize', syncNavbarCenterVisibility);
