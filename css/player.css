@@ -699,10 +699,14 @@
 }
 
 /* ACtivity graph */
+#panel-player {
+  container-type: inline-size;
+}
 .player-split-layout {
   display: flex;
   gap: 24px;
   align-items: flex-start;
+  container-type: inline-size;
 }
 .graph-panels-col {
   flex: 1;
@@ -1235,6 +1239,18 @@
     padding: 2px 6px;
   }
   .profile-guild-xp-row { display: none; }
+}
+@container (max-width: 768px) {
+  .player-split-layout {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .player-split-layout > .graph-panels-col,
+  .player-split-layout > .player-views-col {
+    width: 100%;
+    max-width: 100%;
+  }
+  .player-split-layout > .graph-panels-col { position: static; }
 }
 
 @media (max-width: 520px) {
