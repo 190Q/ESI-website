@@ -7,6 +7,79 @@
 .cs-req-row {
   grid-template-columns: 0.6fr 1.6fr 1fr 0.7fr 1.6fr;
 }
+#csItemsTable.cs-item-table,
+#csRequestsTable.cs-req-table {
+  container-type: inline-size;
+}
+@container (max-width: 960px) {
+  #csItemsTable.cs-item-table .sa-row.sa-header,
+  #csItemsTable.cs-item-table .sa-header,
+  #csRequestsTable.cs-req-table .sa-row.sa-header,
+  #csRequestsTable.cs-req-table .sa-header { display: none !important; }
+  #csItemsTable.cs-item-table .sa-row,
+  #csRequestsTable.cs-req-table .sa-row {
+    display: block;
+    padding: 0;
+    gap: 0;
+    border-radius: 0;
+  }
+  #csItemsTable.cs-item-table .sa-row > span,
+  #csRequestsTable.cs-req-table .sa-row > span {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    min-width: 0;
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(var(--gold-rgb), 0.08);
+  }
+  #csItemsTable.cs-item-table .sa-row > span:last-child,
+  #csRequestsTable.cs-req-table .sa-row > span:last-child { border-bottom: none; }
+  #csItemsTable.cs-item-table .sa-row > span::before,
+  #csRequestsTable.cs-req-table .sa-row > span::before {
+    content: attr(data-label);
+    font-family: var(--font-heading);
+    font-size: 0.64rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    flex-shrink: 0;
+    padding-top: 2px;
+  }
+  #csItemsTable.cs-item-table .sa-row > .sa-item-name,
+  #csItemsTable.cs-item-table .sa-row > .sa-item-id,
+  #csRequestsTable.cs-req-table .sa-row > .sa-item-name {
+    margin-left: auto;
+    text-align: right;
+  }
+  #csItemsTable.cs-item-table .sa-row > span[data-label="Type"] > *,
+  #csItemsTable.cs-item-table .sa-row > span[data-label="Active"] > *,
+  #csItemsTable.cs-item-table .sa-row > span[data-label="Stock"] > *,
+  #csRequestsTable.cs-req-table .sa-row > span[data-label="Type"] > *,
+  #csRequestsTable.cs-req-table .sa-row > span[data-label="Status"] > * { margin-left: auto; }
+  #csItemsTable.cs-item-table .sa-row > span[data-label="Category"] {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  #csItemsTable.cs-item-table .sa-row > span[data-label="Category"]::before,
+  #csItemsTable.cs-item-table .sa-row > .sa-actions-cell::before,
+  #csRequestsTable.cs-req-table .sa-row > span[data-label="Reviewer Note"]::before { margin-right: auto; }
+  #csItemsTable.cs-item-table .sa-row > .sa-actions-cell {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  #csRequestsTable.cs-req-table .sa-row > span[data-label="Reviewer Note"] {
+    justify-content: flex-end;
+    text-align: right;
+  }
+}
+@media (max-width: 960px) {
+  #csItemsTable.cs-item-table .sa-row.sa-header,
+  #csItemsTable.cs-item-table .sa-header,
+  #csRequestsTable.cs-req-table .sa-row.sa-header,
+  #csRequestsTable.cs-req-table .sa-header { display: none !important; }
+}
 
 /* status pills */
 .cs-pill {

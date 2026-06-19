@@ -340,7 +340,7 @@
     if (items.length === 0) {
       html += '<div class="shop-empty">You have no items yet. Request one above!</div>';
     } else {
-      html += '<div class="sa-table cs-item-table">';
+      html += '<div class="sa-table cs-item-table" id="csItemsTable">';
       html += '<div class="sa-row sa-header cs-item-row">' +
         '<span>Name</span><span>ID</span><span>Type</span><span>Category</span>' +
         '<span>Active</span><span>Stock</span><span>Actions</span>' +
@@ -354,8 +354,8 @@
         var rowClass = 'sa-row cs-item-row' + (!isActive ? ' sa-row--inactive' : '');
 
         html += '<div class="' + rowClass + '" data-item-id="' + esc(item.id) + '">';
-        html += '<span class="sa-item-name">' + esc(item.name || item.id) + '</span>';
-        html += '<span class="sa-item-id">' + esc(item.id) + '</span>';
+        html += '<span class="sa-item-name" data-label="Name">' + esc(item.name || item.id) + '</span>';
+        html += '<span class="sa-item-id" data-label="ID">' + esc(item.id) + '</span>';
 
         // Type pill
         var typePill = item.type === 'auction'
@@ -363,28 +363,28 @@
           : item.type === 'donate'
           ? '<span class="sa-pill sa-pill--donate">Donation</span>'
           : '<span class="sa-pill sa-pill--bin">Bin</span>';
-        html += '<span>' + typePill + '</span>';
+        html += '<span data-label="Type">' + typePill + '</span>';
 
         // Category pills
         var cats = Array.isArray(item.category) ? item.category : (item.category ? [item.category] : []);
-        html += '<span>' + (cats.length
+        html += '<span data-label="Category">' + (cats.length
           ? cats.map(function (ct) { return '<span class="sa-pill sa-pill--cat">' + esc(ct) + '</span>'; }).join(' ')
           : '<span style="color:var(--text-faint)">N/A</span>') + '</span>';
 
         // Active toggle
-        html += '<span><label class="settings-toggle" data-cs-toggle="' + esc(item.id) + '">' +
+        html += '<span data-label="Active"><label class="settings-toggle" data-cs-toggle="' + esc(item.id) + '">' +
           '<input type="checkbox"' + (isActive ? ' checked' : '') + (canEditItems ? '' : ' disabled') + ' />' +
           '<span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>' +
           '</label></span>';
 
         // Stock input
         var stockVal = item.stock != null ? item.stock : '';
-        html += '<span><input type="number" min="0" max="99999" class="sa-stock-input" ' +
+        html += '<span data-label="Stock"><input type="number" min="0" max="99999" class="sa-stock-input" ' +
           'data-cs-stock="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="\u221E"' +
           (canEditItems ? '' : ' disabled') + ' /></span>';
 
         // Actions
-        html += '<span class="sa-actions-cell">';
+        html += '<span class="sa-actions-cell" data-label="Actions">';
         if (hasEditPending) {
           html += '<span class="sa-pill sa-pill--pending" style="font-size:0.6rem">Edit pending</span>';
         } else if (!canEditItems) {
@@ -1674,7 +1674,7 @@
           return;
         }
 
-        var html = '<div class="sa-table">';
+        var html = '<div class="sa-table cs-req-table" id="csRequestsTable">';
         html += '<div class="sa-row sa-header cs-req-row">' +
           '<span>Type</span><span>Item</span><span>Submitted</span><span>Status</span><span>Reviewer Note</span>' +
         '</div>';
@@ -1693,11 +1693,11 @@
             : '<span class="sa-pill sa-pill--new">New</span>';
 
           html += '<div class="sa-row cs-req-row">';
-          html += '<span>' + typePill + '</span>';
-          html += '<span class="sa-item-name">' + esc(itemName || '\u2014') + '</span>';
-          html += '<span>' + fmtDate(r.submitted_at) + '</span>';
-          html += '<span>' + statusPill(r.status) + '</span>';
-          html += '<span style="color:var(--text-faint);font-size:.8rem">' + esc(r.rejection_reason || '\u2014') + '</span>';
+          html += '<span data-label="Type">' + typePill + '</span>';
+          html += '<span class="sa-item-name" data-label="Item">' + esc(itemName || '—') + '</span>';
+          html += '<span data-label="Submitted">' + fmtDate(r.submitted_at) + '</span>';
+          html += '<span data-label="Status">' + statusPill(r.status) + '</span>';
+          html += '<span data-label="Reviewer Note" style="color:var(--text-faint);font-size:.8rem">' + esc(r.rejection_reason || '—') + '</span>';
           html += '</div>';
         });
 
