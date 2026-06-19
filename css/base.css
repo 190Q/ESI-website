@@ -76,10 +76,12 @@ body::-webkit-scrollbar-corner { background: var(--green-deep); }
   border-bottom: 2px solid var(--gold-dim);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 14px;
   padding: 0 24px;
   z-index: 100;
   box-shadow: 0 2px 24px rgba(var(--black-rgb), 0.6), 0 1px 0 var(--gold-glow);
+  container-type: inline-size;
 }
 
 .navbar::after {
@@ -97,13 +99,22 @@ body::-webkit-scrollbar-corner { background: var(--green-deep); }
   opacity: 0.4;
 }
 
-.navbar-left { display: flex; align-items: center; gap: 14px; }
+.navbar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  max-width: 50%;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
 
 .guild-logo {
   display: flex;
   align-items: center;
   gap: 12px;
   text-decoration: none;
+  min-width: 0;
 }
 
 .emblem-img {
@@ -118,6 +129,7 @@ body::-webkit-scrollbar-corner { background: var(--green-deep); }
   display: flex;
   flex-direction: column;
   line-height: 1;
+  min-width: 0;
 }
 .guild-acronym {
   font-family: var(--font-display);
@@ -134,24 +146,36 @@ body::-webkit-scrollbar-corner { background: var(--green-deep); }
   letter-spacing: 0.18em;
   text-transform: uppercase;
   margin-top: 2px;
+  white-space: nowrap;
+}
+.navbar-right .btn-discord .btn-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  white-space: nowrap;
 }
 
 .navbar-center {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
+  flex: 1 0 auto;
+  min-width: max-content;
+  display: flex;
+  justify-content: center;
 }
 .navbar-tagline {
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
   color: var(--gold);
+  min-width: max-content;
 }
 .navbar-tagline-text {
   font-family: var(--font-heading);
   font-size: 0.78rem;
   letter-spacing: 0.3em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 .navbar-tagline-ornament {
   width: auto;
@@ -163,11 +187,54 @@ body::-webkit-scrollbar-corner { background: var(--green-deep); }
 .navbar-tagline-ornament-right {
   transform: none;
 }
+@container (max-width: 950px) {
+  .navbar-tagline-ornament {
+    display: none;
+  }
+}
 
 .navbar-right {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  justify-content: flex-end;
+  container-type: inline-size;
+}
+.navbar-right .btn-help {
+  flex-shrink: 0;
+}
+.navbar-right .btn-discord {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 42px;
+  max-width: 100%;
+  overflow: hidden;
+}
+.navbar-right .btn-discord > svg,
+.navbar-right .btn-discord > img {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  flex: 0 0 20px;
+  display: block;
+}
+.navbar-right .btn-label {
+  display: inline-block;
+  min-width: 0;
+  white-space: nowrap;
+}
+@container (max-width: 420px) {
+  .navbar-right .btn-help {
+    gap: 0;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .navbar-right .btn-help .btn-label {
+    display: none;
+  }
 }
 
 /* Base Button Reset */
@@ -2471,6 +2538,13 @@ select, option { font-family: inherit; }
   font-size: 0.78rem;
   gap: 7px;
 }
+@container (max-width: 220px) {
+  .navbar-right .btn-discord,
+  .navbar-right .btn-discord.btn-discord--account {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}
 .content-area { padding: 28px 20px; }
 .stats-grid { grid-template-columns: 1fr 1fr; }
 
@@ -2717,6 +2791,45 @@ select, option { font-family: inherit; }
 .legal-link:visited {
   color: var(--text-dim);
 }
+@media (max-width: 1100px) {
+  .guild-fullname {
+    display: none;
+  }
+  .navbar {
+    padding: 0 16px;
+    gap: 10px;
+  }
+  .navbar-tagline {
+    gap: 0.4rem;
+  }
+  .navbar-tagline-ornament {
+    height: 1.55rem;
+  }
+  .btn-help,
+  .btn-discord {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+}
+
+@media (max-width: 900px) {
+  .navbar-tagline-ornament {
+    height: 1.2rem;
+  }
+  .navbar-right {
+    gap: 8px;
+  }
+}
+
+@media (max-width: 720px) {
+  .navbar {
+    padding: 0 10px;
+    gap: 8px;
+  }
+  .navbar-tagline {
+    gap: 0.3rem;
+  }
+}
 
 @media (max-width: 860px) {
   .site-footer-inner {
@@ -2733,7 +2846,6 @@ select, option { font-family: inherit; }
   .sidebar { display: none; }
   .sidebar.collapsed ~ .content-area { margin-left: 0; }
   .navbar-right { gap: 8px; }
-  .btn-discord span { display: none; }
   .stats-grid { grid-template-columns: 1fr; }
   .guild-fullname { display: none; }
   .site-footer {

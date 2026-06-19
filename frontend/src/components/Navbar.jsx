@@ -26,11 +26,11 @@ export default function Navbar() {
       <div className="navbar-right">
         <button className="btn-help" id="helpBtn" title="Contact Support">
           <HelpIcon />
-          Support
+          <span className="btn-label">Support</span>
         </button>
         <button className="btn-discord" id="loginBtn" style={{ opacity: 0 }}>
           <DiscordIcon />
-          Login with Discord
+          <span className="btn-label">Login with Discord</span>
         </button>
       </div>
     </header>

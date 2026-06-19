@@ -32,8 +32,8 @@
   </script>
   <script src="/js/theme-images.js"></script>
   <script src="/js/theme-patterns.js"></script>
-  <script type="module" crossorigin src="/assets/index-M7Vgi3oH.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-DlWNcHnz.css">
+  <script type="module" crossorigin src="/assets/index-BbiUpwGa.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-CgFsTlTs.css">
 </head>
 <body>
   <script>
@@ -89,7 +89,10 @@
             img.alt = '';
             img.style.cssText = 'width:20px;height:20px;border-radius:50%;object-fit:cover;flex-shrink:0;';
             btn.appendChild(img);
-            btn.appendChild(document.createTextNode(' ' + displayName));
+            var label = document.createElement('span');
+            label.className = 'btn-label';
+            label.textContent = displayName;
+            btn.appendChild(label);
             btn.style.opacity = '1';
             btn.style.background = 'var(--online,#3BA55C)';
             btn.style.boxShadow = '0 2px 12px rgba(var(--online-rgb,59,165,92),0.35)';
