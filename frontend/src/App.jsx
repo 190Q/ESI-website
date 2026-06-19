@@ -21,6 +21,7 @@ export default function App() {
       {/* Main layout */}
       <div className="layout">
         <Sidebar />
+        <button className="sidebar-mobile-backdrop" id="sidebarMobileBackdrop" type="button" aria-label="Close menu" />
 
         <main className="content-area" id="contentArea">
           <PlayerPanel />

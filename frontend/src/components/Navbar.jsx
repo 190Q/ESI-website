@@ -1,4 +1,4 @@
-import { DiscordIcon, HelpIcon, NavTaglineOrnamentIcon } from './Icons'
+import { DiscordIcon, HelpIcon, NavTaglineOrnamentIcon, NavbarHamburgerIcon } from './Icons'
 import { resolveThemeImageKey } from '../themeImages'
 
 export default function Navbar() {
@@ -7,6 +7,9 @@ export default function Navbar() {
     <header className="navbar">
       <div className="navbar-left">
         <div className="guild-logo">
+          <button className="navbar-hamburger" id="navbarHamburgerBtn" type="button" aria-label="Toggle menu" aria-expanded="false">
+            <NavbarHamburgerIcon />
+          </button>
           <img src={emblemSrc} data-theme-img-key="guild-emblem-navbar" data-theme-original="/images/guild_emblem.avif" alt="ESI Emblem" className="emblem-img" />
           <div className="guild-title">
             <span className="guild-acronym">ESI</span>
