@@ -327,8 +327,65 @@ select.ie-input { cursor: pointer; }
   margin-top: 2px;
   border-top: 1px solid var(--border);
 }
+#saItemTable.ie-item-table { container-type: inline-size; }
 .ie-item-table .sa-row                    { grid-template-columns: 24px 1.8fr 1.4fr 0.6fr 0.8fr 0.6fr 0.7fr 1.5fr; }
 .ie-item-table.ie-item-table--ro .sa-row  { grid-template-columns: 24px 2.3fr 1.8fr 0.8fr 1.1fr 0.8fr 1.0fr; }
+@container (max-width: 960px) {
+  #saItemTable.ie-item-table .sa-row.sa-header.ie-row-cols,
+  #saItemTable.ie-item-table .sa-header { display: none !important; }
+  #saItemTable.ie-item-table .sa-row {
+    display: block;
+    padding: 0;
+    gap: 0;
+    border-radius: 0;
+  }
+  #saItemTable.ie-item-table .sa-row > span {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    min-width: 0;
+    padding: 8px 12px;
+    border-bottom: 1px solid rgba(var(--gold-rgb), 0.08);
+  }
+  #saItemTable.ie-item-table .sa-row > span:last-child { border-bottom: none; }
+  #saItemTable.ie-item-table .sa-row > span::before {
+    content: attr(data-label);
+    font-family: var(--font-heading);
+    font-size: 0.64rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    flex-shrink: 0;
+    padding-top: 2px;
+  }
+  #saItemTable.ie-item-table .sa-row > .sa-item-name,
+  #saItemTable.ie-item-table .sa-row > .sa-item-id,
+  #saItemTable.ie-item-table .sa-row > .sa-status-on,
+  #saItemTable.ie-item-table .sa-row > .sa-status-off {
+    margin-left: auto;
+    text-align: right;
+  }
+  #saItemTable.ie-item-table .sa-row > span[data-label="Type"] > *,
+  #saItemTable.ie-item-table .sa-row > span[data-label="Active"] > *,
+  #saItemTable.ie-item-table .sa-row > span[data-label="Stock"] > * { margin-left: auto; }
+  #saItemTable.ie-item-table .sa-row > span[data-label="Category"] {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  #saItemTable.ie-item-table .sa-row > span[data-label="Category"]::before,
+  #saItemTable.ie-item-table .sa-row > .sa-actions-cell::before { margin-right: auto; }
+  #saItemTable.ie-item-table .sa-row > .sa-actions-cell {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  #saItemTable.ie-item-table .sa-row > .sa-grip { justify-content: flex-end; }
+}
+@media (max-width: 960px) {
+  #saItemTable.ie-item-table .sa-row.sa-header.ie-row-cols,
+  #saItemTable.ie-item-table .sa-header { display: none !important; }
+}
 .sa-grip {
   color: var(--text-faint);
   cursor: grab;
@@ -634,17 +691,60 @@ select.ie-input { cursor: pointer; }
 .sa-stock-input:disabled { opacity: 0.5; }
 
 /* Queue badge */
+#saTabs .shop-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  padding-left: 12px;
+  padding-right: 12px;
+}
 .sa-badge {
-  display: inline-block;
-  background: var(--gold);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  background: linear-gradient(180deg, var(--gold-light) 0%, var(--gold) 100%);
   color: var(--green-deep);
-  font-size: 0.65rem;
+  border: 1px solid rgba(var(--green-deep-rgb), 0.35);
+  box-shadow: inset 0 0 0 1px rgba(var(--gold-light-rgb), 0.2);
+  font-family: var(--font-heading);
+  font-size: 0.62rem;
   font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 10px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  border-radius: 999px;
   margin-left: 6px;
   vertical-align: middle;
-  line-height: 1.4;
+}
+#saTabs .shop-tab .sa-badge {
+  margin-left: 0;
+  transform: translateY(-1px);
+}
+#saTabs .shop-tab:not(.active) .sa-badge {
+  background: rgba(var(--gold-rgb), 0.18);
+  color: var(--gold-light);
+  border-color: rgba(var(--gold-rgb), 0.35);
+  box-shadow: none;
+}
+@media (max-width: 560px) {
+  #saTabs .shop-tab {
+    gap: 4px;
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: 0.8rem;
+    letter-spacing: 0.03em;
+  }
+  #saTabs .shop-tab .sa-badge {
+    min-width: 16px;
+    height: 16px;
+    padding: 0 5px;
+    font-size: 0.58rem;
+  }
 }
 
 /* Sub-tabs */

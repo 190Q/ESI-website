@@ -1189,17 +1189,17 @@
       var rowClass = 'sa-row' + (!isActive ? ' sa-row--inactive' : '');
 
       html += '<div class="' + rowClass + '" data-item-id="' + esc(item.id) + '"' + (canParliamentEdit ? ' draggable="true"' : '') + '>';
-      html += '<span class="sa-grip"' + (canParliamentEdit ? ' title="Drag to reorder"' : ' style="opacity:0.2;cursor:default"') + '>' + _svg.grip + '</span>';
-      html += '<span class="sa-item-name">' + esc(item.name) + '</span>';
-      html += '<span class="sa-item-id">' + esc(item.id) + '</span>';
+      html += '<span class="sa-grip" data-label="Order"' + (canParliamentEdit ? ' title="Drag to reorder"' : ' style="opacity:0.2;cursor:default"') + '>' + _svg.grip + '</span>';
+      html += '<span class="sa-item-name" data-label="Name">' + esc(item.name) + '</span>';
+      html += '<span class="sa-item-id" data-label="ID">' + esc(item.id) + '</span>';
       var _typePill = item.type === 'auction'
         ? '<span class="sa-pill sa-pill--auction">Auction</span>'
         : item.type === 'donate'
         ? '<span class="sa-pill sa-pill--donate">Donation</span>'
         : '<span class="sa-pill sa-pill--bin">Bin</span>';
-      html += '<span>' + _typePill + '</span>';
+      html += '<span data-label="Type">' + _typePill + '</span>';
       var cats = Array.isArray(item.category) ? item.category : (item.category ? [item.category] : []);
-      html += '<span>' + (cats.length
+      html += '<span data-label="Category">' + (cats.length
         ? cats.map(function (c) { return '<span class="sa-pill sa-pill--cat">' + esc(c) + '</span>'; }).join(' ')
         : '<span style="color:var(--text-faint)">N/A</span>') + '</span>';
 
@@ -1207,24 +1207,24 @@
       if (skipAuctionControls && item.type === 'auction') {
         var _hasLive = (_auctions || []).some(function (a) { return a.item_id === item.id && a.status === 'active'; });
         if (_hasLive) {
-          html += '<span><span class="sa-pill sa-pill--live">Live</span></span>';
+          html += '<span data-label="Active"><span class="sa-pill sa-pill--live">Live</span></span>';
         } else if (canParliamentEdit) {
-          html += '<span><button class="sa-action-btn" data-start-auction="' + esc(item.id) + '">Start</button></span>';
+          html += '<span data-label="Active"><button class="sa-action-btn" data-start-auction="' + esc(item.id) + '">Start</button></span>';
         } else {
-          html += '<span><span class="sa-pill" style="color:var(--text-faint);border-color:var(--border)">Not live</span></span>';
+          html += '<span data-label="Active"><span class="sa-pill" style="color:var(--text-faint);border-color:var(--border)">Not live</span></span>';
         }
       } else if (canChiefEdit) {
-        html += '<span><label class="settings-toggle" data-toggle-id="' + esc(item.id) + '">' +
+        html += '<span data-label="Active"><label class="settings-toggle" data-toggle-id="' + esc(item.id) + '">' +
           '<input type="checkbox"' + (isActive ? ' checked' : '') + ' />' +
           '<span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>' +
           '</label></span>';
       } else {
-        html += '<span class="' + (isActive ? 'sa-status-on' : 'sa-status-off') + '">' + (isActive ? 'Active' : 'Inactive') + '</span>';
+        html += '<span data-label="Active" class="' + (isActive ? 'sa-status-on' : 'sa-status-off') + '">' + (isActive ? 'Active' : 'Inactive') + '</span>';
       }
 
       // stock (not applicable for auctions)
       if (item.type === 'auction') {
-        html += '<span style="color:var(--text-faint)">N/A</span>';
+        html += '<span data-label="Stock" style="color:var(--text-faint)">N/A</span>';
       } else {
         var _sv = Array.isArray(item.variants) ? item.variants : [];
         var _isMulti = _sv.length > 1;
@@ -1240,18 +1240,18 @@
         if (canChiefEdit) {
           var stockVal = _effStock != null ? _effStock : '';
           if (_isMulti) {
-            html += '<span><input type="number" class="sa-stock-input" value="' + esc(stockVal) + '" placeholder="\u221E" disabled title="Total from all variants" /></span>';
+            html += '<span data-label="Stock"><input type="number" class="sa-stock-input" value="' + esc(stockVal) + '" placeholder="∞" disabled title="Total from all variants" /></span>';
           } else {
-            html += '<span><input type="number" min="0" max="99999" class="sa-stock-input" data-stock-id="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="\u221E" /></span>';
+            html += '<span data-label="Stock"><input type="number" min="0" max="99999" class="sa-stock-input" data-stock-id="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="∞" /></span>';
           }
         } else {
-          html += '<span>' + (_effStock != null ? num(_effStock) : '\u221E') + '</span>';
+          html += '<span data-label="Stock">' + (_effStock != null ? num(_effStock) : '∞') + '</span>';
         }
       }
 
       // controls: auction actions + edit + delete
       if (canParliamentEdit) {
-      html += '<span class="sa-actions-cell">';
+      html += '<span class="sa-actions-cell" data-label="Controls">';
       if (item.type === 'auction' && !skipAuctionControls) {
         var activeAuction = (_auctions || []).find(function (a) { return a.item_id === item.id && a.status === 'active'; });
         if (activeAuction) {
@@ -1278,25 +1278,25 @@
         var auc = _liveAucMap[item.id];
         var isActive = item.active !== false;
         html += '<div class="sa-row sa-row--live' + (!isActive ? ' sa-row--inactive' : '') + '" data-item-id="' + esc(item.id) + '"' + (canParliamentEdit ? ' draggable="true"' : '') + '>';
-        html += '<span class="sa-grip"' + (canParliamentEdit ? ' title="Drag to reorder"' : ' style="opacity:0.2;cursor:default"') + '>' + _svg.grip + '</span>';
-        html += '<span class="sa-item-name">' + esc(item.name) + '</span>';
-        html += '<span class="sa-item-id">' + esc(item.id) + '</span>';
-        html += '<span><span class="sa-pill sa-pill--auction">Auction</span></span>';
+        html += '<span class="sa-grip" data-label="Order"' + (canParliamentEdit ? ' title="Drag to reorder"' : ' style="opacity:0.2;cursor:default"') + '>' + _svg.grip + '</span>';
+        html += '<span class="sa-item-name" data-label="Name">' + esc(item.name) + '</span>';
+        html += '<span class="sa-item-id" data-label="ID">' + esc(item.id) + '</span>';
+        html += '<span data-label="Type"><span class="sa-pill sa-pill--auction">Auction</span></span>';
         var liveCats = Array.isArray(item.category) ? item.category : (item.category ? [item.category] : []);
-        html += '<span>' + (liveCats.length
+        html += '<span data-label="Category">' + (liveCats.length
           ? liveCats.map(function (c) { return '<span class="sa-pill sa-pill--cat">' + esc(c) + '</span>'; }).join(' ')
           : '<span style="color:var(--text-faint)">N/A</span>') + '</span>';
         if (canChiefEdit) {
-          html += '<span><label class="settings-toggle" data-toggle-id="' + esc(item.id) + '">' +
+          html += '<span data-label="Active"><label class="settings-toggle" data-toggle-id="' + esc(item.id) + '">' +
             '<input type="checkbox"' + (isActive ? ' checked' : '') + ' />' +
             '<span class="settings-toggle-track"><span class="settings-toggle-thumb"></span></span>' +
             '</label></span>';
         } else {
-          html += '<span class="' + (isActive ? 'sa-status-on' : 'sa-status-off') + '">' + (isActive ? 'Active' : 'Inactive') + '</span>';
+          html += '<span data-label="Active" class="' + (isActive ? 'sa-status-on' : 'sa-status-off') + '">' + (isActive ? 'Active' : 'Inactive') + '</span>';
         }
-        html += '<span style="color:var(--text-faint)">N/A</span>';
+        html += '<span data-label="Stock" style="color:var(--text-faint)">N/A</span>';
         if (canParliamentEdit) {
-          html += '<span class="sa-actions-cell">';
+          html += '<span class="sa-actions-cell" data-label="Controls">';
           html += '<button class="sa-action-btn sa-pill sa-pill--auction" data-manage-auction="' + esc(auc.auction_id) + '">Manage</button>';
           html += '</span>';
         } // end _isParliament controls
@@ -1441,18 +1441,151 @@
       var table = document.getElementById('saItemTable');
       if (!table) return;
       var dragRow = null;
+      var autoScrollRaf = 0;
+      var autoScrollDelta = 0;
+      var autoScrollPointerX = null;
+      var autoScrollPointerY = null;
+      var autoScrollHost = _findScrollHost(table);
+      var autoScrollNavbar = null;
+      var autoScrollNavbarPrevPointerEvents = null;
+      function _navbarBottom() {
+        var nav = document.querySelector('.navbar');
+        if (nav) {
+          var navRect = nav.getBoundingClientRect();
+          if (navRect && navRect.bottom > 0) return navRect.bottom;
+        }
+        var cssVar = window.getComputedStyle(document.documentElement).getPropertyValue('--navbar-h');
+        var parsed = parseFloat(String(cssVar || '').trim());
+        return (!isNaN(parsed) && parsed > 0) ? parsed : 0;
+      }
+      function _setNavbarDragPassthrough(enabled) {
+        if (!autoScrollNavbar) autoScrollNavbar = document.querySelector('.navbar');
+        if (!autoScrollNavbar) return;
+        if (enabled) {
+          if (autoScrollNavbarPrevPointerEvents == null) {
+            autoScrollNavbarPrevPointerEvents = autoScrollNavbar.style.pointerEvents || '';
+          }
+          autoScrollNavbar.style.pointerEvents = 'none';
+          return;
+        }
+        if (autoScrollNavbarPrevPointerEvents != null) {
+          autoScrollNavbar.style.pointerEvents = autoScrollNavbarPrevPointerEvents;
+          autoScrollNavbarPrevPointerEvents = null;
+        } else {
+          autoScrollNavbar.style.pointerEvents = '';
+        }
+      }
+      function _findScrollHost(el) {
+        var node = el && el.parentElement;
+        while (node && node !== document.body && node !== document.documentElement) {
+          var style = window.getComputedStyle(node);
+          var overflowY = style ? style.overflowY : '';
+          if ((overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') &&
+              node.scrollHeight > node.clientHeight + 1) {
+            return node;
+          }
+          node = node.parentElement;
+        }
+        return null;
+      }
+      function _clearOverRows() {
+        table.querySelectorAll('.sa-row--over').forEach(function (r) { r.classList.remove('sa-row--over'); });
+      }
+      function _setOverRow(target) {
+        _clearOverRows();
+        if (!dragRow || !target || target === dragRow) return;
+        if (!table.contains(target)) return;
+        if (_sectionOf(target) !== _sectionOf(dragRow)) return;
+        target.classList.add('sa-row--over');
+      }
+      function _scrollCanMoveUp() {
+        if (autoScrollHost) return autoScrollHost.scrollTop > 0;
+        var doc = document.scrollingElement || document.documentElement;
+        var top = window.pageYOffset != null ? window.pageYOffset : doc.scrollTop;
+        return top > 0;
+      }
+      function _scrollCanMoveDown() {
+        if (autoScrollHost) return autoScrollHost.scrollTop + autoScrollHost.clientHeight < autoScrollHost.scrollHeight - 1;
+        var doc = document.scrollingElement || document.documentElement;
+        var top = window.pageYOffset != null ? window.pageYOffset : doc.scrollTop;
+        var vh = window.innerHeight || document.documentElement.clientHeight;
+        return top + vh < doc.scrollHeight - 1;
+      }
+      function _scrollRect() {
+        if (autoScrollHost) {
+          var rect = autoScrollHost.getBoundingClientRect();
+          return { top: rect.top, bottom: rect.bottom };
+        }
+        return {
+          top: _navbarBottom(),
+          bottom: (window.innerHeight || document.documentElement.clientHeight || 0)
+        };
+      }
+      function _computeAutoScrollDelta() {
+        autoScrollDelta = 0;
+        if (!dragRow || autoScrollPointerY == null) return;
+        var edgeZone = 120;
+        var maxStep = 24;
+        var rect = _scrollRect();
+        if (_scrollCanMoveUp() && autoScrollPointerY < rect.top + edgeZone) {
+          var upRatio = (rect.top + edgeZone - autoScrollPointerY) / edgeZone;
+          upRatio = Math.max(0, Math.min(1, upRatio));
+          autoScrollDelta = -Math.max(3, Math.round(maxStep * upRatio * upRatio));
+        } else if (_scrollCanMoveDown() && autoScrollPointerY > rect.bottom - edgeZone) {
+          var downRatio = (autoScrollPointerY - (rect.bottom - edgeZone)) / edgeZone;
+          downRatio = Math.max(0, Math.min(1, downRatio));
+          autoScrollDelta = Math.max(3, Math.round(maxStep * downRatio * downRatio));
+        }
+      }
+      function _applyAutoScroll(step) {
+        if (!step) return;
+        if (autoScrollHost) autoScrollHost.scrollTop += step;
+        else {
+          var doc = document.scrollingElement || document.documentElement;
+          doc.scrollTop += step;
+        }
+      }
+      function _refreshOverRowAtPointer() {
+        if (autoScrollPointerX == null || autoScrollPointerY == null) return;
+        var hovered = document.elementFromPoint(autoScrollPointerX, autoScrollPointerY);
+        var target = hovered ? hovered.closest('.sa-row[data-item-id]') : null;
+        _setOverRow(target);
+      }
+      function _stopAutoScroll() {
+        autoScrollDelta = 0;
+        if (autoScrollRaf) {
+          cancelAnimationFrame(autoScrollRaf);
+          autoScrollRaf = 0;
+        }
+      }
+      function _autoScrollTick() {
+        autoScrollRaf = 0;
+        if (!dragRow) return;
+        _computeAutoScrollDelta();
+        if (!autoScrollDelta) return;
+        _applyAutoScroll(autoScrollDelta);
+        _refreshOverRowAtPointer();
+        autoScrollRaf = requestAnimationFrame(_autoScrollTick);
+      }
       table.addEventListener('dragstart', function (e) {
         var row = e.target.closest('.sa-row[data-item-id]');
         if (!row) return;
         dragRow = row;
+        autoScrollPointerX = e.clientX;
+        autoScrollPointerY = e.clientY;
+        _setNavbarDragPassthrough(true);
         row.classList.add('sa-row--dragging');
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', row.dataset.itemId);
       });
       table.addEventListener('dragend', function () {
+        _stopAutoScroll();
+        _setNavbarDragPassthrough(false);
         if (dragRow) dragRow.classList.remove('sa-row--dragging');
-        table.querySelectorAll('.sa-row--over').forEach(function (r) { r.classList.remove('sa-row--over'); });
+        _clearOverRows();
         dragRow = null;
+        autoScrollPointerX = null;
+        autoScrollPointerY = null;
       });
       function _sectionOf(row) {
         // Walk backwards from row; if we hit the divider first, it's auction section
@@ -1463,16 +1596,63 @@
         }
         return 'bin';
       }
-      table.addEventListener('dragover', function (e) {
+      if (c._saItemsDragoverHandler) c.removeEventListener('dragover', c._saItemsDragoverHandler);
+      if (c._saItemsDropHandler) c.removeEventListener('drop', c._saItemsDropHandler);
+      if (c._saItemsDocDragoverHandler) document.removeEventListener('dragover', c._saItemsDocDragoverHandler, true);
+      if (c._saItemsDocDropHandler) document.removeEventListener('drop', c._saItemsDocDropHandler, true);
+      var _onContainerDragover = function (e) {
+        if (!dragRow) return;
         e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        var target = e.target.closest('.sa-row[data-item-id]');
-        table.querySelectorAll('.sa-row--over').forEach(function (r) { r.classList.remove('sa-row--over'); });
-        if (target && target !== dragRow && _sectionOf(target) === _sectionOf(dragRow)) target.classList.add('sa-row--over');
-      });
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        autoScrollPointerX = e.clientX;
+        autoScrollPointerY = e.clientY;
+        var target = (e.target && e.target.closest) ? e.target.closest('.sa-row[data-item-id]') : null;
+        _setOverRow(target);
+        _computeAutoScrollDelta();
+        if (autoScrollDelta) {
+          if (!autoScrollRaf) autoScrollRaf = requestAnimationFrame(_autoScrollTick);
+        } else {
+          _stopAutoScroll();
+        }
+      };
+      var _onContainerDrop = function () {
+        if (!dragRow) return;
+        _stopAutoScroll();
+        _setNavbarDragPassthrough(false);
+        _clearOverRows();
+      };
+      var _onDocumentDragover = function (e) {
+        if (!dragRow) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        autoScrollPointerX = e.clientX;
+        autoScrollPointerY = e.clientY;
+        _computeAutoScrollDelta();
+        if (autoScrollDelta) {
+          if (!autoScrollRaf) autoScrollRaf = requestAnimationFrame(_autoScrollTick);
+        } else {
+          _stopAutoScroll();
+        }
+      };
+      var _onDocumentDrop = function () {
+        if (!dragRow) return;
+        _stopAutoScroll();
+        _setNavbarDragPassthrough(false);
+        _clearOverRows();
+      };
+      c.addEventListener('dragover', _onContainerDragover);
+      c.addEventListener('drop', _onContainerDrop);
+      document.addEventListener('dragover', _onDocumentDragover, true);
+      document.addEventListener('drop', _onDocumentDrop, true);
+      c._saItemsDragoverHandler = _onContainerDragover;
+      c._saItemsDropHandler = _onContainerDrop;
+      c._saItemsDocDragoverHandler = _onDocumentDragover;
+      c._saItemsDocDropHandler = _onDocumentDrop;
       table.addEventListener('drop', function (e) {
+        _stopAutoScroll();
+        _setNavbarDragPassthrough(false);
         e.preventDefault();
-        var target = e.target.closest('.sa-row[data-item-id]');
+        var target = (e.target && e.target.closest) ? e.target.closest('.sa-row[data-item-id]') : null;
         if (!target || !dragRow || target === dragRow) return;
         if (_sectionOf(target) !== _sectionOf(dragRow)) return;
         // Reorder in DOM
@@ -4055,7 +4235,7 @@
       html += '<span>' + fmtDate(row.timestamp) + '</span>';
       html += '<span>' + esc(row.actor) + '</span>';
       html += '<span><span class="sa-log-type sa-log-type--change">' +
-        '<span class=\"sa-log-type__label\" title=\"' + esc(_actionText) + '\">' + esc(_actionText) + '</span></span></span>';
+        '<span class="sa-log-type__label" title="' + esc(_actionText) + '">' + esc(_actionText) + '</span></span></span>';
       html += '<span class="sa-chg-target">' + _fmtChangesTarget(row) + '</span>';
       html += '<span class="sa-chg-changes">' + _fmtChangesWhat(row) + '</span>';
       html += '</div>';
