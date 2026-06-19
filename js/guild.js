@@ -950,7 +950,7 @@
       const current    = terrData.territories || {};
       const lastUpdate = terrData.last_update ? fmtTerrTimestamp(terrData.last_update) : 'Unknown';
       const territoryIconSrcCurrent = themedPath('/images/territory_icon.png');
-      const terrCountText = `· ${fmt(Object.keys(current).length)} held · updated ${lastUpdate}`;
+      const terrCountText = `${fmt(Object.keys(current).length)} held · updated ${lastUpdate}`;
 
       terrPopup.innerHTML = `
         <div class="owed-aspects-popup-header territories-popup-header">
@@ -968,13 +968,22 @@
                 const isCapture = e.type === 'Territory Captured';
                 const color     = isCapture ? 'var(--online)' : 'var(--danger-mid)';
                 const arrow     = isCapture ? '▲' : '▼';
+                const transferPrefix = isCapture ? 'from' : 'to';
+                const transferGuildRaw = String(isCapture ? (e.from_guild || '') : (e.to_guild || '')).trim() || 'Unknown';
+                const transferGuildMatch = transferGuildRaw.match(/^(.*?)(\s*\([^()]*->[^()]*\)\s*)$/);
+                const transferGuildName = transferGuildMatch ? (transferGuildMatch[1].trim() || transferGuildRaw) : transferGuildRaw;
+                const transferGuildSuffix = transferGuildMatch ? transferGuildMatch[2].trim() : '';
                 return `
-                <div class="owed-aspects-row">
+                <div class="owed-aspects-row territory-history-row">
                   <span style="color:${color};font-weight:700;margin-right:0.5rem;flex-shrink:0">${arrow}</span>
-                  <span class="territory-name">${e.territory}</span>
-                  <div class="owed-aspects-right" style="flex-direction:column;align-items:flex-end;gap:0.1rem">
-                    <span style="font-size:0.78rem;color:var(--text-dim)">${isCapture ? 'from' : 'to'} ${isCapture ? e.from_guild : e.to_guild}</span>
-                    <span style="font-size:0.75rem;color:var(--text-faint)">${fmtTerrTimestamp(e.timestamp)}</span>
+                  <span class="territory-name">${escHtml(e.territory || 'Unknown Territory')}</span>
+                  <div class="owed-aspects-right territory-history-meta">
+                    <span class="territory-transfer-line">
+                      <span class="territory-transfer-prefix">${transferPrefix}</span>
+                      <span class="territory-transfer-guild" title="${escAttr(transferGuildRaw)}">${escHtml(transferGuildName)}</span>
+                      ${transferGuildSuffix ? `<span class="territory-transfer-suffix">${escHtml(transferGuildSuffix)}</span>` : ''}
+                    </span>
+                    <span class="territory-transfer-timestamp">${fmtTerrTimestamp(e.timestamp)}</span>
                   </div>
                 </div>`;
               }).join('')
