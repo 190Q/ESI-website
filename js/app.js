@@ -23,6 +23,29 @@
   const navItems        = document.querySelectorAll('.nav-item');
   const sidebar         = document.getElementById('sidebar');
   const sidebarToggle   = document.getElementById('sidebarToggle');
+  const navbar          = document.querySelector('.navbar');
+  const navbarLeft      = document.querySelector('.navbar-left');
+  const navbarCenter    = document.querySelector('.navbar-center');
+  const navbarRight     = document.querySelector('.navbar-right');
+
+  function syncNavbarCenterVisibility() {
+    if (!navbar || !navbarLeft || !navbarCenter || !navbarRight) return;
+    navbar.classList.remove('navbar-hide-center');
+    var navStyle = getComputedStyle(navbar);
+    var navGap = parseFloat(navStyle.columnGap || navStyle.gap || '0') || 0;
+    var neededWidth = Math.ceil(
+      navbarLeft.getBoundingClientRect().width +
+      navbarCenter.getBoundingClientRect().width +
+      navbarRight.getBoundingClientRect().width +
+      (navGap * 2)
+    );
+    navbar.classList.toggle('navbar-hide-center', neededWidth > navbar.clientWidth);
+  }
+
+  window.addEventListener('resize', syncNavbarCenterVisibility);
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(syncNavbarCenterVisibility).catch(function () {});
+  }
 
   /* sidebar toggle */
   if (localStorage.getItem('sidebarCollapsed') === 'true') {
@@ -41,6 +64,7 @@
       window.dispatchEvent(new Event('resize'));
     });
   });
+  syncNavbarCenterVisibility();
 
   /* nav clicks */
   navItems.forEach(item => {
@@ -1359,6 +1383,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
       loginBtn.style.background = _dcC;
       loginBtn.style.boxShadow = '0 2px 12px rgba(' + _dcRgb + ', 0.35)';
     }
+    syncNavbarCenterVisibility();
   }
 
   /* role checks - uses permission groups from /api/config */

@@ -163,6 +163,14 @@ body::-webkit-scrollbar-corner { background: var(--green-deep); }
   display: flex;
   justify-content: center;
 }
+.navbar.navbar-hide-center .navbar-center {
+  display: none;
+}
+.navbar.navbar-hide-center .navbar-right {
+  margin-left: auto;
+  flex: 0 1 auto;
+  max-width: none;
+}
 .navbar-tagline {
   display: inline-flex;
   align-items: center;
