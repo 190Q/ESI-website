@@ -18,9 +18,57 @@
   var _queueBadge     = null;
   var _toastStates    = [];
   var _rafHandle      = null;
+  function _mobileToastLayoutActive() {
+    return window.matchMedia && window.matchMedia('(max-width: 720px)').matches;
+  }
+  function _toastContainerStyle() {
+    if (_mobileToastLayoutActive()) {
+      return 'position:fixed;bottom:0;left:0;right:0;display:flex;flex-direction:column-reverse;' +
+        'z-index:999;max-width:none;width:100%;pointer-events:none;overflow-y:auto;max-height:calc(100vh - 56px);contain:layout style;';
+    }
+    return 'position:fixed;bottom:28px;right:28px;display:flex;flex-direction:column-reverse;' +
+      'z-index:999;max-width:340px;pointer-events:none;overflow-y:auto;max-height:calc(100vh - 56px);contain:layout style;';
+  }
+  function _toastStyle(color, bg, fg) {
+    if (_mobileToastLayoutActive()) {
+      return 'background:' + bg + ';border:1px solid ' + color + ';border-left:4px solid ' + color + ';' +
+        'color:' + fg + ';padding:14px 42px 14px 18px;border-radius:0;' +
+        "font-family:var(--font-heading, 'Cinzel', serif);font-size:0.82rem;letter-spacing:0.05em;" +
+        'box-shadow:0 -6px 20px rgba(0,0,0,0.42);animation:toastIn 0.35s ease;' +
+        'max-width:none;width:100%;pointer-events:auto;position:relative;overflow:hidden;';
+    }
+    return 'background:' + bg + ';border:1px solid ' + color + ';border-left:4px solid ' + color + ';' +
+      'color:' + fg + ';padding:14px 36px 14px 22px;border-radius:6px;' +
+      "font-family:var(--font-heading, 'Cinzel', serif);font-size:0.82rem;letter-spacing:0.05em;" +
+      'box-shadow:0 8px 32px rgba(0,0,0,0.5);animation:toastIn 0.35s ease;' +
+      'max-width:340px;pointer-events:auto;position:relative;overflow:hidden;';
+  }
+  function _toastBarStyle(color, hidden) {
+    var pos = _mobileToastLayoutActive() ? 'top:0;bottom:auto;' : 'bottom:0;top:auto;';
+    return 'position:absolute;' + pos + 'left:0;right:0;height:3px;' +
+      (color ? 'background:' + color + ';' : '') +
+      'transform-origin:left;transform:scaleX(1);' +
+      (hidden ? 'display:none;' : '');
+  }
+  function _queueBadgeStyle() {
+    if (_mobileToastLayoutActive()) {
+      return 'background:var(--surface-2, #1C2E1C);border:1px solid var(--border, rgba(232,216,160,0.25));' +
+        'color:#999;padding:8px 14px;border-radius:0;width:100%;' +
+        "font-family:var(--font-heading, 'Cinzel', serif);font-size:0.72rem;letter-spacing:0.05em;" +
+        'text-align:center;pointer-events:auto;';
+    }
+    return 'background:var(--surface-2, #1C2E1C);border:1px solid var(--border, rgba(232,216,160,0.25));' +
+      'color:#999;padding:6px 14px;border-radius:6px;' +
+      "font-family:var(--font-heading, 'Cinzel', serif);font-size:0.72rem;letter-spacing:0.05em;" +
+      'text-align:center;pointer-events:auto;';
+  }
 
   function _ensureToastContainer() {
-    if (_toastContainer && _toastContainer.parentNode) return _toastContainer;
+    if (_toastContainer && _toastContainer.parentNode) {
+      _toastContainer.classList.toggle('esi-toast-mobile', _mobileToastLayoutActive());
+      _toastContainer.style.cssText = _toastContainerStyle();
+      return _toastContainer;
+    }
     if (!document.getElementById('toastKeyframes')) {
       var s = document.createElement('style');
       s.id = 'toastKeyframes';
@@ -28,14 +76,14 @@
         '@keyframes toastIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}' +
         '.esi-toast-container{-ms-overflow-style:none;scrollbar-width:none}' +
         '.esi-toast-container::-webkit-scrollbar{display:none}' +
-        '.esi-toast-container>*+*{margin-bottom:8px}';
+        '.esi-toast-container>*+*{margin-bottom:8px}' +
+        '.esi-toast-container.esi-toast-mobile>*+*{margin-bottom:0}';
       document.head.appendChild(s);
     }
     _toastContainer = document.createElement('div');
     _toastContainer.className = 'esi-toast-container';
-    _toastContainer.style.cssText =
-      'position:fixed;bottom:28px;right:28px;display:flex;flex-direction:column-reverse;' +
-      'z-index:999;max-width:340px;pointer-events:none;overflow-y:auto;max-height:calc(100vh - 56px);contain:layout style;';
+    _toastContainer.classList.toggle('esi-toast-mobile', _mobileToastLayoutActive());
+    _toastContainer.style.cssText = _toastContainerStyle();
     document.body.appendChild(_toastContainer);
     return _toastContainer;
   }
@@ -113,12 +161,8 @@
       if (!_queueBadge) {
         _queueBadge = document.createElement('div');
         _queueBadge.className = 'esi-toast-queue-badge';
-        _queueBadge.style.cssText =
-          'background:var(--surface-2, #1C2E1C);border:1px solid var(--border, rgba(232,216,160,0.25));' +
-          'color:#999;padding:6px 14px;border-radius:6px;' +
-          "font-family:var(--font-heading, 'Cinzel', serif);font-size:0.72rem;letter-spacing:0.05em;" +
-          'text-align:center;pointer-events:auto;';
       }
+      _queueBadge.style.cssText = _queueBadgeStyle();
       _queueBadge.textContent = '+' + _toastQueue.length + ' more notification' + (_toastQueue.length > 1 ? 's' : '');
       if (!_queueBadge.parentNode) container.insertBefore(_queueBadge, container.firstChild);
     } else if (_queueBadge && _queueBadge.parentNode) {
@@ -154,12 +198,7 @@
     var fg     = 'var(--text-main, #E8D8A0)';
     var toast  = document.createElement('div');
     toast.className = 'esi-toast';
-    toast.style.cssText =
-      'background:' + bg + ';border:1px solid ' + color + ';border-left:4px solid ' + color + ';' +
-      'color:' + fg + ';padding:14px 36px 14px 22px;border-radius:6px;' +
-      "font-family:var(--font-heading, 'Cinzel', serif);font-size:0.82rem;letter-spacing:0.05em;" +
-      'box-shadow:0 8px 32px rgba(0,0,0,0.5);animation:toastIn 0.35s ease;' +
-      'max-width:340px;pointer-events:auto;position:relative;overflow:hidden;';
+    toast.style.cssText = _toastStyle(color, bg, fg);
 
     var msgSpan = document.createElement('span');
     msgSpan.innerHTML = message;
@@ -177,9 +216,7 @@
 
     var bar = document.createElement('div');
     bar.className = 'esi-toast-bar';
-    bar.style.cssText =
-      'position:absolute;bottom:0;left:0;right:0;height:3px;background:' + color + ';' +
-      'transform-origin:left;transform:scaleX(1);';
+    bar.style.cssText = _toastBarStyle(color, false);
     toast.appendChild(bar);
 
     container.appendChild(toast);
@@ -241,15 +278,11 @@
 
     var toast = document.createElement('div');
     toast.className = 'esi-toast esi-toast-progress';
-    toast.style.cssText =
-      'background:' + bg + ';border:1px solid ' + COLORS.info + ';border-left:4px solid ' + COLORS.info + ';' +
-      'color:' + fg + ';padding:14px 36px 14px 22px;border-radius:6px;' +
-      "font-family:var(--font-heading, 'Cinzel', serif);font-size:0.82rem;letter-spacing:0.05em;" +
-      'box-shadow:0 8px 32px rgba(0,0,0,0.5);animation:toastIn 0.35s ease;max-width:340px;pointer-events:auto;position:relative;overflow:hidden;';
+    toast.style.cssText = _toastStyle(COLORS.info, bg, fg);
 
     var finishBar = document.createElement('div');
     finishBar.className = 'esi-toast-bar';
-    finishBar.style.cssText = 'position:absolute;bottom:0;left:0;right:0;height:3px;transform-origin:left;transform:scaleX(1);display:none;';
+    finishBar.style.cssText = _toastBarStyle('', true);
 
     var hdr = document.createElement('div');
     hdr.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;';
@@ -341,8 +374,7 @@
         pctEl.textContent = ''; rebuildDetails();
         // Start countdown bar now that loading is done
         var barColor = allOk ? COLORS.success : (allFail ? COLORS.error : COLORS.warn);
-        finishBar.style.background = barColor;
-        finishBar.style.display = '';
+        finishBar.style.cssText = _toastBarStyle(barColor, false);
         _registerTimer(toast, finishBar);
       },
       dismiss: function () { _dismissToast(toast); },
