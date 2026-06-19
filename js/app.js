@@ -22,6 +22,7 @@
   const manageSection   = document.getElementById('manageSection');
   const navItems        = document.querySelectorAll('.nav-item');
   const sidebar         = document.getElementById('sidebar');
+  const sidebarNavScroller = sidebar ? sidebar.querySelector('.sidebar-nav') : null;
   const sidebarToggle   = document.getElementById('sidebarToggle');
   const navbar          = document.querySelector('.navbar');
   const navbarLeft      = document.querySelector('.navbar-left');
@@ -87,6 +88,48 @@
       setMobileSidebarOpen(false);
     });
   }
+  var sidebarTouchStartY = 0;
+  var sidebarTouchTracking = false;
+  document.addEventListener('touchstart', function (e) {
+    if (!document.documentElement.classList.contains('mobile-sidebar-open')) return;
+    if (!sidebarNavScroller || !sidebarNavScroller.contains(e.target)) {
+      sidebarTouchTracking = false;
+      return;
+    }
+    if (!e.touches || !e.touches.length) return;
+    sidebarTouchStartY = e.touches[0].clientY;
+    sidebarTouchTracking = true;
+  }, { passive: true });
+  document.addEventListener('touchmove', function (e) {
+    if (!document.documentElement.classList.contains('mobile-sidebar-open')) return;
+    if (!sidebar || !sidebar.contains(e.target)) {
+      e.preventDefault();
+      return;
+    }
+    if (!sidebarNavScroller || !sidebarNavScroller.contains(e.target)) {
+      e.preventDefault();
+      return;
+    }
+    if (sidebarNavScroller.scrollHeight <= sidebarNavScroller.clientHeight) {
+      e.preventDefault();
+      return;
+    }
+    if (!sidebarTouchTracking || !e.touches || !e.touches.length) return;
+    var currentY = e.touches[0].clientY;
+    var deltaY = currentY - sidebarTouchStartY;
+    sidebarTouchStartY = currentY;
+    var atTop = sidebarNavScroller.scrollTop <= 0;
+    var atBottom = (sidebarNavScroller.scrollTop + sidebarNavScroller.clientHeight) >= (sidebarNavScroller.scrollHeight - 1);
+    if ((atTop && deltaY > 0) || (atBottom && deltaY < 0)) {
+      e.preventDefault();
+    }
+  }, { passive: false });
+  document.addEventListener('touchend', function () {
+    sidebarTouchTracking = false;
+  }, { passive: true });
+  document.addEventListener('touchcancel', function () {
+    sidebarTouchTracking = false;
+  }, { passive: true });
 
   /* sidebar toggle */
   if (localStorage.getItem('sidebarCollapsed') === 'true') {
