@@ -397,10 +397,27 @@
   border: none;
   cursor: pointer;
   font-size: 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
   padding: 2px 4px;
   border-radius: 3px;
   color: var(--text-faint);
   transition: color 0.12s, background 0.12s;
+}
+.inac-copy-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+  fill: currentColor;
+  flex-shrink: 0;
+}
+.inac-copy-warning-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .inac-kick-btn:hover {

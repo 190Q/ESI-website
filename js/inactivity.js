@@ -21,6 +21,11 @@
   var _inacActiveToast = null;
   var _inacLoading = false;
   var _inacFetched = false;
+  var _copyIconSvg =
+    '<svg class="inac-copy-icon" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+      '<path d="M13.49 3 10.74.37A1.22 1.22 0 0 0 9.86 0h-4a1.25 1.25 0 0 0-1.22 1.25v11a1.25 1.25 0 0 0 1.25 1.25h6.72a1.25 1.25 0 0 0 1.25-1.25V3.88a1.22 1.22 0 0 0-.37-.88zm-.88 9.25H5.89v-11h2.72v2.63a1.25 1.25 0 0 0 1.25 1.25h2.75zm0-8.37H9.86V1.25l2.75 2.63z"></path>' +
+      '<path d="M10.11 14.75H3.39v-11H4V2.5h-.61a1.25 1.25 0 0 0-1.25 1.25v11A1.25 1.25 0 0 0 3.39 16h6.72a1.25 1.25 0 0 0 1.25-1.25v-.63h-1.25z"></path>' +
+    '</svg>';
 
   function cacheMetricsHistory(username, payload) {
     if (!username || !payload) return;
@@ -514,7 +519,7 @@
       }
       var kickBtn = '';
       if (_checkerType === 'second' && _checkerTab === 'inactive') {
-        kickBtn = '<button class="inac-kick-btn" data-username="' + p.username + '" title="Copy /gu kick ' + p.username + '">\uD83D\uDDD2</button>';
+        kickBtn = '<button class="inac-kick-btn" data-username="' + p.username + '" title="Copy /gu kick ' + p.username + '">' + _copyIconSvg + '</button>';
       }
       var hoursDisplay = (p.hours != null && !p.loading)
         ? p.hours.toFixed(1) + 'h'
@@ -547,8 +552,8 @@
     var copyRow = document.getElementById('inacCopyWarningRow');
     if (copyRow) {
       if (!isPartial && _checkerType === 'first' && _checkerTab === 'inactive' && rows.length > 0) {
-        copyRow.innerHTML = '<button class="inac-btn inac-btn-primary" id="inacCopyWarning" style="margin-top:10px;width:100%">' +
-          '\uD83D\uDCCB Copy Warning Message</button>';
+        copyRow.innerHTML = '<button class="inac-btn inac-btn-primary inac-copy-warning-btn" id="inacCopyWarning" style="margin-top:10px;width:100%">' +
+          _copyIconSvg + ' Copy Warning Message</button>';
         document.getElementById('inacCopyWarning').addEventListener('click', function () {
           copyWarningMessage(rows);
         });
