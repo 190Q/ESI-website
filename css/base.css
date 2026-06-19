@@ -1734,8 +1734,16 @@ html.mobile-sidebar-open body {
   padding: 16px 36px;
   border-top: 1px solid var(--border);
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.settings-reset-btn,
+.settings-save-btn {
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
 }
 .settings-reset-btn {
   background: transparent;
@@ -3018,6 +3026,21 @@ html.mobile-sidebar-open body {
   .navbar-right { gap: 8px; }
   .stats-grid { grid-template-columns: 1fr; }
   .guild-fullname { display: none; }
+  .settings-modal .modal-title,
+  .settings-modal .modal-sub {
+    padding: 0 20px;
+  }
+  .settings-body {
+    padding: 0 20px;
+  }
+  .settings-footer {
+    padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
+    gap: 8px;
+  }
+  .settings-reset-btn,
+  .settings-save-btn {
+    width: 100%;
+  }
   .site-footer {
     /* .content-area uses 28px 20px padding at this breakpoint */
     margin: 40px -20px -28px;
