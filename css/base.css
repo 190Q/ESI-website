@@ -1441,8 +1441,10 @@ select, option { font-family: inherit; }
   color: var(--text-faint);
   margin-bottom: 12px;
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 10px;
 }
 .settings-section-hint {
   font-family: var(--font-body);
@@ -1451,7 +1453,9 @@ select, option { font-family: inherit; }
   text-transform: none;
   color: var(--text-faint);
   opacity: 0.7;
-  margin-left: auto;
+  margin-left: 0;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .settings-section-hint a {
   color: var(--gold-dim);
@@ -1467,7 +1471,8 @@ select, option { font-family: inherit; }
 .settings-row {
   display: flex;
   align-items: center;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 10px 16px;
   padding: 14px 18px;
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -1485,7 +1490,7 @@ select, option { font-family: inherit; }
   text-align: center;
 }
 .settings-row-info {
-  flex: 1;
+  flex: 1 1 260px;
   min-width: 0;
 }
 .settings-row-title {
@@ -1501,7 +1506,8 @@ select, option { font-family: inherit; }
   line-height: 1.4;
 }
 .settings-row-control {
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  max-width: 100%;
 }
 .settings-select {
   background: var(--surface-3);
