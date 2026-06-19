@@ -62,6 +62,14 @@
         css += '[data-panel="player"].nav-item.active::before{display:none!important}';
         css += '[data-panel="' + panel + '"].nav-item{color:var(--gold-light,#F0C040)!important;background:rgba(var(--gold-rgb,212,160,23),0.12)!important;border-color:rgba(var(--gold-rgb,212,160,23),0.35)!important}';
       }
+      var hideNavbarCenter = false;
+      try {
+        hideNavbarCenter = localStorage.getItem('esi_navbar_hide_center') === '1';
+      } catch (_err) {}
+      if (hideNavbarCenter) {
+        css += '.navbar .navbar-center{display:none!important}';
+        css += '.navbar .navbar-right{margin-left:auto!important;flex:0 1 auto!important;max-width:none!important}';
+      }
       // Auth-specific overrides (logged-in button + nav items)
       var u = localStorage.getItem('esi_user');
       if (u) {

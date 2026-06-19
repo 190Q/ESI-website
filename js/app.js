@@ -45,7 +45,11 @@
       navbarRight.getBoundingClientRect().width +
       (navGap * 2)
     );
-    navbar.classList.toggle('navbar-hide-center', neededWidth > availableWidth);
+    var shouldHideCenter = neededWidth > availableWidth;
+    navbar.classList.toggle('navbar-hide-center', shouldHideCenter);
+    try {
+      localStorage.setItem('esi_navbar_hide_center', shouldHideCenter ? '1' : '0');
+    } catch (_err) {}
   }
   function isMobileSidebarMode() {
     return window.innerWidth <= MOBILE_SIDEBAR_BREAKPOINT;
