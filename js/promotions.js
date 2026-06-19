@@ -355,10 +355,10 @@
         var joinedStr = m.joined ? fmtDate(m.joined) : '—';
 
         return '<tr class="prom-row' + (eligible ? ' prom-row-eligible' : '') + '">' +
-          '<td class="prom-td prom-name prom-name-link" data-username="' + m.username + '" data-joined="' + (m.joined || '') + '">' + m.username + '</td>' +
-          '<td class="prom-td prom-meta">' + joinedStr + '</td>' +
-          '<td class="prom-td prom-meta">' + daysHtml + '</td>' +
-          '<td class="prom-td">' +
+          '<td class="prom-td prom-name prom-name-link" data-label="Member" data-username="' + m.username + '" data-joined="' + (m.joined || '') + '">' + m.username + '</td>' +
+          '<td class="prom-td prom-meta" data-label="Joined">' + joinedStr + '</td>' +
+          '<td class="prom-td prom-meta" data-label="Days in Guild">' + daysHtml + '</td>' +
+          '<td class="prom-td" data-label="Status">' +
             (eligible
               ? '<span class="prom-status eligible">&#x2713; Eligible</span>'
               : (m.recruiterSoon
@@ -385,11 +385,11 @@
         var joinedStr = m.joined ? fmtDate(m.joined) : '—';
 
         return '<tr class="prom-row' + (eligible ? ' prom-row-eligible' : '') + '">' +
-          '<td class="prom-td prom-name prom-name-link" data-username="' + m.username + '">' + m.username + '</td>' +
-          '<td class="prom-td prom-meta">' + joinedStr + '</td>' +
-          '<td class="prom-td prom-meta prom-stat-cell"><span class="prom-stat' + (raidsMet ? ' met' : '') + ' prom-stat-link" data-username="' + m.username + '" data-metric="guildRaids" data-joined="' + (m.joined || '') + '">' + m.raids + '</span></td>' +
-          '<td class="prom-td prom-meta prom-stat-cell"><span class="prom-stat' + (warsMet  ? ' met' : '') + ' prom-stat-link" data-username="' + m.username + '" data-metric="wars" data-joined="' + (m.joined || '') + '">' + m.wars  + '</span></td>' +
-          '<td class="prom-td">' +
+          '<td class="prom-td prom-name prom-name-link" data-label="Member" data-username="' + m.username + '">' + m.username + '</td>' +
+          '<td class="prom-td prom-meta" data-label="Joined">' + joinedStr + '</td>' +
+          '<td class="prom-td prom-meta prom-stat-cell" data-label="Raids / 25"><span class="prom-stat' + (raidsMet ? ' met' : '') + ' prom-stat-link" data-username="' + m.username + '" data-metric="guildRaids" data-joined="' + (m.joined || '') + '">' + m.raids + '</span></td>' +
+          '<td class="prom-td prom-meta prom-stat-cell" data-label="Wars / 50"><span class="prom-stat' + (warsMet  ? ' met' : '') + ' prom-stat-link" data-username="' + m.username + '" data-metric="wars" data-joined="' + (m.joined || '') + '">' + m.wars  + '</span></td>' +
+          '<td class="prom-td" data-label="Status">' +
             (eligible
               ? '<span class="prom-status eligible">&#x2713; Eligible</span>'
               : '<span class="prom-status">&#x2014;</span>') +
