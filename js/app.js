@@ -138,6 +138,26 @@
 
   function openAccountModal()  { window.Popup.open(accountModalBackdrop); }
   function closeAccountModal() { window.Popup.close(accountModalBackdrop); }
+  function setLoginButtonLoadingState() {
+    loginBtn.disabled = true;
+    loginBtn.setAttribute('aria-busy', 'true');
+    var existingIcon = loginBtn.querySelector('.btn-discord-loading-icon, svg, img');
+    if (existingIcon) existingIcon.remove();
+    var spinner = document.createElement('span');
+    spinner.className = 'loading-spinner btn-discord-loading-icon';
+    spinner.setAttribute('aria-hidden', 'true');
+    spinner.style.width = '20px';
+    spinner.style.height = '20px';
+    spinner.style.borderColor = 'rgba(255,255,255,0.3)';
+    spinner.style.borderTopColor = '#fff';
+    loginBtn.insertBefore(spinner, loginBtn.firstChild);
+    var label = loginBtn.querySelector('.btn-label');
+    if (label) label.textContent = 'Logging in\u2026';
+    loginBtn.style.opacity = '1';
+    loginBtn.style.background = _cssVar('--discord-hover', '#4752c4');
+    loginBtn.style.boxShadow = 'none';
+    syncNavbarCenterVisibility();
+  }
 
   loginBtn.addEventListener('click', () => {
     if (state.loggedIn) { openAccountModal(); return; }
@@ -157,24 +177,14 @@
         return;
       }
       localStorage.setItem('esi_dev_last_id', userId);
-      loginBtn.disabled = true;
-      loginBtn.innerHTML =
-        '<span class="loading-spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,0.3);border-top-color:#fff;"></span>' +
-        ' Logging in\u2026';
-      loginBtn.style.background = _cssVar('--discord-hover', '#4752c4');
-      loginBtn.style.boxShadow = 'none';
+      setLoginButtonLoadingState();
       sessionStorage.setItem('esi_auth_return', window.location.pathname || '/');
       window.location.href = '/auth/dev-login?user_id=' + encodeURIComponent(userId);
       return;
     }
 
     // show loading state and disable the button while redirecting
-    loginBtn.disabled = true;
-    loginBtn.innerHTML =
-      '<span class="loading-spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,0.3);border-top-color:#fff;"></span>' +
-      ' Logging in\u2026';
-    loginBtn.style.background = _cssVar('--discord-hover', '#4752c4');
-    loginBtn.style.boxShadow = 'none';
+    setLoginButtonLoadingState();
     // save current page state so we can restore it after the OAuth redirect
     sessionStorage.setItem('esi_auth_return', window.location.pathname || '/');
     window.location.href = '/auth/login';
@@ -202,13 +212,7 @@
     if (authResult === 'success') {
       _authJustCompleted = true;
       // show the same loading state while the session check confirms the login
-      loginBtn.disabled = true;
-      loginBtn.innerHTML =
-        '<span class="loading-spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,0.3);border-top-color:#fff;"></span>' +
-        ' Logging in\u2026';
-      loginBtn.style.opacity = '1';
-      loginBtn.style.background = _cssVar('--discord-hover', '#4752c4');
-      loginBtn.style.boxShadow = 'none';
+      setLoginButtonLoadingState();
     } else if (authResult === 'error') {
       _authFailed = true;
     }
@@ -1390,6 +1394,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   function updateLoginButton() {
     loginBtn.disabled = false;
+    loginBtn.removeAttribute('aria-busy');
     if (state.loggedIn && state.user) {
       const u = state.user;
       const avatarSrc = u.avatar
