@@ -125,9 +125,10 @@
   right: 18px;
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
-  max-width: calc(100% - 36px);
+  max-width: 33%;
+  overflow: hidden;
   pointer-events: none;
   z-index: 2;
 }
@@ -157,14 +158,6 @@
   display: block;
 }
 
-@media (max-width: 720px) {
-  .profile-medals-row {
-    position: static;
-    margin-top: 8px;
-    justify-content: flex-start;
-    align-items: flex-start;
-  }
-}
 
 .profile-name-row {
   display: flex;

@@ -712,26 +712,50 @@
 
   /* decorations (Discord medals) */
   var _decorationsReq = 0;
-  function clearPlayerDecorations() {
+  var _cachedPlayerMedals = [];
+  var _medalsRenderRaf = 0;
+  var MEDAL_SIZE_PX = 35;
+  var MEDAL_GAP_PX = 6;
+  var MEDAL_MAX_RATIO = 0.33;
+  var MEDAL_MAX_TOTAL = 8;
+  function schedulePlayerDecorationsRender() {
+    if (_medalsRenderRaf) return;
+    _medalsRenderRaf = requestAnimationFrame(function () {
+      _medalsRenderRaf = 0;
+      applyPlayerDecorationsRender();
+    });
+  }
+  function applyPlayerDecorationsRender() {
     var medalsEl = document.getElementById('playerMedalsRow');
-    if (medalsEl) medalsEl.textContent = '';
+    if (!medalsEl) return;
+    medalsEl.textContent = '';
+    if (!_cachedPlayerMedals.length) return;
+    var profileCardEl = medalsEl.closest('.profile-card');
+    var cardWidth = profileCardEl ? profileCardEl.clientWidth : 0;
+    if (!cardWidth) return;
+    var maxMedalsWidth = cardWidth * MEDAL_MAX_RATIO;
+    var totalCount = Math.min(_cachedPlayerMedals.length, MEDAL_MAX_TOTAL);
+    var requiredWidth = (totalCount * MEDAL_SIZE_PX) + ((totalCount - 1) * MEDAL_GAP_PX);
+    if (requiredWidth > maxMedalsWidth) return;
+    _cachedPlayerMedals.slice(0, totalCount).forEach(function (m) {
+      var wrap = document.createElement('div');
+      wrap.className = 'profile-medal';
+      wrap.title = (m.name || '') + (m.abbr ? ' [' + m.abbr + ']' : '');
+      var img = document.createElement('img');
+      img.className = 'profile-medal-img';
+      img.src = m.icon;
+      img.alt = m.name || '';
+      wrap.appendChild(img);
+      medalsEl.appendChild(wrap);
+    });
+  }
+  function clearPlayerDecorations() {
+    _cachedPlayerMedals = [];
+    schedulePlayerDecorationsRender();
   }
   function renderPlayerDecorations(medals) {
-    var medalsEl = document.getElementById('playerMedalsRow');
-    if (medalsEl) {
-      medalsEl.textContent = '';
-      (medals || []).slice(0, 8).forEach(function (m) {
-        var wrap = document.createElement('div');
-        wrap.className = 'profile-medal';
-        wrap.title = (m.name || '') + (m.abbr ? ' [' + m.abbr + ']' : '');
-        var img = document.createElement('img');
-        img.className = 'profile-medal-img';
-        img.src = m.icon;
-        img.alt = m.name || '';
-        wrap.appendChild(img);
-        medalsEl.appendChild(wrap);
-      });
-    }
+    _cachedPlayerMedals = (medals || []).slice(0, MEDAL_MAX_TOTAL);
+    schedulePlayerDecorationsRender();
   }
   function fetchPlayerDecorations(username) {
     if (!username) { clearPlayerDecorations(); return; }
@@ -2281,7 +2305,10 @@
     wrap.appendChild(section);
   }
 
-  window.addEventListener('resize', () => { if (graphState.data) refreshCompareGraph(); });
+  window.addEventListener('resize', function () {
+    schedulePlayerDecorationsRender();
+    if (graphState.data) refreshCompareGraph();
+  });
   window.addEventListener('themechange', () => { if (graphState.data) { renderMetricRows(); refreshCompareGraph(); } });
 
   /* Path routing */
