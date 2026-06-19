@@ -198,7 +198,7 @@ body::-webkit-scrollbar-corner { background: var(--green-deep); }
   align-items: center;
   gap: 12px;
   flex: 1 1 auto;
-  min-width: 0;
+  min-width: calc(42px + 52px + 12px);
   max-width: 50%;
   justify-content: flex-end;
   container-type: inline-size;
@@ -2541,8 +2541,13 @@ select, option { font-family: inherit; }
 @container (max-width: 220px) {
   .navbar-right .btn-discord,
   .navbar-right .btn-discord.btn-discord--account {
+    gap: 0;
     padding-left: 10px;
     padding-right: 10px;
+    justify-content: center;
+  }
+  .navbar-right .btn-discord .btn-label {
+    display: none;
   }
 }
 .content-area { padding: 28px 20px; }
