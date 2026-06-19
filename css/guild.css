@@ -161,18 +161,62 @@
 }
 
 /* Layout */
+#panel-guild {
+  container-type: inline-size;
+}
 .guild-split-layout {
   display: flex;
   gap: 24px;
   align-items: flex-start;
+  container-type: inline-size;
 }
 .guild-views-col {
   flex: 1;
   min-width: 0;
 }
+#guildOwedCards.owed-cards {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+#guildOwedCards.owed-cards .owed-card {
+  min-width: 0;
+  padding: 18px 12px;
+}
+#guildOwedCards.owed-cards .owed-value {
+  font-size: clamp(0.95rem, 2.2vw, 1.45rem);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+#guildOwedCards.owed-cards .owed-label {
+  line-height: 1.25;
+  letter-spacing: 0.06em;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 
 @media (max-width: 768px) {
-  .guild-split-layout { flex-direction: column; }
+  .guild-split-layout {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .graph-panels-col,
+  .guild-views-col {
+    width: 100%;
+    max-width: 100%;
+  }
+  .graph-panels-col { position: static; }
+}
+@container (max-width: 768px) {
+  .guild-split-layout {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .guild-split-layout > .graph-panels-col,
+  .guild-split-layout > .guild-views-col {
+    width: 100%;
+    max-width: 100%;
+  }
+  .guild-split-layout > .graph-panels-col { position: static; }
 }
 
 /* Guild rank badges */

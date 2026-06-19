@@ -282,6 +282,9 @@
 
   const GUILD_VIEWS = ['global', 'logs', 'snipes', 'statistics'];
   let _activeGuildView = 'global';
+  const GUILD_STATS_LABEL_LONG = 'Statistics';
+  const GUILD_STATS_LABEL_SHORT = 'Stats';
+  let _guildViewLabelRaf = null;
 
   const guildStatsState = {
     loaded: false,
@@ -292,6 +295,61 @@
     filterAfter:  '',
     filterBefore: '',
   };
+
+  function applyGuildViewLabelCompaction() {
+    const statsBtn = document.getElementById('guildViewStatistics');
+    const selector = statsBtn ? statsBtn.closest('.view-selector') : null;
+    if (!statsBtn || !selector) return;
+    if (selector.clientWidth <= 0) return;
+
+    statsBtn.textContent = GUILD_STATS_LABEL_LONG;
+    if (!isGuildViewButtonVisible(statsBtn)) return;
+
+    const selectorOverflowing = selector.scrollWidth > selector.clientWidth + 1;
+    const longLabelsDoNotFit = guildViewSelectorNeedsCompaction(selector);
+    if (selectorOverflowing || longLabelsDoNotFit) {
+      statsBtn.textContent = GUILD_STATS_LABEL_SHORT;
+    }
+  }
+
+  function isGuildViewButtonVisible(button) {
+    if (!button || button.offsetParent === null) return false;
+    const style = window.getComputedStyle(button);
+    return style.display !== 'none' && style.visibility !== 'hidden';
+  }
+
+  function measureGuildViewButtonOneLineWidth(button) {
+    if (!button) return 0;
+    const previousWhiteSpace = button.style.whiteSpace;
+    button.style.whiteSpace = 'nowrap';
+    const style = window.getComputedStyle(button);
+    const borderX = (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.borderRightWidth) || 0);
+    const width = button.scrollWidth + borderX;
+    button.style.whiteSpace = previousWhiteSpace;
+    return width;
+  }
+
+  function guildViewSelectorNeedsCompaction(selector) {
+    if (!selector || selector.clientWidth <= 0) return false;
+    const buttons = Array.from(selector.querySelectorAll('.view-btn')).filter(isGuildViewButtonVisible);
+    if (!buttons.length) return false;
+    const selectorStyle = window.getComputedStyle(selector);
+    const gap = parseFloat(selectorStyle.columnGap || selectorStyle.gap) || 0;
+    let requiredWidth = 0;
+    buttons.forEach(function (button, index) {
+      requiredWidth += measureGuildViewButtonOneLineWidth(button);
+      if (index > 0) requiredWidth += gap;
+    });
+    return requiredWidth > selector.clientWidth + 1;
+  }
+
+  function scheduleGuildViewLabelCompaction() {
+    if (_guildViewLabelRaf != null) cancelAnimationFrame(_guildViewLabelRaf);
+    _guildViewLabelRaf = requestAnimationFrame(function () {
+      _guildViewLabelRaf = null;
+      applyGuildViewLabelCompaction();
+    });
+  }
 
   function tryLoad() {
     if (!guildLoaded) loadGuild();
@@ -310,6 +368,9 @@
   new MutationObserver(function () {
     if (document.getElementById('panel-guild').classList.contains('active') && guildGraphState.data) {
       refreshGuildGraph();
+    }
+    if (document.getElementById('panel-guild').classList.contains('active')) {
+      scheduleGuildViewLabelCompaction();
     }
   }).observe(document.getElementById('panel-guild'), { attributes: true, attributeFilter: ['class'] });
 
@@ -1288,14 +1349,17 @@
       if (!data.available || !Array.isArray(data.snipes) || !data.snipes.length) {
         // Hide the button entirely when there's nothing to show.
         document.getElementById('guildViewSnipes').style.display = 'none';
+        scheduleGuildViewLabelCompaction();
         return false;
       }
       guildSnipesData = data;
       document.getElementById('guildViewSnipes').style.display = '';
+      scheduleGuildViewLabelCompaction();
       renderGuildSnipes(data);
       return true;
     } catch (err) {
       document.getElementById('guildViewSnipes').style.display = 'none';
+      scheduleGuildViewLabelCompaction();
       return false;
     }
   }
@@ -1446,6 +1510,7 @@
     const statView = document.getElementById('guildStatisticsView');
     if (statView) statView.style.display = v === 'statistics' ? 'block' : 'none';
     if (v === 'statistics') ensureGuildStatisticsLoaded();
+    scheduleGuildViewLabelCompaction();
   }
 
   window.buildGuildQueryString = function () {
@@ -2003,8 +2068,12 @@
     }
   }
 
-  window.addEventListener('resize', () => { if (guildGraphState.data) refreshGuildGraph(); });
+  window.addEventListener('resize', () => {
+    if (guildGraphState.data) refreshGuildGraph();
+    scheduleGuildViewLabelCompaction();
+  });
   window.addEventListener('themechange', () => { if (guildGraphState.data) { renderGuildMetricRows(); refreshGuildGraph(); } });
+  scheduleGuildViewLabelCompaction();
 
   // init share buttons for all graph panels
   if (window.GraphShared && window.GraphShared.initShareButtons) {
