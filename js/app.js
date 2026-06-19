@@ -732,34 +732,25 @@ function _showInfoTooltip(anchor, data) {
   _infoTooltipEl.style.display = 'block';
   _infoTooltipVisible = true;
 
-  // position to the right of the modal (or left if no room)
+  // position to the right of the modal only
   var modal = anchor.closest('.account-modal');
   var modalRect = modal ? modal.getBoundingClientRect() : null;
   var anchorRect = anchor.getBoundingClientRect();
   var margin = 10;
   var tw = _infoTooltipEl.offsetWidth;
   var th = _infoTooltipEl.offsetHeight;
-
-  var top = anchorRect.top;
-  var left;
-
-  if (modalRect && modalRect.right + margin + tw < window.innerWidth) {
-    // place to the right of the modal
-    left = modalRect.right + margin;
-  } else if (modalRect && modalRect.left - margin - tw > 0) {
-    // place to the left of the modal
-    left = modalRect.left - tw - margin;
-  } else {
-    // fallback: below the element
-    top = anchorRect.bottom + 6;
-    left = anchorRect.left;
-    if (left + tw > window.innerWidth - margin) left = window.innerWidth - tw - margin;
+  // if right-side space does not exist, do not show the tooltip
+  if (!modalRect || modalRect.right + margin + tw > window.innerWidth - margin) {
+    _infoTooltipEl.style.display = 'none';
+    _infoTooltipVisible = false;
+    return;
   }
+  var top = anchorRect.top;
+  var left = modalRect.right + margin;
 
   // keep within viewport vertically
   if (top + th > window.innerHeight - margin) top = window.innerHeight - th - margin;
   if (top < margin) top = margin;
-  if (left < margin) left = margin;
 
   _infoTooltipEl.style.top = top + 'px';
   _infoTooltipEl.style.left = left + 'px';
