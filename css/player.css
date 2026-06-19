@@ -128,7 +128,7 @@
   flex-wrap: nowrap;
   justify-content: flex-end;
   max-width: 33%;
-  overflow: hidden;
+  overflow: visible;
   pointer-events: none;
   z-index: 2;
 }
