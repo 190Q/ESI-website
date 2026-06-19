@@ -2932,10 +2932,11 @@ html.mobile-sidebar-open body {
     display: flex;
     width: min(84vw, 300px);
     transform: translateX(-100%);
-    transition: none;
+    transition: transform 220ms cubic-bezier(0.22, 0.61, 0.36, 1), border-right-color 220ms ease;
     z-index: 140;
     border-right-color: transparent;
     box-shadow: none;
+    will-change: transform;
   }
   .sidebar.mobile-open {
     transform: translateX(0);
@@ -2992,7 +2993,7 @@ html.mobile-sidebar-open body {
     background: rgba(var(--black-rgb), 0.28);
     opacity: 0;
     pointer-events: none;
-    transition: none;
+    transition: opacity 220ms ease;
     z-index: 130;
     padding: 0;
     border: 0;
