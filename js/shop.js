@@ -20,6 +20,7 @@
   var _priceAbsMax    = 1000;
   var _filterBarBuilt = false;
   var _searchDebTimer = null;
+  var _mobileFilterCleanup = null;
   var _countdownTimer = null;
   var _auctionTimer   = null;  // 1s tick for auction countdowns
   var _auctionPoll    = null;  // 30s auction data refresh
@@ -43,11 +44,13 @@
 
   var _svg = {
     cart:      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>',
+    filter:    '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M21 6H19M21 12H16M21 18H16M7 20V13.5612C7 13.3532 7 13.2492 6.97958 13.1497C6.96147 13.0615 6.93151 12.9761 6.89052 12.8958C6.84431 12.8054 6.77934 12.7242 6.64939 12.5617L3.35061 8.43826C3.22066 8.27583 3.15569 8.19461 3.10948 8.10417C3.06849 8.02393 3.03853 7.93852 3.02042 7.85026C3 7.75078 3 7.64677 3 7.43875V5.6C3 5.03995 3 4.75992 3.10899 4.54601C3.20487 4.35785 3.35785 4.20487 3.54601 4.10899C3.75992 4 4.03995 4 4.6 4H13.4C13.9601 4 14.2401 4 14.454 4.10899C14.6422 4.20487 14.7951 4.35785 14.891 4.54601C15 4.75992 15 5.03995 15 5.6V7.43875C15 7.64677 15 7.75078 14.9796 7.85026C14.9615 7.93852 14.9315 8.02393 14.8905 8.10417C14.8443 8.19461 14.7793 8.27583 14.6494 8.43826L11.3506 12.5617C11.2207 12.7242 11.1557 12.8054 11.1095 12.8958C11.0685 12.9761 11.0385 13.0615 11.0204 13.1497C11 13.2492 11 13.3532 11 13.5612V17L7 20Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     check:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>',
     close:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
     warn:      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
     clock:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
     hourglass: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 22h14M5 2h14M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22M7 2v4.172a2 2 0 0 1 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg>',
+    plus:      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
     minus:     '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
     diamond:   '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" transform="rotate(45 12 12)"/></svg>',
     gem:       '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 22 9 18 21 6 21 2 9"/></svg>',
@@ -182,6 +185,14 @@
     if (_auctionData && typeof _auctionData.coming_soon === 'boolean') return !!_auctionData.coming_soon;
     return _looksLikeComingSoon(disabledMessage());
   }
+  function _isMobileFilterMode() {
+    return !!(window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
+  }
+  function _clearMobileFilterHandlers() {
+    if (!_mobileFilterCleanup) return;
+    _mobileFilterCleanup();
+    _mobileFilterCleanup = null;
+  }
 
   /* Cross-tab cart sync via BroadcastChannel */
   var _cartChannel = null;
@@ -288,9 +299,9 @@
       '<div class="shop-balance-wrap">' +
         '<div id="shopBalanceBar" class="shop-balance-bar"></div>' +
         '<div class="shop-top-actions">' +
-          '<button id="shopOrdersBtn" class="shop-orders-btn">My Orders</button>' +
+          '<button id="shopOrdersBtn" class="shop-orders-btn"><span class="shop-orders-label-long">My Orders</span><span class="shop-orders-label-short">Orders</span></button>' +
           '<button id="shopCartBtn" class="cart-btn">' +
-            _svg.cart + ' Cart <span class="cart-badge" id="shopCartBadge">0</span>' +
+            _svg.cart + ' <span class="cart-btn-label">Cart</span> <span class="cart-badge" id="shopCartBadge">0</span>' +
           '</button>' +
         '</div>' +
       '</div>' +
@@ -374,6 +385,7 @@
     var el = document.getElementById('shopBalanceBar');
     if (!el) return;
     var message = 'Coming Soon';
+    el.classList.remove('shop-balance-bar--has-compact');
     el.classList.remove('shop-balance-bar--hidden');
     el.classList.remove('shop-balance-bar--coming-soon');
     el.innerHTML =
@@ -502,6 +514,7 @@
     var el = document.getElementById('shopBalanceBar');
     if (!el) return;
     if (_shopEnabled === false && !_showBalanceSection()) {
+      el.classList.remove('shop-balance-bar--has-compact');
       el.innerHTML = '';
       return;
     }
@@ -511,6 +524,7 @@
     }
     if (_shopEnabled === false && _shopMaintenanceViewOnly && !_maintenanceToggleEnabled('show_balance_bar', true)) {
       var balanceText = 'Under Maintenance';
+      el.classList.remove('shop-balance-bar--has-compact');
       el.classList.remove('shop-balance-bar--hidden');
       el.classList.remove('shop-balance-bar--coming-soon');
       el.innerHTML =
@@ -527,7 +541,11 @@
     }
     el.classList.remove('shop-balance-bar--hidden');
     el.classList.remove('shop-balance-bar--coming-soon');
-    if (!_binData || !_binData.balance) return;
+    if (!_binData || !_binData.balance) {
+      el.classList.remove('shop-balance-bar--has-compact');
+      return;
+    }
+    el.classList.add('shop-balance-bar--has-compact');
     var b = _binData.balance;
     var html = '<div class="bal-blocks">' +
       _mkBlock('Clean EP', b.spendable_clean, b.reserved_clean) +
@@ -547,6 +565,11 @@
         '<span class="bal-cycle-value">' + d + 'd ' + h + 'h ' + m + 'm</span>' +
         '</div>';
     }
+    html += '<div class="bal-compact">' +
+      '<span class="bal-compact-label">Balance</span>' +
+      '<span class="bal-compact-value">' + num(b.total_ep) + ' EP</span>' +
+      '<span class="bal-compact-detail">' + num(b.spendable_dirty) + ' dEP + ' + num(b.spendable_clean) + ' cEP</span>' +
+      '</div>';
     el.innerHTML = html;
   }
 
@@ -593,6 +616,7 @@
 
   function buildFilterBar() {
     if (_filterBarBuilt) { updateFilterBarData(); return; }
+    _clearMobileFilterHandlers();
     _filterBarBuilt = true;
 
     var pr = _computePriceRange();
@@ -615,7 +639,10 @@
 
     el.innerHTML =
       '<div class="shop-filter-bar" id="shopFilterBar" data-type="' + esc(_filterType) + '">' +
-        '<input type="search" id="sfSearch" class="sf-search" placeholder="Search by name\u2026" value="' + esc(_filterSearch) + '" />' +
+        '<div class="sf-search-row">' +
+          '<button type="button" id="sfFilterBtn" class="sf-filter-btn" aria-label="Toggle filters" aria-expanded="false">' + _svg.filter + '</button>' +
+          '<input type="search" id="sfSearch" class="sf-search" placeholder="Search by name\u2026" value="' + esc(_filterSearch) + '" />' +
+        '</div>' +
         '<div class="sf-section">' +
           '<span class="sf-section-title">Type</span>' +
           '<div class="sf-chips">' +
@@ -695,6 +722,42 @@
   }
 
   function _bindFilterBarEvents() {
+    var bar = document.getElementById('shopFilterBar');
+    var filterBtn = document.getElementById('sfFilterBtn');
+    function setMobileFilterOpen(nextOpen) {
+      if (!bar || !filterBtn) return;
+      var isOpen = !!nextOpen && _isMobileFilterMode();
+      bar.classList.toggle('shop-filter-bar--open', isOpen);
+      filterBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    }
+    if (bar && filterBtn) {
+      filterBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        setMobileFilterOpen(!bar.classList.contains('shop-filter-bar--open'));
+      });
+      var onDocClick = function (e) {
+        if (!_isMobileFilterMode()) return;
+        if (!bar.classList.contains('shop-filter-bar--open')) return;
+        if (bar.contains(e.target)) return;
+        setMobileFilterOpen(false);
+      };
+      var onKeyDown = function (e) {
+        if (e.key === 'Escape') setMobileFilterOpen(false);
+      };
+      var onResize = function () {
+        if (!_isMobileFilterMode()) setMobileFilterOpen(false);
+      };
+      document.addEventListener('click', onDocClick);
+      document.addEventListener('keydown', onKeyDown);
+      window.addEventListener('resize', onResize);
+      _mobileFilterCleanup = function () {
+        document.removeEventListener('click', onDocClick);
+        document.removeEventListener('keydown', onKeyDown);
+        window.removeEventListener('resize', onResize);
+      };
+      setMobileFilterOpen(false);
+    }
     // Search
     var searchEl = document.getElementById('sfSearch');
     if (searchEl) {
@@ -706,7 +769,6 @@
     }
 
     // Type chips (delegated from bar)
-    var bar = document.getElementById('shopFilterBar');
     if (bar) {
       bar.addEventListener('click', function (e) {
         var chip = e.target.closest('[data-sftype]');
@@ -1019,10 +1081,10 @@
       if (cartEntry) {
         var maxQ = _effectiveMaxQty(item, cartEntry.variantIdx);
         return '<div class="cart-stepper">' +
-          '<button class="cart-step-btn" data-step-dec="' + esc(item.id) + '">&#8722;</button>' +
+          '<button class="cart-step-btn" data-step-dec="' + esc(item.id) + '">' + _svg.minus + '</button>' +
           '<span class="cart-qty">' + cartEntry.quantity + '</span>' +
           '<button class="cart-step-btn" data-step-inc="' + esc(item.id) + '"' +
-            (cartEntry.quantity >= maxQ ? ' disabled' : '') + '>&#43;</button></div>';
+            (cartEntry.quantity >= maxQ ? ' disabled' : '') + '>' + _svg.plus + '</button></div>';
       }
       return '<button class="shop-buy-btn shop-buy-btn--add-cart" data-add-cart="' +
         esc(item.id) + '"' + (disabled ? ' disabled' : '') + '>' +
@@ -1475,9 +1537,9 @@
     } else if (item.allow_multi_quantity) {
       var maxQ = _effectiveMaxQty(item, cartEntry ? cartEntry.variantIdx : _mSelIdx);
       html += '<div class="cart-stepper">' +
-        '<button class="cart-step-btn" id="shopDetailDec">&#8722;</button>' +
+        '<button class="cart-step-btn" id="shopDetailDec">' + _svg.minus + '</button>' +
         '<input type="text" inputmode="numeric" class="cart-qty" id="shopDetailQty" value="' + cartEntry.quantity + '" maxlength="3" />' +
-        '<button class="cart-step-btn" id="shopDetailInc"' + (cartEntry.quantity >= maxQ ? ' disabled' : '') + '>&#43;</button>' +
+        '<button class="cart-step-btn" id="shopDetailInc"' + (cartEntry.quantity >= maxQ ? ' disabled' : '') + '>' + _svg.plus + '</button>' +
         '</div>';
     } else {
       html += '<div class="cart-in-cart-wrap">' +
@@ -1626,7 +1688,7 @@
       html += '<div class="detail-bid-stepper">';
       html += '<button class="bid-step-btn" id="bidDec" aria-label="Decrease bid">' + _svg.minus + '</button>';
       html += '<input type="text" inputmode="numeric" class="detail-bid-num" id="bidAmountInput" value="' + minBid + '" maxlength="6" />';
-      html += '<button class="bid-step-btn" id="bidInc">+</button>';
+      html += '<button class="bid-step-btn" id="bidInc" aria-label="Increase bid">' + _svg.plus + '</button>';
       html += '</div>';
       html += '</div>';
       html += '<div class="shop-modal-actions">';
@@ -1824,9 +1886,9 @@
         html += '<div class="cart-row-stepper' + (isMulti ? '' : ' cart-row-stepper--static') + '">';
         if (isMulti) {
           html +=
-            '<button class="cart-step-btn" data-modal-dec="' + esc(item.id) + '"' + (entry.quantity <= 1 ? ' disabled' : '') + '>&#8722;</button>' +
+            '<button class="cart-step-btn" data-modal-dec="' + esc(item.id) + '"' + (entry.quantity <= 1 ? ' disabled' : '') + '>' + _svg.minus + '</button>' +
             '<input type="text" inputmode="numeric" class="cart-qty" data-modal-qty="' + esc(item.id) + '" value="' + entry.quantity + '" maxlength="3" />' +
-            '<button class="cart-step-btn" data-modal-inc="' + esc(item.id) + '"' + (entry.quantity >= maxQ ? ' disabled' : '') + '>&#43;</button>';
+            '<button class="cart-step-btn" data-modal-inc="' + esc(item.id) + '"' + (entry.quantity >= maxQ ? ' disabled' : '') + '>' + _svg.plus + '</button>';
         } else {
           html += '1';
         }
@@ -2071,7 +2133,7 @@
     html += '<div class="detail-bid-stepper">';
     html += '<button class="bid-step-btn" id="donDec" aria-label="Decrease amount">' + _svg.minus + '</button>';
     html += '<input type="text" inputmode="numeric" class="detail-bid-num" id="donAmountInput" value="1" maxlength="4" />';
-    html += '<button class="bid-step-btn" id="donInc">+</button>';
+    html += '<button class="bid-step-btn" id="donInc" aria-label="Increase amount">' + _svg.plus + '</button>';
     html += '</div>';
     html += '<div class="donate-ep-preview" id="donEpPreview">= ' + num(_DONATE_LE_TO_EP) + ' Dirty EP</div>';
     html += '<div class="shop-modal-actions">';
