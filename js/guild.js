@@ -950,12 +950,16 @@
       const current    = terrData.territories || {};
       const lastUpdate = terrData.last_update ? fmtTerrTimestamp(terrData.last_update) : 'Unknown';
       const territoryIconSrcCurrent = themedPath('/images/territory_icon.png');
+      const terrCountText = `· ${fmt(Object.keys(current).length)} held · updated ${lastUpdate}`;
 
       terrPopup.innerHTML = `
-        <div class="owed-aspects-popup-header">
-          <img src="${territoryIconSrcCurrent}" data-theme-original="/images/territory_icon.png" alt="territory" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">
-          Territories
-          <span class="owed-aspects-popup-count" style="color:var(--text-dim);font-size:0.85rem;margin-left:0.4rem">· ${fmt(Object.keys(current).length)} held · updated ${lastUpdate}</span>
+        <div class="owed-aspects-popup-header territories-popup-header">
+          <span class="owed-aspects-popup-title">
+            <span class="owed-aspects-popup-title-main">
+              <img src="${territoryIconSrcCurrent}" data-theme-original="/images/territory_icon.png" alt="territory" style="width:16px;height:16px;image-rendering:pixelated;vertical-align:middle;margin-right:6px">Territories
+            </span>
+            <span class="owed-aspects-popup-count" style="color:var(--text-dim);font-size:0.85rem">${terrCountText}</span>
+          </span>
           <button class="owed-aspects-popup-close" id="territoriesClose">✕</button>
         </div>
         <div class="owed-aspects-popup-list">
@@ -981,6 +985,15 @@
       document.getElementById('territoriesClose').addEventListener('click', e => {
         e.stopPropagation();
         closeTerrPopup();
+      });
+      requestAnimationFrame(() => {
+        const headerEl = terrPopup.querySelector('.territories-popup-header');
+        const titleEl = headerEl ? headerEl.querySelector('.owed-aspects-popup-title') : null;
+        if (!headerEl || !titleEl) return;
+        headerEl.classList.remove('owed-aspects-popup-header--stacked');
+        if (titleEl.scrollWidth > titleEl.clientWidth + 1) {
+          headerEl.classList.add('owed-aspects-popup-header--stacked');
+        }
       });
     }
 
