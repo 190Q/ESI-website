@@ -564,6 +564,50 @@
   align-self: flex-end;
   white-space: nowrap;
 }
+@media (max-width: 640px) {
+  #territoriesPopup .territory-history-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "arrow name"
+      "arrow transfer"
+      "arrow time";
+    align-items: start;
+    row-gap: 3px;
+  }
+  #territoriesPopup .territory-history-row > span:first-child {
+    grid-area: arrow;
+    margin-right: 0;
+    align-self: start;
+  }
+  #territoriesPopup .territory-name {
+    grid-area: name;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  #territoriesPopup .territory-history-meta {
+    display: contents;
+  }
+  #territoriesPopup .territory-transfer-line {
+    grid-area: transfer;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    width: auto;
+  }
+  #territoriesPopup .territory-transfer-guild {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  #territoriesPopup .territory-transfer-timestamp {
+    grid-area: time;
+    align-self: start;
+    white-space: normal;
+  }
+}
 
 .owed-aspects-clear-btn {
   font-family: var(--font-heading);
