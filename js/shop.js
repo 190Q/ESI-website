@@ -724,6 +724,10 @@
   function _bindFilterBarEvents() {
     var bar = document.getElementById('shopFilterBar');
     var filterBtn = document.getElementById('sfFilterBtn');
+    var suppressOutsideCloseUntil = 0;
+    function suppressOutsideClose(ms) {
+      suppressOutsideCloseUntil = Date.now() + (ms || 350);
+    }
     function setMobileFilterOpen(nextOpen) {
       if (!bar || !filterBtn) return;
       var isOpen = !!nextOpen && _isMobileFilterMode();
@@ -739,6 +743,7 @@
       var onDocClick = function (e) {
         if (!_isMobileFilterMode()) return;
         if (!bar.classList.contains('shop-filter-bar--open')) return;
+        if (Date.now() < suppressOutsideCloseUntil) return;
         if (bar.contains(e.target)) return;
         setMobileFilterOpen(false);
       };
@@ -821,7 +826,15 @@
     ];
     selDefs.forEach(function (s) {
       var el = document.getElementById(s.id);
-      if (el) el.addEventListener('change', function () { s.fn(this.value); renderContent(); });
+      if (!el) return;
+      el.addEventListener('pointerdown', function () { suppressOutsideClose(700); });
+      el.addEventListener('mousedown', function () { suppressOutsideClose(700); });
+      el.addEventListener('focus', function () { suppressOutsideClose(700); });
+      el.addEventListener('change', function () {
+        suppressOutsideClose(700);
+        s.fn(this.value);
+        renderContent();
+      });
     });
 
     // Reset button

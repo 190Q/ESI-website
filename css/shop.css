@@ -418,6 +418,10 @@
   box-sizing: border-box;
 }
 .sf-select:focus { border-color: var(--gold-dim); }
+.sf-select option {
+  background: var(--surface-2);
+  color: var(--text-main);
+}
 
 /* Dual-range price slider */
 .sf-slider-rail {
@@ -567,6 +571,9 @@
     padding: 10px 12px;
     overflow: hidden;
   }
+  .shop-filter-bar.shop-filter-bar--open {
+    overflow: visible;
+  }
   .shop-filter-bar .sf-search-row {
     margin-bottom: 0;
     transition: margin-bottom 220ms ease;
@@ -574,14 +581,11 @@
   .shop-filter-bar .sf-filter-btn {
     display: inline-flex;
   }
-  .shop-filter-bar .sf-section,
-  .shop-filter-bar .sf-reset-btn {
+  .shop-filter-bar .sf-section {
     max-height: 0;
-    opacity: 0;
     overflow: hidden;
-    transform: translateY(-6px);
     pointer-events: none;
-    transition: max-height 260ms ease, opacity 220ms ease, transform 220ms ease, padding 220ms ease, margin 220ms ease, border-color 220ms ease;
+    transition: max-height 260ms ease, padding 220ms ease, margin 220ms ease, border-color 220ms ease;
   }
   .shop-filter-bar .sf-section {
     padding-top: 0;
@@ -593,6 +597,12 @@
     margin-bottom: 0;
   }
   .shop-filter-bar .sf-reset-btn {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transform: translateY(-6px);
+    pointer-events: none;
+    transition: max-height 260ms ease, opacity 220ms ease, transform 220ms ease, padding 220ms ease, margin 220ms ease, border-color 220ms ease;
     padding-top: 0;
     padding-bottom: 0;
     border-color: transparent;
@@ -603,8 +613,7 @@
   }
   .shop-filter-bar.shop-filter-bar--open .sf-section {
     max-height: 220px;
-    opacity: 1;
-    transform: translateY(0);
+    overflow: visible;
     pointer-events: auto;
     padding-top: 10px;
     padding-bottom: 10px;
