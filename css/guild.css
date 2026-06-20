@@ -159,6 +159,41 @@
   color: var(--gold-light);
   font-weight: 700;
 }
+@media (max-width: 620px) {
+  .guild-profile-card {
+    gap: 14px;
+    padding: 16px;
+    margin-bottom: 18px;
+  }
+  .guild-profile-emblem-wrap {
+    width: 68px;
+    height: 68px;
+  }
+  .guild-profile-name-row {
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .guild-profile-name {
+    font-size: 1.12rem;
+    line-height: 1.2;
+  }
+  .guild-profile-meta-row {
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .guild-profile-xp-row {
+    font-size: 0.78rem;
+    margin-bottom: 6px;
+  }
+  .guild-profile-details-row {
+    gap: 12px;
+    margin-bottom: 0;
+  }
+  #guildCardFounded,
+  .guild-profile-owner-row {
+    display: none;
+  }
+}
 
 /* Layout */
 #panel-guild {
