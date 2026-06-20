@@ -568,7 +568,7 @@
     width: 100%;
   }
   .shop-filter-bar {
-    padding: 10px 12px;
+    padding: 10px 12px 0px 12px;
     overflow: hidden;
   }
   .shop-filter-bar.shop-filter-bar--open {
