@@ -186,6 +186,14 @@
   document.getElementById('viewSnipes').addEventListener('click',    () => { switchView('snipes');      updateHash(); });
 
   const PLAYER_VIEWS = ['global', 'character', 'rankHistory', 'snipes'];
+  const PLAYER_GLOBAL_LABEL_LONG = 'Global Data';
+  const PLAYER_GLOBAL_LABEL_SHORT = 'Global';
+  const PLAYER_CHARACTER_LABEL_LONG = 'Character View';
+  const PLAYER_CHARACTER_LABEL_SHORT = 'Characters';
+  const PLAYER_CHARACTER_LABEL_XSHORT = 'Chars';
+  const PLAYER_RANK_HISTORY_LABEL_LONG = 'Rank History';
+  const PLAYER_RANK_HISTORY_LABEL_SHORT = 'Ranks';
+  let _playerViewLabelRaf = null;
 
   function switchView(v) {
     state.currentView = v;
@@ -198,6 +206,7 @@
     document.getElementById('rankHistoryView').style.display  = v === 'rankHistory' ? 'block' : 'none';
     document.getElementById('snipesView').style.display       = v === 'snipes'      ? 'block' : 'none';
     if (v === 'rankHistory') renderRankHistory();
+    schedulePlayerViewLabelCompaction();
   }
 
   function _updateViewSelector() {
@@ -206,6 +215,78 @@
     var visible = Array.from(sel.querySelectorAll('.view-btn'))
       .filter(function (b) { return b.style.display !== 'none'; }).length;
     sel.style.display = visible > 1 ? '' : 'none';
+    schedulePlayerViewLabelCompaction();
+  }
+
+  function isPlayerViewButtonVisible(button) {
+    if (!button || button.offsetParent === null) return false;
+    const style = window.getComputedStyle(button);
+    return style.display !== 'none' && style.visibility !== 'hidden';
+  }
+
+  function measurePlayerViewButtonOneLineWidth(button) {
+    if (!button) return 0;
+    const previousWhiteSpace = button.style.whiteSpace;
+    button.style.whiteSpace = 'nowrap';
+    const style = window.getComputedStyle(button);
+    const borderX = (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.borderRightWidth) || 0);
+    const width = button.scrollWidth + borderX;
+    button.style.whiteSpace = previousWhiteSpace;
+    return width;
+  }
+
+  function playerViewSelectorNeedsCompaction(selector) {
+    if (!selector || selector.clientWidth <= 0) return false;
+    const buttons = Array.from(selector.querySelectorAll('.view-btn')).filter(isPlayerViewButtonVisible);
+    if (!buttons.length) return false;
+    const selectorStyle = window.getComputedStyle(selector);
+    const gap = parseFloat(selectorStyle.columnGap || selectorStyle.gap) || 0;
+    let requiredWidth = 0;
+    buttons.forEach(function (button, index) {
+      requiredWidth += measurePlayerViewButtonOneLineWidth(button);
+      if (index > 0) requiredWidth += gap;
+    });
+    return requiredWidth > selector.clientWidth + 1;
+  }
+
+  function applyPlayerViewLabelCompaction() {
+    const globalBtn = document.getElementById('viewGlobal');
+    const characterBtn = document.getElementById('viewCharacter');
+    const rankHistoryBtn = document.getElementById('viewRankHistory');
+    const selector = (globalBtn && globalBtn.closest('.view-selector'))
+      || (characterBtn && characterBtn.closest('.view-selector'))
+      || (rankHistoryBtn && rankHistoryBtn.closest('.view-selector'));
+    if (!selector) return;
+    if (selector.clientWidth <= 0) return;
+
+    if (globalBtn) globalBtn.textContent = PLAYER_GLOBAL_LABEL_LONG;
+    if (characterBtn) characterBtn.textContent = PLAYER_CHARACTER_LABEL_LONG;
+    if (rankHistoryBtn) rankHistoryBtn.textContent = PLAYER_RANK_HISTORY_LABEL_LONG;
+
+    const needsCompaction = function () {
+      const selectorOverflowing = selector.scrollWidth > selector.clientWidth + 1;
+      return selectorOverflowing || playerViewSelectorNeedsCompaction(selector);
+    };
+    if (globalBtn && isPlayerViewButtonVisible(globalBtn) && needsCompaction()) {
+      globalBtn.textContent = PLAYER_GLOBAL_LABEL_SHORT;
+    }
+    if (characterBtn && isPlayerViewButtonVisible(characterBtn) && needsCompaction()) {
+      characterBtn.textContent = PLAYER_CHARACTER_LABEL_SHORT;
+    }
+    if (rankHistoryBtn && isPlayerViewButtonVisible(rankHistoryBtn) && needsCompaction()) {
+      rankHistoryBtn.textContent = PLAYER_RANK_HISTORY_LABEL_SHORT;
+    }
+    if (characterBtn && isPlayerViewButtonVisible(characterBtn) && needsCompaction()) {
+      characterBtn.textContent = PLAYER_CHARACTER_LABEL_XSHORT;
+    }
+  }
+
+  function schedulePlayerViewLabelCompaction() {
+    if (_playerViewLabelRaf != null) cancelAnimationFrame(_playerViewLabelRaf);
+    _playerViewLabelRaf = requestAnimationFrame(function () {
+      _playerViewLabelRaf = null;
+      applyPlayerViewLabelCompaction();
+    });
   }
 
   /* player snipes */
@@ -2389,6 +2470,7 @@
   window.addEventListener('resize', function () {
     schedulePlayerDecorationsRender();
     if (graphState.data) refreshCompareGraph();
+    schedulePlayerViewLabelCompaction();
   });
   window.addEventListener('themechange', () => { if (graphState.data) { renderMetricRows(); refreshCompareGraph(); } });
 
@@ -2536,6 +2618,7 @@
   var playerPanel = document.getElementById('panel-player');
   new MutationObserver(function () {
     if (playerPanel.classList.contains('active')) {
+      schedulePlayerViewLabelCompaction();
       if (!state.playerData) {
         if (searchBtn.disabled) return;
         var username = playerInput.value.trim();
