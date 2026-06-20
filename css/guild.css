@@ -179,11 +179,9 @@
   flex-wrap: nowrap;
 }
 .guild-views-col .view-btn {
-  flex: 1 1 0;
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: 0 0 auto;
+  width: fit-content;
+  max-width: max-content;
   white-space: nowrap;
   padding-left: 10px;
   padding-right: 10px;
