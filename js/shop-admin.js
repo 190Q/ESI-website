@@ -104,6 +104,7 @@
     grip:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>',
     minus:   '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
     cart:    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>',
+    filter:  '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M21 6H19M21 12H16M21 18H16M7 20V13.5612C7 13.3532 7 13.2492 6.97958 13.1497C6.96147 13.0615 6.93151 12.9761 6.89052 12.8958C6.84431 12.8054 6.77934 12.7242 6.64939 12.5617L3.35061 8.43826C3.22066 8.27583 3.15569 8.19461 3.10948 8.10417C3.06849 8.02393 3.03853 7.93852 3.02042 7.85026C3 7.75078 3 7.64677 3 7.43875V5.6C3 5.03995 3 4.75992 3.10899 4.54601C3.20487 4.35785 3.35785 4.20487 3.54601 4.10899C3.75992 4 4.03995 4 4.6 4H13.4C13.9601 4 14.2401 4 14.454 4.10899C14.6422 4.20487 14.7951 4.35785 14.891 4.54601C15 4.75992 15 5.03995 15 5.6V7.43875C15 7.64677 15 7.75078 14.9796 7.85026C14.9615 7.93852 14.9315 8.02393 14.8905 8.10417C14.8443 8.19461 14.7793 8.27583 14.6494 8.43826L11.3506 12.5617C11.2207 12.7242 11.1557 12.8054 11.1095 12.8958C11.0685 12.9761 11.0385 13.0615 11.0204 13.1497C11 13.2492 11 13.3532 11 13.5612V17L7 20Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     gavel:   '<svg width="13" height="13" viewBox="-2 0 19 19" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M9.316 14.722a.477.477 0 0 1-.475.475H1.433a.477.477 0 0 1-.475-.475v-.863a.477.477 0 0 1 .475-.475h7.408a.476.476 0 0 1 .475.475zm-2.767-2.587a.552.552 0 0 1-.392-.163L2.96 8.776a.554.554 0 0 1 .784-.784L6.94 11.19a.554.554 0 0 1-.392.946zm7.33.992L9.435 8.682l1.085-1.084-3.173-3.173-2.97 2.97 3.173 3.172 1.102-1.101 4.445 4.445a.554.554 0 1 0 .784-.784zm-2.33-5.993a.552.552 0 0 1-.391-.162L7.96 3.775a.554.554 0 1 1 .784-.784l3.196 3.197a.554.554 0 0 1-.391.946z"/></svg>',
     gift:    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>',
     pin:     '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>',
@@ -1118,6 +1119,8 @@
   function renderTab() {
     var c = document.getElementById('saContent');
     if (!c) return;
+    _clearLogsMobileFilterHandlers();
+    _clearLogsResponsiveLayoutWatcher();
     var visibleTabs = _syncAdminTabsVisibility();
     if (!visibleTabs || !visibleTabs.length) {
       _renderAdminMaintenanceUnavailable(c);
@@ -3586,7 +3589,10 @@
       html += '</div>';
       if (isPurchase && d.creator_username) {
         var _saComm = Math.floor((d.ep_spent || 0) * 0.35);
-        html += '<div class="sa-q-note">' + _svg.gift + ' Creator <strong>' + esc(d.creator_username) + '</strong> earns +' + num(_saComm) + ' dirty EP on fulfillment</div>';
+        html += '<div class="sa-q-note sa-q-note--commission">' +
+          _svg.gift +
+          '<span class="sa-q-note-text">Creator <strong>' + esc(d.creator_username) + '</strong> earns <span class="sa-q-commission-amount">+' + num(_saComm) + ' dirty EP</span> on fulfillment</span>' +
+          '</div>';
       }
     }
 
@@ -3888,6 +3894,87 @@
   var _changesData = null;
   var _changesPage = 1;
   var _changesFilters = { actor: '', action: '', target_id: '', date_from: '', date_to: '' };
+  var _logsMobileFilterCleanup = null;
+  var _logsResponsiveLayoutCleanup = null;
+  var _logsResponsiveWasMobile = null;
+
+  function _isLogsMobileFilterMode() {
+    return !!(window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
+  }
+  function _clearLogsMobileFilterHandlers() {
+    if (!_logsMobileFilterCleanup) return;
+    _logsMobileFilterCleanup();
+    _logsMobileFilterCleanup = null;
+  }
+  function _clearLogsResponsiveLayoutWatcher() {
+    if (_logsResponsiveLayoutCleanup) {
+      _logsResponsiveLayoutCleanup();
+      _logsResponsiveLayoutCleanup = null;
+    }
+    _logsResponsiveWasMobile = null;
+  }
+  function _bindLogsResponsiveLayoutWatcher() {
+    _clearLogsResponsiveLayoutWatcher();
+    _logsResponsiveWasMobile = _isLogsMobileFilterMode();
+    var onResize = function () {
+      var isMobileNow = _isLogsMobileFilterMode();
+      if (isMobileNow === _logsResponsiveWasMobile) return;
+      _logsResponsiveWasMobile = isMobileNow;
+      if (_activeTab !== 'logs') return;
+      _renderLogsBody();
+    };
+    window.addEventListener('resize', onResize);
+    _logsResponsiveLayoutCleanup = function () {
+      window.removeEventListener('resize', onResize);
+    };
+  }
+  function _bindLogsFilterDropdown(barId, filterBtnId) {
+    _clearLogsMobileFilterHandlers();
+    var bar = document.getElementById(barId);
+    var filterBtn = document.getElementById(filterBtnId);
+    if (!bar || !filterBtn) return;
+    var suppressOutsideCloseUntil = 0;
+    function suppressOutsideClose(ms) {
+      suppressOutsideCloseUntil = Date.now() + (ms || 280);
+    }
+    function setMobileFilterOpen(nextOpen) {
+      var isOpen = !!nextOpen && _isLogsMobileFilterMode();
+      bar.classList.toggle('sa-filter-bar--open', isOpen);
+      filterBtn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    }
+    filterBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      setMobileFilterOpen(!bar.classList.contains('sa-filter-bar--open'));
+    });
+    var onBarClick = function () {
+      suppressOutsideClose(220);
+    };
+    var onDocClick = function (e) {
+      if (!_isLogsMobileFilterMode()) return;
+      if (!bar.classList.contains('sa-filter-bar--open')) return;
+      if (Date.now() < suppressOutsideCloseUntil) return;
+      if (bar.contains(e.target)) return;
+      setMobileFilterOpen(false);
+    };
+    var onKeyDown = function (e) {
+      if (e.key === 'Escape') setMobileFilterOpen(false);
+    };
+    var onResize = function () {
+      if (!_isLogsMobileFilterMode()) setMobileFilterOpen(false);
+    };
+    bar.addEventListener('click', onBarClick);
+    document.addEventListener('click', onDocClick);
+    document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', onResize);
+    _logsMobileFilterCleanup = function () {
+      bar.removeEventListener('click', onBarClick);
+      document.removeEventListener('click', onDocClick);
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', onResize);
+    };
+    setMobileFilterOpen(false);
+  }
 
   var _ACTION_LABELS = {
     item_created:       'Item Created',
@@ -4203,41 +4290,66 @@
   }
 
   function renderChangesContent(c) {
+    _clearLogsMobileFilterHandlers();
     if (!_changesData) { c.innerHTML = '<div class="shop-empty">Could not load changes.</div>'; return; }
     var html = '';
+    var isMobileFilterLayout = _isLogsMobileFilterMode();
 
     // filter bar
-    html += '<div class="sa-filter-bar">';
-    html += '<select class="sa-filter-input" id="saLogTypeView">' +
-      '<option value="activity">Activity</option>' +
-      '<option value="changes" selected>Changes</option>' +
-      '</select>';
-    html += '<input class="sa-filter-input" id="saChgActor" placeholder="Actor" maxlength="64" value="' + esc(_changesFilters.actor) + '" />';
-    html += '<input class="sa-filter-input" id="saChgTarget" placeholder="Target ID" maxlength="64" value="' + esc(_changesFilters.target_id) + '" />';
-    html += '<select class="sa-filter-input" id="saChgAction"><option value="">All actions</option>' +
-      _ACTION_TYPES.map(function (a) {
-        return '<option value="' + esc(a) + '"' + (_changesFilters.action === a ? ' selected' : '') + '>' +
-          esc(_actionLabel(a)) + '</option>';
-      }).join('') + '</select>';
-    html += '<span class="sa-filter-label">From:</span><input type="date" class="sa-filter-input" id="saChgFrom" value="' + esc(_changesFilters.date_from) + '" />';
-    html += '<span class="sa-filter-label">To:</span><input type="date" class="sa-filter-input" id="saChgTo" value="' + esc(_changesFilters.date_to) + '" />';
-    html += '<button class="shop-modal-btn shop-modal-btn--confirm" id="saChgSearch" style="padding:5px 14px;font-size:0.72rem;">Search</button>';
+    if (isMobileFilterLayout) {
+      html += '<div class="sa-filter-bar sa-filter-bar--logs" id="saChgFilterBar">';
+      html += '<div class="sa-filter-toolbar">';
+      html += '<button type="button" id="saChgFilterBtn" class="sf-filter-btn sa-filter-toggle" aria-label="Toggle filters" aria-expanded="false">' + _svg.filter + '</button>';
+      html += '<select class="sa-filter-input" id="saLogTypeView">' +
+        '<option value="activity">Activity</option>' +
+        '<option value="changes" selected>Changes</option>' +
+        '</select>';
+      html += '<button class="shop-modal-btn shop-modal-btn--confirm sa-filter-search-btn" id="saChgSearch">Search</button>';
+      html += '</div>';
+      html += '<div class="sa-filter-panel">';
+      html += '<input class="sa-filter-input" id="saChgActor" placeholder="Actor" maxlength="64" value="' + esc(_changesFilters.actor) + '" />';
+      html += '<input class="sa-filter-input" id="saChgTarget" placeholder="Target ID" maxlength="64" value="' + esc(_changesFilters.target_id) + '" />';
+      html += '<select class="sa-filter-input" id="saChgAction"><option value="">All actions</option>' +
+        _ACTION_TYPES.map(function (a) {
+          return '<option value="' + esc(a) + '"' + (_changesFilters.action === a ? ' selected' : '') + '>' +
+            esc(_actionLabel(a)) + '</option>';
+        }).join('') + '</select>';
+      html += '<label class="sa-filter-date"><span class="sa-filter-label">From</span><input type="date" class="sa-filter-input" id="saChgFrom" value="' + esc(_changesFilters.date_from) + '" /></label>';
+      html += '<label class="sa-filter-date"><span class="sa-filter-label">To</span><input type="date" class="sa-filter-input" id="saChgTo" value="' + esc(_changesFilters.date_to) + '" /></label>';
+      html += '</div>';
+    } else {
+      html += '<div class="sa-filter-bar" id="saChgFilterBar">';
+      html += '<select class="sa-filter-input" id="saLogTypeView">' +
+        '<option value="activity">Activity</option>' +
+        '<option value="changes" selected>Changes</option>' +
+        '</select>';
+      html += '<input class="sa-filter-input" id="saChgActor" placeholder="Actor" maxlength="64" value="' + esc(_changesFilters.actor) + '" />';
+      html += '<input class="sa-filter-input" id="saChgTarget" placeholder="Target ID" maxlength="64" value="' + esc(_changesFilters.target_id) + '" />';
+      html += '<select class="sa-filter-input" id="saChgAction"><option value="">All actions</option>' +
+        _ACTION_TYPES.map(function (a) {
+          return '<option value="' + esc(a) + '"' + (_changesFilters.action === a ? ' selected' : '') + '>' +
+            esc(_actionLabel(a)) + '</option>';
+        }).join('') + '</select>';
+      html += '<input type="date" class="sa-filter-input" id="saChgFrom" value="' + esc(_changesFilters.date_from) + '" />';
+      html += '<input type="date" class="sa-filter-input" id="saChgTo" value="' + esc(_changesFilters.date_to) + '" />';
+      html += '<button class="shop-modal-btn shop-modal-btn--confirm" id="saChgSearch">Search</button>';
+    }
     html += '</div>';
 
-    html += '<div class="sa-table">';
+    html += '<div class="sa-table sa-log-table">';
     html += '<div class="sa-row sa-header sa-log-row sa-chg-row"><span>Time</span><span>Actor</span><span>Action</span><span>Target</span><span>Changes</span></div>';
     if (!_changesData.rows || !_changesData.rows.length) {
-      html += '<div class="sa-row sa-log-row sa-chg-row" style="justify-content:center;color:var(--text-faint);grid-column:1/-1;">No records found.</div>';
+      html += '<div class="sa-row sa-log-row sa-chg-row sa-log-row--empty"><span data-label="">No records found.</span></div>';
     }
     (_changesData.rows || []).forEach(function (row) {
       var _actionText = _actionLabel(row.action);
       html += '<div class="sa-row sa-log-row sa-chg-row">';
-      html += '<span>' + fmtDate(row.timestamp) + '</span>';
-      html += '<span>' + esc(row.actor) + '</span>';
-      html += '<span><span class="sa-log-type sa-log-type--change">' +
+      html += '<span data-label="Time">' + fmtDate(row.timestamp) + '</span>';
+      html += '<span data-label="Actor">' + esc(row.actor) + '</span>';
+      html += '<span data-label="Action"><span class="sa-log-type sa-log-type--change">' +
         '<span class="sa-log-type__label" title="' + esc(_actionText) + '">' + esc(_actionText) + '</span></span></span>';
-      html += '<span class="sa-chg-target">' + _fmtChangesTarget(row) + '</span>';
-      html += '<span class="sa-chg-changes">' + _fmtChangesWhat(row) + '</span>';
+      html += '<span class="sa-chg-target" data-label="Target">' + _fmtChangesTarget(row) + '</span>';
+      html += '<span class="sa-chg-changes" data-label="Changes">' + _fmtChangesWhat(row) + '</span>';
       html += '</div>';
     });
     html += '</div>';
@@ -4251,6 +4363,7 @@
     html += '</div>';
 
     c.innerHTML = html;
+    if (isMobileFilterLayout) _bindLogsFilterDropdown('saChgFilterBar', 'saChgFilterBtn');
 
     // log type switcher
     document.getElementById('saLogTypeView').addEventListener('change', function () {
@@ -4324,6 +4437,7 @@
 
   function renderLogs(c) {
     c.innerHTML = '<div id="saLogBody"></div>';
+    _bindLogsResponsiveLayoutWatcher();
     _renderLogsBody();
   }
 
@@ -4349,37 +4463,74 @@
 
 
   function renderLogsContent(c) {
+    _clearLogsMobileFilterHandlers();
     if (!_logsData) { c.innerHTML = '<div class="shop-empty">Could not load logs.</div>'; return; }
     var html = '';
+    var isMobileFilterLayout = _isLogsMobileFilterMode();
 
     // filter bar
-    html += '<div class="sa-filter-bar">';
-    html += '<select class="sa-filter-input" id="saLogTypeView">' +
-      '<option value="activity" selected>Activity</option>' +
-      '<option value="changes">Changes</option>' +
-      '</select>';
-    html += '<input class="sa-filter-input" id="saLogUser" placeholder="Username" maxlength="32" value="' + esc(_logsFilters.username) + '" />';
-    html += '<input class="sa-filter-input" id="saLogItem" placeholder="Item ID" maxlength="64" value="' + esc(_logsFilters.item_id) + '" />';
-    html += '<select class="sa-filter-input" id="saLogType">' +
-      '<option value="">All types</option>' +
-      '<option value="purchase"' + (_logsFilters.type === 'purchase' ? ' selected' : '') + '>Purchase</option>' +
-      '<option value="bid"'      + (_logsFilters.type === 'bid'      ? ' selected' : '') + '>Bid</option>' +
-      '<option value="donation"' + (_logsFilters.type === 'donation' ? ' selected' : '') + '>Donation</option>' +
-      '</select>';
-    html += '<select class="sa-filter-input" id="saLogStatus"><option value="">All statuses</option>' +
-      '<option value="pending"'   + (_logsFilters.status === 'pending'   ? ' selected' : '') + '>Pending</option>' +
-      '<option value="fulfilled"' + (_logsFilters.status === 'fulfilled' ? ' selected' : '') + '>Fulfilled</option>' +
-      '<option value="confirmed"' + (_logsFilters.status === 'confirmed' ? ' selected' : '') + '>Confirmed</option>' +
-      '<option value="rejected"'  + (_logsFilters.status === 'rejected'  ? ' selected' : '') + '>Rejected</option>' +
-      '<option value="refunded"'  + (_logsFilters.status === 'refunded'  ? ' selected' : '') + '>Refunded</option>' +
-      '<option value="refund_pending"' + (_logsFilters.status === 'refund_pending' ? ' selected' : '') + '>Refund Pending</option>' +
-      '<option value="active"'    + (_logsFilters.status === 'active'    ? ' selected' : '') + '>Active</option>' +
-      '<option value="won"'       + (_logsFilters.status === 'won'       ? ' selected' : '') + '>Won</option>' +
-      '<option value="outbid"'    + (_logsFilters.status === 'outbid'    ? ' selected' : '') + '>Outbid</option>' +
-      '</select>';
-    html += '<span class="sa-filter-label">From:</span><input type="date" class="sa-filter-input" id="saLogFrom" value="' + esc(_logsFilters.date_from) + '" />';
-    html += '<span class="sa-filter-label">To:</span><input type="date" class="sa-filter-input" id="saLogTo" value="' + esc(_logsFilters.date_to) + '" />';
-    html += '<button class="shop-modal-btn shop-modal-btn--confirm" id="saLogSearch" style="padding:5px 14px;font-size:0.72rem;">Search</button>';
+    if (isMobileFilterLayout) {
+      html += '<div class="sa-filter-bar sa-filter-bar--logs" id="saLogFilterBar">';
+      html += '<div class="sa-filter-toolbar">';
+      html += '<button type="button" id="saLogFilterBtn" class="sf-filter-btn sa-filter-toggle" aria-label="Toggle filters" aria-expanded="false">' + _svg.filter + '</button>';
+      html += '<select class="sa-filter-input" id="saLogTypeView">' +
+        '<option value="activity" selected>Activity</option>' +
+        '<option value="changes">Changes</option>' +
+        '</select>';
+      html += '<button class="shop-modal-btn shop-modal-btn--confirm sa-filter-search-btn" id="saLogSearch">Search</button>';
+      html += '</div>';
+      html += '<div class="sa-filter-panel">';
+      html += '<input class="sa-filter-input" id="saLogUser" placeholder="Username" maxlength="32" value="' + esc(_logsFilters.username) + '" />';
+      html += '<input class="sa-filter-input" id="saLogItem" placeholder="Item ID" maxlength="64" value="' + esc(_logsFilters.item_id) + '" />';
+      html += '<select class="sa-filter-input" id="saLogType">' +
+        '<option value="">All types</option>' +
+        '<option value="purchase"' + (_logsFilters.type === 'purchase' ? ' selected' : '') + '>Purchase</option>' +
+        '<option value="bid"'      + (_logsFilters.type === 'bid'      ? ' selected' : '') + '>Bid</option>' +
+        '<option value="donation"' + (_logsFilters.type === 'donation' ? ' selected' : '') + '>Donation</option>' +
+        '</select>';
+      html += '<select class="sa-filter-input" id="saLogStatus"><option value="">All statuses</option>' +
+        '<option value="pending"'   + (_logsFilters.status === 'pending'   ? ' selected' : '') + '>Pending</option>' +
+        '<option value="fulfilled"' + (_logsFilters.status === 'fulfilled' ? ' selected' : '') + '>Fulfilled</option>' +
+        '<option value="confirmed"' + (_logsFilters.status === 'confirmed' ? ' selected' : '') + '>Confirmed</option>' +
+        '<option value="rejected"'  + (_logsFilters.status === 'rejected'  ? ' selected' : '') + '>Rejected</option>' +
+        '<option value="refunded"'  + (_logsFilters.status === 'refunded'  ? ' selected' : '') + '>Refunded</option>' +
+        '<option value="refund_pending"' + (_logsFilters.status === 'refund_pending' ? ' selected' : '') + '>Refund Pending</option>' +
+        '<option value="active"'    + (_logsFilters.status === 'active'    ? ' selected' : '') + '>Active</option>' +
+        '<option value="won"'       + (_logsFilters.status === 'won'       ? ' selected' : '') + '>Won</option>' +
+        '<option value="outbid"'    + (_logsFilters.status === 'outbid'    ? ' selected' : '') + '>Outbid</option>' +
+        '</select>';
+      html += '<label class="sa-filter-date"><span class="sa-filter-label">From</span><input type="date" class="sa-filter-input" id="saLogFrom" value="' + esc(_logsFilters.date_from) + '" /></label>';
+      html += '<label class="sa-filter-date"><span class="sa-filter-label">To</span><input type="date" class="sa-filter-input" id="saLogTo" value="' + esc(_logsFilters.date_to) + '" /></label>';
+      html += '</div>';
+    } else {
+      html += '<div class="sa-filter-bar" id="saLogFilterBar">';
+      html += '<select class="sa-filter-input" id="saLogTypeView">' +
+        '<option value="activity" selected>Activity</option>' +
+        '<option value="changes">Changes</option>' +
+        '</select>';
+      html += '<input class="sa-filter-input" id="saLogUser" placeholder="Username" maxlength="32" value="' + esc(_logsFilters.username) + '" />';
+      html += '<input class="sa-filter-input" id="saLogItem" placeholder="Item ID" maxlength="64" value="' + esc(_logsFilters.item_id) + '" />';
+      html += '<select class="sa-filter-input" id="saLogType">' +
+        '<option value="">All types</option>' +
+        '<option value="purchase"' + (_logsFilters.type === 'purchase' ? ' selected' : '') + '>Purchase</option>' +
+        '<option value="bid"'      + (_logsFilters.type === 'bid'      ? ' selected' : '') + '>Bid</option>' +
+        '<option value="donation"' + (_logsFilters.type === 'donation' ? ' selected' : '') + '>Donation</option>' +
+        '</select>';
+      html += '<select class="sa-filter-input" id="saLogStatus"><option value="">All statuses</option>' +
+        '<option value="pending"'   + (_logsFilters.status === 'pending'   ? ' selected' : '') + '>Pending</option>' +
+        '<option value="fulfilled"' + (_logsFilters.status === 'fulfilled' ? ' selected' : '') + '>Fulfilled</option>' +
+        '<option value="confirmed"' + (_logsFilters.status === 'confirmed' ? ' selected' : '') + '>Confirmed</option>' +
+        '<option value="rejected"'  + (_logsFilters.status === 'rejected'  ? ' selected' : '') + '>Rejected</option>' +
+        '<option value="refunded"'  + (_logsFilters.status === 'refunded'  ? ' selected' : '') + '>Refunded</option>' +
+        '<option value="refund_pending"' + (_logsFilters.status === 'refund_pending' ? ' selected' : '') + '>Refund Pending</option>' +
+        '<option value="active"'    + (_logsFilters.status === 'active'    ? ' selected' : '') + '>Active</option>' +
+        '<option value="won"'       + (_logsFilters.status === 'won'       ? ' selected' : '') + '>Won</option>' +
+        '<option value="outbid"'    + (_logsFilters.status === 'outbid'    ? ' selected' : '') + '>Outbid</option>' +
+        '</select>';
+      html += '<input type="date" class="sa-filter-input" id="saLogFrom" value="' + esc(_logsFilters.date_from) + '" />';
+      html += '<input type="date" class="sa-filter-input" id="saLogTo" value="' + esc(_logsFilters.date_to) + '" />';
+      html += '<button class="shop-modal-btn shop-modal-btn--confirm" id="saLogSearch">Search</button>';
+    }
     html += '</div>';
 
     // client-side pagination over the full merged+sorted feed
@@ -4392,11 +4543,11 @@
     if (_logsPage > totalPages) _logsPage = 1;
     var feed = totalFeed.slice((_logsPage - 1) * _LOGS_PER_PAGE, _logsPage * _LOGS_PER_PAGE);
 
-    html += '<div class="sa-table">';
+    html += '<div class="sa-table sa-log-table">';
     html += '<div class="sa-row sa-header sa-log-row">' +
       '<span>Time</span><span>User</span><span>Item</span><span>Type</span><span>EP</span><span>Status</span></div>';
     if (!feed.length) {
-      html += '<div class="sa-row sa-log-row" style="justify-content:center;color:var(--text-faint);">No records found.</div>';
+      html += '<div class="sa-row sa-log-row sa-log-row--empty"><span data-label="">No records found.</span></div>';
     }
     var _typeIcons = { purchase: _svg.cart, bid: _svg.gavel, donation: _svg.gift };
     var _statusCfg  = {
@@ -4411,15 +4562,15 @@
     feed.forEach(function (f) {
       var _fType = String(f.type || '');
       html += '<div class="sa-row sa-log-row">';
-      html += '<span>' + fmtDate(f.date) + '</span>';
-      html += '<span>' + esc(f.user) + '</span>';
-      html += '<span>' + esc(f.item) + '</span>';
-      html += '<span><span class="sa-log-type sa-log-type--' + _fType + '">' +
+      html += '<span data-label="Time">' + fmtDate(f.date) + '</span>';
+      html += '<span data-label="User">' + esc(f.user) + '</span>';
+      html += '<span data-label="Item">' + esc(f.item) + '</span>';
+      html += '<span data-label="Type"><span class="sa-log-type sa-log-type--' + _fType + '">' +
         (_typeIcons[_fType] || '') + '<span class="sa-log-type__label" title="' + esc(_fType) + '">' + esc(_fType) + '</span></span></span>';
-      html += '<span class="sa-log-ep"><span class="sa-log-ep-total">' + num(f.ep) + ' EP</span>' +
+      html += '<span class="sa-log-ep" data-label="EP"><span class="sa-log-ep-total">' + num(f.ep) + ' EP</span>' +
         '<span class="sa-log-ep-split">' + num(f.clean) + 'c + ' + num(f.dirty) + 'd</span></span>';
       var sc = _statusCfg[f.status] || { icon: '', cls: 'active' };
-      html += '<span><span class="sa-log-status sa-log-status--' + sc.cls + '">' +
+      html += '<span data-label="Status"><span class="sa-log-status sa-log-status--' + sc.cls + '">' +
         sc.icon + ' ' + esc(f.status) + '</span></span>';
       html += '</div>';
     });
@@ -4434,6 +4585,7 @@
     html += '</div>';
 
     c.innerHTML = html;
+    if (isMobileFilterLayout) _bindLogsFilterDropdown('saLogFilterBar', 'saLogFilterBtn');
 
     // log type switcher
     document.getElementById('saLogTypeView').addEventListener('change', function () {
@@ -4583,7 +4735,7 @@
     }
 
     /* Table */
-    html += '<div class="sa-table">';
+    html += '<div class="sa-table su-table">';
     html += '<div class="sa-row sa-header su-row">';
     html += '<span></span><span>User</span><span>EP Balance</span><span>Orders</span><span>Bids</span><span>Donations</span><span>Last Activity</span><span>Status</span><span></span>';
     html += '</div>';
@@ -4593,20 +4745,20 @@
       var active = _isUserActive(u);
       var isOpen = _usersOpenUuid === u.uuid;
       html += '<div class="sa-row su-row su-user-row' + (isOpen ? ' su-row--open' : '') + '" data-uuid="' + esc(u.uuid) + '">';
-      html += '<span class="su-expand">' + _svg.chevron + '</span>';
-      html += '<span class="su-user-cell">' +
+      html += '<span class="su-expand" data-label="Details">' + _svg.chevron + '</span>';
+      html += '<span class="su-user-cell" data-label="User">' +
         '<span class="su-username">' + esc(u.username) + '</span>' +
         '<span class="su-tag">' + (u.discord_id ? esc(u.discord_id) : esc((u.uuid || '').substring(0, 8) + '\u2026')) + '</span>' +
         '</span>';
-      html += '<span class="su-ep-cell">' +
+      html += '<span class="su-ep-cell" data-label="EP Balance">' +
         '<span class="su-ep-total">' + num(bal.total) + ' EP</span>' +
-        '<span class="su-ep-split">' + num(bal.clean_total) + 'c + ' + num(bal.dirty_total) + 'd</span>' +
+        '<span class="su-ep-split">(' + num(bal.clean_total) + 'c + ' + num(bal.dirty_total) + 'd)</span>' +
         '</span>';
-      html += '<span>' + (u.orders    || 0) + '</span>';
-      html += '<span>' + (u.bids      || 0) + '</span>';
-      html += '<span>' + (u.donations || 0) + '</span>';
-      html += '<span class="su-date">' + fmtDate(u.last_activity) + '</span>';
-      html += '<span>' +
+      html += '<span data-label="Orders">' + (u.orders    || 0) + '</span>';
+      html += '<span data-label="Bids">' + (u.bids      || 0) + '</span>';
+      html += '<span data-label="Donations">' + (u.donations || 0) + '</span>';
+      html += '<span class="su-date" data-label="Last Activity">' + fmtDate(u.last_activity) + '</span>';
+      html += '<span class="su-status-cell" data-label="Status">' +
         (u.is_creator ? '<span class="su-status su-status--creator">Creator</span>' : '') +
         (u.shop_banned ? '<span class="su-status su-status--banned">Shop Ban</span>' : '') +
         (u.admin_banned ? '<span class="su-status su-status--banned">Admin Ban</span>' : '') +
@@ -4614,9 +4766,9 @@
         '</span>';
       /* Settings gear */
       if (canManageUsers) {
-        html += '<span class="su-manage-cell"><button class="su-manage-btn" data-manage-uuid="' + esc(u.uuid) + '" title="Manage user">' + _svg.gear + '</button></span>';
+        html += '<span class="su-manage-cell" data-label="Manage"><button class="su-manage-btn" data-manage-uuid="' + esc(u.uuid) + '" title="Manage user">' + _svg.gear + '</button></span>';
       } else {
-        html += '<span></span>';
+        html += '<span class="su-manage-cell su-manage-cell--empty" data-label="Manage"></span>';
       }
       html += '</div>';
       if (isOpen) {
