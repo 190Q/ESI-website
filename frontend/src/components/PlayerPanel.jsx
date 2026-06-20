@@ -21,7 +21,25 @@ export default function PlayerPanel() {
             defaultValue=""
             aria-label="Wynncraft username"
           />
-          <button className="btn-search" id="searchPlayerBtn">{'\uD83D\uDD0D\uFE0E'} Look Up</button>
+          <button className="btn-search" id="searchPlayerBtn">
+            <svg
+              className="btn-search-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path
+                d="M15.7955 15.8111L21 21M18 10.5C18 14.6421 14.6421 18 10.5 18C6.35786 18 3 14.6421 3 10.5C3 6.35786 6.35786 3 10.5 3C14.6421 3 18 6.35786 18 10.5Z"
+                stroke="#000000"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <span className="btn-search-text">Look Up</span>
+          </button>
         </div>
       </div>
 

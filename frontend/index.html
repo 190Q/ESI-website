@@ -134,10 +134,17 @@
       var searchPrepaintStyle = document.createElement('style');
       searchPrepaintStyle.id = 'esi-preload-player-search';
       searchPrepaintStyle.textContent =
+        '#searchPlayerBtn .btn-search-icon{' +
+          'width:16px!important;' +
+          'height:16px!important;' +
+          'display:block!important;' +
+          'flex:0 0 auto!important;' +
+        '}' +
         '#searchPlayerBtn.icon-only{' +
           'display:inline-flex!important;' +
           'align-items:center!important;' +
           'justify-content:center!important;' +
+          'gap:0!important;' +
           'flex:0 0 42px!important;' +
           'width:42px!important;' +
           'min-width:42px!important;' +
@@ -145,25 +152,64 @@
           'padding:10px 0!important;' +
           'font-size:0.95rem!important;' +
           'letter-spacing:0!important;' +
+        '}' +
+        '#searchPlayerBtn.icon-only .btn-search-text{' +
+          'display:none!important;' +
         '}';
       document.head.appendChild(searchPrepaintStyle);
+      function buildPrepaintSearchIconSvg() {
+        var ns = 'http://www.w3.org/2000/svg';
+        var svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('class', 'btn-search-icon');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('xmlns', ns);
+        svg.setAttribute('aria-hidden', 'true');
+        svg.setAttribute('focusable', 'false');
+        var path = document.createElementNS(ns, 'path');
+        path.setAttribute('d', 'M15.7955 15.8111L21 21M18 10.5C18 14.6421 14.6421 18 10.5 18C6.35786 18 3 14.6421 3 10.5C3 6.35786 6.35786 3 10.5 3C14.6421 3 18 6.35786 18 10.5Z');
+        path.setAttribute('stroke', '#000000');
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('stroke-linecap', 'round');
+        path.setAttribute('stroke-linejoin', 'round');
+        svg.appendChild(path);
+        return svg;
+      }
+
+      function ensurePrepaintSearchButtonStructure(btn) {
+        if (!btn) return null;
+        var icon = btn.querySelector('.btn-search-icon');
+        var label = btn.querySelector('.btn-search-text');
+        if (icon && label) return { icon: icon, label: label };
+        var fallbackText = '';
+        if (label && label.textContent) fallbackText = label.textContent.trim();
+        if (!fallbackText) fallbackText = (btn.textContent || '').replace(/\s+/g, ' ').trim();
+        btn.textContent = '';
+        icon = icon || buildPrepaintSearchIconSvg();
+        label = label || document.createElement('span');
+        label.className = 'btn-search-text';
+        if (!label.textContent || !label.textContent.trim()) {
+          label.textContent = fallbackText || 'Look Up';
+        }
+        btn.appendChild(icon);
+        btn.appendChild(label);
+        return { icon: icon, label: label };
+      }
 
       function applyPrepaintPlayerSearchCompact() {
         var wrap = document.querySelector('.player-search-wrap');
         var btn = document.getElementById('searchPlayerBtn');
         if (!wrap || !btn) return false;
-        var fullLabel = '\uD83D\uDD0D\uFE0E Look Up';
-        var compactLabel = '\uD83D\uDD0D\uFE0E';
-        var current = (btn.textContent || '').trim();
-        if (!current || current === compactLabel || current === fullLabel) {
-          btn.classList.remove('icon-only');
-          btn.textContent = fullLabel;
-          var needsCompact = (wrap.scrollWidth - wrap.clientWidth) > 1 || (btn.scrollWidth - btn.clientWidth) > 1;
-          if (needsCompact) {
-            btn.classList.add('icon-only');
-            btn.textContent = compactLabel;
-          }
+        var refs = ensurePrepaintSearchButtonStructure(btn);
+        if (!refs) return false;
+        if (!refs.label.textContent || !refs.label.textContent.trim()) {
+          refs.label.textContent = 'Look Up';
         }
+        btn.classList.remove('icon-only');
+        refs.label.style.display = '';
+        var needsCompact = (wrap.scrollWidth - wrap.clientWidth) > 1 || (btn.scrollWidth - btn.clientWidth) > 1;
+        btn.classList.toggle('icon-only', needsCompact);
+        refs.label.style.display = needsCompact ? 'none' : '';
         return true;
       }
 

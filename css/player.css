@@ -30,6 +30,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 7px;
   background: linear-gradient(135deg, var(--gold-dim), var(--gold));
   color: var(--green-deep);
   padding: 10px 20px;
@@ -41,6 +42,22 @@
   transition: all var(--transition);
   white-space: nowrap;
   box-shadow: 0 2px 10px rgba(var(--gold-rgb), 0.25);
+}
+.btn-search-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+  flex: 0 0 auto;
+}
+.btn-search-text {
+  display: inline-block;
+  line-height: 1;
+}
+.btn-search.icon-only {
+  gap: 0;
+}
+.btn-search.icon-only .btn-search-text {
+  display: none !important;
 }
 .btn-search:hover {
   transform: translateY(-1px);
@@ -1286,6 +1303,10 @@
     padding: 10px 0;
     font-size: 0.95rem;
     letter-spacing: 0;
+  }
+  .btn-search-icon {
+    width: 17px;
+    height: 17px;
   }
   .profile-card {
     gap: 10px;

@@ -44,11 +44,42 @@
   const searchBtn   = document.getElementById('searchPlayerBtn');
   const playerInput = document.getElementById('playerInput');
   const SEARCH_BUTTON_LABELS = {
-    idle: '\uD83D\uDD0D\uFE0E Look Up',
-    loading: '\uD83D\uDD0D\uFE0E Looking up\u2026',
-    compact: '\uD83D\uDD0D\uFE0E',
+    idle: 'Look Up',
+    loading: 'Looking up\u2026',
   };
   let _searchButtonState = 'idle';
+  function _buildSearchButtonIconSvg() {
+    var ns = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'btn-search-icon');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('xmlns', ns);
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    var path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', 'M15.7955 15.8111L21 21M18 10.5C18 14.6421 14.6421 18 10.5 18C6.35786 18 3 14.6421 3 10.5C3 6.35786 6.35786 3 10.5 3C14.6421 3 18 6.35786 18 10.5Z');
+    path.setAttribute('stroke', '#000000');
+    path.setAttribute('stroke-width', '2');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(path);
+    return svg;
+  }
+
+  function _ensureSearchButtonStructure() {
+    if (!searchBtn) return null;
+    var icon = searchBtn.querySelector('.btn-search-icon');
+    var label = searchBtn.querySelector('.btn-search-text');
+    if (icon && label) return { icon: icon, label: label };
+    searchBtn.textContent = '';
+    icon = _buildSearchButtonIconSvg();
+    label = document.createElement('span');
+    label.className = 'btn-search-text';
+    searchBtn.appendChild(icon);
+    searchBtn.appendChild(label);
+    return { icon: icon, label: label };
+  }
 
   function _isSearchButtonCompactNeeded() {
     const wrap = document.querySelector('.player-search-wrap');
@@ -57,14 +88,15 @@
   }
 
   function _renderSearchButtonLabel() {
-    if (!searchBtn) return;
+    const refs = _ensureSearchButtonStructure();
+    if (!refs) return;
     const fullLabel = _searchButtonState === 'loading'
       ? SEARCH_BUTTON_LABELS.loading
       : SEARCH_BUTTON_LABELS.idle;
-    searchBtn.textContent = fullLabel;
+    refs.label.textContent = fullLabel;
     const useCompact = _isSearchButtonCompactNeeded();
     searchBtn.classList.toggle('icon-only', useCompact);
-    searchBtn.textContent = useCompact ? SEARCH_BUTTON_LABELS.compact : fullLabel;
+    refs.label.style.display = useCompact ? 'none' : '';
     searchBtn.setAttribute('aria-label', _searchButtonState === 'loading' ? 'Looking up player' : 'Look up player');
     searchBtn.setAttribute('title', _searchButtonState === 'loading' ? 'Looking up player' : 'Look Up');
   }
