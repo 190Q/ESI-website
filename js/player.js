@@ -43,6 +43,31 @@
   /* dom refs */
   const searchBtn   = document.getElementById('searchPlayerBtn');
   const playerInput = document.getElementById('playerInput');
+  const SEARCH_BUTTON_LABELS = {
+    idle: '\uD83D\uDD0D\uFE0E Look Up',
+    loading: '\uD83D\uDD0D\uFE0E Looking up\u2026',
+    compact: '\uD83D\uDD0D\uFE0E',
+  };
+  let _searchButtonState = 'idle';
+
+  function _isSearchButtonCompactNeeded() {
+    const wrap = document.querySelector('.player-search-wrap');
+    if (!wrap || !searchBtn) return false;
+    return (wrap.scrollWidth - wrap.clientWidth) > 1 || (searchBtn.scrollWidth - searchBtn.clientWidth) > 1;
+  }
+
+  function _renderSearchButtonLabel() {
+    if (!searchBtn) return;
+    const fullLabel = _searchButtonState === 'loading'
+      ? SEARCH_BUTTON_LABELS.loading
+      : SEARCH_BUTTON_LABELS.idle;
+    searchBtn.textContent = fullLabel;
+    const useCompact = _isSearchButtonCompactNeeded();
+    searchBtn.classList.toggle('icon-only', useCompact);
+    searchBtn.textContent = useCompact ? SEARCH_BUTTON_LABELS.compact : fullLabel;
+    searchBtn.setAttribute('aria-label', _searchButtonState === 'loading' ? 'Looking up player' : 'Look up player');
+    searchBtn.setAttribute('title', _searchButtonState === 'loading' ? 'Looking up player' : 'Look Up');
+  }
 
   /* apply default player from settings */
   var _defaultPlayer = (window.esiSettings && window.esiSettings.get('defaultPlayer')) || '';
@@ -101,6 +126,12 @@
   playerInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') _runPlayerSearch();
   });
+  window.addEventListener('resize', _renderSearchButtonLabel);
+  window.addEventListener('orientationchange', _renderSearchButtonLabel);
+  if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+    document.fonts.ready.then(_renderSearchButtonLabel).catch(function () {});
+  }
+  setTimeout(_renderSearchButtonLabel, 0);
 
   document.getElementById('viewGlobal').addEventListener('click',    () => { switchView('global');      updateHash(); });
   document.getElementById('viewCharacter').addEventListener('click', () => { switchView('character');   updateHash(); });
@@ -412,7 +443,8 @@
   async function lookupPlayer(username, options) {
     if (!username) return;
     searchBtn.disabled = true;
-    searchBtn.textContent = '\uD83D\uDD0D\uFE0E Looking up\u2026';
+    _searchButtonState = 'loading';
+    _renderSearchButtonLabel();
     pendingGraphFocus = normalizeGraphFocus(options && options.graphFocus);
     pendingGraphMetrics = options && Array.isArray(options.graphMetrics) ? options.graphMetrics : null;
 
@@ -435,7 +467,8 @@
       renderMetricRows();
       refreshCompareGraph();
       searchBtn.disabled = false;
-      searchBtn.textContent = '\uD83D\uDD0D\uFE0E Look Up';
+      _searchButtonState = 'idle';
+      _renderSearchButtonLabel();
       return;
     }
 
@@ -579,7 +612,8 @@
       }
     } finally {
       searchBtn.disabled = false;
-      searchBtn.textContent = '\uD83D\uDD0D\uFE0E Look Up';
+      _searchButtonState = 'idle';
+      _renderSearchButtonLabel();
     }
   }
 

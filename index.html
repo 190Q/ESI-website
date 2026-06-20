@@ -32,8 +32,8 @@
   </script>
   <script src="/js/theme-images.js"></script>
   <script src="/js/theme-patterns.js"></script>
-  <script type="module" crossorigin src="/assets/index-9tg9Uyxo.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-xoclkWbM.css">
+  <script type="module" crossorigin src="/assets/index-Db2gEQKq.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-B432RjPQ.css">
 </head>
 <body>
   <script>
@@ -132,6 +132,62 @@
         s.textContent = css;
         document.head.appendChild(s);
       }
+      // Pre-paint: apply icon-only mode for player lookup button when text would overflow.
+      var searchPrepaintStyle = document.createElement('style');
+      searchPrepaintStyle.id = 'esi-preload-player-search';
+      searchPrepaintStyle.textContent =
+        '#searchPlayerBtn.icon-only{' +
+          'display:inline-flex!important;' +
+          'align-items:center!important;' +
+          'justify-content:center!important;' +
+          'flex:0 0 42px!important;' +
+          'width:42px!important;' +
+          'min-width:42px!important;' +
+          'max-width:42px!important;' +
+          'padding:10px 0!important;' +
+          'font-size:0.95rem!important;' +
+          'letter-spacing:0!important;' +
+        '}';
+      document.head.appendChild(searchPrepaintStyle);
+
+      function applyPrepaintPlayerSearchCompact() {
+        var wrap = document.querySelector('.player-search-wrap');
+        var btn = document.getElementById('searchPlayerBtn');
+        if (!wrap || !btn) return false;
+        var fullLabel = '\uD83D\uDD0D\uFE0E Look Up';
+        var compactLabel = '\uD83D\uDD0D\uFE0E';
+        var current = (btn.textContent || '').trim();
+        if (!current || current === compactLabel || current === fullLabel) {
+          btn.classList.remove('icon-only');
+          btn.textContent = fullLabel;
+          var needsCompact = (wrap.scrollWidth - wrap.clientWidth) > 1 || (btn.scrollWidth - btn.clientWidth) > 1;
+          if (needsCompact) {
+            btn.classList.add('icon-only');
+            btn.textContent = compactLabel;
+          }
+        }
+        return true;
+      }
+
+      function initPrepaintPlayerSearchCompact() {
+        if (applyPrepaintPlayerSearchCompact()) {
+          setTimeout(applyPrepaintPlayerSearchCompact, 0);
+          if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+            document.fonts.ready.then(applyPrepaintPlayerSearchCompact).catch(function () {});
+          }
+          return;
+        }
+        var searchObs = new MutationObserver(function () {
+          if (!applyPrepaintPlayerSearchCompact()) return;
+          searchObs.disconnect();
+          setTimeout(applyPrepaintPlayerSearchCompact, 0);
+          if (document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+            document.fonts.ready.then(applyPrepaintPlayerSearchCompact).catch(function () {});
+          }
+        });
+        searchObs.observe(document.documentElement, { childList: true, subtree: true });
+      }
+      initPrepaintPlayerSearchCompact();
     })();
   </script>
   <div id="root"></div>
