@@ -1,5 +1,6 @@
 import LoadingState, { ErrorState } from './LoadingState'
 import CollapsibleCard from './CollapsibleCard'
+import { CopyGraphIcon } from './Icons'
 
 export default function PlayerPanel() {
   return (
@@ -79,7 +80,7 @@ export default function PlayerPanel() {
           <div className="graph-panels-col">
             <div className="graph-panel" id="graphPanelCompare" style={{ position: 'relative', overflow: 'hidden' }}>
               <div className="graph-share-zone" />
-              <button className="graph-share-btn" id="playerGraphShareBtn" title="Share graph">{"\uD83D\uDDD2"}</button>
+              <button className="graph-share-btn" id="playerGraphShareBtn" title="Share graph"><CopyGraphIcon /></button>
               <div className="graph-panel-header">
                 <span>Activity Comparison</span>
                 <span className="compare-area" id="compareArea">

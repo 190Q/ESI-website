@@ -811,6 +811,13 @@
   color: var(--gold-light);
   transform: scale(1.1);
 }
+.graph-share-btn .inac-copy-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
+  fill: currentColor;
+  flex-shrink: 0;
+}
 .player-views-col {
   flex: 1;
   min-width: 0;

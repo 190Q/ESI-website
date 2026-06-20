@@ -1,5 +1,6 @@
 import LoadingState, { ErrorState } from './LoadingState'
 import CollapsibleCard from './CollapsibleCard'
+import { CopyGraphIcon } from './Icons'
 import { resolveThemeImageKey } from '../themeImages'
 
 export default function GuildPanel() {
@@ -50,7 +51,7 @@ export default function GuildPanel() {
           <div className="graph-panels-col">
             <div className="graph-panel" style={{ position: 'relative', overflow: 'hidden' }}>
               <div className="graph-share-zone" />
-              <button className="graph-share-btn" id="guildGraphShareBtn" title="Share graph">{"\uD83D\uDDD2"}</button>
+              <button className="graph-share-btn" id="guildGraphShareBtn" title="Share graph"><CopyGraphIcon /></button>
               <div className="graph-panel-header">
                 <span>Activity Comparison</span>
                 <span className="compare-area">
