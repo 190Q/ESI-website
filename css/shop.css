@@ -554,9 +554,13 @@
 @media (max-width: 768px) {
   .shop-main-layout {
     flex-direction: column;
+    align-items: stretch;
   }
   .shop-filters {
     flex: none;
+    width: 100%;
+  }
+  .shop-content {
     width: 100%;
   }
   .shop-filter-bar {
