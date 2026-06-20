@@ -201,7 +201,7 @@
       botUptimeKnown = false;
     }
     statusEl.className   = 'status-pill ' + (isOnline ? 'online' : 'offline');
-    statusEl.textContent = isOnline ? '● Online' : '● Offline';
+    statusEl.textContent = isOnline ? 'Online' : 'Offline';
     latencyEl.textContent = 'Latency: ' + (latency === null ? '—' : latency + 'ms');
     uptimeEl.textContent  = botUptimeKnown
       ? 'Uptime: ' + formatDuration(Math.max(0, botUptimeSeconds) * 1000)
@@ -234,7 +234,7 @@
       var bPill = document.getElementById('botStatusPill');
       if (bPill) {
         bPill.className = 'status-pill ' + (botUptimeKnown ? 'online' : 'offline');
-        bPill.textContent = (botUptimeKnown ? '\u25CF Online' : '\u25CF Offline');
+        bPill.textContent = (botUptimeKnown ? 'Online' : 'Offline');
       }
       var tEl = document.getElementById('trackerHeaderUptime');
       if (tEl) {
@@ -248,7 +248,7 @@
       var tPill = document.getElementById('trackerHeaderStatus');
       if (tPill) {
         tPill.className = 'status-pill ' + (trackerUptimeKnown ? 'online' : 'offline');
-        tPill.textContent = (trackerUptimeKnown ? '\u25CF Online' : '\u25CF Offline');
+        tPill.textContent = (trackerUptimeKnown ? 'Online' : 'Offline');
       }
     }, 1000);
   }

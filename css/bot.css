@@ -73,6 +73,22 @@
   gap: 16px;
   flex-wrap: wrap;
 }
+.bot-meta-row .status-pill,
+.tracker-header-status .status-pill {
+  white-space: nowrap;
+  line-height: 1;
+}
+.bot-meta-row .status-pill.online::before,
+.bot-meta-row .status-pill.offline::before,
+.tracker-header-status .status-pill.online::before,
+.tracker-header-status .status-pill.offline::before {
+  content: '';
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: currentColor;
+  flex-shrink: 0;
+}
 .bot-meta-item {
   font-size: 0.82rem;
   font-weight: 500;

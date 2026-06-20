@@ -181,6 +181,11 @@
     gap: 10px;
     margin-bottom: 6px;
   }
+  .guild-profile-meta-row .status-pill {
+    white-space: nowrap;
+    line-height: 1;
+    align-self: center;
+  }
   .guild-profile-xp-row {
     font-size: 0.78rem;
     margin-bottom: 6px;
