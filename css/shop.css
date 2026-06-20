@@ -561,25 +561,63 @@
   }
   .shop-filter-bar {
     padding: 10px 12px;
+    overflow: hidden;
   }
   .shop-filter-bar .sf-search-row {
     margin-bottom: 0;
+    transition: margin-bottom 220ms ease;
   }
   .shop-filter-bar .sf-filter-btn {
     display: inline-flex;
   }
   .shop-filter-bar .sf-section,
   .shop-filter-bar .sf-reset-btn {
-    display: none;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transform: translateY(-6px);
+    pointer-events: none;
+    transition: max-height 260ms ease, opacity 220ms ease, transform 220ms ease, padding 220ms ease, margin 220ms ease, border-color 220ms ease;
+  }
+  .shop-filter-bar .sf-section {
+    padding-top: 0;
+    padding-bottom: 0;
+    border-top-color: transparent;
+  }
+  .shop-filter-bar .sf-section:last-of-type {
+    border-bottom: none;
+    margin-bottom: 0;
+  }
+  .shop-filter-bar .sf-reset-btn {
+    padding-top: 0;
+    padding-bottom: 0;
+    border-color: transparent;
+    margin-top: 0;
   }
   .shop-filter-bar.shop-filter-bar--open .sf-search-row {
     margin-bottom: 12px;
   }
   .shop-filter-bar.shop-filter-bar--open .sf-section {
-    display: flex;
+    max-height: 220px;
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    border-top-color: var(--border);
+  }
+  .shop-filter-bar.shop-filter-bar--open .sf-section:last-of-type {
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
   }
   .shop-filter-bar.shop-filter-bar--open .sf-reset-btn {
-    display: block;
+    max-height: 44px;
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    border-color: var(--border);
   }
   .shop-filter-bar.shop-filter-bar--open[data-type="auction"] [data-bin-field],
   .shop-filter-bar.shop-filter-bar--open[data-type="donate"] [data-bin-field] {
