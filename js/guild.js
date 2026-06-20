@@ -282,8 +282,12 @@
 
   const GUILD_VIEWS = ['global', 'logs', 'snipes', 'statistics'];
   let _activeGuildView = 'global';
+  const GUILD_GLOBAL_LABEL_LONG = 'Global Data';
+  const GUILD_GLOBAL_LABEL_SHORT = 'Global';
   const GUILD_STATS_LABEL_LONG = 'Statistics';
   const GUILD_STATS_LABEL_SHORT = 'Stats';
+  const GUILD_LOGS_LABEL_LONG = 'Guild Logs';
+  const GUILD_LOGS_LABEL_SHORT = 'Logs';
   let _guildViewLabelRaf = null;
 
   const guildStatsState = {
@@ -297,17 +301,30 @@
   };
 
   function applyGuildViewLabelCompaction() {
+    const globalBtn = document.getElementById('guildViewGlobal');
     const statsBtn = document.getElementById('guildViewStatistics');
-    const selector = statsBtn ? statsBtn.closest('.view-selector') : null;
-    if (!statsBtn || !selector) return;
+    const logsBtn = document.getElementById('guildViewLogs');
+    const selector = (globalBtn && globalBtn.closest('.view-selector'))
+      || (statsBtn && statsBtn.closest('.view-selector'))
+      || (logsBtn && logsBtn.closest('.view-selector'));
+    if (!selector) return;
     if (selector.clientWidth <= 0) return;
+    if (globalBtn) globalBtn.textContent = GUILD_GLOBAL_LABEL_LONG;
 
-    statsBtn.textContent = GUILD_STATS_LABEL_LONG;
-    if (!isGuildViewButtonVisible(statsBtn)) return;
+    if (statsBtn) statsBtn.textContent = GUILD_STATS_LABEL_LONG;
+    if (logsBtn) logsBtn.textContent = GUILD_LOGS_LABEL_LONG;
 
-    const selectorOverflowing = selector.scrollWidth > selector.clientWidth + 1;
-    const longLabelsDoNotFit = guildViewSelectorNeedsCompaction(selector);
-    if (selectorOverflowing || longLabelsDoNotFit) {
+    const needsCompaction = function () {
+      const selectorOverflowing = selector.scrollWidth > selector.clientWidth + 1;
+      return selectorOverflowing || guildViewSelectorNeedsCompaction(selector);
+    };
+    if (globalBtn && isGuildViewButtonVisible(globalBtn) && needsCompaction()) {
+      globalBtn.textContent = GUILD_GLOBAL_LABEL_SHORT;
+    }
+    if (logsBtn && isGuildViewButtonVisible(logsBtn) && needsCompaction()) {
+      logsBtn.textContent = GUILD_LOGS_LABEL_SHORT;
+    }
+    if (statsBtn && isGuildViewButtonVisible(statsBtn) && needsCompaction()) {
       statsBtn.textContent = GUILD_STATS_LABEL_SHORT;
     }
   }
