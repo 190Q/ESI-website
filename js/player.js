@@ -71,13 +71,16 @@
     if (!searchBtn) return null;
     var icon = searchBtn.querySelector('.btn-search-icon');
     var label = searchBtn.querySelector('.btn-search-text');
-    if (icon && label) return { icon: icon, label: label };
-    searchBtn.textContent = '';
-    icon = _buildSearchButtonIconSvg();
-    label = document.createElement('span');
-    label.className = 'btn-search-text';
-    searchBtn.appendChild(icon);
-    searchBtn.appendChild(label);
+    var spinner = searchBtn.querySelector('.btn-search-loading-icon');
+    if (spinner) spinner.remove();
+    if (!icon || !label) {
+      searchBtn.textContent = '';
+      icon = _buildSearchButtonIconSvg();
+      label = document.createElement('span');
+      label.className = 'btn-search-text';
+      searchBtn.appendChild(icon);
+      searchBtn.appendChild(label);
+    }
     return { icon: icon, label: label };
   }
 
@@ -93,10 +96,22 @@
     const fullLabel = _searchButtonState === 'loading'
       ? SEARCH_BUTTON_LABELS.loading
       : SEARCH_BUTTON_LABELS.idle;
+    const loading = _searchButtonState === 'loading';
+
     refs.label.textContent = fullLabel;
+    searchBtn.classList.toggle('is-loading', loading);
+    searchBtn.classList.remove('icon-only');
+    refs.label.style.display = '';
+    refs.icon.style.removeProperty('display');
+
     const useCompact = _isSearchButtonCompactNeeded();
     searchBtn.classList.toggle('icon-only', useCompact);
     refs.label.style.display = useCompact ? 'none' : '';
+    if (useCompact && loading) {
+      refs.icon.style.setProperty('display', 'none', 'important');
+    } else {
+      refs.icon.style.removeProperty('display');
+    }
     searchBtn.setAttribute('aria-label', _searchButtonState === 'loading' ? 'Looking up player' : 'Look up player');
     searchBtn.setAttribute('title', _searchButtonState === 'loading' ? 'Looking up player' : 'Look Up');
   }
