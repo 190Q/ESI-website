@@ -276,7 +276,8 @@ def execute_cart_checkout(
         # Use variant properties when present, fall back to item-level
         effective = variant if variant else item
         price = effective.get("price") if variant else item.get("price")
-        if not isinstance(price, (int, float)) or price <= 0:
+        # Only reject missing, boolean, or negative prices.
+        if not isinstance(price, (int, float)) or isinstance(price, bool) or price < 0:
             raise PurchaseError(f"Item {item_id!r} has no valid price", 400)
         if isinstance(price, float) and price != int(price):
             raise PurchaseError(f"Item {item_id!r} has a non-integer price; contact an admin", 400)
@@ -597,7 +598,8 @@ def execute_bin_purchase(
         raise PurchaseError("Item is currently not available", 400)
 
     price = item.get("price")
-    if not isinstance(price, (int, float)) or price <= 0:
+    # Only reject missing, boolean, or negative prices.
+    if not isinstance(price, (int, float)) or isinstance(price, bool) or price < 0:
         raise PurchaseError("Item has no valid price", 400)
     if isinstance(price, float) and price != int(price):
         raise PurchaseError("Item has a non-integer price; contact an admin", 400)
