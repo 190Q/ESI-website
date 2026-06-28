@@ -175,6 +175,10 @@
     var stock = (v && v.stock != null) ? v.stock : (item.stock != null ? item.stock : 999);
     return Math.min(mq, stock);
   }
+  function _variantPrice(item, variantIdx) {
+    var v = (variantIdx != null && item.variants && item.variants[variantIdx]) ? item.variants[variantIdx] : null;
+    return (v && v.price != null) ? v.price : item.price;
+  }
   function _looksLikeComingSoon(msg) {
     return /\bcoming\s*soon\b/i.test(String(msg || ''));
   }
@@ -1347,7 +1351,7 @@
     entries.forEach(function (e) {
       var _cv = (e.variantIdx != null && e.item.variants && e.item.variants[e.variantIdx]) ? e.item.variants[e.variantIdx] : null;
       var _cEff = _cv || e.item;
-      var price = (_cEff.price || e.item.price) * e.quantity;
+      var price = _variantPrice(e.item, e.variantIdx) * e.quantity;
       grandTotal += price;
       var so = (!_cEff.accepts_dirty_ep) ? 'clean_only' : (_cEff.spend_order || 'clean_first');
       if (so === 'dirty_first' || so === 'dirty_only') hasDirtyFirst = true;
@@ -1867,8 +1871,7 @@
     }
 
     var total = entries.reduce(function (n, e) {
-      var _cv = (e.variantIdx != null && e.item.variants && e.item.variants[e.variantIdx]) ? e.item.variants[e.variantIdx] : null;
-      return n + ((_cv ? _cv.price : null) || e.item.price) * e.quantity;
+      return n + _variantPrice(e.item, e.variantIdx) * e.quantity;
     }, 0);
     var split = bal ? computeCartSplit(entries, bal) : null;
 
@@ -1884,7 +1887,7 @@
       // Col 1: info
       var _cVariantIdx = entry.variantIdx;
       var _cVariant = (_cVariantIdx != null && item.variants && item.variants[_cVariantIdx]) ? item.variants[_cVariantIdx] : null;
-      var _cPrice = _cVariant ? (_cVariant.price || item.price) : item.price;
+      var _cPrice = _variantPrice(item, _cVariantIdx);
       var _cEpItem = _cVariant || item;
       html += '<div class="cart-row-info">' +
         '<span class="cart-row-name">' + esc(item.name) +
