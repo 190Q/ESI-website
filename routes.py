@@ -3794,15 +3794,15 @@ def player_rank_history(username: str):
 
 
 def _get_graid_fault_offsets():
-    """Load guild-raid fault offsets from the most recent API tracking DB.
+    """Load guild-raid fault offsets from API tracking snapshots.
 
-    Returns a dict mapping lowercase username -> offset value.
+    Returns a dict mapping lowercase username -> offset value, preferring
+    newer snapshot values when duplicates exist.
     """
     offsets = {}
     if not os.path.isdir(_API_TRACKING_DIR):
         return offsets
     try:
-        from datetime import datetime as _dt
         db_files = []
         for name in os.listdir(_API_TRACKING_DIR):
             if not name.startswith("api_"):
@@ -3827,16 +3827,84 @@ def _get_graid_fault_offsets():
                 if c.fetchone():
                     c.execute("SELECT username, offset FROM graid_fault_offsets")
                     for row in c.fetchall():
-                        if row[0] and row[1]:
-                            offsets[row[0].lower()] = row[1]
-                    conn.close()
-                    break
+                        uname = (row[0] or "").strip().lower()
+                        off = int(_safe_number(row[1]))
+                        if not uname or off <= 0:
+                            continue
+                        if uname not in offsets:
+                            offsets[uname] = off
                 conn.close()
             except Exception:
                 continue
     except Exception:
         pass
     return offsets
+
+
+_GRAID_DYNAMIC_OFFSETS_TTL = 300
+_graid_dynamic_offsets_cache = {
+    "ts": 0,
+    "cycle_id": None,
+    "offsets": {},
+}
+
+
+def _points_dynamic_graid_fault_offsets():
+    """Infer current-cycle guild-raid offsets from graph-vs-points excess.
+
+    This is used as a fallback only when a player has no static
+    `graid_fault_offsets` entry yet.
+    """
+    now = time()
+    current_cycle = _points_get_cycle_id()
+    if (
+        _graid_dynamic_offsets_cache.get("cycle_id") == current_cycle
+        and now - float(_graid_dynamic_offsets_cache.get("ts") or 0) < _GRAID_DYNAMIC_OFFSETS_TTL
+    ):
+        return dict(_graid_dynamic_offsets_cache.get("offsets") or {})
+
+    offsets = {}
+    if not os.path.exists(_POINTS_DB):
+        _graid_dynamic_offsets_cache["ts"] = now
+        _graid_dynamic_offsets_cache["cycle_id"] = current_cycle
+        _graid_dynamic_offsets_cache["offsets"] = offsets
+        return offsets
+
+    graph_by_user = _points_graph_graid_ep_by_username(current_cycle)
+
+    try:
+        conn = _sqlite3.connect(_POINTS_DB)
+        c = conn.cursor()
+        c.execute(
+            "SELECT uuid, username FROM esi_points WHERE cycle_id = ? GROUP BY uuid",
+            (current_cycle,),
+        )
+        players = c.fetchall()
+        conn.close()
+    except _sqlite3.OperationalError:
+        players = []
+
+    cycle_graid_ep_by_user = {current_cycle: graph_by_user}
+    for uuid, username in players:
+        if not uuid or not username:
+            continue
+        history = _points_fetch_player_history(uuid)
+        cycle_history = [h for h in history if h.get("cycle_id") == current_cycle]
+        _, removed_by_cycle = _points_trim_excess_graid_history(
+            username,
+            [current_cycle],
+            cycle_history,
+            cycle_graid_ep_by_user,
+        )
+        removed_ep = int(_safe_number(removed_by_cycle.get(current_cycle, 0)))
+        if removed_ep >= 10:
+            uname = (username or "").strip().lower()
+            offsets[uname] = max(offsets.get(uname, 0), removed_ep // 10)
+
+    _graid_dynamic_offsets_cache["ts"] = now
+    _graid_dynamic_offsets_cache["cycle_id"] = current_cycle
+    _graid_dynamic_offsets_cache["offsets"] = offsets
+    return dict(offsets)
 
 
 @app.route("/api/guild/aspects")
@@ -3848,11 +3916,15 @@ def aspects_get():
 
     # Correct owed values by subtracting aspects generated from inflated
     offsets = _get_graid_fault_offsets()
-    if offsets:
+    dynamic_offsets = _points_dynamic_graid_fault_offsets()
+    if offsets or dynamic_offsets:
         members = data.get("members", {})
         for uuid, member in members.items():
             name_lower = (member.get("name") or "").lower()
-            offset = offsets.get(name_lower, 0)
+            offset = int(_safe_number(offsets.get(name_lower, 0)))
+            if offset <= 0:
+                # Fallback to graph-vs-points inferred excess when no static offset exists for this player yet
+                offset = int(_safe_number(dynamic_offsets.get(name_lower, 0)))
             if offset > 0:
                 bogus_aspects = offset // 2
                 member["owed"] = max(0, member.get("owed", 0) - bogus_aspects)
@@ -3873,6 +3945,18 @@ _POINTS_CYCLE_ANCHOR = _points_datetime(2026, 4, 21, 16, 0, 0, tzinfo=_points_ti
 _POINTS_CYCLE_DURATION = _points_timedelta(weeks=2)
 _POINTS_HR_RANKS = {"strategist", "chief", "owner"}
 _POINTS_LE_DIVISOR = 10
+
+def _points_parse_max_graids_per_day():
+    raw = (os.environ.get("ESI_MAX_GRAIDS_PER_DAY") or "").strip()
+    if not raw:
+        return 10
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return 10
+
+_POINTS_MAX_GRAIDS_PER_DAY = _points_parse_max_graids_per_day()
+_POINTS_MAX_GRAID_EP_PER_DAY = _POINTS_MAX_GRAIDS_PER_DAY * 10
 
 
 def _points_get_cycle_id(dt=None):
@@ -4030,6 +4114,7 @@ def _points_graph_graid_ep_by_username(cycle_id):
         if not isinstance(dates, list) or not isinstance(graids, list):
             continue
         daily_ep = {}
+        saw_cycle_day = False
         for i, day in enumerate(dates):
             if i >= len(graids):
                 break
@@ -4037,10 +4122,11 @@ def _points_graph_graid_ep_by_username(cycle_id):
                 continue
             if day <= start_day or day > end_day:
                 continue
+            saw_cycle_day = True
             val = int(round(_safe_number(graids[i])))
             if val > 0:
                 daily_ep[day] = daily_ep.get(day, 0) + (val * 10)
-        if daily_ep:
+        if saw_cycle_day:
             ordered_days = sorted(daily_ep.keys())
             inferred[ulow] = {
                 "total_ep": sum(daily_ep.values()),
@@ -4089,6 +4175,163 @@ def _points_recorded_graid_ep_by_day(history_rows, cycle_id):
             continue
         daily[day] = daily.get(day, 0) + int(h.get("points_gained") or 0)
     return daily
+def _points_current_cycle_graid_daily_ep_cap(cycle_id):
+    """Return per-day guild-raid EP cap for the current cycle, else 0."""
+    if int(_safe_number(cycle_id)) != _points_get_cycle_id():
+        return 0
+    return max(0, int(_safe_number(_POINTS_MAX_GRAID_EP_PER_DAY)))
+
+def _points_daily_ep_map_from_rows(daily_rows):
+    """Convert graph daily rows into {YYYY-MM-DD: ep} map."""
+    out = {}
+    for row in (daily_rows or []):
+        day = str((row or {}).get("day") or "").strip()
+        if not day:
+            continue
+        ep = max(0, int(_safe_number((row or {}).get("ep", 0))))
+        if ep <= 0:
+            continue
+        out[day] = out.get(day, 0) + ep
+    return out
+
+def _points_cap_daily_ep_map(daily_ep, max_daily_ep):
+    """Apply per-day EP cap to a {day: ep} mapping."""
+    if max_daily_ep <= 0:
+        return {str(k): max(0, int(_safe_number(v))) for k, v in (daily_ep or {}).items() if str(k).strip()}
+    capped = {}
+    for day, ep in (daily_ep or {}).items():
+        d = str(day or "").strip()
+        if not d:
+            continue
+        val = max(0, int(_safe_number(ep)))
+        if val <= 0:
+            continue
+        capped[d] = min(val, max_daily_ep)
+    return capped
+
+def _points_normalized_expected_graid_ep(username_lower, cycle_id, cycle_history, cycle_graid_ep_by_user):
+    """Return (expected_total_ep, expected_daily_ep_map, has_graph_source)."""
+    per_user = cycle_graid_ep_by_user.get(cycle_id) or {}
+    has_graph_source = isinstance(per_user, dict) and username_lower in per_user
+    expected_total = 0
+    expected_daily = {}
+    if has_graph_source:
+        expected_total, expected_daily_rows = _points_graph_entry_total_and_daily(per_user, username_lower)
+        expected_total = max(0, int(_safe_number(expected_total)))
+        expected_daily = _points_daily_ep_map_from_rows(expected_daily_rows)
+
+    daily_cap = _points_current_cycle_graid_daily_ep_cap(cycle_id)
+    if daily_cap > 0:
+        if has_graph_source:
+            if expected_daily:
+                expected_daily = _points_cap_daily_ep_map(expected_daily, daily_cap)
+                expected_total = min(expected_total, sum(expected_daily.values()))
+            else:
+                recorded_daily = _points_recorded_graid_ep_by_day(cycle_history, cycle_id)
+                day_count = len(recorded_daily)
+                if day_count > 0:
+                    expected_total = min(expected_total, daily_cap * day_count)
+        else:
+            # No graph evidence for current cycle: apply hard daily sanity cap fallback.
+            recorded_daily = _points_recorded_graid_ep_by_day(cycle_history, cycle_id)
+            expected_daily = _points_cap_daily_ep_map(recorded_daily, daily_cap)
+            expected_total = sum(expected_daily.values())
+
+    return expected_total, expected_daily, has_graph_source
+
+
+def _points_trim_excess_graid_history(username, cycle_ids, cycle_history, cycle_graid_ep_by_user):
+    """Trim recorded guild-raid EP that exceeds validated/sane expectations.
+
+    Returns (adjusted_history_rows, removed_ep_by_cycle).
+    If current-cycle graph data for a user is absent, a per-day sanity cap is
+    still applied as a fallback.
+    """
+    ulow = (username or "").strip().lower()
+    if not ulow or not cycle_ids or not cycle_history or not isinstance(cycle_graid_ep_by_user, dict):
+        return list(cycle_history or []), {}
+
+    trim_state = {}
+    for cid in cycle_ids:
+
+        recorded_daily = _points_recorded_graid_ep_by_day(cycle_history, cid)
+        recorded_total = sum(int(_safe_number(v)) for v in recorded_daily.values())
+        expected_total, expected_daily, has_graph_source = _points_normalized_expected_graid_ep(
+            ulow,
+            cid,
+            cycle_history,
+            cycle_graid_ep_by_user,
+        )
+        if not has_graph_source and expected_total <= 0:
+            continue
+        excess_total = max(0, recorded_total - expected_total)
+        if excess_total <= 0:
+            continue
+
+        excess_by_day = {}
+        for day, rec_ep in recorded_daily.items():
+            day_excess = max(0, int(_safe_number(rec_ep)) - int(_safe_number(expected_daily.get(day, 0))))
+            if day_excess > 0:
+                excess_by_day[day] = day_excess
+
+        trim_state[cid] = {
+            "remaining_total": excess_total,
+            "remaining_day": excess_by_day,
+        }
+
+    if not trim_state:
+        return list(cycle_history or []), {}
+
+    adjusted = []
+    removed_by_cycle = {}
+    for row in (cycle_history or []):
+        if not isinstance(row, dict):
+            continue
+        cid = row.get("cycle_id")
+        state = trim_state.get(cid)
+        if not state:
+            adjusted.append(dict(row))
+            continue
+        if state.get("remaining_total", 0) <= 0:
+            adjusted.append(dict(row))
+            continue
+
+        reason = (row.get("reason") or "").strip().lower()
+        points = int(_safe_number(row.get("points_gained", 0)))
+        if points <= 0 or not reason.startswith("guild raid"):
+            adjusted.append(dict(row))
+            continue
+
+        removed = 0
+        ts = (row.get("timestamp") or "").strip()
+        day = ts.split("T", 1)[0] if ts else ""
+
+        day_budget = int(_safe_number(state["remaining_day"].get(day, 0))) if day else 0
+        if day_budget > 0:
+            take = min(points, day_budget)
+            if take > 0:
+                removed += take
+                points -= take
+                state["remaining_day"][day] = day_budget - take
+                state["remaining_total"] = max(0, int(_safe_number(state["remaining_total"])) - take)
+
+        remaining_total = int(_safe_number(state.get("remaining_total", 0)))
+        if points > 0 and remaining_total > 0:
+            take = min(points, remaining_total)
+            if take > 0:
+                removed += take
+                points -= take
+                state["remaining_total"] = remaining_total - take
+
+        if removed > 0:
+            removed_by_cycle[cid] = removed_by_cycle.get(cid, 0) + removed
+
+        if points > 0:
+            kept = dict(row)
+            kept["points_gained"] = points
+            adjusted.append(kept)
+
+    return adjusted, removed_by_cycle
 
 def _points_apply_graph_graid_fallback(
     username,
@@ -4105,8 +4348,12 @@ def _points_apply_graph_graid_fallback(
     missing_total = 0
     synthetic_rows = []
     for cid in cycle_ids:
-        per_user = cycle_graid_ep_by_user.get(cid) or {}
-        expected, daily_ep = _points_graph_entry_total_and_daily(per_user, ulow)
+        expected, expected_daily, _ = _points_normalized_expected_graid_ep(
+            ulow,
+            cid,
+            cycle_history,
+            cycle_graid_ep_by_user,
+        )
         if expected <= 0:
             continue
         recorded = _points_recorded_graid_ep(cycle_history, cid)
@@ -4115,11 +4362,7 @@ def _points_apply_graph_graid_fallback(
             continue
         recorded_daily = _points_recorded_graid_ep_by_day(cycle_history, cid)
         allocated = 0
-        for day_row in sorted(daily_ep, key=lambda r: (r.get("day") or ""), reverse=True):
-            day = (day_row.get("day") or "").strip()
-            if not day:
-                continue
-            day_ep = int(_safe_number(day_row.get("ep", 0)))
+        for day, day_ep in sorted(expected_daily.items(), key=lambda kv: kv[0], reverse=True):
             if day_ep <= 0:
                 continue
             recorded_day_ep = int(recorded_daily.get(day, 0))
@@ -4230,30 +4473,43 @@ def _points_rows_for_cycles(cycle_ids, guild_ranks, guild_members, guild_uuids=N
         if guild_members and ulow not in guild_members:
             continue
         total = int(pts or 0)
-        if total <= 0:
-            continue
 
         if uuid not in history_cache:
             history_cache[uuid] = _points_fetch_player_history(uuid)
         history = history_cache[uuid]
         cycle_history = [h for h in history if h.get("cycle_id") in cycle_ids]
+        trimmed_history, removed_by_cycle = _points_trim_excess_graid_history(
+            username,
+            cycle_ids,
+            cycle_history,
+            cycle_graid_ep_by_user,
+        )
+        removed_ep_total = sum(int(_safe_number(v)) for v in (removed_by_cycle or {}).values())
         rank = guild_ranks.get(ulow, "")
         is_hr = rank in _POINTS_HR_RANKS
         fallback_ep, _ = _points_apply_graph_graid_fallback(
             username,
             cycle_ids,
-            cycle_history,
+            trimmed_history,
             cycle_graid_ep_by_user,
             mark_dirty=is_hr,
         )
         clean_total = int(clean or 0)
         dirty_total = int(dirty or 0)
+        if removed_ep_total > 0:
+            total = max(0, total - removed_ep_total)
+            if is_hr:
+                dirty_total = max(0, dirty_total - removed_ep_total)
+            else:
+                clean_total = max(0, clean_total - removed_ep_total)
         if fallback_ep > 0:
             total += fallback_ep
             if is_hr:
                 dirty_total += fallback_ep
             else:
                 clean_total += fallback_ep
+        if total <= 0:
+            continue
 
         out.append({
             "uuid": uuid,
@@ -4286,11 +4542,17 @@ def _points_rows_for_cycles(cycle_ids, guild_ranks, guild_members, guild_uuids=N
         cycle_history = []
         if uuid:
             cycle_history = [h for h in (history_cache.get(uuid) or []) if h.get("cycle_id") in cycle_ids]
+        trimmed_history, _ = _points_trim_excess_graid_history(
+            username,
+            cycle_ids,
+            cycle_history,
+            cycle_graid_ep_by_user,
+        )
 
         fallback_ep, _ = _points_apply_graph_graid_fallback(
             username,
             cycle_ids,
-            cycle_history,
+            trimmed_history,
             cycle_graid_ep_by_user,
             mark_dirty=is_hr,
         )
@@ -4330,16 +4592,24 @@ def _points_build_leaderboard(cycle_ids, guild_ranks, guild_members, history_cac
                 history_cache[uuid] = _points_fetch_player_history(uuid)
             base_history = history_cache.get(uuid) or []
         cycle_history = [h for h in base_history if h.get("cycle_id") in cycle_ids]
-
-        fallback_ep, synthetic_rows = _points_apply_graph_graid_fallback(
+        trimmed_history, _ = _points_trim_excess_graid_history(
             r["username"],
             cycle_ids,
             cycle_history,
             cycle_graid_ep_by_user or {},
+        )
+
+        _, synthetic_rows = _points_apply_graph_graid_fallback(
+            r["username"],
+            cycle_ids,
+            trimmed_history,
+            cycle_graid_ep_by_user or {},
             mark_dirty=is_hr,
         )
-        effective_history = _points_normalize_history_for_rank(cycle_history + synthetic_rows, is_hr)
-        effective_points = int(r.get("points") or 0)
+        effective_history = _points_normalize_history_for_rank(trimmed_history + synthetic_rows, is_hr)
+        effective_points = sum(int(h.get("points_gained") or 0) for h in effective_history)
+        if effective_points <= 0:
+            continue
 
         le = _points_calc_le(r["username"], effective_points, effective_history, guild_ranks)
         dirty = sum(
@@ -4507,15 +4777,24 @@ def player_points(username: str):
         rank = guild_ranks.get((resolved_name or "").lower(), "")
         is_hr = rank in _POINTS_HR_RANKS
         cycle_history = [h for h in history if h["cycle_id"] in cycle_ids]
-        fallback_ep, synthetic_rows = _points_apply_graph_graid_fallback(
+        trimmed_history, removed_by_cycle = _points_trim_excess_graid_history(
             resolved_name,
             cycle_ids,
             cycle_history,
             cycle_graid_ep_by_user,
+        )
+        removed_ep_total = sum(int(_safe_number(v)) for v in (removed_by_cycle or {}).values())
+        if removed_ep_total > 0:
+            pts = max(0, pts - removed_ep_total)
+        _, synthetic_rows = _points_apply_graph_graid_fallback(
+            resolved_name,
+            cycle_ids,
+            trimmed_history,
+            cycle_graid_ep_by_user,
             mark_dirty=is_hr,
         )
-        pts += int(fallback_ep or 0)
-        effective_history = _points_normalize_history_for_rank(cycle_history + synthetic_rows, is_hr)
+        effective_history = _points_normalize_history_for_rank(trimmed_history + synthetic_rows, is_hr)
+        pts = sum(int(h.get("points_gained") or 0) for h in effective_history)
         effective_history.sort(key=lambda h: h.get("timestamp") or "", reverse=True)
         dirty = sum(
             int(h.get("points_gained") or 0)
