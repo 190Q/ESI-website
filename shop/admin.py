@@ -2004,42 +2004,6 @@ def _admin_get_users_uncached() -> list:
             "SELECT mc_uuid, item_id, quantity FROM cart_items"
         ).fetchall()
 
-        # Reserved EP split by type (winning bids on active auctions)
-        res_ep_rows = conn.execute("""
-            SELECT b.uuid,
-                   COALESCE(SUM(b.clean_ep_used), 0) AS reserved_clean,
-                   COALESCE(SUM(b.dirty_ep_used), 0) AS reserved_dirty
-            FROM bids b
-            JOIN auctions a ON a.auction_id = b.auction_id
-            WHERE a.status = 'active' AND b.is_winning = 1
-            GROUP BY b.uuid
-        """).fetchall()
-
-        # Spent EP from fulfilled/pending purchases
-        spent_ep_rows = conn.execute("""
-            SELECT uuid,
-                   COALESCE(SUM(clean_ep_spent), 0) AS spent_clean,
-                   COALESCE(SUM(dirty_ep_spent), 0) AS spent_dirty
-            FROM bin_purchases
-            WHERE status IN ('pending', 'fulfilled')
-            GROUP BY uuid
-        """).fetchall()
-
-        # Confirmed donation dirty EP grants
-        donated_rows_ep = conn.execute("""
-            SELECT uuid, COALESCE(SUM(dirty_ep_to_grant), 0) AS donated_dirty
-            FROM donation_tickets WHERE status = 'confirmed'
-            GROUP BY uuid
-        """).fetchall()
-
-        # Manual EP adjustments
-        from shop.ep_balance import _ensure_ep_adjustments_table
-        _ensure_ep_adjustments_table(conn)
-        adj_rows_ep = conn.execute("""
-            SELECT uuid, ep_type, COALESCE(SUM(amount), 0) AS adj
-            FROM ep_adjustments GROUP BY uuid, ep_type
-        """).fetchall()
-
         conn.close()
     except sqlite3.Error:
         return []
@@ -2062,22 +2026,6 @@ def _admin_get_users_uncached() -> list:
         uuid_to_username = {}
     guild_member_uuids, guild_member_usernames = _load_current_guild_members()
 
-    # Build balance lookup tables
-    res_ep_map: dict  = {r["uuid"]: {"rc": r["reserved_clean"] or 0,
-                                     "rd": r["reserved_dirty"]  or 0}
-                         for r in res_ep_rows}
-    spent_map: dict   = {r["uuid"]: {"sc": r["spent_clean"]  or 0,
-                                     "sd": r["spent_dirty"]   or 0}
-                         for r in spent_ep_rows}
-    donated_map: dict = {r["uuid"]: r["donated_dirty"] or 0 for r in donated_rows_ep}
-    adj_map: dict = {}  # {uuid: {"clean": N, "dirty": N}}
-    for r in adj_rows_ep:
-        uid = r["uuid"]
-        adj_map.setdefault(uid, {"clean": 0, "dirty": 0})
-        if r["ep_type"] == "clean":
-            adj_map[uid]["clean"] += r["adj"] or 0
-        elif r["ep_type"] == "dirty":
-            adj_map[uid]["dirty"] += r["adj"] or 0
 
     # Raw EP totals from _POINTS_DB (all completed cycles)
     raw_ep_by_uuid: dict = {}
@@ -2140,25 +2088,29 @@ def _admin_get_users_uncached() -> list:
             pts.close()
         except sqlite3.Error:
             pass
+    # Keep users-tab balances consistent with the live shop balance endpoint.
+    from shop.ep_balance import fetch_ep_balance
+    _balance_cache: dict = {}
 
     def _make_balance(uuid: str) -> dict:
-        raw     = raw_ep_by_uuid.get(uuid, {"rc": 0, "rd": 0})
-        spent   = spent_map.get(uuid, {"sc": 0, "sd": 0})
-        donated = donated_map.get(uuid, 0)
-        adj     = adj_map.get(uuid, {"clean": 0, "dirty": 0})
-        res     = res_ep_map.get(uuid, {"rc": 0, "rd": 0})
-        ct = raw["rc"] - spent["sc"] + adj["clean"]
-        dt = raw["rd"] - spent["sd"] + donated + adj["dirty"]
-        if ct < 0:
-            dt += ct
-            ct = 0
-        elif dt < 0:
-            ct += dt
-            dt = 0
-        ct = max(0, ct)
-        dt = max(0, dt)
-        cr = min(res["rc"], ct)
-        dr = min(res["rd"], dt)
+        if not uuid:
+            return {
+                "clean_total": 0,
+                "clean_reserved": 0,
+                "clean_free": 0,
+                "dirty_total": 0,
+                "dirty_reserved": 0,
+                "dirty_free": 0,
+                "total": 0,
+                "free": 0,
+            }
+        if uuid not in _balance_cache:
+            _balance_cache[uuid] = fetch_ep_balance(uuid)
+        b = _balance_cache[uuid]
+        ct = int(b.get("clean_ep", 0) or 0)
+        dt = int(b.get("dirty_ep", 0) or 0)
+        cr = min(int(b.get("reserved_clean", 0) or 0), ct)
+        dr = min(int(b.get("reserved_dirty", 0) or 0), dt)
         return {
             "clean_total":    ct,
             "clean_reserved": cr,

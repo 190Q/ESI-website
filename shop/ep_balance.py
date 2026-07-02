@@ -47,6 +47,9 @@ def _get_cycle_id(dt=None) -> int:
     if dt is None:
         dt = _dt.now(_tz.utc)
     return int((dt - _CYCLE_ANCHOR) / _CYCLE_DURATION) + 1
+def _get_cycle_bounds(cycle_id: int) -> tuple[_dt, _dt]:
+    start = _CYCLE_ANCHOR + _CYCLE_DURATION * (cycle_id - 1)
+    return start, start + _CYCLE_DURATION
 
 def _previous_cycle_id(dt=None) -> int:
     return _get_cycle_id(dt) - 1
@@ -206,13 +209,22 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
         except sqlite3.Error as exc:
             print(f"[EP] Failed to read esi_points: {exc}", file=sys.stderr)
 
+    # Current cycle boundary for age-aware clean/dirty bucket accounting
+    active_cycle_id = int(points_cycle_id) + 1
+    active_cycle_start_iso = None
+    if active_cycle_id > 0:
+        active_cycle_start, _ = _get_cycle_bounds(active_cycle_id)
+        active_cycle_start_iso = active_cycle_start.isoformat()
+
     # 2. Active reservations + shop spending from shop.db
     reserved_clean = 0
     reserved_dirty = 0
-    spent_clean = 0
+    spent_clean_current = 0
+    spent_clean_aged = 0
     spent_dirty = 0
     donated_dirty = 0
-    adj_clean = 0
+    adj_clean_current = 0
+    adj_clean_aged = 0
     adj_dirty = 0
     if os.path.isfile(_SHOP_DB):
         try:
@@ -221,30 +233,64 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
             _ensure_ep_adjustments_table(conn)
 
             # Reservations (auction bid holds)
-            rows = conn.execute(
-                "SELECT ep_type, COALESCE(SUM(reserved_amount), 0) "
-                "FROM ep_reservations "
-                "WHERE uuid = ? AND released_at IS NULL "
-                "GROUP BY ep_type",
-                (uuid,),
-            ).fetchall()
-            for ep_type, amount in rows:
-                if ep_type == "clean":
-                    reserved_clean = int(amount)
-                elif ep_type == "dirty":
-                    reserved_dirty = int(amount)
+            if active_cycle_start_iso:
+                row = conn.execute(
+                    "SELECT "
+                    "COALESCE(SUM(CASE WHEN ep_type = 'clean' "
+                    "AND created_at >= ? THEN reserved_amount ELSE 0 END), 0), "
+                    "COALESCE(SUM(CASE WHEN ep_type = 'clean' "
+                    "AND created_at < ? THEN reserved_amount ELSE 0 END), 0), "
+                    "COALESCE(SUM(CASE WHEN ep_type = 'dirty' "
+                    "THEN reserved_amount ELSE 0 END), 0) "
+                    "FROM ep_reservations "
+                    "WHERE uuid = ? AND released_at IS NULL",
+                    (active_cycle_start_iso, active_cycle_start_iso, uuid),
+                ).fetchone()
+                if row:
+                    reserved_clean = int(row[0])
+                    reserved_clean_aged = int(row[1])
+                    reserved_dirty = int(row[2]) + reserved_clean_aged
+            else:
+                rows = conn.execute(
+                    "SELECT ep_type, COALESCE(SUM(reserved_amount), 0) "
+                    "FROM ep_reservations "
+                    "WHERE uuid = ? AND released_at IS NULL "
+                    "GROUP BY ep_type",
+                    (uuid,),
+                ).fetchall()
+                for ep_type, amount in rows:
+                    if ep_type == "clean":
+                        reserved_clean = int(amount)
+                    elif ep_type == "dirty":
+                        reserved_dirty = int(amount)
 
             # Spending (pending + fulfilled bin purchases)
-            row = conn.execute(
-                "SELECT COALESCE(SUM(clean_ep_spent), 0), "
-                "       COALESCE(SUM(dirty_ep_spent), 0) "
-                "FROM bin_purchases "
-                "WHERE uuid = ? AND status IN ('pending', 'fulfilled')",
-                (uuid,),
-            ).fetchone()
+            if active_cycle_start_iso:
+                row = conn.execute(
+                    "SELECT "
+                    "COALESCE(SUM(CASE WHEN purchased_at >= ? "
+                    "THEN clean_ep_spent ELSE 0 END), 0), "
+                    "COALESCE(SUM(CASE WHEN purchased_at < ? "
+                    "THEN clean_ep_spent ELSE 0 END), 0), "
+                    "COALESCE(SUM(dirty_ep_spent), 0) "
+                    "FROM bin_purchases "
+                    "WHERE uuid = ? AND status IN ('pending', 'fulfilled')",
+                    (active_cycle_start_iso, active_cycle_start_iso, uuid),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT "
+                    "COALESCE(SUM(clean_ep_spent), 0), "
+                    "0, "
+                    "COALESCE(SUM(dirty_ep_spent), 0) "
+                    "FROM bin_purchases "
+                    "WHERE uuid = ? AND status IN ('pending', 'fulfilled')",
+                    (uuid,),
+                ).fetchone()
             if row:
-                spent_clean = int(row[0])
-                spent_dirty = int(row[1])
+                spent_clean_current = int(row[0])
+                spent_clean_aged = int(row[1])
+                spent_dirty = int(row[2])
 
             # Confirmed donation tickets add to dirty balance
             don_row = conn.execute(
@@ -257,24 +303,41 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
                 donated_dirty = int(don_row[0])
 
             # Manual admin EP adjustments
-            adj_rows = conn.execute(
-                "SELECT ep_type, COALESCE(SUM(amount), 0) "
-                "FROM ep_adjustments WHERE uuid = ? GROUP BY ep_type",
-                (uuid,),
-            ).fetchall()
-            for ep_type, amount in adj_rows:
-                if ep_type == "clean":
-                    adj_clean = int(amount)
-                elif ep_type == "dirty":
-                    adj_dirty = int(amount)
+            if active_cycle_start_iso:
+                row = conn.execute(
+                    "SELECT "
+                    "COALESCE(SUM(CASE WHEN ep_type = 'clean' "
+                    "AND created_at >= ? THEN amount ELSE 0 END), 0), "
+                    "COALESCE(SUM(CASE WHEN ep_type = 'clean' "
+                    "AND created_at < ? THEN amount ELSE 0 END), 0), "
+                    "COALESCE(SUM(CASE WHEN ep_type = 'dirty' "
+                    "THEN amount ELSE 0 END), 0) "
+                    "FROM ep_adjustments WHERE uuid = ?",
+                    (active_cycle_start_iso, active_cycle_start_iso, uuid),
+                ).fetchone()
+                if row:
+                    adj_clean_current = int(row[0])
+                    adj_clean_aged = int(row[1])
+                    adj_dirty = int(row[2]) + adj_clean_aged
+            else:
+                adj_rows = conn.execute(
+                    "SELECT ep_type, COALESCE(SUM(amount), 0) "
+                    "FROM ep_adjustments WHERE uuid = ? GROUP BY ep_type",
+                    (uuid,),
+                ).fetchall()
+                for ep_type, amount in adj_rows:
+                    if ep_type == "clean":
+                        adj_clean_current = int(amount)
+                    elif ep_type == "dirty":
+                        adj_dirty = int(amount)
 
             conn.close()
         except sqlite3.Error as exc:
             print(f"[EP] Failed to read shop.db: {exc}", file=sys.stderr)
 
     # 4. Assemble final balances
-    effective_clean = clean_ep - spent_clean + adj_clean
-    effective_dirty = dirty_ep - spent_dirty + donated_dirty + adj_dirty
+    effective_clean = clean_ep - spent_clean_current + adj_clean_current
+    effective_dirty = dirty_ep - spent_dirty - spent_clean_aged + donated_dirty + adj_dirty
 
     if effective_clean < 0:
         effective_dirty += effective_clean
