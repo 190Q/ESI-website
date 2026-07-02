@@ -30,6 +30,22 @@ _bulk_playtime_lock  = threading.Lock()
 _nonguild_pt_cache = {}
 _nonguild_pt_lock  = threading.Lock()
 _NONGUILD_PT_TTL   = 300
+def _parse_int_env(name, default, minimum=0):
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return max(minimum, int(default))
+    try:
+        return max(minimum, int(raw))
+    except (TypeError, ValueError):
+        return max(minimum, int(default))
+
+def _parse_max_graids_per_day():
+    return _parse_int_env("ESI_MAX_GRAIDS_PER_DAY", 10, minimum=1)
+
+_MAX_GRAIDS_PER_DAY = _parse_max_graids_per_day()
+_GRAID_EXTREME_DELTA_MULTIPLIER = _parse_int_env("ESI_GRAID_EXTREME_DELTA_MULTIPLIER", 5, minimum=2)
+_GRAID_INVALID_DAY_MIN_EXTREME_USERS = _parse_int_env("ESI_GRAID_INVALID_DAY_MIN_EXTREME_USERS", 3, minimum=2)
+_GRAID_EXTREME_DELTA_THRESHOLD = _MAX_GRAIDS_PER_DAY * _GRAID_EXTREME_DELTA_MULTIPLIER
 
 
 # bulk computation (transplanted verbatim from server.py)
@@ -474,6 +490,7 @@ def _compute_bulk_playtime():
     guild_raids = [0] * num_mk_days
     tracked_guild_prefix = "ESI"
     debug_guild_intervals = []
+    invalid_graid_day_indexes = set()
     if api_snapshots and num_mk_days:
         guild_seen_non_zero = {}
         first_snap = api_snapshots[0]
@@ -504,6 +521,9 @@ def _compute_bulk_playtime():
                 "warsRawDelta": 0, "warsAppliedDelta": 0,
                 "skippedMissing": 0, "skippedApiGap": 0,
                 "skippedApiOff": 0, "skippedOffsetSwitch": 0, "skippedReactivation": 0,
+                "graidExtremeUsers": 0,
+                "graidExtremeRawDelta": 0,
+                "invalidatedOutageSpike": False,
                 "reactivationUsers": [],
             }
 
@@ -568,7 +588,11 @@ def _compute_bulk_playtime():
                         interval_debug["skippedOffsetSwitch"] += 1
                     else:
                         if raw_graids > 0:
-                            interval_debug["guildRaidsRawDelta"] += int(round(raw_graids))
+                            _raw_graids_i = int(round(raw_graids))
+                            interval_debug["guildRaidsRawDelta"] += _raw_graids_i
+                            if _raw_graids_i >= _GRAID_EXTREME_DELTA_THRESHOLD:
+                                interval_debug["graidExtremeUsers"] += 1
+                                interval_debug["graidExtremeRawDelta"] += _raw_graids_i
                         if _is_reactivation_spike(
                             prev_graids, curr_graids, state.get("guildRaids", False),
                             metric_key="guildRaids", prev_snapshot=prev_user, curr_snapshot=cur_user,
@@ -591,8 +615,50 @@ def _compute_bulk_playtime():
                     state["wars"] = True
                 if cur_user.get("guildRaids") is not None and _safe_number(cur_user.get("guildRaids")) > 0:
                     state["guildRaids"] = True
+            if (
+                interval_debug.get("graidExtremeUsers", 0) >= _GRAID_INVALID_DAY_MIN_EXTREME_USERS
+                and interval_debug.get("guildRaidsRawDelta", 0) >= _GRAID_EXTREME_DELTA_THRESHOLD
+            ):
+                interval_debug["invalidatedOutageSpike"] = True
+                interval_debug["guildRaidsAppliedDeltaBeforeInvalidation"] = int(
+                    interval_debug.get("guildRaidsAppliedDelta", 0) or 0
+                )
+                interval_debug["guildRaidsAppliedDelta"] = 0
+                invalid_graid_day_indexes.add(day_idx)
 
             debug_guild_intervals.append(interval_debug)
+    invalid_graid_days = []
+    graid_dynamic_offsets = {}
+    if invalid_graid_day_indexes:
+        for _idx in sorted(invalid_graid_day_indexes):
+            if _idx < len(metric_dates):
+                invalid_graid_days.append(metric_dates[_idx])
+            if _idx < len(guild_raids):
+                guild_raids[_idx] = 0
+            for _ulow, _member in members.items():
+                _vals = _member.get("guildRaids")
+                if not isinstance(_vals, list) or _idx >= len(_vals):
+                    continue
+                _removed = max(0, int(_safe_number(_vals[_idx])))
+                if _removed <= 0:
+                    continue
+                graid_dynamic_offsets[_ulow] = graid_dynamic_offsets.get(_ulow, 0) + _removed
+                _vals[_idx] = 0
+        _invalid_days_set = set(invalid_graid_days)
+        if _invalid_days_set:
+            for _entry in debug_members.values():
+                _events = (_entry or {}).get("guildRaids", [])
+                if not isinstance(_events, list):
+                    continue
+                for _ev in _events:
+                    if not isinstance(_ev, dict):
+                        continue
+                    if _ev.get("day") in _invalid_days_set and int(_safe_number(_ev.get("appliedDelta", 0))) > 0:
+                        _ev["appliedDelta"] = 0
+                        _ev["reason"] = "invalid_day_spike"
+
+    for _ulow, _member in members.items():
+        _member["guildRaidDynamicOffset"] = int(graid_dynamic_offsets.get(_ulow, 0))
 
     # Guild raid counters are typically aggregated per participant
     normalized_guild_raids = []
@@ -648,6 +714,7 @@ def _compute_bulk_playtime():
         "playerCount":  player_count,
         "wars":         guild_wars,
         "guildRaids":   guild_raids,
+        "invalidGuildRaidDays": invalid_graid_days,
         "newMembers":   new_members,
         "totalMembers": total_members,
         "overflowMembers": overflow_members,
@@ -656,9 +723,17 @@ def _compute_bulk_playtime():
     with _bulk_playtime_lock:
         _bulk_playtime_cache["data"] = {"members": members, "guild": guild_data}
         _bulk_playtime_cache["debug"] = {
-            "rules": {"resetSpikeThresholds": RESET_SPIKE_MIN_BY_METRIC},
+            "rules": {
+                "resetSpikeThresholds": RESET_SPIKE_MIN_BY_METRIC,
+                "graidInvalidDayRule": {
+                    "maxGraidsPerDay": _MAX_GRAIDS_PER_DAY,
+                    "extremeDeltaThreshold": _GRAID_EXTREME_DELTA_THRESHOLD,
+                    "minExtremeUsersForInvalidDay": _GRAID_INVALID_DAY_MIN_EXTREME_USERS,
+                },
+            },
             "members": debug_members,
             "guild": {
+                "invalidGuildRaidDays": list(invalid_graid_days),
                 "intervals": [
                     row for row in debug_guild_intervals
                     if (

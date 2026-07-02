@@ -1204,6 +1204,8 @@ def me_badge_progress():
     if not latest_db:
         return jsonify({"linked": True, "username": mc_username, "counts": {}})
     counts = {"wars": 0, "guild_raids": 0, "quests": 0, "recruited": 0, "events": 0}
+    static_graid_offsets = _get_graid_fault_offsets()
+    dynamic_graid_offsets, _ = _get_dynamic_graid_offsets_from_activity()
     try:
         conn = _sqlite3.connect(latest_db, check_same_thread=False)
         ulow = mc_username.lower()
@@ -1224,7 +1226,12 @@ def me_badge_progress():
             if not gr:
                 gr = conn.execute("SELECT total_graids FROM guild_raid_stats WHERE LOWER(username) = ?", (ulow,)).fetchone()
             if gr:
-                counts["guild_raids"] = int(gr[0] or 0)
+                counts["guild_raids"] = _effective_graid_total(
+                    int(gr[0] or 0),
+                    ulow,
+                    static_graid_offsets,
+                    dynamic_graid_offsets,
+                )
         except _sqlite3.OperationalError:
             pass
         # recruited
@@ -3840,6 +3847,60 @@ def _get_graid_fault_offsets():
         pass
     return offsets
 
+_GRAID_ACTIVITY_OFFSETS_TTL = 120
+_graid_activity_offsets_cache = {
+    "ts": 0,
+    "offsets": {},
+    "invalid_days": [],
+}
+
+def _get_dynamic_graid_offsets_from_activity():
+    now = time()
+    if now - float(_graid_activity_offsets_cache.get("ts") or 0) < _GRAID_ACTIVITY_OFFSETS_TTL:
+        return (
+            dict(_graid_activity_offsets_cache.get("offsets") or {}),
+            list(_graid_activity_offsets_cache.get("invalid_days") or []),
+        )
+
+    offsets = {}
+    invalid_days = []
+    activity = _fetch_cache("/cache/activity")
+    if isinstance(activity, dict):
+        guild_blob = activity.get("guild") or {}
+        if isinstance(guild_blob, dict):
+            raw_days = guild_blob.get("invalidGuildRaidDays") or []
+            if isinstance(raw_days, list):
+                invalid_days = [str(d).strip() for d in raw_days if str(d).strip()]
+        members_blob = activity.get("members") or {}
+        if isinstance(members_blob, dict):
+            for key, entry in members_blob.items():
+                if not isinstance(entry, dict):
+                    continue
+                ulow = (entry.get("username") or key or "").strip().lower()
+                if not ulow:
+                    continue
+                off = int(_safe_number(entry.get("guildRaidDynamicOffset", 0)))
+                if off > 0:
+                    offsets[ulow] = max(offsets.get(ulow, 0), off)
+
+    _graid_activity_offsets_cache["ts"] = now
+    _graid_activity_offsets_cache["offsets"] = dict(offsets)
+    _graid_activity_offsets_cache["invalid_days"] = list(invalid_days)
+    return dict(offsets), list(invalid_days)
+
+def _apply_static_graid_offset(total_graids, offset):
+    total = max(0, int(_safe_number(total_graids)))
+    off = max(0, int(_safe_number(offset)))
+    if off > 0 and total > off:
+        return total - off
+    return total
+
+def _effective_graid_total(raw_total, username_lower, static_offsets, dynamic_offsets):
+    ulow = (username_lower or "").strip().lower()
+    total = _apply_static_graid_offset(raw_total, static_offsets.get(ulow, 0))
+    dyn_off = max(0, int(_safe_number(dynamic_offsets.get(ulow, 0))))
+    return max(0, total - dyn_off)
+
 
 _GRAID_DYNAMIC_OFFSETS_TTL = 300
 _graid_dynamic_offsets_cache = {
@@ -6386,6 +6447,8 @@ def guild_statistics():
         return resp
 
     esi_points_by_user = _statistics_esi_points_by_user()
+    static_graid_offsets = _get_graid_fault_offsets()
+    dynamic_graid_offsets, invalid_graid_days = _get_dynamic_graid_offsets_from_activity()
 
     # The current guild member list comes straight from the latest api_tracking
     tracked = _load_json_file(_TRACKED_GUILD_JSON) or {}
@@ -6435,6 +6498,13 @@ def guild_statistics():
         uuid = r[1] or ""
         ulow = username.lower()
         snipe_entry = snipes_by_uuid.get(uuid) or {}
+        raw_graids = int(graid_by_uuid.get(uuid, graid_by_user.get(ulow, 0)) or 0)
+        guild_raids_effective = _effective_graid_total(
+            raw_graids,
+            ulow,
+            static_graid_offsets,
+            dynamic_graid_offsets,
+        )
         members.append({
             "username":         username,
             "uuid":             uuid,
@@ -6453,7 +6523,7 @@ def guild_statistics():
             "completed_quests": int(r[13] or 0),
             "pvp_kills":        int(r[14] or 0),
             "pvp_deaths":       int(r[15] or 0),
-            "guild_raids":      int(graid_by_uuid.get(uuid, graid_by_user.get(ulow, 0)) or 0),
+            "guild_raids":      guild_raids_effective,
             "recruited":        int(recruited_counts.get(uuid, 0)),
             "event_points":     int(event_points.get(ulow, 0)),
             "quest_points":     int(quest_points.get(ulow, 0)),
@@ -6512,6 +6582,7 @@ def guild_statistics():
     payload = {
         "available":     True,
         "members":       members,
+        "guild_raid_invalid_days": invalid_graid_days,
         "queue":         {"current": queue_now, "history": queue_history},
         "joins":         joins,
         "leaves":        leaves,
