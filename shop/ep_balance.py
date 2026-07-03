@@ -3,8 +3,15 @@ import re
 import sqlite3
 import sys
 from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+from time import time as _time
 
-from config import _POINTS_DB, _SHOP_DB, _USERNAME_MATCHES_JSON, _load_json_file
+from config import (
+    _POINTS_DB,
+    _SHOP_DB,
+    _USERNAME_MATCHES_JSON,
+    _get_latest_api_db,
+    _load_json_file,
+)
 
 _UUID_RE = re.compile(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
@@ -13,6 +20,54 @@ _UUID_RE = re.compile(
 
 _CYCLE_ANCHOR = _dt(2026, 4, 21, 16, 0, 0, tzinfo=_tz.utc)
 _CYCLE_DURATION = _td(weeks=2)
+_POINTS_HR_RANKS = {"strategist", "chief", "owner"}
+_DIRTY_REASON_PREFIXES = ("war", "guild raid", "quest")
+_HR_UUID_CACHE_TTL = 120
+_hr_uuid_cache = {"ts": 0.0, "uuids": set()}
+
+
+def _is_dirty_reason(reason: str | None) -> bool:
+    text = (reason or "").strip().lower()
+    return any(text.startswith(prefix) for prefix in _DIRTY_REASON_PREFIXES)
+
+
+def _get_hr_uuid_set() -> set:
+    now = _time()
+    cached_ts = float(_hr_uuid_cache.get("ts") or 0)
+    if now - cached_ts < _HR_UUID_CACHE_TTL:
+        return set(_hr_uuid_cache.get("uuids") or set())
+
+    latest_db = _get_latest_api_db()
+    if not latest_db:
+        _hr_uuid_cache["ts"] = now
+        _hr_uuid_cache["uuids"] = set()
+        return set()
+
+    hr_uuids = set()
+    try:
+        conn = sqlite3.connect(latest_db, timeout=5)
+        rows = conn.execute(
+            "SELECT uuid, LOWER(guild_rank) "
+            "FROM player_stats WHERE UPPER(guild_prefix) = 'ESI'"
+        ).fetchall()
+        conn.close()
+        for row in rows:
+            row_uuid = (row[0] or "").strip()
+            row_rank = (row[1] or "").strip()
+            if row_uuid and row_rank in _POINTS_HR_RANKS:
+                hr_uuids.add(row_uuid)
+    except sqlite3.Error:
+        pass
+
+    _hr_uuid_cache["ts"] = now
+    _hr_uuid_cache["uuids"] = set(hr_uuids)
+    return hr_uuids
+
+
+def _is_hr_uuid(uuid: str) -> bool:
+    if not uuid:
+        return False
+    return uuid in _get_hr_uuid_set()
 
 
 def _split_from_history(
@@ -20,28 +75,47 @@ def _split_from_history(
     uuid: str,
     cycle_id: int,
     total_points: int,
-) -> tuple[int, int]:
+) -> tuple[int, int] | None:
     """Compute ``(clean, dirty)`` from the player's per-record history table.
-
-    Falls back to ``(total_points, 0)`` (all clean) when the history
-    table or the ``is_dirty`` column doesn't exist.
+    Returns ``None`` when the history table is missing or unreadable.
     """
     if not uuid or not _UUID_RE.match(uuid):
-        return total_points, 0
+        return None
     player_table = "player_" + uuid.replace("-", "_")
+    is_hr = _is_hr_uuid(uuid)
     try:
-        row = conn.execute(
-            f'SELECT COALESCE(SUM(CASE WHEN COALESCE(is_dirty, 0) = 1 '
-            f'THEN points_gained ELSE 0 END), 0) '
+        rows = conn.execute(
+            f'SELECT COALESCE(points_gained, 0), COALESCE(reason, \'\'), '
+            f'COALESCE(is_dirty, 0) '
             f'FROM "{player_table}" WHERE cycle_id = ?',
             (cycle_id,),
-        ).fetchone()
-        if row:
-            dirty = int(row[0])
-            return total_points - dirty, dirty
+        ).fetchall()
+        if not rows:
+            return None
+
+        dirty = 0
+        seen_total = 0
+        for row in rows:
+            points = int(row[0] or 0)
+            reason = row[1] or ""
+            is_dirty = int(row[2] or 0)
+            if points <= 0:
+                continue
+            seen_total += points
+            reason_dirty = _is_dirty_reason(reason)
+            if is_hr:
+                effective_dirty = reason_dirty
+            else:
+                effective_dirty = False if reason_dirty else (is_dirty == 1)
+            if effective_dirty:
+                dirty += points
+        if seen_total <= 0:
+            return None
+
+        dirty = max(0, min(total_points, int(dirty)))
+        return total_points - dirty, dirty
     except sqlite3.OperationalError:
-        pass  # table or column doesn't exist
-    return total_points, 0
+        return None
 
 def _get_cycle_id(dt=None) -> int:
     if dt is None:
@@ -193,10 +267,15 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
 
                 for cycle_id, pts, c, d in rows:
                     pts, c, d = int(pts), int(c), int(d)
-                    if c == 0 and d == 0 and pts > 0:
-                        c, d = _split_from_history(
-                            conn, uuid, cycle_id, pts,
-                        )
+                    should_try_history = (pts > 0) and (
+                        (cycle_id == points_cycle_id) or (c == 0 and d == 0)
+                    )
+                    if should_try_history:
+                        split = _split_from_history(conn, uuid, cycle_id, pts)
+                        if split is not None:
+                            c, d = split
+                        elif c == 0 and d == 0:
+                            c, d = pts, 0
 
                     if cycle_id == points_cycle_id:
                         # Previous (most-recent completed) cycle: clean stays clean
