@@ -4172,9 +4172,17 @@ def _points_graph_graid_ep_by_username(cycle_id):
             continue
         dates = entry.get("metricDates")
         graids = entry.get("guildRaids")
+        recovered_days_raw = entry.get("guildRaidRecoveredDays")
+        recovered_days = set()
+        if isinstance(recovered_days_raw, list):
+            for _d in recovered_days_raw:
+                _day = str(_d or "").strip()
+                if _day:
+                    recovered_days.add(_day)
         if not isinstance(dates, list) or not isinstance(graids, list):
             continue
         daily_ep = {}
+        recovered_days_in_cycle = set()
         saw_cycle_day = False
         for i, day in enumerate(dates):
             if i >= len(graids):
@@ -4184,6 +4192,8 @@ def _points_graph_graid_ep_by_username(cycle_id):
             if day <= start_day or day > end_day:
                 continue
             saw_cycle_day = True
+            if day in recovered_days:
+                recovered_days_in_cycle.add(day)
             val = int(round(_safe_number(graids[i])))
             if val > 0:
                 daily_ep[day] = daily_ep.get(day, 0) + (val * 10)
@@ -4195,21 +4205,30 @@ def _points_graph_graid_ep_by_username(cycle_id):
                     {"day": day, "ep": int(daily_ep[day])}
                     for day in ordered_days
                 ],
+                "recovered_days": sorted(recovered_days_in_cycle),
             }
 
     return inferred
 
 
 def _points_graph_entry_total_and_daily(per_user, username_lower):
-    """Read one graph-fallback entry into (total_ep, daily_ep_rows)."""
+    """Read one graph-fallback entry into (total_ep, daily_ep_rows, recovered_days)."""
     entry = per_user.get(username_lower, 0)
     if isinstance(entry, dict):
         total_ep = int(_safe_number(entry.get("total_ep", 0)))
         daily_ep = entry.get("daily_ep")
         if not isinstance(daily_ep, list):
             daily_ep = []
-        return total_ep, daily_ep
-    return int(_safe_number(entry)), []
+        recovered_days = entry.get("recovered_days")
+        if not isinstance(recovered_days, list):
+            recovered_days = []
+        recovered_days = {
+            str(day or "").strip()
+            for day in recovered_days
+            if str(day or "").strip()
+        }
+        return total_ep, daily_ep, recovered_days
+    return int(_safe_number(entry)), [], set()
 
 def _points_recorded_graid_ep(history_rows, cycle_id):
     """Return Guild Raid EP already recorded in history for one cycle."""
@@ -4255,8 +4274,13 @@ def _points_daily_ep_map_from_rows(daily_rows):
         out[day] = out.get(day, 0) + ep
     return out
 
-def _points_cap_daily_ep_map(daily_ep, max_daily_ep):
+def _points_cap_daily_ep_map(daily_ep, max_daily_ep, uncapped_days=None):
     """Apply per-day EP cap to a {day: ep} mapping."""
+    uncapped_set = {
+        str(day or "").strip()
+        for day in (uncapped_days or [])
+        if str(day or "").strip()
+    }
     if max_daily_ep <= 0:
         return {str(k): max(0, int(_safe_number(v))) for k, v in (daily_ep or {}).items() if str(k).strip()}
     capped = {}
@@ -4267,7 +4291,10 @@ def _points_cap_daily_ep_map(daily_ep, max_daily_ep):
         val = max(0, int(_safe_number(ep)))
         if val <= 0:
             continue
-        capped[d] = min(val, max_daily_ep)
+        if d in uncapped_set:
+            capped[d] = val
+        else:
+            capped[d] = min(val, max_daily_ep)
     return capped
 
 def _points_normalized_expected_graid_ep(username_lower, cycle_id, cycle_history, cycle_graid_ep_by_user):
@@ -4276,8 +4303,9 @@ def _points_normalized_expected_graid_ep(username_lower, cycle_id, cycle_history
     has_graph_source = isinstance(per_user, dict) and username_lower in per_user
     expected_total = 0
     expected_daily = {}
+    recovered_days = set()
     if has_graph_source:
-        expected_total, expected_daily_rows = _points_graph_entry_total_and_daily(per_user, username_lower)
+        expected_total, expected_daily_rows, recovered_days = _points_graph_entry_total_and_daily(per_user, username_lower)
         expected_total = max(0, int(_safe_number(expected_total)))
         expected_daily = _points_daily_ep_map_from_rows(expected_daily_rows)
 
@@ -4285,7 +4313,11 @@ def _points_normalized_expected_graid_ep(username_lower, cycle_id, cycle_history
     if daily_cap > 0:
         if has_graph_source:
             if expected_daily:
-                expected_daily = _points_cap_daily_ep_map(expected_daily, daily_cap)
+                expected_daily = _points_cap_daily_ep_map(
+                    expected_daily,
+                    daily_cap,
+                    uncapped_days=recovered_days,
+                )
                 expected_total = min(expected_total, sum(expected_daily.values()))
             else:
                 recorded_daily = _points_recorded_graid_ep_by_day(cycle_history, cycle_id)
@@ -4713,7 +4745,8 @@ def guild_points():
     previous_cycle = current_cycle - 1
     guild_ranks, guild_members, guild_uuids = _points_guild_ranks_and_members()
     cycle_graid_ep_by_user = {
-        current_cycle: _points_graph_graid_ep_by_username(current_cycle)
+        previous_cycle: _points_graph_graid_ep_by_username(previous_cycle),
+        current_cycle: _points_graph_graid_ep_by_username(current_cycle),
     }
     history_cache = {}
 
@@ -4767,7 +4800,8 @@ def player_points(username: str):
     previous_cycle = current_cycle - 1
     guild_ranks, guild_members, guild_uuids = _points_guild_ranks_and_members()
     cycle_graid_ep_by_user = {
-        current_cycle: _points_graph_graid_ep_by_username(current_cycle)
+        previous_cycle: _points_graph_graid_ep_by_username(previous_cycle),
+        current_cycle: _points_graph_graid_ep_by_username(current_cycle),
     }
 
     # resolve uuid from points DB (case-insensitive)

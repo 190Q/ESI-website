@@ -207,6 +207,10 @@ def _compute_bulk_playtime():
     pending_totals_by_day = []
     api_days = []
     api_day_candidates = []
+    recovered_alloc_by_user = {}
+    recovered_graid_days = set()
+    recovered_guild_graids_by_idx = []
+    metric_idx_by_day = {}
     if os.path.isdir(api_folder):
         for name in os.listdir(api_folder):
             if not name.startswith("api_"):
@@ -350,10 +354,11 @@ def _compute_bulk_playtime():
 
         timeline_days = []
         if api_day_candidates:
-            start_day = api_day_candidates[0][0].date()
-            end_day = api_day_candidates[-1][0].date()
-            total_days = (end_day - start_day).days + 1
-            for offset in range(max(0, total_days)):
+            latest_candidate_day = api_day_candidates[-1][0].date()
+            today_day = _dt.now().date()
+            end_day = latest_candidate_day if latest_candidate_day > today_day else today_day
+            start_day = end_day - _td(days=60)
+            for offset in range(61):
                 day = start_day + _td(days=offset)
                 timeline_days.append(_dt(day.year, day.month, day.day))
         else:
@@ -370,6 +375,155 @@ def _compute_bulk_playtime():
             api_snapshots.append(stats)
 
         metric_dates = [day_dt.date().isoformat() for day_dt, _ in api_days[1:]]
+        metric_idx_by_day = {day: idx for idx, day in enumerate(metric_dates)}
+        recovered_guild_graids_by_idx = [0] * len(metric_dates)
+
+        def _load_recovered_graid_allocations(metric_day_list):
+            allocations = {}
+            recovered_days = set()
+            if not metric_day_list:
+                return allocations, recovered_days
+
+            baseline_db = os.path.join(_ESI_BOT_DIR, "databases", "points_baseline.db")
+            if not os.path.exists(baseline_db):
+                return allocations, recovered_days
+
+            rows = []
+            try:
+                conn = _sqlite3.connect(baseline_db, check_same_thread=False)
+                c = conn.cursor()
+                c.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name='recovered_graid_allocations'"
+                )
+                if c.fetchone():
+                    rows = c.execute(
+                        "SELECT username, start_day, end_day, span_days, total_graids "
+                        "FROM recovered_graid_allocations"
+                    ).fetchall()
+                conn.close()
+            except Exception:
+                return allocations, recovered_days
+
+            metric_day_set = set(metric_day_list)
+            for row in rows:
+                username = str(row[0] or "").strip().lower()
+                if not username:
+                    continue
+
+                total_graids = max(0, int(round(_safe_number(row[4]))))
+                if total_graids <= 0:
+                    continue
+
+                start_raw = str(row[1] or "").strip()
+                end_raw = str(row[2] or "").strip()
+                span_days = max(1, int(round(_safe_number(row[3]))))
+                try:
+                    start_day = _dt.strptime(start_raw, "%Y-%m-%d").date()
+                    end_day = _dt.strptime(end_raw, "%Y-%m-%d").date()
+                except ValueError:
+                    continue
+                if end_day < start_day:
+                    start_day, end_day = end_day, start_day
+
+                day_count = (end_day - start_day).days + 1
+                if day_count <= 0:
+                    day_count = span_days
+                if day_count <= 0:
+                    continue
+
+                per_day = total_graids // day_count
+                remainder = total_graids % day_count
+                for i in range(day_count):
+                    day = (start_day + _td(days=i)).isoformat()
+                    if day not in metric_day_set:
+                        continue
+                    add_val = per_day + (1 if i < remainder else 0)
+                    if add_val <= 0:
+                        continue
+                    per_user = allocations.setdefault(username, {})
+                    per_user[day] = int(_safe_number(per_user.get(day, 0))) + add_val
+                    recovered_days.add(day)
+
+            return allocations, recovered_days
+        def _load_gap_recovered_graid_allocations(metric_day_list, snapshots):
+            allocations = {}
+            recovered_days = set()
+            if not metric_day_list or len(snapshots or []) < 2:
+                return allocations, recovered_days
+
+            users = set()
+            for snap in (snapshots or []):
+                users.update((snap or {}).keys())
+
+            for ulow in users:
+                known_points = []
+                for snap_idx, snap in enumerate(snapshots):
+                    entry = (snap or {}).get(ulow)
+                    if not isinstance(entry, dict):
+                        continue
+                    if (entry.get("guildPrefix") or "").upper() != "ESI":
+                        continue
+                    if entry.get("guildRaids") is None:
+                        continue
+                    known_points.append(
+                        (
+                            snap_idx,
+                            int(round(_safe_number(entry.get("guildRaids")))),
+                            bool(entry.get("guildRaidsOffsetApplied")),
+                        )
+                    )
+                if len(known_points) < 2:
+                    continue
+
+                for pidx in range(1, len(known_points)):
+                    prev_idx, prev_total, prev_offset_mode = known_points[pidx - 1]
+                    cur_idx, cur_total, cur_offset_mode = known_points[pidx]
+                    if cur_idx - prev_idx <= 1:
+                        continue
+                    if prev_offset_mode != cur_offset_mode:
+                        continue
+
+                    delta = int(round(_safe_number(cur_total - prev_total)))
+                    if delta <= 0:
+                        continue
+
+                    span_days = cur_idx - prev_idx
+                    if span_days <= 0:
+                        continue
+                    per_day = delta // span_days
+                    remainder = delta % span_days
+
+                    for span_idx in range(span_days):
+                        metric_idx = prev_idx + span_idx
+                        if metric_idx < 0 or metric_idx >= len(metric_day_list):
+                            continue
+                        add_val = per_day + (1 if span_idx < remainder else 0)
+                        if add_val <= 0:
+                            continue
+                        day = metric_day_list[metric_idx]
+                        per_user = allocations.setdefault(ulow, {})
+                        per_user[day] = int(_safe_number(per_user.get(day, 0))) + add_val
+                        recovered_days.add(day)
+
+            return allocations, recovered_days
+
+        recovered_alloc_by_user, recovered_graid_days = _load_recovered_graid_allocations(metric_dates)
+        gap_recovered_alloc_by_user, _ = _load_gap_recovered_graid_allocations(
+            metric_dates,
+            api_snapshots,
+        )
+        if gap_recovered_alloc_by_user:
+            for _ulow, _day_map in gap_recovered_alloc_by_user.items():
+                _merged = recovered_alloc_by_user.setdefault(_ulow, {})
+                for _day, _add_val in (_day_map or {}).items():
+                    _add_int = max(0, int(round(_safe_number(_add_val))))
+                    if _add_int <= 0:
+                        continue
+                    if int(round(_safe_number(_merged.get(_day, 0)))) > 0:
+                        continue
+                    _merged[_day] = _add_int
+                    recovered_graid_days.add(_day)
 
         def read_queue_total(db_path):
             if not db_path:
@@ -569,6 +723,34 @@ def _compute_bulk_playtime():
                     "username": members[ulow]["username"],
                     "guildRaids": user_debug_intervals[-300:],
                 }
+        for rec_ulow, day_map in recovered_alloc_by_user.items():
+            member = members.get(rec_ulow)
+            if not isinstance(member, dict):
+                continue
+            member_graids = member.get("guildRaids")
+            if not isinstance(member_graids, list):
+                continue
+
+            recovered_days_for_member = set(member.get("guildRaidRecoveredDays") or [])
+            for day, add_val in (day_map or {}).items():
+                idx = metric_idx_by_day.get(day)
+                if idx is None or idx >= len(member_graids):
+                    continue
+                add_int = max(0, int(round(_safe_number(add_val))))
+                if add_int <= 0:
+                    continue
+                member_graids[idx] = int(round(_safe_number(member_graids[idx]))) + add_int
+                if idx < len(recovered_guild_graids_by_idx):
+                    recovered_guild_graids_by_idx[idx] += add_int
+                recovered_days_for_member.add(day)
+
+            if recovered_days_for_member:
+                member["guildRaidRecoveredDays"] = sorted(recovered_days_for_member)
+        recovered_graid_days = {
+            day for day, idx in metric_idx_by_day.items()
+            if idx < len(recovered_guild_graids_by_idx)
+            and recovered_guild_graids_by_idx[idx] > 0
+        }
 
     # guild-wide totals
     num_pt_days = len(dates)
@@ -710,8 +892,13 @@ def _compute_bulk_playtime():
                     state["wars"] = True
                 if cur_user.get("guildRaids") is not None and _safe_number(cur_user.get("guildRaids")) > 0:
                     state["guildRaids"] = True
+            is_recovered_day = (
+                day_idx < len(metric_dates)
+                and metric_dates[day_idx] in recovered_graid_days
+            )
             if (
-                interval_debug.get("graidExtremeUsers", 0) >= _GRAID_INVALID_DAY_MIN_EXTREME_USERS
+                not is_recovered_day
+                and interval_debug.get("graidExtremeUsers", 0) >= _GRAID_INVALID_DAY_MIN_EXTREME_USERS
                 and interval_debug.get("guildRaidsRawDelta", 0) >= _GRAID_EXTREME_DELTA_THRESHOLD
             ):
                 interval_debug["invalidatedOutageSpike"] = True
@@ -722,6 +909,24 @@ def _compute_bulk_playtime():
                 invalid_graid_day_indexes.add(day_idx)
 
             debug_guild_intervals.append(interval_debug)
+    if recovered_guild_graids_by_idx and guild_raids:
+        for idx, add_val in enumerate(recovered_guild_graids_by_idx):
+            if idx >= len(guild_raids):
+                break
+            add_int = max(0, int(round(_safe_number(add_val))))
+            if add_int > 0:
+                guild_raids[idx] += add_int
+
+    if recovered_graid_days and invalid_graid_day_indexes:
+        recovered_graid_day_indexes = {
+            idx for idx, day in enumerate(metric_dates)
+            if day in recovered_graid_days
+        }
+        if recovered_graid_day_indexes:
+            invalid_graid_day_indexes = {
+                idx for idx in invalid_graid_day_indexes
+                if idx not in recovered_graid_day_indexes
+            }
     invalid_graid_days = []
     graid_dynamic_offsets = {}
     if invalid_graid_day_indexes:
@@ -767,7 +972,10 @@ def _compute_bulk_playtime():
 
     for _m in members.values():
         _mr = _m.get("guildRaids", [])
+        _recovered_days = set(_m.get("guildRaidRecoveredDays") or [])
         for _di in range(min(len(_mr), len(guild_raids))):
+            if _di < len(metric_dates) and metric_dates[_di] in _recovered_days:
+                continue
             if _mr[_di] > guild_raids[_di]:
                 _mr[_di] = 0
 
@@ -812,6 +1020,7 @@ def _compute_bulk_playtime():
         "wars":         guild_wars,
         "guildRaids":   guild_raids,
         "invalidGuildRaidDays": invalid_graid_days,
+        "recoveredGuildRaidDays": sorted(recovered_graid_days),
         "newMembers":   new_members,
         "totalMembers": total_members,
         "overflowMembers": overflow_members,
