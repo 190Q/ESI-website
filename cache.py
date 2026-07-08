@@ -206,6 +206,7 @@ def _compute_bulk_playtime():
     queue_totals_by_day = []
     pending_totals_by_day = []
     api_days = []
+    api_day_candidates = []
     if os.path.isdir(api_folder):
         for name in os.listdir(api_folder):
             if not name.startswith("api_"):
@@ -219,11 +220,13 @@ def _compute_bulk_playtime():
                 continue
             files = sorted(f for f in os.listdir(path) if f.endswith(".db"))
             if files:
-                api_days.append((day_dt, os.path.join(path, files[-1])))
+                candidate_paths = [
+                    os.path.join(path, fname) for fname in reversed(files)
+                ]
+                api_day_candidates.append((day_dt, candidate_paths))
 
-        api_days.sort(key=lambda x: x[0])
-        api_days = api_days[-61:]
-        metric_dates = [day_dt.date().isoformat() for day_dt, _ in api_days[1:]]
+        api_day_candidates.sort(key=lambda x: x[0])
+        api_day_candidates = api_day_candidates[-61:]
 
         cols_sql = ", ".join(c[0] for c in _STAT_COLS)
         metric_keys = [c[1] for c in _STAT_COLS] + ["guildRaids"]
@@ -277,10 +280,100 @@ def _compute_bulk_playtime():
             except Exception:
                 return {}
 
+        def _api_snapshot_has_usable_esi(stats):
+            if not stats:
+                return False
+            for entry in stats.values():
+                if (entry.get("guildPrefix") or "").upper() != "ESI":
+                    continue
+                if _is_player_api_off(entry):
+                    continue
+                return True
+            return False
+
+        def select_api_day_snapshot(day_entry):
+            day_dt, candidate_paths = day_entry
+            if not candidate_paths:
+                return None
+
+            newest_path = candidate_paths[0]
+            stats = read_api_day(newest_path)
+            if _api_snapshot_has_usable_esi(stats):
+                return (day_dt, newest_path, stats)
+
+            # Newest file may still be mid-write; retry once.
+            sleep(1)
+            stats = read_api_day(newest_path)
+            if _api_snapshot_has_usable_esi(stats):
+                return (day_dt, newest_path, stats)
+
+            # Fall back to older snapshots from the same day.
+            for db_path in candidate_paths[1:]:
+                stats = read_api_day(db_path)
+                if _api_snapshot_has_usable_esi(stats):
+                    return (day_dt, db_path, stats)
+
+            return None
+
         with ThreadPoolExecutor(max_workers=8) as ex:
-            api_snapshots = list(ex.map(read_api_day, [d[1] for d in api_days]))
+            selected_days = list(ex.map(select_api_day_snapshot, api_day_candidates))
+        selected_days = [entry for entry in selected_days if entry is not None]
+        selected_days.sort(key=lambda x: x[0])
+
+        def _snapshot_signature(stats):
+            sig = {}
+            for ulow, entry in (stats or {}).items():
+                if (entry.get("guildPrefix") or "").upper() != "ESI":
+                    continue
+                sig[ulow] = tuple(
+                    int(round(_safe_number(entry.get(mk))))
+                    for mk in metric_keys
+                )
+            return sig
+
+        # Drop stale synthetic tails: if a day appears after a multi-day gap
+        # and has identical guild metrics to the last kept day, skip it.
+        filtered_selected_days = []
+        for day_dt, db_path, stats in selected_days:
+            if filtered_selected_days:
+                prev_day_dt, _prev_db_path, prev_stats = filtered_selected_days[-1]
+                if (day_dt - prev_day_dt) > _td(days=1):
+                    if _snapshot_signature(prev_stats) == _snapshot_signature(stats):
+                        continue
+            filtered_selected_days.append((day_dt, db_path, stats))
+        selected_days = filtered_selected_days
+
+        selected_by_day = {
+            day_dt.date(): (db_path, stats)
+            for day_dt, db_path, stats in selected_days
+        }
+
+        timeline_days = []
+        if api_day_candidates:
+            start_day = api_day_candidates[0][0].date()
+            end_day = api_day_candidates[-1][0].date()
+            total_days = (end_day - start_day).days + 1
+            for offset in range(max(0, total_days)):
+                day = start_day + _td(days=offset)
+                timeline_days.append(_dt(day.year, day.month, day.day))
+        else:
+            timeline_days = [day_dt for day_dt, _db_path, _stats in selected_days]
+
+        for day_dt in timeline_days:
+            selected = selected_by_day.get(day_dt.date())
+            if selected is None:
+                api_days.append((day_dt, None))
+                api_snapshots.append({})
+                continue
+            db_path, stats = selected
+            api_days.append((day_dt, db_path))
+            api_snapshots.append(stats)
+
+        metric_dates = [day_dt.date().isoformat() for day_dt, _ in api_days[1:]]
 
         def read_queue_total(db_path):
+            if not db_path:
+                return 0
             try:
                 c = _sqlite3.connect(db_path, check_same_thread=False)
                 row = c.execute(
@@ -294,6 +387,8 @@ def _compute_bulk_playtime():
                 return 0
 
         def read_pending_total(db_path):
+            if not db_path:
+                return 0
             try:
                 c = _sqlite3.connect(db_path, check_same_thread=False)
                 row = c.execute(
@@ -351,7 +446,7 @@ def _compute_bulk_playtime():
         debug_guild_intervals = [
             {
                 "timestamp": api_days[i][0].isoformat(),
-                "db": os.path.basename(api_days[i][1]),
+                "db": os.path.basename(api_days[i][1]) if api_days[i][1] else None,
                 "day": api_days[i][0].date().isoformat(),
                 "guildRaidsRawDelta": 0, "guildRaidsAppliedDelta": 0,
                 "warsRawDelta": 0, "warsAppliedDelta": 0,
@@ -453,7 +548,7 @@ def _compute_bulk_playtime():
                         ):
                             user_debug_intervals.append({
                                 "timestamp": api_days[i][0].isoformat() if i < len(api_days) else None,
-                                "db": os.path.basename(api_days[i][1]) if i < len(api_days) else None,
+                                "db": os.path.basename(api_days[i][1]) if i < len(api_days) and api_days[i][1] else None,
                                 "day": api_days[i][0].date().isoformat() if i < len(api_days) else None,
                                 "metric": "guildRaids",
                                 "prev": None if prev_value is None else int(round(_safe_number(prev_value))),
@@ -696,15 +791,17 @@ def _compute_bulk_playtime():
     new_members = [0] * num_mk_days
     if os.path.isdir(os.path.join(_ESI_BOT_DIR, "databases", "api_tracking")):
         try:
-            seen = set(api_snapshots[0].keys()) if api_snapshots else set()
             for idx in range(1, len(api_snapshots)):
-                new_today = 0
-                for ulow in api_snapshots[idx]:
-                    if ulow not in seen:
-                        new_today += 1
-                        seen.add(ulow)
-                if idx - 1 < num_mk_days:
-                    new_members[idx - 1] = new_today
+                if idx - 1 >= num_mk_days:
+                    break
+                prev_snap = api_snapshots[idx - 1] or {}
+                cur_snap = api_snapshots[idx] or {}
+                if not prev_snap or not cur_snap:
+                    new_members[idx - 1] = 0
+                    continue
+                prev_users = set(prev_snap.keys())
+                cur_users = set(cur_snap.keys())
+                new_members[idx - 1] = sum(1 for ulow in cur_users if ulow not in prev_users)
         except Exception:
             pass
 
