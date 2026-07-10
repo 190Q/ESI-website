@@ -961,6 +961,7 @@ def _compute_bulk_playtime():
         _member["guildRaidDynamicOffset"] = int(graid_dynamic_offsets.get(_ulow, 0))
 
     # Guild raid counters are typically aggregated per participant
+    guild_raids_pre_norm = list(guild_raids)
     normalized_guild_raids = []
     for v in guild_raids:
         raw_val = max(0, int(v))
@@ -976,7 +977,7 @@ def _compute_bulk_playtime():
         for _di in range(min(len(_mr), len(guild_raids))):
             if _di < len(metric_dates) and metric_dates[_di] in _recovered_days:
                 continue
-            if _mr[_di] > guild_raids[_di]:
+            if _mr[_di] > guild_raids_pre_norm[_di]:
                 _mr[_di] = 0
 
     total_members = [0] * num_mk_days
