@@ -1048,6 +1048,10 @@ def _compute_bulk_playtime():
             pending_total = max(0, int(round(_safe_number(pending_total))))
             total_members[day_idx] = guild_total + pending_total
             overflow_members[day_idx] = guild_total + max(0, int(round(_safe_number(queue_total))))
+    if total_members:
+        for i in range(1, len(total_members)):
+            if total_members[i] <= 0 and total_members[i - 1] > 0:
+                total_members[i] = total_members[i - 1]
 
     new_members = [0] * num_mk_days
     if os.path.isdir(os.path.join(_ESI_BOT_DIR, "databases", "api_tracking")):
