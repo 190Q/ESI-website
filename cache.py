@@ -46,6 +46,8 @@ _MAX_GRAIDS_PER_DAY = _parse_max_graids_per_day()
 _GRAID_EXTREME_DELTA_MULTIPLIER = _parse_int_env("ESI_GRAID_EXTREME_DELTA_MULTIPLIER", 5, minimum=2)
 _GRAID_INVALID_DAY_MIN_EXTREME_USERS = _parse_int_env("ESI_GRAID_INVALID_DAY_MIN_EXTREME_USERS", 3, minimum=2)
 _GRAID_EXTREME_DELTA_THRESHOLD = _MAX_GRAIDS_PER_DAY * _GRAID_EXTREME_DELTA_MULTIPLIER
+_GRAID_ROLLBACK_MIN_USERS = _parse_int_env("ESI_GRAID_ROLLBACK_MIN_USERS", 2, minimum=2)
+_GRAID_ROLLBACK_MATCH_PERCENT = _parse_int_env("ESI_GRAID_ROLLBACK_MATCH_PERCENT", 60, minimum=50)
 
 
 # bulk computation (transplanted verbatim from server.py)
@@ -767,7 +769,9 @@ def _compute_bulk_playtime():
     guild_raids = [0] * num_mk_days
     tracked_guild_prefix = "ESI"
     debug_guild_intervals = []
+    debug_guild_interval_by_day_idx = {}
     invalid_graid_day_indexes = set()
+    daily_graid_raw_deltas_by_idx = {}
     if api_snapshots and num_mk_days:
         guild_seen_non_zero = {}
         first_snap = api_snapshots[0]
@@ -801,12 +805,15 @@ def _compute_bulk_playtime():
                 "graidExtremeUsers": 0,
                 "graidExtremeRawDelta": 0,
                 "invalidatedOutageSpike": False,
+                "invalidatedRollbackSpike": False,
                 "reactivationUsers": [],
             }
+            graid_raw_by_user = {}
 
             if i in invalid_transitions:
                 interval_debug["skippedApiGap"] = len(set(prev_snap.keys()) & set(cur_snap.keys()))
                 debug_guild_intervals.append(interval_debug)
+                debug_guild_interval_by_day_idx[day_idx] = interval_debug
                 continue
 
             for ulow in (set(prev_snap.keys()) & set(cur_snap.keys())):
@@ -864,6 +871,7 @@ def _compute_bulk_playtime():
                     elif offset_mode_switched:
                         interval_debug["skippedOffsetSwitch"] += 1
                     else:
+                        graid_raw_by_user[ulow] = int(round(raw_graids))
                         if raw_graids > 0:
                             _raw_graids_i = int(round(raw_graids))
                             interval_debug["guildRaidsRawDelta"] += _raw_graids_i
@@ -909,6 +917,50 @@ def _compute_bulk_playtime():
                 invalid_graid_day_indexes.add(day_idx)
 
             debug_guild_intervals.append(interval_debug)
+            debug_guild_interval_by_day_idx[day_idx] = interval_debug
+            daily_graid_raw_deltas_by_idx[day_idx] = graid_raw_by_user
+    if daily_graid_raw_deltas_by_idx:
+        for day_idx in sorted(daily_graid_raw_deltas_by_idx.keys()):
+            if day_idx in invalid_graid_day_indexes:
+                continue
+            if day_idx + 1 not in daily_graid_raw_deltas_by_idx:
+                continue
+            is_recovered_day = (
+                day_idx < len(metric_dates)
+                and metric_dates[day_idx] in recovered_graid_days
+            )
+            if is_recovered_day:
+                continue
+            curr_deltas = daily_graid_raw_deltas_by_idx.get(day_idx) or {}
+            next_deltas = daily_graid_raw_deltas_by_idx.get(day_idx + 1) or {}
+            rollback_users = 0
+            rollback_spike_sum = 0
+            rollback_drop_sum = 0
+            for ulow, curr_raw in curr_deltas.items():
+                if curr_raw <= 0:
+                    continue
+                next_raw = int(_safe_number(next_deltas.get(ulow, 0)))
+                if next_raw >= 0:
+                    continue
+                min_required_drop = int(round(curr_raw * (_GRAID_ROLLBACK_MATCH_PERCENT / 100.0)))
+                if abs(next_raw) < max(1, min_required_drop):
+                    continue
+                rollback_users += 1
+                rollback_spike_sum += curr_raw
+                rollback_drop_sum += abs(next_raw)
+            min_total_drop = int(round(rollback_spike_sum * (_GRAID_ROLLBACK_MATCH_PERCENT / 100.0)))
+            if (
+                rollback_users >= _GRAID_ROLLBACK_MIN_USERS
+                and rollback_spike_sum >= _GRAID_EXTREME_DELTA_THRESHOLD
+                and rollback_drop_sum >= max(1, min_total_drop)
+            ):
+                invalid_graid_day_indexes.add(day_idx)
+                dbg = debug_guild_interval_by_day_idx.get(day_idx)
+                if isinstance(dbg, dict):
+                    dbg["invalidatedRollbackSpike"] = True
+                    dbg["rollbackUsers"] = int(rollback_users)
+                    dbg["rollbackSpikeRawDelta"] = int(rollback_spike_sum)
+                    dbg["rollbackDropRawDelta"] = int(rollback_drop_sum)
     if recovered_guild_graids_by_idx and guild_raids:
         for idx, add_val in enumerate(recovered_guild_graids_by_idx):
             if idx >= len(guild_raids):
