@@ -3577,22 +3577,70 @@ def submit_application():
 
 
 # Discord application posting
-def _format_application_message(entry):
-    """Format an application as a Discord message (bold Q, quoted A)."""
-    username = entry.get("username", "Unknown")
+_DISCORD_MSG_LIMIT = 2000
+
+
+
+def _format_application_messages(entry, limit=_DISCORD_MSG_LIMIT):
+    """Format an application into a list of Discord messages (bold Q, quoted A).
+
+    Each question+answer pair is kept whole within a single message and is
+    never split across two messages. When packing pairs would exceed the
+    Discord character limit, the pairs continue in a new message instead.
+    If a single pair would exceed the limit by itself, that pair is truncated
+    to fit in one message rather than being split across messages.
+    """
     discord_id = entry.get("discord_id", "")
     mc = entry.get("mc_username") or "Not linked"
     title = entry.get("title", entry.get("type", ""))
     questions = entry.get("questions", [])
     answers = entry.get("answers", [])
-    lines = [f"# {title}", f"Submitted by `{mc}` (<@{discord_id}>)", ""]
+
+    header = f"# {title}\nSubmitted by `{mc}` (<@{discord_id}>)"
+    blocks = []
     for i, (q, a) in enumerate(zip(questions, answers)):
-        lines.append(f"**{i + 1}. {q}**")
+        lines = [f"**{i + 1}. {q}**"]
         for al in a.split("\n"):
             lines.append(f"> {al}")
-        lines.append("")
-    text = "\n".join(lines).strip()
-    return text[:2000] if len(text) > 2000 else text
+        blocks.append("\n".join(lines))
+
+    messages = []
+    current = header
+    for block in blocks:
+        # +2 accounts for the blank line separator between blocks
+        if current and len(current) + 2 + len(block) <= limit:
+            current = f"{current}\n\n{block}"
+            continue
+        if current:
+            messages.append(current)
+            current = ""
+        if len(block) <= limit:
+            current = block
+        else:
+            # single Q+A too large for one message: keep it whole by truncating
+            current = block[:limit]
+    if current:
+        messages.append(current)
+    return messages
+
+
+def _post_messages(url, headers, messages, first_json_extra=None):
+    """Post a list of message contents to a Discord messages endpoint.
+
+    Returns the response of the first message, or None if there were none.
+    Stops early if any message fails.
+    """
+    first_resp = None
+    for idx, content in enumerate(messages):
+        payload = {"content": content}
+        if idx == 0 and first_json_extra:
+            payload.update(first_json_extra)
+        resp = requests.post(url, json=payload, headers=headers, timeout=15)
+        if idx == 0:
+            first_resp = resp
+        if not resp.ok:
+            break
+    return first_resp
 
 
 def _discord_poll_object(question_text, hours, multiselect=False):
@@ -3630,7 +3678,7 @@ def _do_post_application_discord(entry):
 
     channel = dc["dev_channel"] if DEV_MODE else dc["channel"]
     headers = _discord_headers()
-    content = _format_application_message(entry)
+    messages = _format_application_messages(entry)
     username = entry.get("username", "Unknown")
     mc_username = entry.get("mc_username", "Unknown")
     title = entry.get("title", form_type)
@@ -3640,20 +3688,18 @@ def _do_post_application_discord(entry):
     use_thread = dc.get("use_thread", False)
 
     if use_thread:
-        _post_grand_duke(entry, dc, channel, headers, content, poll_q, poll_hours)
+        _post_grand_duke(entry, dc, channel, headers, messages, poll_q, poll_hours)
         return
 
     # Standard flow: message + poll
-    msg_content = content
-    allowed = {}
-    if ping_role:
-        msg_content = f"<@&{ping_role}>\n\n{content}"
-        allowed = {"allowed_mentions": {"roles": [ping_role]}}
-
-    resp = requests.post(
+    first_extra = {"allowed_mentions": {"roles": [ping_role]}} if ping_role else None
+    if messages and ping_role:
+        messages = [f"<@&{ping_role}>\n\n{messages[0]}", *messages[1:]]
+    resp = _post_messages(
         f"{DISCORD_API}/channels/{channel}/messages",
-        json={"content": msg_content, **allowed},
-        headers=headers, timeout=15,
+        headers,
+        messages,
+        first_json_extra=first_extra,
     )
     if not resp.ok:
         return
@@ -3666,7 +3712,7 @@ def _do_post_application_discord(entry):
     )
 
 
-def _post_grand_duke(entry, dc, channel, headers, content, poll_q, poll_hours):
+def _post_grand_duke(entry, dc, channel, headers, messages, poll_q, poll_hours):
     discord_id = entry.get("discord_id", "")
     username = entry.get("username", "Unknown")
 
@@ -3693,9 +3739,11 @@ def _post_grand_duke(entry, dc, channel, headers, content, poll_q, poll_hours):
         )
     else:
         # post app in channel → public thread from it
+        if not messages:
+            return
         mr = requests.post(
             f"{DISCORD_API}/channels/{channel}/messages",
-            json={"content": content},
+            json={"content": messages[0]},
             headers=headers, timeout=15,
         )
         if not mr.ok:
@@ -3712,13 +3760,12 @@ def _post_grand_duke(entry, dc, channel, headers, content, poll_q, poll_hours):
         return
     thread_id = tr.json().get("id")
 
-    # if private thread, the app text goes inside
+    # if private thread, the app text goes inside (all message chunks)
     if has_parli:
-        requests.post(
-            f"{DISCORD_API}/channels/{thread_id}/messages",
-            json={"content": content},
-            headers=headers, timeout=15,
-        )
+        _post_messages(f"{DISCORD_API}/channels/{thread_id}/messages", headers, messages)
+    else:
+        # for public-thread path, first chunk was posted in channel already
+        _post_messages(f"{DISCORD_API}/channels/{thread_id}/messages", headers, messages[1:])
 
     # poll inside the thread
     requests.post(
