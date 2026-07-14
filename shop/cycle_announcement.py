@@ -20,6 +20,7 @@ from config import (
     _load_json_file,
 )
 from shop.bin import _get_cycle_bounds, _get_cycle_id
+from shop.effective_points import get_cycle_leaderboard_rows
 from shop.items import get_item_unfiltered
 
 _ANNOUNCEMENT_ENV = "dev" if DEV_MODE else "prod"
@@ -124,7 +125,23 @@ def _format_user_ref(uuid: str | None, username: str | None, uuid_map: dict[str,
 
 
 def _fetch_cycle_points_rows(cycle_id: int) -> list[dict]:
-    if cycle_id <= 0 or not os.path.isfile(_POINTS_DB):
+    if cycle_id <= 0:
+        return []
+
+    effective_rows = get_cycle_leaderboard_rows(cycle_id)
+    if effective_rows is not None:
+        return [
+            {
+                "uuid": (row.get("uuid") or "").strip().lower(),
+                "username": (row.get("username") or "").strip(),
+                "points": int(row.get("points") or 0),
+                "first_reached_at": None,
+            }
+            for row in effective_rows
+            if int(row.get("points") or 0) > 0
+        ]
+
+    if not os.path.isfile(_POINTS_DB):
         return []
     try:
         conn = sqlite3.connect(_POINTS_DB, timeout=10)

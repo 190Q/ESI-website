@@ -12,6 +12,7 @@ from config import (
     _get_latest_api_db,
     _load_json_file,
 )
+from shop.effective_points import get_user_cycle_totals
 
 _UUID_RE = re.compile(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
@@ -250,6 +251,8 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
         try:
             conn = sqlite3.connect(_POINTS_DB, timeout=5)
             if points_cycle_id > 0:
+                normalized_prev_cycle = get_user_cycle_totals(uuid, points_cycle_id)
+                saw_previous_cycle_row = False
                 try:
                     rows = conn.execute(
                         "SELECT cycle_id, COALESCE(points, 0), "
@@ -266,10 +269,21 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
                     ).fetchall()
 
                 for cycle_id, pts, c, d in rows:
+                    cycle_id = int(cycle_id or 0)
                     pts, c, d = int(pts), int(c), int(d)
+                    override_applied = False
+                    if cycle_id == points_cycle_id:
+                        saw_previous_cycle_row = True
+                        if normalized_prev_cycle is not None:
+                            pts = int(normalized_prev_cycle.get("points") or 0)
+                            c = int(normalized_prev_cycle.get("clean_ep") or 0)
+                            d = int(normalized_prev_cycle.get("dirty_ep") or 0)
+                            override_applied = True
                     should_try_history = (pts > 0) and (
                         (cycle_id == points_cycle_id) or (c == 0 and d == 0)
                     )
+                    if override_applied:
+                        should_try_history = False
                     if should_try_history:
                         split = _split_from_history(conn, uuid, cycle_id, pts)
                         if split is not None:
@@ -284,6 +298,14 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
                     else:
                         # Older cycles: all clean EP ages into dirty
                         dirty_ep += c + d
+
+                if (
+                    points_cycle_id > 0
+                    and normalized_prev_cycle is not None
+                    and not saw_previous_cycle_row
+                ):
+                    clean_ep += int(normalized_prev_cycle.get("clean_ep") or 0)
+                    dirty_ep += int(normalized_prev_cycle.get("dirty_ep") or 0)
             conn.close()
         except sqlite3.Error as exc:
             print(f"[EP] Failed to read esi_points: {exc}", file=sys.stderr)

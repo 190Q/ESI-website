@@ -4,6 +4,7 @@ import sys
 import threading
 
 from config import _SHOP_DB, _POINTS_DB
+from shop.effective_points import get_cycle_leaderboard_rows
 
 _lock = threading.Lock()
 
@@ -39,6 +40,26 @@ def _populate_cycle(conn: sqlite3.Connection, cycle_id: int) -> None:
     If esi_points.db is unavailable or the cycle has no data, this is
     a no-op (the table simply won't have rows for that cycle).
     """
+    effective_rows = get_cycle_leaderboard_rows(cycle_id)
+    if effective_rows is not None:
+        if not effective_rows:
+            return
+        for idx, row in enumerate(effective_rows, start=1):
+            uuid = (row.get("uuid") or "").strip()
+            if not uuid:
+                continue
+            username = (row.get("username") or "").strip()
+            total = int(row.get("points") or 0)
+            position = int(row.get("position") or idx)
+            conn.execute(
+                "INSERT OR IGNORE INTO cycle_leaderboard "
+                "(cycle_id, uuid, username, position, points) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (cycle_id, uuid, username, position, total),
+            )
+        conn.commit()
+        return
+
     if not os.path.isfile(_POINTS_DB):
         return
 
