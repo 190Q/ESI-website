@@ -582,7 +582,6 @@
       var stats = GraphShared.computeSummaryStats(series.data, selectedEndIndex);
       if (!stats || !Array.isArray(stats.values) || !stats.values.length) continue;
       var min = Math.min.apply(null, stats.values);
-      var max = Math.max.apply(null, stats.values);
       var section = document.createElement('div');
       section.className = 'graph-summary-section';
       section.innerHTML = '' +
@@ -590,8 +589,8 @@
         '<div class="graph-summary">' +
           '<div class="graph-stat-item"><span class="graph-stat-val">' + formatCoveragePercent(stats.latest, 1) + '</span><span class="graph-stat-lbl">' + stats.latestLabel + '</span></div>' +
           '<div class="graph-stat-item"><span class="graph-stat-val">' + formatCoveragePercent(stats.avg, 1) + '</span><span class="graph-stat-lbl">Average</span></div>' +
-          '<div class="graph-stat-item"><span class="graph-stat-val">' + formatCoveragePercent(min, 1) + '</span><span class="graph-stat-lbl">Min</span></div>' +
-          '<div class="graph-stat-item"><span class="graph-stat-val positive">' + formatCoveragePercent(max, 1) + '</span><span class="graph-stat-lbl">Max</span></div>' +
+          '<div class="graph-stat-item"><span class="graph-stat-val">' + formatCoveragePercent(stats.median, 1) + '</span><span class="graph-stat-lbl">Median</span></div>' +
+          '<div class="graph-stat-item"><span class="graph-stat-val positive">' + formatCoveragePercent(min, 1) + '</span><span class="graph-stat-lbl">Min</span></div>' +
         '</div>';
       wrap.appendChild(section);
     }
