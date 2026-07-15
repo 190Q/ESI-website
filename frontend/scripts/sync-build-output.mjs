@@ -14,9 +14,20 @@ const rootIndexPath = resolve(projectRoot, 'index.html')
 const rootAssetsDir = resolve(projectRoot, 'assets')
 
 await cp(distIndexPath, rootIndexPath)
-
-await rm(rootAssetsDir, { recursive: true, force: true })
+try {
+  await rm(rootAssetsDir, { recursive: true, force: true })
+} catch (error) {
+  const code = error && typeof error === 'object' ? error.code : null
+  if (code !== 'EPERM' && code !== 'EACCES') throw error
+  console.warn(
+    `Could not fully remove assets directory (${code}); continuing with additive sync.`
+  )
+}
 await mkdir(rootAssetsDir, { recursive: true })
-await cp(distAssetsDir, rootAssetsDir, { recursive: true })
+await cp(distAssetsDir, rootAssetsDir, {
+  recursive: true,
+  force: false,
+  errorOnExist: false,
+})
 
 console.log('Synced dist/index.html -> index.html and dist/assets -> assets/')

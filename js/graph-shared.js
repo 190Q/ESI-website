@@ -219,6 +219,8 @@
 
     let globalMax = 0;
     let globalMin = 0;
+    const fixedYMin = Number.isFinite(opts.yMin) ? Number(opts.yMin) : null;
+    const fixedYMax = Number.isFinite(opts.yMax) ? Number(opts.yMax) : null;
     seriesList.forEach(function (series) {
       if (!series || !Array.isArray(series.data) || !series.data.length) return;
       const finiteValues = series.data.filter(function (v) { return Number.isFinite(v); });
@@ -226,7 +228,12 @@
       globalMax = Math.max(globalMax, Math.max.apply(null, finiteValues));
       globalMin = Math.min(globalMin, Math.min.apply(null, finiteValues));
     });
-    globalMax = globalMax * 1.1 || 1;
+    if (fixedYMin !== null) globalMin = fixedYMin;
+    if (fixedYMax !== null) globalMax = fixedYMax;
+    if (fixedYMax === null) {
+      globalMax = globalMax * 1.1 || 1;
+    }
+    if (globalMax <= globalMin) globalMax = globalMin + 1;
     const globalRange = (globalMax - globalMin) || 1;
 
     function yPos(v) {

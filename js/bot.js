@@ -4,6 +4,7 @@
   function _cssVar(name, fallback) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
   }
+  var GraphShared = window.GraphShared;
 
   /* Tracker definitions */
   var TRACKERS = [
@@ -21,6 +22,22 @@
   var botUptimeKnown = false;
   var trackerUptimeSeconds = 0;
   var trackerUptimeKnown = false;
+  var COVERAGE_METRICS = [
+    { key: 'playtime', label: 'Playtime Coverage' },
+    { key: 'api', label: 'API Coverage' },
+  ];
+  var botCoverageGraph = {
+    days: 30,
+    canvas: document.getElementById('botCoverageCanvas'),
+    range: document.getElementById('botCoverageRange'),
+    daysLbl: document.getElementById('botCoverageDaysLabel'),
+    legendWrap: document.getElementById('botCoverageLegend'),
+    summaryWrap: document.getElementById('botCoverageSummaries'),
+    data: null,
+    hoverModel: null,
+    selectedDayOffset: null,
+  };
+  var botCoverageGraphInitialized = false;
 
   /* Observe panel activation */
   var panel = document.getElementById('panel-bot');
@@ -60,6 +77,8 @@
     document.getElementById('botGuildSnapshot').innerHTML =
       '<div class="info-card-header">Discord Server</div>' +
       '<div style="padding:16px 20px;color:var(--text-faint);font-style:italic;font-weight:500;">Loading\u2026</div>';
+    initBotCoverageGraph();
+    setBotCoverageGraphLoading(true);
 
     // Progress toast
     var _botToast = null;
@@ -293,6 +312,7 @@
     }
 
     wrap.innerHTML = html;
+    updateBotCoverageGraphData(data.coverage);
   }
 
   function formatDateLabel(isoDate) {
@@ -308,6 +328,273 @@
     var sizes = ['B', 'KB', 'MB', 'GB'];
     var i = Math.floor(Math.log(b) / Math.log(1024));
     return parseFloat((b / Math.pow(1024, i)).toFixed(2)) + ' ' + sizes[i];
+  }
+
+  function coverageMetricConfig(metricKey) {
+    for (var i = 0; i < COVERAGE_METRICS.length; i++) {
+      if (COVERAGE_METRICS[i].key === metricKey) return COVERAGE_METRICS[i];
+    }
+    return null;
+  }
+
+  function formatCoveragePercent(value, decimals) {
+    var n = Number(value);
+    if (!isFinite(n)) return 'N/A';
+    var d = typeof decimals === 'number' ? Math.max(0, decimals) : 1;
+    return n.toFixed(d).replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1') + '%';
+  }
+
+  function normalizeCoverageSeries(raw) {
+    var values = Array.isArray(raw) ? raw.slice() : [];
+    var normalized = [];
+    for (var i = 0; i < values.length; i++) {
+      var n = Number(values[i]);
+      if (!isFinite(n)) n = 0;
+      normalized.push(Math.max(0, Math.min(100, n)));
+    }
+    if (normalized.length > 60) {
+      normalized = normalized.slice(normalized.length - 60);
+    }
+    if (normalized.length < 60) {
+      normalized = Array(60 - normalized.length).fill(0).concat(normalized);
+    }
+    return normalized;
+  }
+
+  function initBotCoverageGraph() {
+    if (botCoverageGraphInitialized) return;
+    if (!GraphShared || !botCoverageGraph.canvas || !botCoverageGraph.range) return;
+    botCoverageGraphInitialized = true;
+
+    botCoverageGraph.days = parseInt(botCoverageGraph.range.value, 10) || 30;
+    if (botCoverageGraph.daysLbl) botCoverageGraph.daysLbl.textContent = botCoverageGraph.days + 'd';
+
+    initBotCoverageGraphHover();
+
+    botCoverageGraph.range.addEventListener('input', function () {
+      botCoverageGraph.days = parseInt(this.value, 10) || 30;
+      if (botCoverageGraph.daysLbl) botCoverageGraph.daysLbl.textContent = botCoverageGraph.days + 'd';
+      refreshBotCoverageGraph();
+    });
+
+    window.addEventListener('resize', function () {
+      if (botCoverageGraph.data) refreshBotCoverageGraph();
+    });
+    window.addEventListener('themechange', function () {
+      if (botCoverageGraph.data) refreshBotCoverageGraph();
+    });
+  }
+
+  function initBotCoverageGraphHover() {
+    var canvas = botCoverageGraph.canvas;
+    if (!canvas || !GraphShared) return;
+    var tooltip = GraphShared.ensureTooltip(canvas);
+    var guides = GraphShared.ensureHoverGuides(canvas);
+    if (!tooltip || !guides) return;
+
+    function hideHover() {
+      tooltip.style.display = 'none';
+      GraphShared.hideHoverGuides(guides);
+    }
+
+    canvas.addEventListener('mouseleave', hideHover);
+    canvas.addEventListener('mousemove', function (e) {
+      var model = botCoverageGraph.hoverModel;
+      if (!model || !model.series || !model.series.length) { hideHover(); return; }
+
+      var rect = canvas.getBoundingClientRect();
+      var mx = e.clientX - rect.left;
+      var my = e.clientY - rect.top;
+      var inPlot =
+        mx >= model.pad.left &&
+        mx <= model.pad.left + model.plotW &&
+        my >= model.pad.top &&
+        my <= model.pad.top + model.plotH;
+      if (!inPlot) { hideHover(); return; }
+
+      var maxLen = Math.max(1, model.maxLen || 1);
+      var hoverIndex = 0;
+      if (maxLen > 1) {
+        hoverIndex = Math.round(((mx - model.pad.left) / model.plotW) * (maxLen - 1));
+        hoverIndex = Math.max(0, Math.min(maxLen - 1, hoverIndex));
+      }
+      var hoverX = model.pad.left + (maxLen === 1 ? model.plotW / 2 : (hoverIndex / (maxLen - 1)) * model.plotW);
+      GraphShared.updateHoverGuides(guides, model, { index: hoverIndex, x: hoverX });
+
+      var rows = [];
+      for (var i = 0; i < model.series.length; i++) {
+        var series = model.series[i];
+        var point = series && series.points ? series.points[hoverIndex] : null;
+        if (!point) continue;
+        var metric = coverageMetricConfig(series.key);
+        rows.push({
+          label: metric ? metric.label : series.key,
+          value: formatCoveragePercent(point.value, 1),
+          color: series.color,
+        });
+      }
+
+      if (!rows.length) { hideHover(); return; }
+
+      tooltip.innerHTML = rows.map(function (row) {
+        return '<div class="graph-hover-row">' +
+          '<span class="graph-hover-swatch" style="background:' + row.color + '"></span>' +
+          '<span class="graph-hover-label">' + row.label + '</span>' +
+          '<span class="graph-hover-value">' + row.value + '</span>' +
+          '</div>';
+      }).join('');
+      tooltip.style.display = 'block';
+      var offsetX = Number.isFinite(model.canvasOffsetX) ? model.canvasOffsetX : 0;
+      var offsetY = Number.isFinite(model.canvasOffsetY) ? model.canvasOffsetY : 0;
+      GraphShared.positionTooltip(tooltip, guides.wrap, mx + offsetX, my + offsetY);
+    });
+
+    canvas.addEventListener('click', function (e) {
+      var model = botCoverageGraph.hoverModel;
+      if (!model || !model.series || !model.series.length) return;
+
+      var rect = canvas.getBoundingClientRect();
+      var mx = e.clientX - rect.left;
+      var my = e.clientY - rect.top;
+      var inPlot =
+        mx >= model.pad.left &&
+        mx <= model.pad.left + model.plotW &&
+        my >= model.pad.top &&
+        my <= model.pad.top + model.plotH;
+      if (!inPlot) return;
+
+      var maxLen = Math.max(1, model.maxLen || 1);
+      var selectedIndex = 0;
+      if (maxLen > 1) {
+        selectedIndex = Math.round(((mx - model.pad.left) / model.plotW) * (maxLen - 1));
+        selectedIndex = Math.max(0, Math.min(maxLen - 1, selectedIndex));
+      }
+      var selectedOffset = Math.max(0, (maxLen - 1) - selectedIndex);
+      botCoverageGraph.selectedDayOffset = botCoverageGraph.selectedDayOffset === selectedOffset ? null : selectedOffset;
+      refreshBotCoverageGraph();
+    });
+  }
+
+  function setBotCoverageGraphLoading(loading) {
+    var canvas = botCoverageGraph.canvas;
+    var wrap = canvas ? canvas.parentElement : null;
+    if (!canvas || !wrap) return;
+
+    var loader = wrap.querySelector('.graph-loader');
+    if (loading) {
+      canvas.style.opacity = '0.3';
+      if (!loader) {
+        loader = document.createElement('div');
+        loader.className = 'graph-loader';
+        loader.textContent = 'Loading…';
+        loader.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:0.9rem;color:var(--text-dim);pointer-events:none;';
+        wrap.style.position = 'relative';
+        wrap.appendChild(loader);
+      }
+      loader.style.display = 'flex';
+    } else {
+      canvas.style.opacity = '';
+      if (loader) loader.style.display = 'none';
+    }
+  }
+
+  function updateBotCoverageGraphData(coveragePayload) {
+    var payload = coveragePayload || {};
+    botCoverageGraph.data = {
+      playtime: normalizeCoverageSeries(payload.playtime),
+      api: normalizeCoverageSeries(payload.api),
+    };
+    botCoverageGraph.selectedDayOffset = null;
+    botCoverageGraph.days = parseInt(botCoverageGraph.range && botCoverageGraph.range.value, 10) || 30;
+    if (botCoverageGraph.daysLbl) botCoverageGraph.daysLbl.textContent = botCoverageGraph.days + 'd';
+    refreshBotCoverageGraph();
+    setBotCoverageGraphLoading(false);
+  }
+
+  function refreshBotCoverageGraph() {
+    if (!GraphShared || !botCoverageGraph.data || !botCoverageGraph.canvas) return;
+    var colors = GraphShared.getSeriesColors();
+    var startIndex = Math.max(0, 60 - botCoverageGraph.days);
+    var series = [
+      {
+        key: 'playtime',
+        data: botCoverageGraph.data.playtime.slice(startIndex),
+        color: colors[0],
+        player: 'Bot',
+        dashed: false,
+      },
+      {
+        key: 'api',
+        data: botCoverageGraph.data.api.slice(startIndex),
+        color: colors[1],
+        player: 'Bot',
+        dashed: false,
+      },
+    ];
+
+    var maxLen = Math.max(0, (series[0].data || []).length, (series[1].data || []).length);
+    var selectedEndIndex = GraphShared.resolveSelectedIndex(botCoverageGraph.selectedDayOffset, maxLen);
+    drawBotCoverageGraph(series);
+    updateBotCoverageLegend(series);
+    updateBotCoverageSummaries(series, selectedEndIndex);
+  }
+
+  function drawBotCoverageGraph(seriesList) {
+    botCoverageGraph.hoverModel = GraphShared.drawGraphCanvas(botCoverageGraph.canvas, seriesList, {
+      height: 220,
+      xLabelMinGap: 28,
+      selectedDayOffset: botCoverageGraph.selectedDayOffset,
+      yMin: 0,
+      yMax: 100,
+      formatYAxisLabel: function (val) {
+        return Math.round(val) + '%';
+      },
+    });
+  }
+
+  function updateBotCoverageLegend(seriesList) {
+    var wrap = botCoverageGraph.legendWrap;
+    if (!wrap) return;
+    wrap.innerHTML = '';
+
+    var seen = {};
+    for (var i = 0; i < seriesList.length; i++) {
+      var series = seriesList[i];
+      if (!series || seen[series.key]) continue;
+      seen[series.key] = true;
+      var metric = coverageMetricConfig(series.key);
+      var item = document.createElement('span');
+      item.className = 'graph-legend-item';
+      item.innerHTML = '<span class="legend-line" style="background:' + series.color.line + '"></span> ' + (metric ? metric.label : series.key);
+      wrap.appendChild(item);
+    }
+  }
+
+  function updateBotCoverageSummaries(seriesList, selectedEndIndex) {
+    var wrap = botCoverageGraph.summaryWrap;
+    if (!wrap) return;
+    wrap.innerHTML = '';
+
+    for (var i = 0; i < seriesList.length; i++) {
+      var series = seriesList[i];
+      if (!series || !Array.isArray(series.data) || !series.data.length) continue;
+      var metric = coverageMetricConfig(series.key);
+      var stats = GraphShared.computeSummaryStats(series.data, selectedEndIndex);
+      if (!stats || !Array.isArray(stats.values) || !stats.values.length) continue;
+      var min = Math.min.apply(null, stats.values);
+      var max = Math.max.apply(null, stats.values);
+      var section = document.createElement('div');
+      section.className = 'graph-summary-section';
+      section.innerHTML = '' +
+        '<div class="graph-summary-label"><span class="metric-color-dot" style="background:' + series.color.line + '"></span>' + (metric ? metric.label : series.key) + '</div>' +
+        '<div class="graph-summary">' +
+          '<div class="graph-stat-item"><span class="graph-stat-val">' + formatCoveragePercent(stats.latest, 1) + '</span><span class="graph-stat-lbl">' + stats.latestLabel + '</span></div>' +
+          '<div class="graph-stat-item"><span class="graph-stat-val">' + formatCoveragePercent(stats.avg, 1) + '</span><span class="graph-stat-lbl">Average</span></div>' +
+          '<div class="graph-stat-item"><span class="graph-stat-val">' + formatCoveragePercent(min, 1) + '</span><span class="graph-stat-lbl">Min</span></div>' +
+          '<div class="graph-stat-item"><span class="graph-stat-val positive">' + formatCoveragePercent(max, 1) + '</span><span class="graph-stat-lbl">Max</span></div>' +
+        '</div>';
+      wrap.appendChild(section);
+    }
   }
 
   

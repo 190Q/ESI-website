@@ -7777,9 +7777,13 @@ def bot_ip_bans():
 @app.route("/api/bot/databases")
 @rate_limit(30)
 def bot_databases():
-    from datetime import datetime as _dt
 
     db_root = os.path.join(_ESI_BOT_DIR, "databases")
+    expected_snapshot_times_seconds = [
+        idx * (30 * 60)
+        for idx in range(48)
+    ] + [((23 * 60) + 55) * 60]
+    coverage_window_days = 60
 
     def folder_size(path):
         total = 0
@@ -7810,6 +7814,118 @@ def bot_databases():
         total_days = (latest - earliest).days + 1
         return earliest.isoformat(), latest.isoformat(), total_days
 
+    def expected_snapshot_count_for_day(day_date, now_utc):
+        full_day_count = len(expected_snapshot_times_seconds)
+        if full_day_count <= 0:
+            return 1
+        if day_date != now_utc.date():
+            return full_day_count
+        seconds_since_midnight = (
+            now_utc.hour * 3600
+            + now_utc.minute * 60
+            + now_utc.second
+        )
+        elapsed_count = sum(
+            1
+            for expected_seconds in expected_snapshot_times_seconds
+            if expected_seconds <= seconds_since_midnight
+        )
+        return max(1, elapsed_count)
+
+    def compute_live_coverage_ratio(db_files, day_date, now_utc):
+        expected_count = expected_snapshot_count_for_day(day_date, now_utc)
+        observed_count = len(db_files or [])
+        if observed_count <= 0:
+            return 0.0
+        return min(observed_count, expected_count) / expected_count
+
+    def read_coverage_ratios(coverage_db_path):
+        ratios = {}
+        if not os.path.isfile(coverage_db_path):
+            return ratios
+        conn = None
+        try:
+            conn = _sqlite3.connect(coverage_db_path, timeout=3, check_same_thread=False)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT day, coverage_ratio FROM daily_coverage"
+            )
+            for day, ratio in cursor.fetchall():
+                if not day:
+                    continue
+                try:
+                    ratios[str(day)] = float(ratio)
+                except (TypeError, ValueError):
+                    continue
+        except _sqlite3.Error:
+            return ratios
+        finally:
+            if conn is not None:
+                conn.close()
+        return ratios
+
+    def collect_day_folders(tracking_path, prefix):
+        folders = {}
+        if not os.path.isdir(tracking_path):
+            return folders
+        for name in os.listdir(tracking_path):
+            if not name.startswith(prefix):
+                continue
+            folder_path = os.path.join(tracking_path, name)
+            if not os.path.isdir(folder_path):
+                continue
+            date_str = name[len(prefix):]
+            try:
+                folder_date = _dt.strptime(date_str, "%d-%m-%Y").date()
+            except ValueError:
+                continue
+            folders[folder_date] = folder_path
+        return folders
+
+    def build_coverage_series(tracking_path, prefix):
+        now_utc = _dt.now(_tz.utc)
+        today = now_utc.date()
+        day_folders = collect_day_folders(tracking_path, prefix)
+        recorded_ratios = read_coverage_ratios(os.path.join(tracking_path, "coverage.db"))
+        metric_dates = []
+        values = []
+
+        for offset in range(coverage_window_days - 1, -1, -1):
+            day_date = today - timedelta(days=offset)
+            day_iso = day_date.isoformat()
+            day_key = day_date.strftime("%d-%m-%Y")
+            metric_dates.append(day_iso)
+
+            ratio = recorded_ratios.get(day_key)
+            folder_path = day_folders.get(day_date)
+            db_files = []
+            if folder_path and os.path.isdir(folder_path):
+                for filename in os.listdir(folder_path):
+                    if not filename.endswith(".db"):
+                        continue
+                    full_path = os.path.join(folder_path, filename)
+                    if os.path.isfile(full_path):
+                        db_files.append(full_path)
+            days_old = (today - day_date).days
+
+            # For recent folders, always recompute from the live folder file count
+            if days_old <= 7:
+                ratio = compute_live_coverage_ratio(db_files, day_date, now_utc)
+            elif ratio is None:
+                ratio = 1.0 if db_files else 0.0
+
+            try:
+                ratio = float(ratio)
+            except (TypeError, ValueError):
+                ratio = 0.0
+            ratio = max(0.0, min(1.0, ratio))
+            values.append(round(ratio * 100.0, 2))
+
+        return {
+            "metric_dates": metric_dates,
+            "values": values,
+        }
+
     playtime_path = os.path.join(db_root, "playtime_tracking")
     api_path      = os.path.join(db_root, "api_tracking")
     playtime_size = folder_size(playtime_path)
@@ -7817,6 +7933,8 @@ def bot_databases():
     total_size    = folder_size(db_root)
     pt_earliest, pt_latest, pt_days = folder_date_span(playtime_path, "playtime_")
     api_earliest, api_latest, api_days_count = folder_date_span(api_path, "api_")
+    playtime_coverage = build_coverage_series(playtime_path, "playtime_")
+    api_coverage = build_coverage_series(api_path, "api_")
 
     return jsonify({
         "total_size": total_size,
@@ -7833,6 +7951,11 @@ def bot_databases():
                 "latest_date": api_latest,
                 "total_days": api_days_count,
             },
+        },
+        "coverage": {
+            "metric_dates": playtime_coverage["metric_dates"],
+            "playtime": playtime_coverage["values"],
+            "api": api_coverage["values"],
         },
     })
 

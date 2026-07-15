@@ -48,6 +48,32 @@ export default function BotPanel() {
               </div>
               <div className="tracker-list" id="trackerList" />
             </div>
+
+            <div className="graph-panel bot-coverage-graph-panel">
+              <div className="graph-panel-header">
+                <span>Database Coverage</span>
+              </div>
+              <div className="graph-controls">
+                <div className="graph-control-row">
+                  <label className="graph-ctrl-label" htmlFor="botCoverageRange">Range</label>
+                  <input
+                    type="range"
+                    id="botCoverageRange"
+                    min="2"
+                    max="60"
+                    defaultValue="30"
+                    className="graph-range"
+                    aria-label="Bot database coverage graph range in days"
+                  />
+                  <span id="botCoverageDaysLabel" className="graph-days-val">30d</span>
+                </div>
+              </div>
+              <div className="graph-canvas-wrap">
+                <canvas id="botCoverageCanvas" />
+              </div>
+              <div className="graph-legend" id="botCoverageLegend" />
+              <div id="botCoverageSummaries" />
+            </div>
           </div>
 
           {/* Right: Cuck List + Database */}
