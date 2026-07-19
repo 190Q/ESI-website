@@ -1603,7 +1603,7 @@
       ? Object.entries(dungData.list).map(([n, v]) =>
           `<div class="raid-list-row"><span class="raid-list-name">${n}</span><span class="raid-list-count">${fmt(v)}</span></div>`
         ).join('')
-      : '<div style="padding:14px 16px;color:var(--text-faint);font-style:italic;font-family:\'Crimson Pro\',serif">None recorded</div>';
+      : '<div style="padding:14px 16px;color:var(--text-faint);font-style:italic;">None recorded</div>';
 
     /* raids */
     const raidData  = c.raids || {};
@@ -1611,7 +1611,7 @@
       ? Object.entries(raidData.list).map(([n, v]) =>
           `<div class="raid-list-row"><span class="raid-list-name">${n}</span><span class="raid-list-count">${fmt(v)}</span></div>`
         ).join('')
-      : '<div style="padding:14px 16px;color:var(--text-faint);font-style:italic;font-family:\'Crimson Pro\',serif">None recorded</div>';
+      : '<div style="padding:14px 16px;color:var(--text-faint);font-style:italic;">None recorded</div>';
 
     const questCount = c.quests ? c.quests.length : 0;
 

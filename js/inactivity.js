@@ -234,7 +234,7 @@
           '</div>' +
           '<div class="info-card" style="margin-top:16px">' +
             '<div class="collapsible-header" id="inacExemptionsToggle">' +
-              'Exemptions <span id="inacCount" style="color:var(--text-faint);font-size:0.85em;font-family:\'Crimson Pro\',serif"></span>' +
+              'Exemptions <span id="inacCount" style="color:var(--text-faint);font-size:0.85em;"></span>' +
               '<span class="collapsible-arrow">&#x25BC;</span>' +
             '</div>' +
             '<div class="collapsible-body"><div id="inacList"></div></div>' +

@@ -502,7 +502,7 @@
         '<div class="ev-right-col">' +
           '<div class="info-card">' +
             '<div class="info-card-header">Events ' +
-              '<span id="evCount" style="color:var(--text-faint);font-size:0.85em;font-family:\'Crimson Pro\',serif"></span>' +
+              '<span id="evCount" style="color:var(--text-faint);font-size:0.85em;"></span>' +
             '</div>' +
             '<div id="evList"></div>' +
           '</div>' +

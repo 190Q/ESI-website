@@ -42,7 +42,7 @@
       xBadge.className = 'graph-hover-xbadge';
       wrap.appendChild(xBadge);
     }
-    xBadge.style.cssText = 'position:absolute;transform:translateX(-50%);color:' + hoverBadgeColor + ';font-size:9px;font-family:sans-serif;line-height:1;white-space:nowrap;pointer-events:none;display:none;z-index:4;';
+    xBadge.style.cssText = 'position:absolute;transform:translateX(-50%);color:' + hoverBadgeColor + ';font-size:9px;line-height:1;white-space:nowrap;pointer-events:none;display:none;z-index:4;';
 
     let pinLine = wrap.querySelector('.graph-selected-vline');
     if (!pinLine) {
@@ -58,7 +58,7 @@
       pinBadge.className = 'graph-selected-xbadge';
       wrap.appendChild(pinBadge);
     }
-    pinBadge.style.cssText = 'position:absolute;transform:translateX(-50%);color:' + selectedBadgeColor + ';font-size:9px;font-family:sans-serif;line-height:1;white-space:nowrap;pointer-events:none;display:none;z-index:4;';
+    pinBadge.style.cssText = 'position:absolute;transform:translateX(-50%);color:' + selectedBadgeColor + ';font-size:9px;line-height:1;white-space:nowrap;pointer-events:none;display:none;z-index:4;';
 
     return { wrap: wrap, line: line, xBadge: xBadge, pinLine: pinLine, pinBadge: pinBadge };
   }
