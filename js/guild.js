@@ -2112,6 +2112,12 @@
     scheduleGuildViewLabelCompaction();
   });
   window.addEventListener('themechange', () => { if (guildGraphState.data) { renderGuildMetricRows(); refreshGuildGraph(); } });
+  window.addEventListener('frontend-metric-mask-updated', function () {
+    if (state.guildApiData) {
+      renderGuild(state.guildApiData);
+      if (guildGraphState.data) refreshGuildGraph();
+    }
+  });
   scheduleGuildViewLabelCompaction();
 
   // init share buttons for all graph panels

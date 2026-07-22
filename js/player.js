@@ -37,6 +37,28 @@
   const METRICS_DEBUG_ENABLED = /^(1|true|yes|on)$/i.test(
     (new URLSearchParams(window.location.search).get('metricsDebug') || '').trim()
   );
+  function getMetricMaskApi() {
+    return window.FrontendMetricMasks || null;
+  }
+  function playerMaskContextFromIdentity(username, uuid) {
+    return { username: username || '', uuid: uuid || '' };
+  }
+  function playerMaskContextFromPlayer(playerObj) {
+    if (!playerObj || typeof playerObj !== 'object') return playerMaskContextFromIdentity('', '');
+    return playerMaskContextFromIdentity(playerObj.username, playerObj.uuid);
+  }
+  function isPlayerMetricMasked(metricKey, ctx) {
+    var api = getMetricMaskApi();
+    return !!(api && typeof api.isMetricMaskedForUser === 'function' && api.isMetricMaskedForUser(ctx, metricKey));
+  }
+  function maskPlayerMetricValue(metricKey, value, ctx) {
+    return isPlayerMetricMasked(metricKey, ctx) ? 0 : value;
+  }
+  function maskedPlayerSeries(metricKey, series, ctx) {
+    var api = getMetricMaskApi();
+    if (api && typeof api.maskSeriesForUser === 'function') return api.maskSeriesForUser(ctx, metricKey, series);
+    return series;
+  }
   let pendingGraphFocus = null;
   let pendingGraphMetrics = null;
 
@@ -1119,21 +1141,22 @@
 
     /* global stats */
     const g = p.globalData || {};
+    const maskCtx = playerMaskContextFromPlayer(p);
     const globalGrid = document.getElementById('globalStatsGrid');
     globalGrid.innerHTML = '';
     const globalStats = [
-      { val: fmtHours(p.playtime),                        label: 'Playtime'     },
-      { val: fmt(g.wars),                                  label: 'Wars'         },
-      { val: fmt(g.mobsKilled),                            label: 'Mobs Killed'  },
-      { val: fmt(g.chestsFound),                           label: 'Chests Found' },
-      { val: fmt(g.completedQuests),                       label: 'Quests Done'  },
-      { val: fmt(g.totalLevel),                            label: 'Total Level'  },
-      { val: fmt(g.contentCompletion),                      label: 'Content Done' },
-      { val: fmt(g.dungeons  ? g.dungeons.total  : null),  label: 'Dungeons'     },
-      { val: fmt(g.raids     ? g.raids.total     : null),  label: 'Raids'        },
-      { val: fmt(g.guildRaids ? g.guildRaids.total : null), label: 'Guild Raids'  },
-      { val: fmt(g.worldEvents),                           label: 'World Events' },
-      { val: fmt(g.caves),                                  label: 'Caves'        },
+      { val: fmtHours(maskPlayerMetricValue('playtime', p.playtime, maskCtx)), label: 'Playtime'     },
+      { val: fmt(maskPlayerMetricValue('wars', g.wars, maskCtx)), label: 'Wars'         },
+      { val: fmt(maskPlayerMetricValue('mobsKilled', g.mobsKilled, maskCtx)), label: 'Mobs Killed'  },
+      { val: fmt(maskPlayerMetricValue('chestsFound', g.chestsFound, maskCtx)), label: 'Chests Found' },
+      { val: fmt(maskPlayerMetricValue('questsDone', g.completedQuests, maskCtx)), label: 'Quests Done'  },
+      { val: fmt(maskPlayerMetricValue('totalLevel', g.totalLevel, maskCtx)), label: 'Total Level'  },
+      { val: fmt(maskPlayerMetricValue('contentDone', g.contentCompletion, maskCtx)), label: 'Content Done' },
+      { val: fmt(maskPlayerMetricValue('dungeons', g.dungeons ? g.dungeons.total : null, maskCtx)), label: 'Dungeons'     },
+      { val: fmt(maskPlayerMetricValue('raids', g.raids ? g.raids.total : null, maskCtx)), label: 'Raids'        },
+      { val: fmt(maskPlayerMetricValue('guildRaids', g.guildRaids ? g.guildRaids.total : null, maskCtx)), label: 'Guild Raids'  },
+      { val: fmt(maskPlayerMetricValue('worldEvents', g.worldEvents, maskCtx)), label: 'World Events' },
+      { val: fmt(maskPlayerMetricValue('caves', g.caves, maskCtx)), label: 'Caves'        },
     ];
     globalStats.forEach(s => {
       const el = document.createElement('div');
@@ -1415,15 +1438,18 @@
       fetch('/api/player/' + encodeURIComponent(p.username) + '/points')
         .then(r => r.ok ? r.json() : { available: false })
         .then(data => {
-          playerPointsData = data;
+          const maskApi = getMetricMaskApi();
+          playerPointsData = (maskApi && typeof maskApi.applyPlayerPointsDataForDisplay === 'function')
+            ? maskApi.applyPlayerPointsDataForDisplay(data, playerMaskContextFromIdentity(p.username, data && data.uuid))
+            : data;
           const cardVal = document.getElementById('playerEsiPointsVal');
           if (cardVal) {
-            if (!data.available) {
+            if (!playerPointsData.available) {
               cardVal.innerHTML = '<span style="color:var(--gold-light)">Coming soon</span>';
-            } else if (data.found === false) {
+            } else if (playerPointsData.found === false) {
               cardVal.innerHTML = '0<span style="font-size:1rem;color:var(--text-dim)"></span>';
             } else {
-              const pts = data.current_cycle && data.current_cycle.points != null ? data.current_cycle.points : 0;
+              const pts = playerPointsData.current_cycle && playerPointsData.current_cycle.points != null ? playerPointsData.current_cycle.points : 0;
               cardVal.innerHTML = formatInt(pts) + '<span style="font-size:1rem;color:var(--text-dim)"></span>';
             }
           }
@@ -1441,8 +1467,20 @@
     }
 
     /* dungeons + raids */
-    renderGlobalSection('globalDungeons', 'globalDungeonsCard', 'globalDungeonsTotal', g.dungeons);
-    const combinedRaids = combineRaidData(g.raids, g.guildRaids);
+    var maskedDungeons = g.dungeons;
+    if (isPlayerMetricMasked('dungeons', maskCtx)) {
+      maskedDungeons = null;
+    }
+    renderGlobalSection('globalDungeons', 'globalDungeonsCard', 'globalDungeonsTotal', maskedDungeons);
+    var maskedRaids = g.raids;
+    var maskedGuildRaids = g.guildRaids;
+    if (isPlayerMetricMasked('raids', maskCtx)) {
+      maskedRaids = null;
+      maskedGuildRaids = null;
+    } else if (isPlayerMetricMasked('guildRaids', maskCtx)) {
+      maskedGuildRaids = { total: 0, list: {} };
+    }
+    const combinedRaids = combineRaidData(maskedRaids, maskedGuildRaids);
     renderGlobalRaidSection('globalRaids', 'globalRaidsCard', 'globalRaidsTotal', combinedRaids);
 
     /* characters */
@@ -2335,11 +2373,13 @@
     if (!graphState.data) return;
     const hasCompare = !!(graphState.compareData && graphState.compareUsername);
     const mainName   = (state.playerData && state.playerData.username) || 'Player';
+    const mainCtx = playerMaskContextFromPlayer(state.playerData || { username: mainName });
     const rawSeries  = [];
 
     compareGraph.metrics.forEach((key, i) => {
       let mainArr;
       mainArr = graphState.data[key].slice(60 - compareGraph.days);
+      mainArr = maskedPlayerSeries(key, mainArr, mainCtx);
 
       rawSeries.push({
         key,
@@ -2352,6 +2392,7 @@
       if (hasCompare) {
         let cmpArr;
         cmpArr = graphState.compareData[key].slice(60 - compareGraph.days);
+        cmpArr = maskedPlayerSeries(key, cmpArr, playerMaskContextFromIdentity(graphState.compareUsername, ''));
 
         rawSeries.push({
           key,
@@ -2473,6 +2514,12 @@
     schedulePlayerViewLabelCompaction();
   });
   window.addEventListener('themechange', () => { if (graphState.data) { renderMetricRows(); refreshCompareGraph(); } });
+  window.addEventListener('frontend-metric-mask-updated', function () {
+    if (state.playerData) {
+      renderPlayer(state.playerData, state.guildData);
+      if (graphState.data) refreshCompareGraph();
+    }
+  });
 
   /* Path routing */
   // Map a data-panel identifier to its URL path.

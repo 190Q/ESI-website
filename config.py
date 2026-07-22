@@ -60,6 +60,7 @@ _EVENTS_JSON            = os.path.join(_WEBSITE_DATA_DIR, "events.json")
 _SHOP_ITEMS_JSON        = os.path.join(_WEBSITE_DATA_DIR, "shop_items.json")
 _SHOP_DB                = os.path.join(_WEBSITE_DATA_DIR, "databases", "shop.db")
 _GUILD_INFO_DB          = os.path.join(_WEBSITE_DATA_DIR, "databases", "guild_info.db")
+_FRONTEND_METRIC_MASKS_JSON = os.path.join(_WEBSITE_DATA_DIR, "frontend_metric_masks.json")
 
 
 def _detect_server_tz_name():

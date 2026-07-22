@@ -13,6 +13,299 @@
     playerData: null,
     guildData: null,
   };
+  const FRONTEND_MASK_METRICS = [
+    'caves', 'chestsFound', 'contentDone', 'dungeons', 'guildRaids',
+    'mobsKilled', 'playtime', 'questsDone', 'raids', 'totalLevel',
+    'wars', 'worldEvents',
+  ];
+  const FRONTEND_MASK_HR_RANKS = { strategist: true, chief: true, owner: true };
+
+  function _frontendMaskClone(obj) {
+    if (!obj || typeof obj !== 'object') return obj;
+    try { return JSON.parse(JSON.stringify(obj)); } catch (e) { return obj; }
+  }
+
+  function _frontendMaskReasonToMetric(reason) {
+    var r = String(reason || '').trim().toLowerCase();
+    if (!r) return null;
+    if (r.indexOf('guild raid') === 0) return 'guildRaids';
+    if (r === 'war' || r.indexOf('war ') === 0) return 'wars';
+    if (r.indexOf('raid') === 0) return 'raids';
+    if (r.indexOf('dungeon') === 0) return 'dungeons';
+    if (r.indexOf('quest') === 0) return 'questsDone';
+    if (r.indexOf('world event') === 0) return 'worldEvents';
+    if (r.indexOf('cave') === 0) return 'caves';
+    if (r.indexOf('chest') === 0) return 'chestsFound';
+    if (r.indexOf('mob') === 0) return 'mobsKilled';
+    if (r.indexOf('playtime') === 0) return 'playtime';
+    if (r.indexOf('content') === 0) return 'contentDone';
+    if (r.indexOf('total level') === 0 || r.indexOf('level') === 0) return 'totalLevel';
+    return null;
+  }
+
+  function _frontendMaskReasonIsDirty(reason) {
+    var r = String(reason || '').trim().toLowerCase();
+    return r === 'war' || r.indexOf('guild raid') === 0 || r.indexOf('quest') === 0;
+  }
+
+  var _frontendMaskState = {
+    byUserId: {},
+    byUsername: {},
+    usernameToUserId: {},
+    guildPointsRaw: null,
+    guildPointsMasked: null,
+    loaded: false,
+  };
+
+  function _frontendMaskNormalizeFlags(rawFlags) {
+    var out = {};
+    FRONTEND_MASK_METRICS.forEach(function (k) {
+      out[k] = !!(rawFlags && rawFlags[k]);
+    });
+    return out;
+  }
+
+  function _frontendMaskMergeFlags(a, b) {
+    var out = _frontendMaskNormalizeFlags(a);
+    FRONTEND_MASK_METRICS.forEach(function (k) {
+      if (b && b[k]) out[k] = true;
+    });
+    return out;
+  }
+
+  function _frontendMaskContext(ctx) {
+    var userId = String((ctx && (ctx.userId || ctx.uuid || ctx.id)) || '').trim().toLowerCase();
+    var username = String((ctx && ctx.username) || '').trim().toLowerCase();
+    if (!userId && username && _frontendMaskState.usernameToUserId[username]) {
+      userId = _frontendMaskState.usernameToUserId[username];
+    }
+    return { userId: userId, username: username };
+  }
+
+  function _frontendMaskFlagsForContext(ctx) {
+    var c = _frontendMaskContext(ctx);
+    var byId = c.userId ? (_frontendMaskState.byUserId[c.userId] || null) : null;
+    var byName = c.username ? (_frontendMaskState.byUsername[c.username] || null) : null;
+    return _frontendMaskMergeFlags(byId, byName);
+  }
+
+  function _frontendMaskIsMetricMasked(ctx, metricKey) {
+    if (FRONTEND_MASK_METRICS.indexOf(metricKey) === -1) return false;
+    var flags = _frontendMaskFlagsForContext(ctx);
+    return !!flags[metricKey];
+  }
+
+  function _frontendMaskFilterHistoryRows(historyRows, ctx) {
+    var rows = Array.isArray(historyRows) ? historyRows : [];
+    return rows.filter(function (row) {
+      var metricKey = _frontendMaskReasonToMetric(row && row.reason);
+      if (!metricKey) return true;
+      return !_frontendMaskIsMetricMasked(ctx, metricKey);
+    });
+  }
+
+  function _frontendMaskCalcLeFromRows(rows, rank) {
+    var isHr = !!FRONTEND_MASK_HR_RANKS[String(rank || '').toLowerCase()];
+    var points = 0;
+    rows.forEach(function (row) {
+      points += Number((row && row.points_gained) || 0) || 0;
+    });
+    if (!isHr) return points / 10;
+    var clean = 0;
+    rows.forEach(function (row) {
+      if (!_frontendMaskReasonIsDirty(row && row.reason)) {
+        clean += Number((row && row.points_gained) || 0) || 0;
+      }
+    });
+    return clean / 10;
+  }
+
+  function _frontendMaskMetricPoints(metricPoints, ctx) {
+    var points = metricPoints && typeof metricPoints === 'object' ? metricPoints : {};
+    var hidden = 0;
+    FRONTEND_MASK_METRICS.forEach(function (k) {
+      if (_frontendMaskIsMetricMasked(ctx, k)) {
+        hidden += Number(points[k] || 0) || 0;
+      }
+    });
+    return hidden;
+  }
+
+  function _frontendMaskApplyToGuildSection(section) {
+    if (!section || typeof section !== 'object') return section;
+    var out = _frontendMaskClone(section);
+    var players = Array.isArray(out.players) ? out.players : [];
+    players.forEach(function (p) {
+      var hidden = _frontendMaskMetricPoints(p.metric_points, { uuid: p.uuid, username: p.username });
+      p.points = Math.max(0, (Number(p.points) || 0) - hidden);
+    });
+    players = players.filter(function (p) {
+      return (Number(p.points) || 0) > 0;
+    });
+    players.sort(function (a, b) {
+      var bp = Number(b.points) || 0;
+      var ap = Number(a.points) || 0;
+      if (bp !== ap) return bp - ap;
+      var ble = Number(b.le) || 0;
+      var ale = Number(a.le) || 0;
+      return ble - ale;
+    });
+    players.forEach(function (p, i) { p.position = i + 1; });
+    out.players = players;
+    out.total_points = players.reduce(function (s, p) { return s + (Number(p.points) || 0); }, 0);
+    out.total_players = players.length;
+    return out;
+  }
+
+  function _frontendMaskApplyToGuildPointsData(data) {
+    if (!data || typeof data !== 'object') return data;
+    var out = _frontendMaskClone(data);
+    out.current_cycle = _frontendMaskApplyToGuildSection(out.current_cycle);
+    out.previous_cycle = _frontendMaskApplyToGuildSection(out.previous_cycle);
+    out.both = _frontendMaskApplyToGuildSection(out.both);
+    _frontendMaskState.guildPointsMasked = out;
+    return out;
+  }
+
+  function _frontendMaskApplyToPlayerSection(section, ctx, rank) {
+    if (!section || typeof section !== 'object') return section;
+    var out = _frontendMaskClone(section);
+    var filteredHistory = _frontendMaskFilterHistoryRows(out.history, ctx);
+    out.history = filteredHistory;
+    var totalPoints = filteredHistory.reduce(function (s, row) {
+      return s + (Number((row && row.points_gained) || 0) || 0);
+    }, 0);
+    var dirty = filteredHistory.reduce(function (s, row) {
+      return s + (((row && Number(row.is_dirty) === 1) ? (Number(row.points_gained) || 0) : 0) || 0);
+    }, 0);
+    out.points = totalPoints;
+    out.clean_ep = totalPoints - dirty;
+    out.dirty_ep = dirty;
+    out.le = _frontendMaskCalcLeFromRows(filteredHistory, rank);
+    return out;
+  }
+
+  function _frontendMaskLookupGuildPosition(username, sectionKey) {
+    var sec = _frontendMaskState.guildPointsMasked && _frontendMaskState.guildPointsMasked[sectionKey];
+    if (!sec || !Array.isArray(sec.players)) return null;
+    var userLower = String(username || '').trim().toLowerCase();
+    if (!userLower) return null;
+    for (var i = 0; i < sec.players.length; i++) {
+      var entry = sec.players[i];
+      if (String((entry && entry.username) || '').trim().toLowerCase() === userLower) {
+        return { position: i + 1, size: sec.players.length };
+      }
+    }
+    return { position: null, size: sec.players.length };
+  }
+
+  function _frontendMaskApplyToPlayerPointsData(data, ctx) {
+    if (!data || typeof data !== 'object') return data;
+    var out = _frontendMaskClone(data);
+    var playerCtx = {
+      uuid: out.uuid || (ctx && ctx.uuid),
+      username: out.username || (ctx && ctx.username),
+    };
+    var rank = out.guild_rank || null;
+    out.current_cycle = _frontendMaskApplyToPlayerSection(out.current_cycle, playerCtx, rank);
+    out.previous_cycle = _frontendMaskApplyToPlayerSection(out.previous_cycle, playerCtx, rank);
+    out.both = _frontendMaskApplyToPlayerSection(out.both, playerCtx, rank);
+
+    var currentPos = _frontendMaskLookupGuildPosition(out.username || playerCtx.username, 'current_cycle');
+    if (currentPos) {
+      out.current_cycle.leaderboard_position = currentPos.position;
+      out.current_cycle.leaderboard_size = currentPos.size;
+    }
+    var previousPos = _frontendMaskLookupGuildPosition(out.username || playerCtx.username, 'previous_cycle');
+    if (previousPos) {
+      out.previous_cycle.leaderboard_position = previousPos.position;
+      out.previous_cycle.leaderboard_size = previousPos.size;
+    }
+    var bothPos = _frontendMaskLookupGuildPosition(out.username || playerCtx.username, 'both');
+    if (bothPos) {
+      out.both.leaderboard_position = bothPos.position;
+      out.both.leaderboard_size = bothPos.size;
+      out.leaderboard_position = bothPos.position;
+      out.leaderboard_size = bothPos.size;
+    }
+    return out;
+  }
+
+  function _frontendMaskNotifyUpdated() {
+    try { window.dispatchEvent(new Event('frontend-metric-mask-updated')); } catch (e) {}
+  }
+
+  function _frontendMaskApplyConfigPayload(payload) {
+    var byUserId = {};
+    var byUsername = {};
+    var usernameToUserId = {};
+    var rawByUserId = payload && payload.by_user_id && typeof payload.by_user_id === 'object' ? payload.by_user_id : {};
+    var rawByUsername = payload && payload.by_username && typeof payload.by_username === 'object' ? payload.by_username : {};
+    var rawNameToId = payload && payload.username_to_user_id && typeof payload.username_to_user_id === 'object' ? payload.username_to_user_id : {};
+
+    Object.keys(rawByUserId).forEach(function (k) {
+      byUserId[String(k || '').trim().toLowerCase()] = _frontendMaskNormalizeFlags(rawByUserId[k]);
+    });
+    Object.keys(rawByUsername).forEach(function (k) {
+      byUsername[String(k || '').trim().toLowerCase()] = _frontendMaskNormalizeFlags(rawByUsername[k]);
+    });
+    Object.keys(rawNameToId).forEach(function (k) {
+      var uname = String(k || '').trim().toLowerCase();
+      var uid = String(rawNameToId[k] || '').trim().toLowerCase();
+      if (uname && uid) usernameToUserId[uname] = uid;
+    });
+
+    _frontendMaskState.byUserId = byUserId;
+    _frontendMaskState.byUsername = byUsername;
+    _frontendMaskState.usernameToUserId = usernameToUserId;
+  }
+
+  function _frontendMaskRefreshGuildPointsDisplayData() {
+    if (!_frontendMaskState.guildPointsRaw) return;
+    window.esiPointsData = _frontendMaskApplyToGuildPointsData(_frontendMaskState.guildPointsRaw);
+  }
+
+  var frontendMaskReady = fetch('/api/frontend/metric-masks')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (payload) { _frontendMaskApplyConfigPayload(payload || {}); })
+    .catch(function () {})
+    .then(function () {
+      _frontendMaskState.loaded = true;
+      _frontendMaskRefreshGuildPointsDisplayData();
+      _frontendMaskNotifyUpdated();
+    });
+
+  window.FrontendMetricMasks = {
+    metrics: FRONTEND_MASK_METRICS.slice(),
+    ready: frontendMaskReady,
+    getUserMask: function (ctx) { return _frontendMaskFlagsForContext(ctx); },
+    isMetricMaskedForUser: function (ctx, metricKey) { return _frontendMaskIsMetricMasked(ctx, metricKey); },
+    reasonToMetric: _frontendMaskReasonToMetric,
+    applyGuildPointsDataForDisplay: _frontendMaskApplyToGuildPointsData,
+    applyPlayerPointsDataForDisplay: _frontendMaskApplyToPlayerPointsData,
+    maskSeriesForUser: function (ctx, metricKey, series) {
+      var arr = Array.isArray(series) ? series : [];
+      if (!_frontendMaskIsMetricMasked(ctx, metricKey)) return arr;
+      return arr.map(function () { return 0; });
+    },
+    getMaskedGuildPointsData: function () { return _frontendMaskState.guildPointsMasked || null; },
+  };
+
+  if (window.esiPointsDataPromise && typeof window.esiPointsDataPromise.then === 'function') {
+    window.esiPointsDataPromise = window.esiPointsDataPromise.then(function () {
+      _frontendMaskState.guildPointsRaw = _frontendMaskClone(window.esiPointsData || {});
+      window.esiPointsData = _frontendMaskApplyToGuildPointsData(_frontendMaskState.guildPointsRaw);
+      _frontendMaskNotifyUpdated();
+      return window.esiPointsData;
+    }).catch(function () {
+      window.esiPointsData = { available: false };
+      _frontendMaskNotifyUpdated();
+      return window.esiPointsData;
+    });
+  } else if (window.esiPointsData) {
+    _frontendMaskState.guildPointsRaw = _frontendMaskClone(window.esiPointsData);
+    window.esiPointsData = _frontendMaskApplyToGuildPointsData(_frontendMaskState.guildPointsRaw);
+  }
 
   /* dom refs */
   const loginBtn        = document.getElementById('loginBtn');

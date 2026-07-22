@@ -27,7 +27,7 @@ from config import (
     _BASE_DIR, _ESI_BOT_DIR, _DATA_FOLDER, _API_TRACKING_DIR,
     _ASPECTS_JSON, _INACTIVITY_JSON, _USERNAME_MATCHES_JSON,
     _TRACKED_GUILD_JSON, _GUILD_LEVELS_JSON, _GUILD_TERRITORIES_JSON,
-    _EVENTS_JSON,
+    _EVENTS_JSON, _FRONTEND_METRIC_MASKS_JSON,
     _POINTS_DB, _SNIPES_DB, _SHOP_DB,
     _USER_DB_PATH, _UPLOAD_DIR,
     WYNN_BASE, DISCORD_API, DISCORD_TOKEN, DISCORD_CLIENT_ID,
@@ -4065,6 +4065,11 @@ def _points_parse_max_graids_per_day():
 
 _POINTS_MAX_GRAIDS_PER_DAY = _points_parse_max_graids_per_day()
 _POINTS_MAX_GRAID_EP_PER_DAY = _POINTS_MAX_GRAIDS_PER_DAY * 10
+_FRONTEND_MASK_METRIC_KEYS = [
+    "caves", "chestsFound", "contentDone", "dungeons", "guildRaids",
+    "mobsKilled", "playtime", "questsDone", "raids", "totalLevel",
+    "wars", "worldEvents",
+]
 
 
 def _points_get_cycle_id(dt=None):
@@ -4135,6 +4140,46 @@ def _points_is_dirty_reason(reason):
     """Mirror utils.esi_points.is_dirty_reason: True if the EP reason is dirty for HR."""
     r = (reason or "").strip().lower()
     return r == "war" or r.startswith("guild raid") or r.startswith("quest")
+def _points_metric_from_reason(reason):
+    r = (reason or "").strip().lower()
+    if not r:
+        return None
+    if r.startswith("guild raid"):
+        return "guildRaids"
+    if r == "war" or r.startswith("war "):
+        return "wars"
+    if r.startswith("raid"):
+        return "raids"
+    if r.startswith("dungeon"):
+        return "dungeons"
+    if r.startswith("quest"):
+        return "questsDone"
+    if r.startswith("world event"):
+        return "worldEvents"
+    if r.startswith("cave"):
+        return "caves"
+    if r.startswith("chest"):
+        return "chestsFound"
+    if r.startswith("mob"):
+        return "mobsKilled"
+    if r.startswith("playtime"):
+        return "playtime"
+    if r.startswith("content"):
+        return "contentDone"
+    if r.startswith("total level") or r.startswith("level"):
+        return "totalLevel"
+    return None
+
+def _points_metric_points_from_history(rows):
+    out = {k: 0 for k in _FRONTEND_MASK_METRIC_KEYS}
+    for row in (rows or []):
+        if not isinstance(row, dict):
+            continue
+        key = _points_metric_from_reason(row.get("reason"))
+        if key not in out:
+            continue
+        out[key] += int(_safe_number(row.get("points_gained", 0)))
+    return out
 
 def _points_effective_is_dirty(row, is_hr):
     """Return the effective dirty flag for one history row based on player rank."""
@@ -4767,6 +4812,7 @@ def _points_build_leaderboard(cycle_ids, guild_ranks, guild_members, history_cac
             "dirty_ep": dirty,
             "le": le,
             "rank": (rank or None),
+            "metric_points": _points_metric_points_from_history(effective_history),
         })
 
     enriched.sort(key=lambda x: (x["points"], x["le"]), reverse=True)
@@ -4955,6 +5001,7 @@ def player_points(username: str):
             "dirty_ep": dirty,
             "le": le,
             "history": effective_history,
+            "metric_points": _points_metric_points_from_history(effective_history),
             "leaderboard_position": entry["position"] if entry else None,
             "leaderboard_size": board["total_players"],
         }
@@ -5054,6 +5101,82 @@ def player_metrics_history(username: str):
             "metrics":       metrics,
         })
     return _activity_rate_response(_make)
+
+_FRONTEND_MASK_UUID_RE = _re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    _re.IGNORECASE,
+)
+
+def _frontend_mask_resolve_username_to_uuid():
+    db = _get_latest_api_db()
+    if not db:
+        return {}
+    out = {}
+    try:
+        conn = _sqlite3.connect(db)
+        rows = conn.execute("SELECT username, uuid FROM player_stats").fetchall()
+        conn.close()
+    except Exception:
+        return {}
+    for row in rows:
+        uname = str((row[0] or "")).strip().lower()
+        uid = str((row[1] or "")).strip().lower()
+        if not uname or not uid:
+            continue
+        if not _FRONTEND_MASK_UUID_RE.match(uid):
+            continue
+        out[uname] = uid
+    return out
+
+def _frontend_mask_normalize_flags(raw_flags):
+    if not isinstance(raw_flags, dict):
+        return {}
+    out = {}
+    for key in _FRONTEND_MASK_METRIC_KEYS:
+        if _parse_bool(raw_flags.get(key)):
+            out[key] = True
+    return out
+
+@app.route("/api/frontend/metric-masks")
+@rate_limit(60)
+def frontend_metric_masks():
+    raw = _load_json_file(_FRONTEND_METRIC_MASKS_JSON)
+    if isinstance(raw, dict) and isinstance(raw.get("users"), dict):
+        raw_users = raw.get("users") or {}
+    else:
+        raw_users = raw if isinstance(raw, dict) else {}
+
+    username_to_uuid = _frontend_mask_resolve_username_to_uuid()
+    by_user_id = {}
+    by_username = {}
+
+    for identifier, raw_flags in raw_users.items():
+        ident = str(identifier or "").strip()
+        if not ident:
+            continue
+        flags = _frontend_mask_normalize_flags(raw_flags)
+        if not flags:
+            continue
+        ident_lower = ident.lower()
+        if _FRONTEND_MASK_UUID_RE.match(ident):
+            target_uuid = ident_lower
+        else:
+            target_uuid = username_to_uuid.get(ident_lower)
+        if target_uuid:
+            merged = dict(by_user_id.get(target_uuid) or {})
+            merged.update(flags)
+            by_user_id[target_uuid] = merged
+        else:
+            merged = dict(by_username.get(ident_lower) or {})
+            merged.update(flags)
+            by_username[ident_lower] = merged
+
+    return jsonify({
+        "metric_keys": list(_FRONTEND_MASK_METRIC_KEYS),
+        "by_user_id": by_user_id,
+        "by_username": by_username,
+        "username_to_user_id": username_to_uuid,
+    })
 
 
 @app.route("/api/guild/prefix/<prefix>/metrics-history")
