@@ -1590,6 +1590,7 @@
     const chars = state.playerData && state.playerData.characters;
     if (!chars || !chars[uuid]) return;
     const c         = chars[uuid];
+    const maskCtx   = playerMaskContextFromPlayer(state.playerData || {});
     const container = document.getElementById('charDetails');
 
     const type  = c.type   || 'Unknown';
@@ -1600,15 +1601,15 @@
     /* stats */
     const mainStats = [
       { label: 'Level',                val: c.level || '?'                       },
-      { label: 'Total Level',          val: fmt(c.totalLevel)                    },
-      { label: 'Playtime',             val: fmtHours(c.playtime)                 },
-      { label: 'Wars',                 val: fmt(c.wars)                          },
+      { label: 'Total Level',          val: fmt(maskPlayerMetricValue('totalLevel', c.totalLevel, maskCtx)) },
+      { label: 'Playtime',             val: fmtHours(maskPlayerMetricValue('playtime', c.playtime, maskCtx)) },
+      { label: 'Wars',                 val: fmt(maskPlayerMetricValue('wars', c.wars, maskCtx)) },
       { label: 'Logins',               val: fmt(c.logins)                        },
       { label: 'Deaths',               val: fmt(c.deaths)                        },
-      { label: 'Content Completion',   val: fmt(c.contentCompletion)             },
-      { label: 'Mobs Killed',          val: fmt(c.mobsKilled)                    },
-      { label: 'Chests',               val: fmt(c.chestsFound)                   },
-      { label: 'Caves',                val: fmt(c.caves)                         },
+      { label: 'Content Completion',   val: fmt(maskPlayerMetricValue('contentDone', c.contentCompletion, maskCtx)) },
+      { label: 'Mobs Killed',          val: fmt(maskPlayerMetricValue('mobsKilled', c.mobsKilled, maskCtx)) },
+      { label: 'Chests',               val: fmt(maskPlayerMetricValue('chestsFound', c.chestsFound, maskCtx)) },
+      { label: 'Caves',                val: fmt(maskPlayerMetricValue('caves', c.caves, maskCtx)) },
       { label: 'PvP Kills',            val: fmt(c.pvp ? c.pvp.kills   : null)    },
       { label: 'PvP Deaths',           val: fmt(c.pvp ? c.pvp.deaths  : null)    },
     ];
@@ -1636,22 +1637,23 @@
     }).join('');
 
     /* dungeons */
-    const dungData  = c.dungeons || {};
-    const dungCells = dungData.list && Object.keys(dungData.list).length > 0
+    const dungData  = isPlayerMetricMasked('dungeons', maskCtx) ? null : (c.dungeons || {});
+    const dungCells = dungData && dungData.list && Object.keys(dungData.list).length > 0
       ? Object.entries(dungData.list).map(([n, v]) =>
           `<div class="raid-list-row"><span class="raid-list-name">${n}</span><span class="raid-list-count">${fmt(v)}</span></div>`
         ).join('')
       : '<div style="padding:14px 16px;color:var(--text-faint);font-style:italic;">None recorded</div>';
 
     /* raids */
-    const raidData  = c.raids || {};
-    const raidCells = raidData.list && Object.keys(raidData.list).length > 0
+    const raidData  = isPlayerMetricMasked('raids', maskCtx) ? null : (c.raids || {});
+    const raidCells = raidData && raidData.list && Object.keys(raidData.list).length > 0
       ? Object.entries(raidData.list).map(([n, v]) =>
           `<div class="raid-list-row"><span class="raid-list-name">${n}</span><span class="raid-list-count">${fmt(v)}</span></div>`
         ).join('')
       : '<div style="padding:14px 16px;color:var(--text-faint);font-style:italic;">None recorded</div>';
 
-    const questCount = c.quests ? c.quests.length : 0;
+    const questCount = isPlayerMetricMasked('questsDone', maskCtx) ? 0 : (c.quests ? c.quests.length : 0);
+    const worldEventsVal = maskPlayerMetricValue('worldEvents', c.worldEvents, maskCtx);
 
     container.innerHTML = `
       <div class="char-profile-card">
@@ -1663,7 +1665,7 @@
         <div style="font-size:0.85rem;color:var(--text-dim);display:flex;gap:20px;flex-wrap:wrap">
           <span>Quests: <strong style="color:var(--gold-light)">${questCount}</strong></span>
           ${fmt(c.discoveries) !== 'N/A' ? `<span>Discoveries: <strong style="color:var(--gold-light)">${fmt(c.discoveries)}</strong></span>` : ''}
-          ${fmt(c.worldEvents)  !== 'N/A' ? `<span>World Events: <strong style="color:var(--gold-light)">${fmt(c.worldEvents)}</strong></span>`  : ''}
+          ${fmt(worldEventsVal)  !== 'N/A' ? `<span>World Events: <strong style="color:var(--gold-light)">${fmt(worldEventsVal)}</strong></span>`  : ''}
         </div>
       </div>
 
@@ -1678,7 +1680,7 @@
         </div>
       </div>
 
-      ${dungData.list && Object.keys(dungData.list).length > 0 ? `
+      ${dungData && dungData.list && Object.keys(dungData.list).length > 0 ? `
       <div class="info-card">
         <div class="collapsible-header">
           Dungeons &nbsp;<span style="color:var(--text-faint);font-size:0.85em">Total: ${fmt(dungData.total || 0)}</span>
@@ -1689,7 +1691,7 @@
         </div>
       </div>` : ''}
 
-      ${raidData.list && Object.keys(raidData.list).length > 0 ? `
+      ${raidData && raidData.list && Object.keys(raidData.list).length > 0 ? `
       <div class="info-card">
         <div class="collapsible-header">
           Raids &nbsp;<span style="color:var(--text-faint);font-size:0.85em">Total: ${fmt(raidData.total || 0)}</span>
