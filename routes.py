@@ -8031,10 +8031,11 @@ def bot_databases():
                         db_files.append(full_path)
             days_old = (today - day_date).days
 
-            # For recent folders, always recompute from the live folder file count
-            if days_old <= 7:
+            # Prefer live folder-derived coverage when detailed snapshots are present
+            has_detailed_snapshots = len(db_files) > 1
+            if days_old < 7 or has_detailed_snapshots:
                 ratio = compute_live_coverage_ratio(db_files, day_date, now_utc)
-            elif ratio is None:
+            else:
                 ratio = 1.0 if db_files else 0.0
 
             try:
