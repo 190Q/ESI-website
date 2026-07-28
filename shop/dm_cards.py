@@ -272,6 +272,13 @@ _TYPES = {
         "action": "ITEM REQUEST REJECTED", "action_bg": "#4a1515",
         "amount_color": "#a04040",
     },
+    "creator_item_sold": {
+        "badge": "SOLD", "badge_color": "#c9a227",
+        "icon": "star", "icon_color": "#c9a227",
+        "title": "One of Your Items Sold",
+        "action": "AWAITING FULFILLMENT", "action_bg": "#3a3010",
+        "amount_color": "#c9a227",
+    },
 }
 
 # Uses $PLACEHOLDER markers replaced via str.replace to avoid CSS {} conflicts.

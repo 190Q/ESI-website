@@ -175,6 +175,45 @@ class PurchaseError(Exception):
         self.status = status
         super().__init__(message)
 
+
+def _notify_creator_of_sale(
+    item: dict,
+    buyer_discord_id: str,
+    buyer_username: str,
+    quantity: int,
+    ep_spent: int,
+) -> None:
+    """DM the item's creator when one of their items is bought directly.
+
+    Only fires for direct (non-auction) bin/cart purchases of an item that
+    a creator owns. No-ops when the item has no creator owner or when the
+    buyer is the creator themselves. Best-effort: never raises into the
+    purchase flow.
+    """
+    try:
+        creator_did = item.get("creator_discord_id")
+        if not creator_did or creator_did == buyer_discord_id:
+            return
+        from shop.auction import _dm_card_in_background
+        item_name = item.get("name") or item.get("id") or "Item"
+        buyer = buyer_username or "A member"
+        _dm_card_in_background(
+            creator_did, "creator_item_sold", item_name, ep_spent,
+            amount_label="sale value",
+            fields=[
+                ("BUYER", buyer[:30]),
+                ("QUANTITY", str(quantity)),
+                ("EP SPENT", f"{ep_spent:,} EP"),
+                ("STATUS", "Awaiting fulfillment"),
+            ],
+            fallback_text=(
+                f"{buyer} bought {quantity}x {item_name} for {ep_spent:,} EP. "
+                f"It's awaiting fulfillment in your creator studio."
+            ),
+        )
+    except Exception as exc:
+        print(f"[SHOP] Creator sale notification failed: {exc}", file=sys.stderr)
+
 def execute_cart_checkout(
     discord_id: str,
     user_roles: list,
@@ -560,6 +599,14 @@ def execute_cart_checkout(
             pass  # best-effort; DB override is the authority
 
     _reload_items()
+
+    # Notify each item's creator (if any) of the direct sale.
+    for ln in lines:
+        _notify_creator_of_sale(
+            ln["item"], discord_id, mc_username or "",
+            ln["qty"], ln["line_total"],
+        )
+
     return results
 
 
@@ -745,6 +792,9 @@ def execute_bin_purchase(
 
     # Reload item cache so stock changes are reflected immediately
     _reload_items()
+
+    # Notify the item's creator (if any) of the direct sale.
+    _notify_creator_of_sale(item, discord_id, mc_username or "", 1, price)
 
     return {
         "purchase_id":      purchase_id,
