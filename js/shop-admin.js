@@ -5156,7 +5156,13 @@
     var name = user.username || uuid.substring(0, 8);
     var _actorDiscordId = (window.state && window.state.user) ? window.state.user.id : null;
     var _isSelf = user.discord_id && _actorDiscordId && user.discord_id === _actorDiscordId;
-    var _canBan = !_isSelf && (user.rank_level || 0) < _actorRankLevel;
+    var _isLowerRank = (user.rank_level || 0) < _actorRankLevel;
+    var _canBan = !_isSelf && _isLowerRank;
+    var _canManageCreator = !!(
+      user.discord_id &&
+      (_isParliament || _isOwnerShopAdmin()) &&
+      (_isSelf || _isLowerRank)
+    );
 
     var modal = document.getElementById('saModal');
     var html = '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>';
@@ -5226,11 +5232,11 @@
     html += '</div>';
 
     /* Creator toggle + Ban actions */
-    if (_canBan) {
+    if (_canManageCreator || _canBan) {
       html += '<div class="su-manage-section">';
       html += '<div class="su-manage-section-title">Access Control</div>';
       /* Creator toggle (Parliament+ only) */
-      if (user.discord_id && (_isParliament || _isOwnerShopAdmin())) {
+      if (_canManageCreator) {
         html += '<div class="su-manage-row" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
         html += '<span style="font-size:0.82rem;color:var(--text-dim)">Creator status</span>';
         html += '<label class="settings-toggle" id="suMgCreatorToggle">' +
@@ -5239,24 +5245,26 @@
           '</label>';
         html += '</div>';
       }
-      html += '<div class="su-manage-actions">';
-      /* Shop ban / unban */
-      if (user.shop_banned) {
-        html += '<button class="shop-modal-btn shop-modal-btn--confirm su-manage-action-btn" id="suMgUnban">Unban from shop</button>';
-      } else {
-        html += '<button class="shop-modal-btn shop-modal-btn--cancel su-manage-action-btn" id="suMgBan" ' +
-          'style="color:var(--danger);border-color:var(--danger)">Ban from shop</button>';
-      }
-      /* Admin ban / unban (only for shop admins) */
-      if ((user.rank_level || 0) > 0 && user.discord_id) {
-        if (user.admin_banned) {
-          html += '<button class="shop-modal-btn shop-modal-btn--confirm su-manage-action-btn" id="suMgAdminUnban">Unban from manage shop</button>';
+      if (_canBan) {
+        html += '<div class="su-manage-actions">';
+        /* Shop ban / unban */
+        if (user.shop_banned) {
+          html += '<button class="shop-modal-btn shop-modal-btn--confirm su-manage-action-btn" id="suMgUnban">Unban from shop</button>';
         } else {
-          html += '<button class="shop-modal-btn shop-modal-btn--cancel su-manage-action-btn" id="suMgAdminBan" ' +
-            'style="color:var(--danger);border-color:var(--danger)">Ban from manage shop</button>';
+          html += '<button class="shop-modal-btn shop-modal-btn--cancel su-manage-action-btn" id="suMgBan" ' +
+            'style="color:var(--danger);border-color:var(--danger)">Ban from shop</button>';
         }
+        /* Admin ban / unban (only for shop admins) */
+        if ((user.rank_level || 0) > 0 && user.discord_id) {
+          if (user.admin_banned) {
+            html += '<button class="shop-modal-btn shop-modal-btn--confirm su-manage-action-btn" id="suMgAdminUnban">Unban from manage shop</button>';
+          } else {
+            html += '<button class="shop-modal-btn shop-modal-btn--cancel su-manage-action-btn" id="suMgAdminBan" ' +
+              'style="color:var(--danger);border-color:var(--danger)">Ban from manage shop</button>';
+          }
+        }
+        html += '</div>';
       }
-      html += '</div>';
       html += '</div>';
     }
 

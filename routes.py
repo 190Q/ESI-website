@@ -2872,6 +2872,15 @@ def admin_shop_toggle_creator(discord_id):
         return err
     if not is_parliament:
         return jsonify({"error": "Parliament rank required"}), 403
+    is_owner = _is_owner_user(user)
+    actor_level = 3 if is_owner else _rank_level(set(user.get("roles") or []))
+    actor_discord_id = str(user.get("id") or "")
+    target_discord_id = str(discord_id or "")
+    is_self_target = bool(actor_discord_id and target_discord_id and actor_discord_id == target_discord_id)
+    admin_map = _get_shop_admin_map(blocking=True)
+    target_level = admin_map.get(target_discord_id, 0)
+    if not is_self_target and target_level >= actor_level:
+        return jsonify({"error": "Cannot modify creator status for a user at your rank or above"}), 403
     body = request.get_json(silent=True) or {}
     grant = body.get("grant")
     if grant is None:
