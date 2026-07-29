@@ -87,6 +87,23 @@ def _get_wynnpiece_custom_link_definition(path: str):
         return None
 
 
+def _load_wynnpiece_blocked_default_links():
+    """Default (non-custom) links that a custom link overrides. Direct browser
+    access to these is blocked so users must go through the custom link. The
+    set is derived from the wynnpiece progression definitions, not hardcoded."""
+    try:
+        from wynnpiece.wynnpiece import get_blocked_default_links
+    except Exception:
+        return frozenset()
+    try:
+        return frozenset(get_blocked_default_links() or ())
+    except Exception:
+        return frozenset()
+
+
+_WYNNPIECE_BLOCKED_DEFAULT_LINKS = _load_wynnpiece_blocked_default_links()
+
+
 def _proxy_to_routes_path(path: str, pass_query: bool = True):
     url = f"{ROUTES_URL}{path}"
     if pass_query and request.query_string:
@@ -540,6 +557,12 @@ def _gate_requests():
             abort(403)
     # API and auth go through the proxy routes below
     if path.startswith(("/api/", "/auth/")):
+        # A default link that a custom link overrides must not be reachable
+        # directly; users can only reach it through the custom link (which is
+        # served internally by _serve_custom_link and bypasses this check).
+        norm = path if path == "/" else path.rstrip("/")
+        if norm in _WYNNPIECE_BLOCKED_DEFAULT_LINKS:
+            abort(404)
         return
     # uploads have their own explicit route
     if path.startswith("/uploads/"):
