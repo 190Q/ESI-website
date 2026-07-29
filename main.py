@@ -76,6 +76,106 @@ def _get_inline_script_hashes():
     return _inline_script_cache["hashes"]
 
 
+def _get_wynnpiece_custom_link_definition(path: str):
+    try:
+        from wynnpiece.wynnpiece import get_custom_link_definition
+    except Exception:
+        return None
+    try:
+        return get_custom_link_definition(path)
+    except Exception:
+        return None
+
+
+def _proxy_to_routes_path(path: str, pass_query: bool = True):
+    url = f"{ROUTES_URL}{path}"
+    if pass_query and request.query_string:
+        url += f"?{request.query_string.decode('utf-8')}"
+    headers = {}
+    for key, value in request.headers:
+        if key.lower() in ("host", "accept-encoding", "x-forwarded-for"):
+            continue
+        headers[key] = value
+    headers["X-Forwarded-For"] = request.remote_addr or ""
+    headers["X-Forwarded-Proto"] = request.scheme
+    headers["X-Forwarded-Host"] = request.host
+    headers["X-Gateway-Secret"] = _GATEWAY_SECRET
+    headers["X-Real-Client-IP"] = _real_client_ip() or request.remote_addr or ""
+    try:
+        resp = requests.request(
+            method=request.method,
+            url=url,
+            headers=headers,
+            data=request.get_data(),
+            allow_redirects=False,
+            timeout=30,
+        )
+    except requests.ConnectionError:
+        return jsonify({
+            "error": "Service temporarily unavailable",
+            "message": "The API service is restarting. Please try again in a moment.",
+        }), 503
+    except requests.Timeout:
+        return jsonify({"error": "Service timeout"}), 504
+    excluded = {"transfer-encoding", "connection", "keep-alive"}
+    response_headers = [
+        (k, v) for k, v in resp.raw.headers.items()
+        if k.lower() not in excluded
+    ]
+    return Response(resp.content, resp.status_code, response_headers)
+
+
+def _proxy_external_url(url: str, pass_query: bool = True):
+    final_url = url
+    if pass_query and request.query_string:
+        sep = "&" if "?" in final_url else "?"
+        final_url += f"{sep}{request.query_string.decode('utf-8')}"
+    headers = {}
+    accept = request.headers.get("Accept")
+    user_agent = request.headers.get("User-Agent")
+    if accept:
+        headers["Accept"] = accept
+    if user_agent:
+        headers["User-Agent"] = user_agent
+    try:
+        resp = requests.request(
+            method=request.method,
+            url=final_url,
+            headers=headers,
+            allow_redirects=True,
+            timeout=30,
+        )
+    except requests.RequestException:
+        return jsonify({"error": "Upstream link is unavailable"}), 502
+    excluded = {"transfer-encoding", "connection", "keep-alive"}
+    response_headers = [
+        (k, v) for k, v in resp.raw.headers.items()
+        if k.lower() not in excluded
+    ]
+    return Response(resp.content, resp.status_code, response_headers)
+
+
+def _serve_custom_link(path: str):
+    link = _get_wynnpiece_custom_link_definition(path)
+    if not isinstance(link, dict):
+        return None
+    target = str(link.get("target") or "").strip()
+    pass_query = bool(link.get("pass_query", True))
+    if not target:
+        return None
+    if target.startswith("/api/") or target.startswith("/auth/"):
+        return _proxy_to_routes_path(target, pass_query=pass_query)
+    if target.startswith("http://") or target.startswith("https://"):
+        return _proxy_external_url(target, pass_query=pass_query)
+    rel = target.lstrip("/").replace("\\", "/")
+    if ".." in rel.split("/"):
+        return jsonify({"error": "Forbidden"}), 403
+    abs_target = os.path.join(_BASE_DIR, rel)
+    if not os.path.isfile(abs_target):
+        return jsonify({"error": "Not found"}), 404
+    return send_from_directory(os.path.dirname(abs_target), os.path.basename(abs_target))
+
+
 # access logger
 try:
     from access_logger import log_blocked as _log_blocked, cleanup_old_logs
@@ -461,11 +561,17 @@ def _gate_requests():
         # block direct access to wynnpiece attachments (served via gated route)
         if path.startswith("/wynnpiece/attachments/"):
             abort(403)
+        custom = _serve_custom_link(path)
+        if custom is not None:
+            return custom
         return
     # allow SPA panel routes (e.g. /player/190Q, /guild, /bot)
     stripped = path.strip("/").split("/")[0]
     if stripped in _SPA_PANELS:
         return
+    custom = _serve_custom_link(path)
+    if custom is not None:
+        return custom
     # Unknown browser paths should render a not-found page
     if request.method in ("GET", "HEAD"):
         abort(404)
@@ -547,6 +653,7 @@ def wynnpiece():
     )
 
 
+
 _ALLOWED_UPLOAD_EXTENSIONS = frozenset({
     'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif',
     'pdf', 'txt', 'csv', 'json',
@@ -571,49 +678,7 @@ def serve_upload(filename):
 
 def _proxy_to_routes():
     """Forward the current request to the routes service and return the response."""
-    # build target URL with path + query string
-    url = f"{ROUTES_URL}{request.path}"
-    if request.query_string:
-        url += f"?{request.query_string.decode('utf-8')}"
-
-    # forward headers (except Host and Accept-Encoding to avoid gzip issues)
-    headers = {}
-    for key, value in request.headers:
-        if key.lower() in ("host", "accept-encoding", "x-forwarded-for"):
-            continue
-        headers[key] = value
-
-    # add proxy identification headers
-    headers["X-Forwarded-For"] = request.remote_addr or ""
-    headers["X-Forwarded-Proto"] = request.scheme
-    headers["X-Forwarded-Host"] = request.host
-    headers["X-Gateway-Secret"] = _GATEWAY_SECRET
-    headers["X-Real-Client-IP"] = _real_client_ip() or request.remote_addr or ""
-
-    try:
-        resp = requests.request(
-            method=request.method,
-            url=url,
-            headers=headers,
-            data=request.get_data(),
-            allow_redirects=False,
-            timeout=30,
-        )
-    except requests.ConnectionError:
-        return jsonify({
-            "error": "Service temporarily unavailable",
-            "message": "The API service is restarting. Please try again in a moment.",
-        }), 503
-    except requests.Timeout:
-        return jsonify({"error": "Service timeout"}), 504
-
-    # build Flask response, preserving all headers including multiple Set-Cookie
-    excluded = {"transfer-encoding", "connection", "keep-alive"}
-    response_headers = [
-        (k, v) for k, v in resp.raw.headers.items()
-        if k.lower() not in excluded
-    ]
-    return Response(resp.content, resp.status_code, response_headers)
+    return _proxy_to_routes_path(request.path, pass_query=True)
 
 
 @app.route("/api/", defaults={"_path": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
