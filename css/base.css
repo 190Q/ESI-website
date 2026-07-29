@@ -1200,24 +1200,30 @@ html.mobile-sidebar-open body {
   margin: 12px 0 6px;
 }
 .ticket-preview-content p {
+  font-family: var(--font-body);
   margin: 6px 0;
   line-height: 1.6;
 }
 .ticket-preview-content strong {
+  font-family: var(--font-body);
   font-weight: 700;
   color: var(--text-main);
 }
 .ticket-preview-content em {
+  font-family: var(--font-body);
   font-style: italic;
 }
 .ticket-preview-content a {
+  font-family: var(--font-body);
   color: var(--gold-light);
   text-decoration: underline;
 }
 .ticket-preview-content a:hover {
+  font-family: var(--font-body);
   color: var(--gold);
 }
 .ticket-preview-content code {
+  font-family: var(--font-body);
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -1226,6 +1232,7 @@ html.mobile-sidebar-open body {
   color: var(--gold-light);
 }
 .ticket-preview-content pre {
+  font-family: var(--font-body);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1235,6 +1242,7 @@ html.mobile-sidebar-open body {
   position: relative;
 }
 .ticket-preview-content pre code {
+  font-family: var(--font-body);
   background: none;
   border: none;
   padding: 0;
@@ -1245,6 +1253,7 @@ html.mobile-sidebar-open body {
 
 /* Blockquote */
 .ticket-preview-content blockquote {
+  font-family: var(--font-body);
   border-left: 3px solid var(--border-mid);
   margin: 10px 0;
   padding: 4px 16px;
@@ -1254,14 +1263,17 @@ html.mobile-sidebar-open body {
 /* Lists */
 .ticket-preview-content ul,
 .ticket-preview-content ol {
+  font-family: var(--font-body);
   margin: 8px 0;
   padding-left: 24px;
 }
 .ticket-preview-content li {
+  font-family: var(--font-body);
   margin: 3px 0;
   line-height: 1.5;
 }
 .ticket-preview-content li input[type="checkbox"] {
+  font-family: var(--font-body);
   margin-right: 6px;
   accent-color: var(--gold);
 }
@@ -1320,28 +1332,33 @@ html.mobile-sidebar-open body {
 
 /* Tables */
 .ticket-preview-content table {
+  font-family: var(--font-body);
   border-collapse: collapse;
   width: 100%;
   margin: 10px 0;
 }
 .ticket-preview-content th,
 .ticket-preview-content td {
+  font-family: var(--font-body);
   border: 1px solid var(--border);
   padding: 8px 14px;
   text-align: left;
 }
 .ticket-preview-content th {
+  font-family: var(--font-body);
   background: var(--surface-2);
   font-family: var(--font-heading);
   font-size: 0.82rem;
   color: var(--gold-light);
 }
 .ticket-preview-content td {
+  font-family: var(--font-body);
   font-size: 0.9rem;
 }
 
 /* Details/Summary */
 .ticket-preview-content details {
+  font-family: var(--font-body);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   margin: 10px 0;

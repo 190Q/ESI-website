@@ -340,7 +340,6 @@ select.ie-input { cursor: pointer; }
   line-height: 1.4;
 }
 .ie-hint code {
-  font-family: monospace;
   background: var(--surface-3);
   padding: 0 3px;
   border-radius: 3px;
