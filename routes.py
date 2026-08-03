@@ -1283,8 +1283,11 @@ from shop.admin import (
     get_user_notes, add_user_note, delete_user_note,
     set_user_limits,
     admin_refund_purchase, admin_reject_refund,
-    get_approved_privilege_level, ensure_privilege_approval, get_pending_privilege_approval_for_user,
+    get_approved_privilege_level, get_approved_privilege_levels,
+    ensure_privilege_approval, get_pending_privilege_approval_for_user,
     get_pending_privilege_approvals, approve_privilege, reject_privilege,
+    get_shop_admin_permission_override, get_shop_admin_permission_overrides,
+    set_shop_admin_permission_override, reset_shop_admin_permission_override,
 )
 from shop.creator import (
     is_creator as _is_creator,
@@ -2113,8 +2116,68 @@ def shop_request_refund():
 
 # Shop admin endpoints
 _SHOP_ADMIN = _CHIEF_PLUS | _PARLIAMENT_PLUS  # read access
-def _resolve_effective_shop_admin_level(discord_id: str, username: str, actual_level: int) -> tuple[int, bool]:
-    """Resolve effective shop-admin level and whether an escalation is pending."""
+_SHOP_PERM_LEVEL_NAMES = {0: "None", 1: "Chief", 2: "Parliament", 3: "Owner"}
+
+def _shop_permission_level_name(level: int) -> str:
+    try:
+        lvl = int(level)
+    except (TypeError, ValueError):
+        lvl = 0
+    return _SHOP_PERM_LEVEL_NAMES.get(lvl, f"Level {lvl}")
+
+def _clamp_shop_admin_level(level, lo: int = 0, hi: int = 2) -> int:
+    try:
+        n = int(level)
+    except (TypeError, ValueError):
+        n = 0
+    return max(lo, min(hi, n))
+
+def _effective_shop_admin_level_from_parts(
+    role_level: int,
+    *,
+    override_level=None,
+    approved_level: int = 0,
+) -> tuple[int, int | None]:
+    """Compute effective shop-admin level without side effects.
+
+    Priority:
+      1. explicit override (including 0 = None)
+      2. min(role_level, owner-approved_level)
+    """
+    role_level = _clamp_shop_admin_level(role_level)
+    if override_level is not None:
+        ov = _clamp_shop_admin_level(override_level)
+        return ov, ov
+    approved = _clamp_shop_admin_level(approved_level)
+    return min(role_level, approved), None
+
+def _default_shop_admin_level_from_roles(roles) -> int:
+    role_set = set(roles or [])
+    if role_set & _PARLIAMENT_PLUS:
+        return 2
+    if role_set & _CHIEF_PLUS:
+        return 1
+    return 0
+
+def _resolve_effective_shop_admin_level(
+    discord_id: str,
+    username: str,
+    actual_level: int,
+    *,
+    allow_override: bool = True,
+) -> tuple[int, bool, int | None]:
+    """Resolve effective shop-admin level and whether an escalation is pending.
+
+    Returns (effective_level, privilege_pending, override_level_or_none).
+    Explicit overrides always win over role-based defaults / owner approvals.
+    """
+    override_level = get_shop_admin_permission_override(discord_id) if allow_override else None
+    if override_level is not None:
+        effective_level, ov = _effective_shop_admin_level_from_parts(
+            actual_level, override_level=override_level, approved_level=0
+        )
+        return effective_level, False, ov
+
     approved_level = get_approved_privilege_level(discord_id)
     privilege_pending = actual_level > approved_level
     if privilege_pending:
@@ -2126,8 +2189,11 @@ def _resolve_effective_shop_admin_level(discord_id: str, username: str, actual_l
             except (TypeError, ValueError):
                 pending_previous_level = 0
             approved_level = max(approved_level, pending_previous_level)
-    effective_level = min(actual_level, approved_level)
-    return effective_level, privilege_pending
+    effective_level, _ = _effective_shop_admin_level_from_parts(
+        actual_level, approved_level=approved_level
+    )
+    return effective_level, privilege_pending, None
+
 def _require_shop_admin(
     require_shop_enabled: bool = True,
     maintenance_scope: str | None = None,
@@ -2142,7 +2208,8 @@ def _require_shop_admin(
 
     Privilege escalations (nothing→chief, chief→parliament) require owner
     approval before taking effect.  Until approved, the user's effective
-    privilege remains capped at their previously effective level.
+    privilege remains capped at their previously effective level. Explicit
+    permission overrides set by OWNER/Parliament take precedence.
     """
     user, err = _require_login()
     if err:
@@ -2151,22 +2218,22 @@ def _require_shop_admin(
         # OWNER always has full shop-admin capabilities, including while disabled.
         return user, True, None
     user_roles = set(user.get("roles") or [])
-    if not (user_roles & _SHOP_ADMIN):
-        return None, False, (jsonify({"error": "Insufficient permissions"}), 403)
+    discord_id = user.get("id", "")
+    username = user.get("nick") or user.get("username", "")
     # Admin-panel ban check
-    if is_admin_banned(user.get("id")):
+    if is_admin_banned(discord_id):
         return None, False, (jsonify({"error": "You have been banned from the manage shop"}), 403)
 
     # Determine the user's actual role-based level
-    actual_level = 2 if (user_roles & _PARLIAMENT_PLUS) else 1  # 1=chief, 2=parliament
-    discord_id = user.get("id", "")
-    username = user.get("nick") or user.get("username", "")
-    effective_level, privilege_pending = _resolve_effective_shop_admin_level(
+    actual_level = _default_shop_admin_level_from_roles(user_roles)
+    effective_level, privilege_pending, _override = _resolve_effective_shop_admin_level(
         discord_id, username, actual_level
     )
 
-    if privilege_pending and effective_level <= 0:
-        return None, False, (jsonify({"error": "Your shop admin privileges are pending owner approval"}), 403)
+    if effective_level <= 0:
+        if privilege_pending:
+            return None, False, (jsonify({"error": "Your shop admin privileges are pending owner approval"}), 403)
+        return None, False, (jsonify({"error": "Insufficient permissions"}), 403)
 
     is_parliament = effective_level >= 2
     maintenance_err = _admin_maintenance_guard(
@@ -2189,25 +2256,28 @@ def admin_shop_state():
         return err
     is_owner = _is_owner_user(user)
     user_roles = set(user.get("roles") or [])
-    has_admin_roles = bool(user_roles & _SHOP_ADMIN) or is_owner
-    if not has_admin_roles:
-        return jsonify({"error": "Insufficient permissions"}), 403
     if not is_owner and is_admin_banned(user.get("id")):
         return jsonify({"error": "You have been banned from the manage shop"}), 403
 
-    # Compute effective privilege level (capped by owner approval)
+    # Compute effective privilege level (override > owner approval > roles)
     discord_id = user.get("id", "")
     if is_owner:
         effective_level = 3
         effective_parliament = True
         privilege_pending = False
     else:
-        actual_level = 2 if (user_roles & _PARLIAMENT_PLUS) else (1 if (user_roles & _CHIEF_PLUS) else 0)
+        actual_level = _default_shop_admin_level_from_roles(user_roles)
         username = user.get("nick") or user.get("username", "")
-        effective_level, privilege_pending = _resolve_effective_shop_admin_level(
+        effective_level, privilege_pending, _override = _resolve_effective_shop_admin_level(
             discord_id, username, actual_level
         )
         effective_parliament = effective_level >= 2
+    # Access requires either Discord shop-admin roles, OWNER, or an explicit override.
+    has_admin_roles = bool(user_roles & _SHOP_ADMIN) or is_owner
+    if not is_owner and effective_level <= 0 and not has_admin_roles:
+        return jsonify({"error": "Insufficient permissions"}), 403
+    if not is_owner and effective_level <= 0 and has_admin_roles and not privilege_pending:
+        return jsonify({"error": "Insufficient permissions"}), 403
     _maybe_notify_owner_maintenance_eta_elapsed()
 
     state = _shop_get_state() or {}
@@ -2783,20 +2853,23 @@ def _start_shop_admin_map_refresh() -> None:
     _threading.Thread(target=_worker, daemon=True).start()
 
 def _get_shop_admin_map(blocking: bool = False) -> dict:
-    """Return {discord_id: rank_level} with cache-first, optional blocking refresh."""
+    """Return {discord_id: rank_level} with cache-first, optional blocking refresh.
+
+    If the cache is empty, always do a blocking fetch so callers never see a
+    map that only contains OWNER (which would make every other admin look like
+    rank 0 / None).
+    """
     now = time()
     with _shop_admin_map_lock:
         cached = _shop_admin_map_cache["data"]
         cached_ts = _shop_admin_map_cache["ts"]
-    if cached and now - cached_ts < _SHOP_ADMIN_MAP_TTL:
+    cache_fresh = bool(cached) and (now - cached_ts) < _SHOP_ADMIN_MAP_TTL
+    if cache_fresh:
         return cached
-    if blocking:
+    if blocking or not cached:
         fresh = _fetch_shop_admin_map()
         _set_shop_admin_map_cache(fresh)
         return fresh
-    if not cached:
-        cached = _owner_shop_admin_map()
-        _set_shop_admin_map_cache(cached)
     _start_shop_admin_map_refresh()
     return cached
 
@@ -2811,17 +2884,55 @@ def admin_shop_users():
         from shop.admin import _invalidate_users_cache
         _invalidate_users_cache()
     users = admin_get_users()
-    admin_map = _get_shop_admin_map(blocking=False)
+    admin_map = _get_shop_admin_map(blocking=True)
+    override_map = get_shop_admin_permission_overrides()
+    approved_map = get_approved_privilege_levels()
     admin_banned_ids = _get_admin_banned_ids()
     creator_ids = _get_all_creator_ids()
     for u in users:
-        did = u.get("discord_id")
-        u["rank_level"] = admin_map.get(did, 0) if did else 0
+        did = str(u.get("discord_id") or "")
+        role_level = int(admin_map.get(did, 0) or 0) if did else 0
+        if did and _is_owner_user({"id": did}):
+            role_level = 3
+        override_level = override_map.get(did) if did else None
+        if override_level is not None:
+            override_level = _clamp_shop_admin_level(override_level)
+        approved_level = int(approved_map.get(did, 0) or 0) if did else 0
+        if role_level >= 3:
+            effective_level = 3
+            override_level = None
+            default_level = 3
+        else:
+            default_level = role_level
+            effective_level, override_level = _effective_shop_admin_level_from_parts(
+                role_level,
+                override_level=override_level,
+                approved_level=approved_level,
+            )
+        u["default_rank_level"] = default_level
+        u["permission_override_level"] = override_level
+        u["permission_is_default"] = override_level is None
+        u["rank_level"] = effective_level
+        u["permission_level_name"] = _shop_permission_level_name(effective_level)
         u["admin_banned"] = bool(did and did in admin_banned_ids)
         u["is_creator"] = bool(did and did in creator_ids)
     is_owner = _is_owner_user(user)
-    actor_level = 3 if is_owner else _rank_level(set(user.get("roles") or []))
-    return jsonify({"users": users, "actor_rank_level": actor_level})
+    actor_discord_id = str(user.get("id") or "")
+    actor_roles = set(user.get("roles") or [])
+    if is_owner:
+        actor_level = 3
+    else:
+        actor_default = _default_shop_admin_level_from_roles(actor_roles)
+        actor_username = user.get("nick") or user.get("username", "")
+        actor_level, _, _ = _resolve_effective_shop_admin_level(
+            actor_discord_id, actor_username, actor_default
+        )
+    return jsonify({
+        "users": users,
+        "actor_rank_level": actor_level,
+        "can_manage_permissions": actor_level >= 2,
+        "max_assignable_level": max(0, actor_level - 1),
+    })
 
 
 def _rank_level(roles: set) -> int:
@@ -2829,11 +2940,58 @@ def _rank_level(roles: set) -> int:
 
     3 = OWNER (checked separately), 2 = Parliament+, 1 = Chief+, 0 = regular.
     """
-    if roles & _PARLIAMENT_PLUS:
-        return 2
-    if roles & _CHIEF_PLUS:
-        return 1
-    return 0
+    return _default_shop_admin_level_from_roles(roles)
+
+
+def _actor_effective_shop_level(user) -> int:
+    """Effective shop-admin level for the acting user (OWNER = 3)."""
+    if _is_owner_user(user):
+        return 3
+    discord_id = str(user.get("id") or "")
+    username = user.get("nick") or user.get("username", "")
+    default_level = _default_shop_admin_level_from_roles(set(user.get("roles") or []))
+    effective_level, _, _ = _resolve_effective_shop_admin_level(
+        discord_id, username, default_level
+    )
+    return int(effective_level or 0)
+
+
+def _target_permission_snapshot(discord_id: str) -> dict:
+    """Return default/override/effective permission levels for a Discord user."""
+    did = str(discord_id or "")
+    default_level = 0
+    if did:
+        if _is_owner_user({"id": did}):
+            default_level = 3
+        else:
+            admin_map = _get_shop_admin_map(blocking=True)
+            default_level = int(admin_map.get(did, 0) or 0)
+    if default_level >= 3:
+        return {
+            "discord_id": did,
+            "default_rank_level": 3,
+            "permission_override_level": None,
+            "permission_is_default": True,
+            "rank_level": 3,
+            "permission_level_name": _shop_permission_level_name(3),
+        }
+    override_level = get_shop_admin_permission_override(did) if did else None
+    if override_level is not None:
+        override_level = _clamp_shop_admin_level(override_level)
+    approved_level = get_approved_privilege_level(did) if did else 0
+    effective_level, override_level = _effective_shop_admin_level_from_parts(
+        default_level,
+        override_level=override_level,
+        approved_level=approved_level,
+    )
+    return {
+        "discord_id": did,
+        "default_rank_level": default_level,
+        "permission_override_level": override_level,
+        "permission_is_default": override_level is None,
+        "rank_level": effective_level,
+        "permission_level_name": _shop_permission_level_name(effective_level),
+    }
 
 def _fetch_target_roles(target_uuid: str) -> set | None:
     """Resolve a MC UUID to a set of Discord role IDs, or None if unresolvable."""
@@ -3152,6 +3310,107 @@ def admin_shop_ep_adjust(uuid):
     actor = user.get("nick") or user.get("username", "")
     result = admin_adjust_ep(uuid, amount, ep_type, reason, actor)
     return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/admin/shop/users/<discord_id>/permissions", methods=["POST"])
+@rate_limit(10)
+def admin_shop_set_user_permissions(discord_id):
+    """Set or reset a user's shop-admin permission level (OWNER / Parliament only).
+
+    Body:
+      reset: true  -> clear override and restore the default Discord-derived level
+      level: 0|1|2 -> set an explicit override (None/Chief/Parliament)
+
+    Managers may only assign levels strictly below their own effective level.
+    """
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="users",
+        maintenance_action="users_edit",
+    )
+    if err:
+        return err
+    if not is_parliament and not _is_owner_user(user):
+        return jsonify({"error": "Only OWNER and Parliament can manage permissions"}), 403
+
+    target_discord_id = str(discord_id or "").strip()
+    if not target_discord_id:
+        return jsonify({"error": "Discord ID is required"}), 400
+
+    actor_discord_id = str(user.get("id") or "")
+    if actor_discord_id and actor_discord_id == target_discord_id:
+        return jsonify({"error": "You cannot change your own permission level"}), 403
+
+    actor_level = _actor_effective_shop_level(user)
+    if actor_level < 2:
+        return jsonify({"error": "Only OWNER and Parliament can manage permissions"}), 403
+
+    target_snap = _target_permission_snapshot(target_discord_id)
+    target_default = int(target_snap.get("default_rank_level") or 0)
+    target_effective = int(target_snap.get("rank_level") or 0)
+    if target_default >= 3 or target_effective >= 3:
+        return jsonify({"error": "Cannot change OWNER permissions"}), 403
+    if target_effective >= actor_level:
+        return jsonify({"error": "Cannot modify permissions for a user at your rank or above"}), 403
+
+    body = request.get_json(silent=True) or {}
+    do_reset = bool(body.get("reset"))
+    actor = user.get("nick") or user.get("username", "")
+    target_username = (body.get("username") or "").strip()
+    if not target_username:
+        for u in admin_get_users():
+            if str(u.get("discord_id") or "") == target_discord_id:
+                target_username = u.get("username") or target_discord_id
+                break
+        if not target_username:
+            target_username = target_discord_id
+
+    max_assignable = max(0, actor_level - 1)
+
+    if do_reset:
+        # Resetting restores the Discord default; still require that default is assignable
+        # so managers cannot "reset" someone into a higher tier than they can grant.
+        if target_default > max_assignable:
+            return jsonify({
+                "error": f"Cannot reset to default level ({_shop_permission_level_name(target_default)}) "
+                         f"because it exceeds the highest level you can assign "
+                         f"({_shop_permission_level_name(max_assignable)})"
+            }), 403
+        result = reset_shop_admin_permission_override(target_discord_id, target_username, actor)
+        if not result.get("ok"):
+            return jsonify(result), 400
+        snap = _target_permission_snapshot(target_discord_id)
+        return jsonify({"ok": True, "reset": True, **snap})
+
+    if "level" not in body:
+        return jsonify({"error": "level or reset is required"}), 400
+    try:
+        requested_level = int(body.get("level"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "level must be an integer"}), 400
+    if requested_level < 0 or requested_level > 2:
+        return jsonify({"error": "level must be 0 (None), 1 (Chief), or 2 (Parliament)"}), 400
+    if requested_level > max_assignable:
+        return jsonify({
+            "error": f"You can only assign up to {_shop_permission_level_name(max_assignable)} "
+                     f"(your level minus one)"
+        }), 403
+
+    # Setting the level equal to the user's default is treated as a reset.
+    if requested_level == target_default:
+        result = reset_shop_admin_permission_override(target_discord_id, target_username, actor)
+        if not result.get("ok"):
+            return jsonify(result), 400
+        snap = _target_permission_snapshot(target_discord_id)
+        return jsonify({"ok": True, "reset": True, **snap})
+
+    result = set_shop_admin_permission_override(
+        target_discord_id, target_username, requested_level, actor
+    )
+    if not result.get("ok"):
+        return jsonify(result), 400
+    snap = _target_permission_snapshot(target_discord_id)
+    return jsonify({"ok": True, "reset": False, **snap})
 
 
 @app.route("/api/admin/shop/config")

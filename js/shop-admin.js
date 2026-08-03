@@ -111,6 +111,7 @@
     dash:    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>',
     chevron: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>',
     gear:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>',
+    userAdmin: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22.3,16.7l1.4-1.4L20,11.6l-5.8,5.8c-0.5-0.3-1.1-0.4-1.7-0.4C10.6,17,9,18.6,9,20.5s1.6,3.5,3.5,3.5s3.5-1.6,3.5-3.5 c0-0.6-0.2-1.2-0.4-1.7l1.9-1.9l2.3,2.3l1.4-1.4l-2.3-2.3l1.1-1.1L22.3,16.7z M12.5,22c-0.8,0-1.5-0.7-1.5-1.5s0.7-1.5,1.5-1.5 s1.5,0.7,1.5,1.5S13.3,22,12.5,22z"/><path d="M2,19c0-3.9,3.1-7,7-7c2,0,3.9,0.9,5.3,2.4l1.5-1.3c-0.9-1-1.9-1.8-3.1-2.3C14.1,9.7,15,7.9,15,6c0-3.3-2.7-6-6-6 S3,2.7,3,6c0,1.9,0.9,3.7,2.4,4.8C2.2,12.2,0,15.3,0,19v5h8v-2H2V19z M5,6c0-2.2,1.8-4,4-4s4,1.8,4,4s-1.8,4-4,4S5,8.2,5,6z"/></svg>',
   };
 
   function esc(s) {
@@ -4012,6 +4013,8 @@
     privilege_approval_created: 'Privilege Approval Created',
     privilege_approved: 'Privilege Approved',
     privilege_rejected: 'Privilege Rejected',
+    shop_permission_level_set: 'Shop Permission Set',
+    shop_permission_level_reset: 'Shop Permission Reset',
   };
 
   var _ACTION_TYPES = Object.keys(_ACTION_LABELS);
@@ -4158,6 +4161,13 @@
       if (d.level_name) return 'Level: ' + esc(d.level_name);
       if (d.level != null) return 'Level: ' + esc(String(d.level));
       return '\u2014';
+    }
+    if (a === 'shop_permission_level_set') {
+      var _setLvl = d.level_name || _permissionLevelName(d.level);
+      return 'Level: ' + esc(_setLvl);
+    }
+    if (a === 'shop_permission_level_reset') {
+      return 'Reset to default';
     }
     if (a === 'item_edited') {
       if (d.changes) return _fmtItemDiff(d.changes);
@@ -4628,6 +4638,61 @@
   var _usersOpenUuid = null;
   var _usersCartOpen = {};
   var _actorRankLevel = 0;
+  var _canManagePermissions = false;
+  var _maxAssignableLevel = 0;
+  var _PERM_LEVEL_NAMES = { 0: 'None', 1: 'Chief', 2: 'Parliament', 3: 'Owner' };
+
+  function _permissionLevelName(level) {
+    var n = parseInt(level, 10);
+    if (isNaN(n)) n = 0;
+    return _PERM_LEVEL_NAMES[n] || ('Level ' + n);
+  }
+
+  /* Privileges column labels: Default / Chief / Parliament / Owner */
+  function _privilegeDisplayName(level) {
+    var n = parseInt(level, 10);
+    if (isNaN(n) || n <= 0) return 'Default';
+    if (n >= 3) return 'Owner';
+    if (n >= 2) return 'Parliament';
+    return 'Chief';
+  }
+
+  function _userDefaultRankLevel(u) {
+    if (!u) return 0;
+    if (u.default_rank_level != null) return parseInt(u.default_rank_level, 10) || 0;
+    return parseInt(u.rank_level, 10) || 0;
+  }
+
+  function _userEffectiveRankLevel(u) {
+    if (!u) return 0;
+    if (!_userPermissionIsDefault(u) && u.permission_override_level != null && u.permission_override_level !== '') {
+      var ov = parseInt(u.permission_override_level, 10);
+      return isNaN(ov) ? 0 : ov;
+    }
+    if (u.rank_level != null && u.rank_level !== '') {
+      var rl = parseInt(u.rank_level, 10);
+      return isNaN(rl) ? 0 : rl;
+    }
+    return _userDefaultRankLevel(u);
+  }
+
+  function _userPermissionIsDefault(u) {
+    if (!u) return true;
+    if (typeof u.permission_is_default === 'boolean') return u.permission_is_default;
+    return u.permission_override_level == null || u.permission_override_level === '';
+  }
+
+  function _canEditUserPermissions(u) {
+    if (!_canManagePermissions) return false;
+    if (!u || !u.discord_id) return false;
+    var actorDiscordId = (window.state && window.state.user) ? window.state.user.id : null;
+    if (actorDiscordId && u.discord_id === actorDiscordId) return false;
+    var effective = _userEffectiveRankLevel(u);
+    var def = _userDefaultRankLevel(u);
+    if (effective >= 3 || def >= 3) return false;
+    if (effective >= _actorRankLevel) return false;
+    return true;
+  }
 
   function fetchUsers(cb, forceRefresh) {
     var url = '/api/admin/shop/users' + (forceRefresh ? '?refresh=true' : '');
@@ -4637,6 +4702,13 @@
         if (d && d.users) {
           _users = d.users;
           _actorRankLevel = d.actor_rank_level || 0;
+          _canManagePermissions = !!(d.can_manage_permissions || _actorRankLevel >= 2);
+          if (d.max_assignable_level != null) {
+            _maxAssignableLevel = parseInt(d.max_assignable_level, 10);
+            if (isNaN(_maxAssignableLevel)) _maxAssignableLevel = Math.max(0, _actorRankLevel - 1);
+          } else {
+            _maxAssignableLevel = Math.max(0, _actorRankLevel - 1);
+          }
         } else if (Array.isArray(d)) {
           _users = d;
         }
@@ -4737,13 +4809,23 @@
     /* Table */
     html += '<div class="sa-table su-table">';
     html += '<div class="sa-row sa-header su-row">';
-    html += '<span></span><span>User</span><span>EP Balance</span><span>Orders</span><span>Bids</span><span>Donations</span><span>Last Activity</span><span>Status</span><span></span>';
+    html += '<span></span><span>User</span><span>EP Balance</span><span>Orders</span><span>Bids</span><span>Donations</span><span>Last Activity</span><span>Status</span><span>Privileges</span><span></span>';
     html += '</div>';
 
     page.forEach(function (u) {
       var bal = u.balance || {};
       var active = _isUserActive(u);
       var isOpen = _usersOpenUuid === u.uuid;
+      var effectiveLevel = _userEffectiveRankLevel(u);
+      var isDefaultPerm = _userPermissionIsDefault(u);
+      var canEditPerms = _canEditUserPermissions(u);
+      var privName = _privilegeDisplayName(effectiveLevel);
+      var privCls = 'su-status';
+      if (effectiveLevel >= 3) privCls += ' su-status--priv-owner';
+      else if (!isDefaultPerm) privCls += ' su-status--priv-override';
+      else if (effectiveLevel <= 0) privCls += ' su-status--priv-default';
+      else if (effectiveLevel >= 2) privCls += ' su-status--priv-parliament';
+      else privCls += ' su-status--priv-chief';
       html += '<div class="sa-row su-row su-user-row' + (isOpen ? ' su-row--open' : '') + '" data-uuid="' + esc(u.uuid) + '">';
       html += '<span class="su-expand" data-label="Details">' + _svg.chevron + '</span>';
       html += '<span class="su-user-cell" data-label="User">' +
@@ -4764,9 +4846,22 @@
         (u.admin_banned ? '<span class="su-status su-status--banned">Admin Ban</span>' : '') +
         '<span class="su-status su-status--' + (active ? 'active' : 'inactive') + '">' + (active ? 'Active' : 'Inactive') + '</span>' +
         '</span>';
-      /* Settings gear */
-      if (canManageUsers) {
-        html += '<span class="su-manage-cell" data-label="Manage"><button class="su-manage-btn" data-manage-uuid="' + esc(u.uuid) + '" title="Manage user">' + _svg.gear + '</button></span>';
+      html += '<span class="su-priv-cell" data-label="Privileges">' +
+        '<span class="' + privCls + '" title="' +
+          esc(isDefaultPerm ? 'Default privilege level' : 'Custom privilege override') + '">' +
+          esc(privName) +
+        '</span>' +
+      '</span>';
+      /* Action buttons: permissions (left) + manage gear */
+      if (canManageUsers || canEditPerms) {
+        html += '<span class="su-manage-cell" data-label="Manage">';
+        if (canEditPerms) {
+          html += '<button class="su-manage-btn su-perm-btn" data-perm-uuid="' + esc(u.uuid) + '" title="Edit permissions">' + _svg.userAdmin + '</button>';
+        }
+        if (canManageUsers) {
+          html += '<button class="su-manage-btn" data-manage-uuid="' + esc(u.uuid) + '" title="Manage user">' + _svg.gear + '</button>';
+        }
+        html += '</span>';
       } else {
         html += '<span class="su-manage-cell su-manage-cell--empty" data-label="Manage"></span>';
       }
@@ -4805,10 +4900,17 @@
       });
     });
     /* Bind: manage user gear buttons */
-    c.querySelectorAll('.su-manage-btn').forEach(function (btn) {
+    c.querySelectorAll('[data-manage-uuid]').forEach(function (btn) {
       btn.addEventListener('click', function (e) {
         e.stopPropagation();
         _openManageUserModal(btn.dataset.manageUuid, c);
+      });
+    });
+    /* Bind: edit permissions buttons */
+    c.querySelectorAll('[data-perm-uuid]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        _openPermissionsModal(btn.dataset.permUuid, c);
       });
     });
     /* Bind: pagination */
@@ -5150,13 +5252,294 @@
     return html;
   }
 
+  function _openPermissionsModal(uuid, contentEl) {
+    var user = (_users || []).find(function (u) { return u.uuid === uuid; });
+    if (!user || !_canEditUserPermissions(user)) return;
+    var name = user.username || uuid.substring(0, 8);
+    var defaultLevel = _userDefaultRankLevel(user);
+    var currentLevel = _userEffectiveRankLevel(user);
+    var isDefault = _userPermissionIsDefault(user);
+    var maxAssignable = Math.max(0, Math.min(2, _maxAssignableLevel));
+    var levelOptions = [
+      { value: 0, label: 'None', hint: 'No Manage Shop access' },
+      { value: 1, label: 'Chief', hint: 'Limited admin (stock, queue fulfill)' },
+      { value: 2, label: 'Parliament', hint: 'Full shop admin' },
+    ].filter(function (opt) { return opt.value <= maxAssignable; });
+
+    if (!levelOptions.length) {
+      showToast('\u26a0 You cannot assign any permission levels.', 'warn');
+      return;
+    }
+
+    var selectedLevel = currentLevel;
+    if (levelOptions.every(function (opt) { return opt.value !== selectedLevel; })) {
+      if (levelOptions.some(function (opt) { return opt.value === defaultLevel; })) {
+        selectedLevel = defaultLevel;
+      } else {
+        selectedLevel = levelOptions[levelOptions.length - 1].value;
+      }
+    }
+
+    function _sourceLabelFor(level, dirty) {
+      if (dirty) {
+        if (level === defaultLevel && isDefault) return 'Default (Discord roles)';
+        if (level === defaultLevel && !isDefault) return 'Reset to default (pending save)';
+        return 'Custom override (pending save)';
+      }
+      if (!isDefault) return 'Custom override';
+      if (currentLevel < defaultLevel) return 'Privilege not approved';
+      if (currentLevel === defaultLevel) return 'Default (Discord roles)';
+      return 'Default (Discord roles)';
+    }
+
+    var modal = document.getElementById('saModal');
+    var chipsHtml = levelOptions.map(function (opt) {
+      var isSel = opt.value === selectedLevel;
+      var isDef = opt.value === defaultLevel;
+      return '<button type="button" class="su-perm-chip' + (isSel ? ' active' : '') + (isDef ? ' su-perm-chip--default' : '') + '" data-perm-level="' + opt.value + '">' +
+        '<span class="su-perm-chip-label">' + esc(opt.label) + (isDef ? ' (default)' : '') + '</span>' +
+        '<span class="su-perm-chip-hint">' + esc(opt.hint) + '</span>' +
+      '</button>';
+    }).join('');
+
+    modal.innerHTML =
+      '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
+      '<div class="shop-modal-title">Edit permissions \u00b7 ' + esc(name) + '</div>' +
+      '<div class="shop-modal-body su-perm-body">' +
+        '<div class="su-manage-section">' +
+          '<div class="su-manage-section-title">Permission level</div>' +
+          '<div class="su-perm-summary">' +
+            '<div><span class="su-perm-summary-label">Current</span><strong id="suPermCurrentLabel">' + esc(_permissionLevelName(currentLevel)) + '</strong></div>' +
+            '<div><span class="su-perm-summary-label">Default</span><strong>' + esc(_permissionLevelName(defaultLevel)) + '</strong></div>' +
+            '<div><span class="su-perm-summary-label">Source</span><strong id="suPermSourceLabel">' + esc(_sourceLabelFor(currentLevel, false)) + '</strong></div>' +
+          '</div>' +
+          '<div class="su-perm-chips" id="suPermChips">' + chipsHtml + '</div>' +
+          '<div class="ie-hint">You can assign up to <strong>' + esc(_permissionLevelName(maxAssignable)) + '</strong> (your level minus one).</div>' +
+          '<div class="su-perm-warning su-perm-warning--hidden" id="suPermWarning">' +
+            _svg.warn +
+            '<span>This is not the user\'s default permission level. Confirm before applying a custom override.</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="shop-modal-actions su-perm-actions">' +
+        '<button class="shop-modal-btn shop-modal-btn--cancel" id="suPermReset" type="button" style="display:none">Reset to default</button>' +
+        '<button class="shop-modal-btn shop-modal-btn--confirm" id="suPermSave" type="button" style="display:none">Save</button>' +
+      '</div>';
+    document.getElementById('saModalBackdrop').classList.add('open');
+
+    var chipsEl = document.getElementById('suPermChips');
+    var warnEl = document.getElementById('suPermWarning');
+    var saveBtn = document.getElementById('suPermSave');
+    var resetBtn = document.getElementById('suPermReset');
+    var currentLabelEl = document.getElementById('suPermCurrentLabel');
+    var sourceLabelEl = document.getElementById('suPermSourceLabel');
+    var pendingLevel = selectedLevel;
+
+    function _selectionChanged() {
+      return pendingLevel !== currentLevel;
+    }
+
+    function _syncPermUi() {
+      chipsEl.querySelectorAll('.su-perm-chip').forEach(function (chip) {
+        var lvl = parseInt(chip.getAttribute('data-perm-level'), 10);
+        chip.classList.toggle('active', lvl === pendingLevel);
+      });
+      var dirty = _selectionChanged();
+      var showWarn = dirty && pendingLevel !== defaultLevel;
+      warnEl.classList.toggle('su-perm-warning--hidden', !showWarn);
+      if (currentLabelEl) {
+        currentLabelEl.textContent = dirty
+          ? _permissionLevelName(pendingLevel)
+          : _permissionLevelName(currentLevel);
+      }
+      if (sourceLabelEl) sourceLabelEl.textContent = _sourceLabelFor(pendingLevel, dirty);
+      // Only show Reset when there is a stored override to clear.
+      resetBtn.style.display = isDefault ? 'none' : '';
+      resetBtn.disabled = false;
+      saveBtn.style.display = dirty ? '' : 'none';
+      saveBtn.disabled = !dirty;
+    }
+
+    chipsEl.addEventListener('click', function (e) {
+      var chip = e.target.closest('.su-perm-chip');
+      if (!chip) return;
+      var lvl = parseInt(chip.getAttribute('data-perm-level'), 10);
+      if (isNaN(lvl) || lvl > maxAssignable) {
+        showToast('\u26a0 You can only assign up to ' + _permissionLevelName(maxAssignable) + '.', 'warn');
+        return;
+      }
+      pendingLevel = lvl;
+      _syncPermUi();
+    });
+
+    function _applyPermission(body) {
+      body = body || {};
+      body.username = user.username || '';
+      return apiPost('/api/admin/shop/users/' + encodeURIComponent(user.discord_id) + '/permissions', body)
+        .then(function (res) {
+          if (res.ok && res.data && res.data.ok) {
+            user.default_rank_level = res.data.default_rank_level != null ? res.data.default_rank_level : defaultLevel;
+            user.permission_override_level = res.data.permission_override_level;
+            user.permission_is_default = !!res.data.permission_is_default;
+            user.rank_level = res.data.rank_level != null ? res.data.rank_level : pendingLevel;
+            user.permission_level_name = res.data.permission_level_name || _permissionLevelName(user.rank_level);
+            showToast('\u2713 Permissions updated for ' + name + '.', 'success');
+            closeModal();
+            _closePermConfirmOverlay();
+            _renderUsersContent(contentEl);
+            return true;
+          }
+          showToast('\u26a0 ' + ((res.data && res.data.error) || 'Failed to update permissions'), 'warn');
+          return false;
+        })
+        .catch(function () {
+          showToast('\u26a0 Network error', 'warn');
+          return false;
+        });
+    }
+
+    function _closePermConfirmOverlay() {
+      var ob = document.getElementById('saOverlayBackdrop');
+      var om = document.getElementById('saOverlay');
+      if (ob) ob.classList.remove('open');
+      if (om) om.innerHTML = '';
+    }
+
+    function _restorePermsModal() {
+      _closePermConfirmOverlay();
+      document.getElementById('saModalBackdrop').classList.add('open');
+      _syncPermUi();
+    }
+
+    function _openPermConfirm(opts) {
+      // Hide edit-permissions modal and show a custom confirm on the overlay.
+      document.getElementById('saModalBackdrop').classList.remove('open');
+      var overlay = document.getElementById('saOverlay');
+      var backdrop = document.getElementById('saOverlayBackdrop');
+      if (!overlay || !backdrop) return;
+      overlay.innerHTML =
+        '<button class="modal-close" aria-label="Close" id="suPermConfirmClose">' + _svg.close + '</button>' +
+        '<div class="shop-modal-title">' + esc(opts.title) + '</div>' +
+        '<div class="shop-modal-body">' +
+          '<p>' + opts.bodyHtml + '</p>' +
+        '</div>' +
+        '<div class="shop-modal-actions">' +
+          '<button class="shop-modal-btn shop-modal-btn--cancel" id="suPermConfirmCancel" type="button">Cancel</button>' +
+          '<button class="shop-modal-btn shop-modal-btn--confirm" id="suPermConfirmOk" type="button"' +
+            (opts.danger ? ' style="background:var(--danger);color:#fff"' : '') + '>' +
+            esc(opts.confirmLabel || 'Confirm') +
+          '</button>' +
+        '</div>';
+      backdrop.classList.add('open');
+
+      function _onCancel() {
+        _restorePermsModal();
+      }
+      var cancelBtn = document.getElementById('suPermConfirmCancel');
+      var closeBtn = document.getElementById('suPermConfirmClose');
+      var okBtn = document.getElementById('suPermConfirmOk');
+      if (cancelBtn) cancelBtn.addEventListener('click', _onCancel);
+      if (closeBtn) closeBtn.addEventListener('click', _onCancel);
+      backdrop.onclick = function (e) {
+        if (e.target === backdrop) _onCancel();
+      };
+      if (okBtn) {
+        okBtn.addEventListener('click', function () {
+          okBtn.disabled = true;
+          okBtn.textContent = 'Saving\u2026';
+          if (cancelBtn) cancelBtn.disabled = true;
+          opts.onConfirm().then(function (ok) {
+            if (!ok) {
+              // Failed: put the edit modal back exactly as it was.
+              _restorePermsModal();
+            }
+          });
+        });
+      }
+    }
+
+    saveBtn.addEventListener('click', function () {
+      if (!_selectionChanged()) return;
+      if (pendingLevel > maxAssignable) {
+        showToast('\u26a0 You can only assign up to ' + _permissionLevelName(maxAssignable) + '.', 'warn');
+        return;
+      }
+      if (pendingLevel === defaultLevel) {
+        if (!isDefault) {
+          saveBtn.disabled = true;
+          saveBtn.style.display = '';
+          saveBtn.textContent = 'Saving\u2026';
+          _applyPermission({ reset: true }).then(function (ok) {
+            if (!ok) {
+              saveBtn.textContent = 'Save';
+              _syncPermUi();
+            }
+          });
+          return;
+        }
+        if (currentLevel < defaultLevel) {
+          _openPermConfirm({
+            title: 'Confirm permission change',
+            bodyHtml:
+              '<strong>' + esc(name) + '</strong> is currently ' +
+              '<strong>' + esc(_permissionLevelName(currentLevel)) + '</strong> because their privilege ' +
+              'was not approved. Set them to <strong>' + esc(_permissionLevelName(pendingLevel)) + '</strong> ' +
+              'as a custom override?',
+            confirmLabel: 'Confirm',
+            onConfirm: function () {
+              return _applyPermission({ level: pendingLevel });
+            },
+          });
+          return;
+        }
+        return;
+      }
+      _openPermConfirm({
+        title: 'Confirm permission change',
+        bodyHtml:
+          'You are about to set <strong>' + esc(name) + '</strong> to ' +
+          '<strong>' + esc(_permissionLevelName(pendingLevel)) + '</strong>, which is not their default level ' +
+          '(<strong>' + esc(_permissionLevelName(defaultLevel)) + '</strong>).' +
+          '<br><br>Apply this custom permission override?',
+        confirmLabel: 'Confirm',
+        onConfirm: function () {
+          return _applyPermission({ level: pendingLevel });
+        },
+      });
+    });
+
+    resetBtn.addEventListener('click', function () {
+      if (isDefault) return;
+      if (defaultLevel > maxAssignable) {
+        showToast(
+          '\u26a0 Cannot reset to default (' + _permissionLevelName(defaultLevel) +
+          ') because it exceeds the highest level you can assign.',
+          'warn'
+        );
+        return;
+      }
+      _openPermConfirm({
+        title: 'Reset to default',
+        bodyHtml:
+          'Reset <strong>' + esc(name) + '</strong> to their default privilege level ' +
+          '(<strong>' + esc(_permissionLevelName(defaultLevel)) + '</strong>)?',
+        confirmLabel: 'Reset',
+        onConfirm: function () {
+          return _applyPermission({ reset: true });
+        },
+      });
+    });
+
+    _syncPermUi();
+  }
+
   function _openManageUserModal(uuid, contentEl) {
     var user = (_users || []).find(function (u) { return u.uuid === uuid; });
     if (!user) return;
     var name = user.username || uuid.substring(0, 8);
     var _actorDiscordId = (window.state && window.state.user) ? window.state.user.id : null;
     var _isSelf = user.discord_id && _actorDiscordId && user.discord_id === _actorDiscordId;
-    var _isLowerRank = (user.rank_level || 0) < _actorRankLevel;
+    var _isLowerRank = _userEffectiveRankLevel(user) < _actorRankLevel;
     var _canBan = !_isSelf && _isLowerRank;
     var _canManageCreator = !!(
       user.discord_id &&
@@ -5255,7 +5638,7 @@
             'style="color:var(--danger);border-color:var(--danger)">Ban from shop</button>';
         }
         /* Admin ban / unban (only for shop admins) */
-        if ((user.rank_level || 0) > 0 && user.discord_id) {
+        if (_userEffectiveRankLevel(user) > 0 && user.discord_id) {
           if (user.admin_banned) {
             html += '<button class="shop-modal-btn shop-modal-btn--confirm su-manage-action-btn" id="suMgAdminUnban">Unban from manage shop</button>';
           } else {

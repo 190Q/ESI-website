@@ -2879,6 +2879,15 @@ def _ensure_privilege_tables(conn: sqlite3.Connection) -> None:
             resolved_by     TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS shop_admin_permission_overrides (
+            discord_id      TEXT PRIMARY KEY,
+            username        TEXT NOT NULL DEFAULT '',
+            override_level  INTEGER NOT NULL,
+            updated_at      TEXT NOT NULL,
+            updated_by      TEXT
+        )
+    """)
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_pa_discord ON privilege_approvals (discord_id)"
     )
@@ -2906,6 +2915,153 @@ def get_approved_privilege_level(discord_id: str) -> int:
         return int(row[0]) if row else 0
     except sqlite3.Error:
         return 0
+
+
+def get_approved_privilege_levels() -> dict:
+    """Return {discord_id: approved_level} for all owner-approved privilege rows."""
+    if not os.path.isfile(_SHOP_DB):
+        return {}
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_privilege_tables(conn)
+        rows = conn.execute(
+            "SELECT discord_id, approved_level FROM approved_privilege_levels"
+        ).fetchall()
+        conn.close()
+        result = {}
+        for r in rows:
+            if not r or not r[0]:
+                continue
+            try:
+                result[str(r[0])] = max(0, min(2, int(r[1])))
+            except (TypeError, ValueError):
+                result[str(r[0])] = 0
+        return result
+    except sqlite3.Error:
+        return {}
+
+
+def get_shop_admin_permission_override(discord_id: str) -> int | None:
+    """Return an explicit shop-admin permission override, if one exists.
+
+    None means "use the user's default Discord/OWNER-derived level".
+    0 = no shop-admin access, 1 = chief, 2 = parliament.
+    """
+    if not discord_id or not os.path.isfile(_SHOP_DB):
+        return None
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_privilege_tables(conn)
+        row = conn.execute(
+            "SELECT override_level FROM shop_admin_permission_overrides WHERE discord_id = ?",
+            (discord_id,),
+        ).fetchone()
+        conn.close()
+        return int(row[0]) if row else None
+    except sqlite3.Error:
+        return None
+
+
+def get_shop_admin_permission_overrides() -> dict:
+    """Return {discord_id: override_level} for all explicit permission overrides."""
+    if not os.path.isfile(_SHOP_DB):
+        return {}
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_privilege_tables(conn)
+        rows = conn.execute(
+            "SELECT discord_id, override_level FROM shop_admin_permission_overrides"
+        ).fetchall()
+        conn.close()
+        return {str(r[0]): int(r[1]) for r in rows if r and r[0]}
+    except sqlite3.Error:
+        return {}
+
+
+def set_shop_admin_permission_override(
+    discord_id: str,
+    username: str,
+    override_level: int,
+    actor: str,
+) -> dict:
+    """Set an explicit shop-admin permission override for a user."""
+    if not discord_id:
+        return {"error": "Discord ID is required"}
+    try:
+        level = int(override_level)
+    except (TypeError, ValueError):
+        return {"error": "Permission level must be an integer"}
+    if level < 0 or level > 2:
+        return {"error": "Permission level must be between 0 and 2"}
+    if not os.path.isfile(_SHOP_DB):
+        return {"error": "Shop database unavailable"}
+    now_iso = _now_iso()
+    username = (username or "").strip()[:80]
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_privilege_tables(conn)
+        conn.execute(
+            "INSERT INTO shop_admin_permission_overrides "
+            "(discord_id, username, override_level, updated_at, updated_by) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(discord_id) DO UPDATE SET "
+            "  username = excluded.username, "
+            "  override_level = excluded.override_level, "
+            "  updated_at = excluded.updated_at, "
+            "  updated_by = excluded.updated_by",
+            (discord_id, username, level, now_iso, actor),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"error": f"Database error: {exc}"}
+    _log_admin_action(
+        actor,
+        "shop_permission_level_set",
+        discord_id,
+        {"discord_id": discord_id, "username": username, "level": level},
+    )
+    _invalidate_users_cache()
+    return {
+        "ok": True,
+        "discord_id": discord_id,
+        "username": username,
+        "override_level": level,
+        "updated_at": now_iso,
+    }
+
+
+def reset_shop_admin_permission_override(discord_id: str, username: str, actor: str) -> dict:
+    """Clear an explicit shop-admin permission override."""
+    if not discord_id:
+        return {"error": "Discord ID is required"}
+    if not os.path.isfile(_SHOP_DB):
+        return {"error": "Shop database unavailable"}
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _ensure_privilege_tables(conn)
+        conn.execute(
+            "DELETE FROM shop_admin_permission_overrides WHERE discord_id = ?",
+            (discord_id,),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.Error as exc:
+        return {"error": f"Database error: {exc}"}
+    username = (username or "").strip()[:80]
+    _log_admin_action(
+        actor,
+        "shop_permission_level_reset",
+        discord_id,
+        {"discord_id": discord_id, "username": username},
+    )
+    _invalidate_users_cache()
+    return {"ok": True, "discord_id": discord_id, "reset": True}
 
 
 def ensure_privilege_approval(
