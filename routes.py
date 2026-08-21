@@ -5345,6 +5345,580 @@ def guild_activity_bulk():
     return _activity_rate_response(_make)
 
 
+# Canonical player metrics available on the activity cache (plus common aliases).
+_METRIC_SINCE_JOIN_KEYS = list(PLAYER_BULK_METRIC_KEYS)
+_METRIC_SINCE_JOIN_ALIASES = {
+    "guild_raids": "guildRaids",
+    "guild-raids": "guildRaids",
+    "guildraid": "guildRaids",
+    "guildraids": "guildRaids",
+    "mobs_killed": "mobsKilled",
+    "mobs-killed": "mobsKilled",
+    "mobskilled": "mobsKilled",
+    "chests_found": "chestsFound",
+    "chests-found": "chestsFound",
+    "chestsfound": "chestsFound",
+    "quests_done": "questsDone",
+    "quests-done": "questsDone",
+    "questsdone": "questsDone",
+    "quests": "questsDone",
+    "total_level": "totalLevel",
+    "total-level": "totalLevel",
+    "totallevel": "totalLevel",
+    "level": "totalLevel",
+    "content_done": "contentDone",
+    "content-done": "contentDone",
+    "contentdone": "contentDone",
+    "world_events": "worldEvents",
+    "world-events": "worldEvents",
+    "worldevents": "worldEvents",
+    "play_time": "playtime",
+    "play-time": "playtime",
+}
+
+
+def _normalize_metric_since_join_key(raw: str) -> str | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if text in _METRIC_SINCE_JOIN_KEYS:
+        return text
+    # camelCase exact (case-sensitive first), then case-insensitive
+    lower_map = {k.lower(): k for k in _METRIC_SINCE_JOIN_KEYS}
+    hit = lower_map.get(text.lower())
+    if hit:
+        return hit
+    alias = _METRIC_SINCE_JOIN_ALIASES.get(text.lower().replace(" ", ""))
+    if alias:
+        return alias
+    # snake_case / kebab-case -> camelCase guess
+    cleaned = text.replace("-", "_").replace(" ", "_")
+    parts = [p for p in cleaned.split("_") if p]
+    if parts:
+        camel = parts[0].lower() + "".join(p[:1].upper() + p[1:].lower() for p in parts[1:])
+        if camel in _METRIC_SINCE_JOIN_KEYS:
+            return camel
+        hit = lower_map.get(camel.lower())
+        if hit:
+            return hit
+    return None
+
+
+def _parse_iso_datetime(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        # Support bare dates and Z-suffixed timestamps
+        if len(text) == 10 and text[4] == "-" and text[7] == "-":
+            text = text + "T00:00:00+00:00"
+        dt = _dt.fromisoformat(text.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_tz.utc)
+        return dt.astimezone(_tz.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _metric_day_start_utc(value) -> _dt | None:
+    """Normalize a date/timestamp string to a UTC midnight boundary."""
+    dt = _parse_iso_datetime(value)
+    if dt is None:
+        # metricDates are plain YYYY-MM-DD
+        text = str(value or "").strip()
+        if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+            try:
+                return _dt.fromisoformat(text[:10] + "T00:00:00+00:00")
+            except ValueError:
+                return None
+        return None
+    return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _load_current_guild_join_dates() -> dict[str, str]:
+    """Return {username_lower: joined_iso} for current ESI members.
+
+    Prefers the live Wynn guild roster join times, then falls back to
+    tracked_guild history (same sources used by guild statistics).
+    """
+    joined_by_user: dict[str, str] = {}
+
+    try:
+        guild = cached_get(f"{WYNN_BASE}/guild/prefix/ESI")
+        members_blob = (guild or {}).get("members") if isinstance(guild, dict) else None
+        if isinstance(members_blob, dict):
+            for _rank, group in members_blob.items():
+                if not isinstance(group, dict):
+                    continue
+                # Skip non-member metadata keys if present
+                if _rank in ("total", "totalMembers"):
+                    continue
+                for uname, info in group.items():
+                    if not isinstance(info, dict):
+                        continue
+                    joined = info.get("joined")
+                    ulow = str(uname or "").strip().lower()
+                    if ulow and joined:
+                        joined_by_user[ulow] = str(joined)
+    except Exception:
+        pass
+
+    tracked = _load_json_file(_TRACKED_GUILD_JSON) or {}
+    prev_members = ((tracked.get("previous_data") or {}).get("members") or {})
+    if isinstance(prev_members, dict):
+        for rank_list in prev_members.values():
+            if not isinstance(rank_list, list):
+                continue
+            for entry in rank_list:
+                if not isinstance(entry, dict):
+                    continue
+                joined = entry.get("joined")
+                uname = str(entry.get("username") or "").strip().lower()
+                if uname and joined and uname not in joined_by_user:
+                    joined_by_user[uname] = str(joined)
+
+    member_history = tracked.get("member_history") or {}
+    if isinstance(member_history, dict):
+        for entry in member_history.values():
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("left"):
+                continue
+            joined = entry.get("joined")
+            uname = str(entry.get("username") or "").strip().lower()
+            if uname and joined and uname not in joined_by_user:
+                joined_by_user[uname] = str(joined)
+
+    return joined_by_user
+
+
+# player_stats / guild_raid_stats column mapping for absolute counters
+_METRIC_SINCE_JOIN_SQL = {
+    "wars": "wars",
+    "mobsKilled": "mobs_killed",
+    "chestsFound": "chests_found",
+    "totalLevel": "total_level",
+    "questsDone": "completed_quests",
+    "dungeons": "dungeons_total",
+    "raids": "raids_total",
+    "worldEvents": "world_events",
+    "caves": "caves",
+    # guildRaids -> guild_raid_stats.total_graids (special-cased)
+    # playtime  -> playtime_tracking playtime.playtime_seconds (special-cased)
+}
+
+
+def _metric_tracking_day_index(folder: str, prefix: str) -> list[tuple]:
+    """Return sorted [(date, dir_path)] for api_/playtime_ day folders."""
+    from datetime import datetime as _hist_dt
+
+    out = []
+    if not os.path.isdir(folder):
+        return out
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return out
+    for name in names:
+        if not name.startswith(prefix):
+            continue
+        path = os.path.join(folder, name)
+        if not os.path.isdir(path):
+            continue
+        try:
+            day = _hist_dt.strptime(name[len(prefix):], "%d-%m-%Y").date()
+        except ValueError:
+            continue
+        out.append((day, path))
+    out.sort(key=lambda x: x[0])
+    return out
+
+
+def _metric_pick_day_db(day_dir: str) -> str | None:
+    try:
+        files = sorted(f for f in os.listdir(day_dir) if f.endswith(".db"))
+    except OSError:
+        return None
+    if not files:
+        return None
+    # Prefer the newest snapshot of that day
+    return os.path.join(day_dir, files[-1])
+
+
+def _metric_find_baseline_db(day_index: list[tuple], join_day) -> tuple | None:
+    """Pick the snapshot DB for the join day, else the last day before it.
+
+    Returns (date, db_path) or None if no snapshot exists at/before join_day.
+    """
+    if not day_index or join_day is None:
+        return None
+    # day_index is sorted ascending; scan from the end for the latest <= join_day
+    chosen = None
+    for day, day_dir in day_index:
+        if day <= join_day:
+            chosen = (day, day_dir)
+        else:
+            break
+    if chosen is None:
+        return None
+    db_path = _metric_pick_day_db(chosen[1])
+    if not db_path:
+        return None
+    return chosen[0], db_path
+
+
+def _metric_read_api_values(db_path: str, metric_key: str, usernames_lower: set[str]) -> dict:
+    """Read absolute metric values for the requested users from one api db."""
+    out = {}
+    if not db_path or not usernames_lower:
+        return out
+    try:
+        conn = _sqlite3.connect(db_path, timeout=5, check_same_thread=False)
+    except _sqlite3.Error:
+        return out
+    try:
+        if metric_key == "guildRaids":
+            try:
+                rows = conn.execute(
+                    "SELECT username, total_graids FROM guild_raid_stats"
+                ).fetchall()
+            except _sqlite3.OperationalError:
+                rows = []
+            for uname, total in rows:
+                ulow = (uname or "").strip().lower()
+                if ulow in usernames_lower:
+                    out[ulow] = int(_safe_number(total))
+
+            try:
+                for ulow, off in conn.execute(
+                    "SELECT LOWER(username), offset FROM graid_fault_offsets"
+                ).fetchall():
+                    if ulow not in out:
+                        continue
+                    off_n = _safe_number(off)
+                    total = out[ulow]
+                    if off_n > 0 and total > off_n:
+                        out[ulow] = max(0, int(total - off_n))
+                    else:
+                        out[ulow] = max(0, int(total))
+            except _sqlite3.OperationalError:
+                pass
+            return out
+
+        sql_col = _METRIC_SINCE_JOIN_SQL.get(metric_key)
+        if not sql_col:
+            return out
+        try:
+            rows = conn.execute(
+                f"SELECT username, {sql_col} FROM player_stats "
+                f"WHERE UPPER(COALESCE(guild_prefix, '')) = 'ESI'"
+            ).fetchall()
+        except _sqlite3.OperationalError:
+            return out
+        for uname, val in rows:
+            ulow = (uname or "").strip().lower()
+            if ulow in usernames_lower:
+                out[ulow] = int(_safe_number(val))
+        return out
+    finally:
+        conn.close()
+
+
+def _metric_read_playtime_values(db_path: str, usernames_lower: set[str]) -> dict:
+    """Read absolute playtime hours for the requested users from one playtime db."""
+    out = {}
+    if not db_path or not usernames_lower:
+        return out
+    try:
+        conn = _sqlite3.connect(db_path, timeout=5, check_same_thread=False)
+    except _sqlite3.Error:
+        return out
+    try:
+        try:
+            rows = conn.execute(
+                "SELECT username, playtime_seconds FROM playtime"
+            ).fetchall()
+        except _sqlite3.OperationalError:
+            return out
+        for uname, seconds in rows:
+            ulow = (uname or "").strip().lower()
+            if ulow in usernames_lower:
+                out[ulow] = round(float(_safe_number(seconds)) / 3600.0, 1)
+        return out
+    finally:
+        conn.close()
+
+
+def _metric_delta(latest_val, baseline_val, metric_key: str):
+    """latest - baseline, floored at 0. None baseline => treat as 0."""
+    latest_n = float(_safe_number(latest_val))
+    base_n = float(_safe_number(baseline_val)) if baseline_val is not None else 0.0
+    gained = max(0.0, latest_n - base_n)
+    if metric_key == "playtime":
+        return round(gained, 1)
+    return int(round(gained))
+
+
+@app.route("/api/guild/metrics-since-join")
+@app.route("/api/guild/metrics-since-join/<metric>")
+@rate_limit(5)
+def guild_metrics_since_join(metric: str | None = None):
+    """Per-member totals for one activity metric earned since guild join.
+
+    Path/query:
+      GET /api/guild/metrics-since-join/<metric>
+      GET /api/guild/metrics-since-join?metric=guildRaids
+
+    Optional:
+      joined_after / since - ISO timestamp or YYYY-MM-DD; only members who
+      joined on/after this time are included.
+
+    Metrics: playtime, wars, guildRaids, mobsKilled, chestsFound, questsDone,
+    totalLevel, dungeons, raids, worldEvents, caves.
+    """
+    from datetime import date as _date_cls
+    from concurrent.futures import ThreadPoolExecutor
+
+    raw_metric = metric if metric is not None else (
+        request.args.get("metric") or request.args.get("m") or ""
+    )
+    metric_key = _normalize_metric_since_join_key(raw_metric)
+    supported = [k for k in _METRIC_SINCE_JOIN_KEYS if k != "contentDone"]
+    if not metric_key or metric_key == "contentDone":
+        return jsonify({
+            "error": "metric is required" if not metric_key
+                     else "metric 'contentDone' is not supported for since-join totals",
+            "supported_metrics": supported,
+            "example": "/api/guild/metrics-since-join/guildRaids",
+        }), 400
+
+    joined_after_raw = (
+        request.args.get("joined_after")
+        or request.args.get("since")
+        or request.args.get("joinedSince")
+        or request.args.get("after")
+        or ""
+    ).strip() or None
+    joined_after_dt = _parse_iso_datetime(joined_after_raw) if joined_after_raw else None
+    if joined_after_raw and joined_after_dt is None:
+        return jsonify({
+            "error": "joined_after must be an ISO timestamp or YYYY-MM-DD date",
+            "received": joined_after_raw,
+        }), 400
+
+
+    join_dates = _load_current_guild_join_dates()
+
+    latest_api_db = _get_latest_api_db()
+    roster: dict[str, str] = {}  # ulow -> display username
+    if latest_api_db:
+        try:
+            conn = _sqlite3.connect(latest_api_db, timeout=5, check_same_thread=False)
+            try:
+                for row in conn.execute(
+                    "SELECT username FROM player_stats "
+                    "WHERE UPPER(COALESCE(guild_prefix, '')) = 'ESI'"
+                ).fetchall():
+                    uname = (row[0] or "").strip()
+                    if uname:
+                        roster[uname.lower()] = uname
+            finally:
+                conn.close()
+        except _sqlite3.Error:
+            roster = {}
+
+    # If api roster is empty, fall back to join-date keys only
+    if not roster:
+        for ulow, joined in (join_dates or {}).items():
+            roster[ulow] = ulow
+
+    selected: list[dict] = []
+    # each: {ulow, username, joined, join_day}
+    for ulow, username in roster.items():
+        joined = join_dates.get(ulow)
+        if not joined:
+            if joined_after_dt is not None:
+                continue
+            selected.append({
+                "ulow": ulow,
+                "username": username,
+                "joined": None,
+                "join_day": None,
+            })
+            continue
+
+        joined_dt = _parse_iso_datetime(joined)
+        if joined_after_dt is not None:
+            if joined_dt is None or joined_dt < joined_after_dt:
+                continue
+
+        join_day_dt = _metric_day_start_utc(joined)
+        join_day = join_day_dt.date() if join_day_dt is not None else None
+        selected.append({
+            "ulow": ulow,
+            "username": username,
+            "joined": joined,
+            "join_day": join_day,
+        })
+
+    if not selected:
+        return jsonify({
+            "ready": True,
+            "metric": metric_key,
+            "unit": "hours" if metric_key == "playtime" else "count",
+            "joined_after": joined_after_dt.isoformat() if joined_after_dt else None,
+            "dbs_loaded": 0,
+            "count": 0,
+            "members": [],
+        })
+
+    usernames_needed = {m["ulow"] for m in selected if m.get("joined")}
+    # Members without a join date cannot get a delta; emit null without DB work
+    no_join = [m for m in selected if not m.get("joined")]
+    with_join = [m for m in selected if m.get("joined")]
+
+    is_playtime = metric_key == "playtime"
+    if is_playtime:
+        track_folder = os.path.join(_ESI_BOT_DIR, "databases", "playtime_tracking")
+        prefix = "playtime_"
+    else:
+        track_folder = _API_TRACKING_DIR
+        prefix = "api_"
+
+    day_index = _metric_tracking_day_index(track_folder, prefix)
+    if not day_index:
+        return jsonify({
+            "ready": False,
+            "metric": metric_key,
+            "joined_after": joined_after_dt.isoformat() if joined_after_dt else None,
+            "error": "No tracking snapshots available",
+            "members": [],
+            "count": 0,
+        })
+
+    # Latest snapshot (always one DB)
+    latest_day, latest_dir = day_index[-1]
+    latest_db = _metric_pick_day_db(latest_dir)
+    if not latest_db:
+        return jsonify({
+            "ready": False,
+            "metric": metric_key,
+            "error": "Latest tracking snapshot unreadable",
+            "members": [],
+            "count": 0,
+        })
+
+    # join_day -> [members]; also track members whose join predates history
+    baseline_groups: dict = {}  # date -> list[member]
+    prehistory: list[dict] = []  # join before first snapshot
+    for m in with_join:
+        join_day = m.get("join_day")
+        if join_day is None:
+            prehistory.append(m)
+            continue
+        found = _metric_find_baseline_db(day_index, join_day)
+        if found is None:
+            prehistory.append(m)
+            continue
+        base_day, _base_db = found
+        baseline_groups.setdefault(base_day, []).append(m)
+
+    baseline_dbs: dict = {}  # date -> db_path
+    for base_day in baseline_groups.keys():
+        for day, day_dir in day_index:
+            if day == base_day:
+                dbp = _metric_pick_day_db(day_dir)
+                if dbp:
+                    baseline_dbs[base_day] = dbp
+                break
+
+    dbs_to_load = []
+    dbs_to_load.append(("latest", latest_db))
+    for base_day, dbp in baseline_dbs.items():
+        if os.path.normcase(os.path.abspath(dbp)) == os.path.normcase(os.path.abspath(latest_db)):
+            continue
+        dbs_to_load.append((base_day, dbp))
+
+    def _load_one(item):
+        key, path = item
+        if is_playtime:
+            vals = _metric_read_playtime_values(path, usernames_needed)
+        else:
+            vals = _metric_read_api_values(path, metric_key, usernames_needed)
+        return key, vals
+
+    loaded = {}
+    if dbs_to_load:
+        workers = min(8, max(1, len(dbs_to_load)))
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for key, vals in ex.map(_load_one, dbs_to_load):
+                loaded[key] = vals
+
+    latest_vals = loaded.get("latest") or {}
+    for base_day, dbp in baseline_dbs.items():
+        if base_day not in loaded:
+            if os.path.normcase(os.path.abspath(dbp)) == os.path.normcase(os.path.abspath(latest_db)):
+                loaded[base_day] = latest_vals
+
+    members_out = []
+
+    for m in no_join:
+        members_out.append({
+            "username": m["username"],
+            "joined": None,
+            "value": None,
+        })
+
+    # Pre-history joins: baseline unknown -> treat baseline as 0 against latest
+    for m in prehistory:
+        ulow = m["ulow"]
+        latest_v = latest_vals.get(ulow)
+        if latest_v is None:
+            value = 0.0 if is_playtime else 0
+        else:
+            value = _metric_delta(latest_v, 0, metric_key)
+        members_out.append({
+            "username": m["username"],
+            "joined": m["joined"],
+            "value": value,
+            "baseline_day": None,
+        })
+
+    for base_day, group in baseline_groups.items():
+        base_vals = loaded.get(base_day) or {}
+        for m in group:
+            ulow = m["ulow"]
+            latest_v = latest_vals.get(ulow)
+            base_v = base_vals.get(ulow)
+            if latest_v is None and base_v is None:
+                value = 0.0 if is_playtime else 0
+            else:
+                value = _metric_delta(latest_v, base_v, metric_key)
+            members_out.append({
+                "username": m["username"],
+                "joined": m["joined"],
+                "value": value,
+                "baseline_day": base_day.isoformat()
+                    if isinstance(base_day, _date_cls) else str(base_day),
+            })
+
+    def _sort_key(row):
+        v = row.get("value")
+        if v is None:
+            return (-1.0, str(row.get("username") or "").lower())
+        return (float(v), str(row.get("username") or "").lower())
+
+    members_out.sort(key=_sort_key, reverse=True)
+
+    return jsonify({
+        "metric": metric_key,
+        "joined_after": joined_after_dt.isoformat() if joined_after_dt else None,
+        "members": members_out,
+    })
+
+
 @app.route("/api/player/<username>/metrics-history")
 @rate_limit(10)
 def player_metrics_history(username: str):
