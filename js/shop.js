@@ -169,14 +169,46 @@
         '<div class="shop-maintenance-hero-text">' + esc(text) + '</div>' +
       '</div>';
   }
+  function _selectedVariant(item, variantIdx) {
+    if (variantIdx == null || !item || !item.variants) return null;
+    return item.variants[variantIdx] || null;
+  }
+  function _hasActiveCooldown(raw) {
+    if (raw == null || raw === '') return false;
+    var s = String(raw).trim().toLowerCase();
+    if (!s || s === 'none' || s === 'null') return false;
+    if (s === 'end_of_cycle') return true;
+    if (/^\d+c$/.test(s)) return true;
+    var days = parseInt(s, 10);
+    return !isNaN(days) && days > 0;
+  }
+  function _resolvedMaxQuantity(item, variantIdx) {
+    var v = _selectedVariant(item, variantIdx);
+    var mq = v ? v.max_quantity : (item ? item.max_quantity : null);
+    mq = parseInt(mq, 10);
+    if (isNaN(mq) || mq < 1) return 1;
+    return mq;
+  }
+  function _allowsMultiQuantity(item, variantIdx) {
+    if (!item) return false;
+    var v = _selectedVariant(item, variantIdx);
+    var mq = _resolvedMaxQuantity(item, variantIdx);
+    if (mq <= 1) return false;
+    if (v) {
+      var cd = (v.cooldown != null && v.cooldown !== '') ? v.cooldown : item.cooldown;
+      return !_hasActiveCooldown(cd);
+    }
+    return !!item.allow_multi_quantity;
+  }
   function _effectiveMaxQty(item, variantIdx) {
-    var v = (variantIdx != null && item.variants && item.variants[variantIdx]) ? item.variants[variantIdx] : null;
-    var mq = (v && v.max_quantity != null) ? v.max_quantity : (item.max_quantity || 999);
+    var v = _selectedVariant(item, variantIdx);
+    var mq = _allowsMultiQuantity(item, variantIdx) ? _resolvedMaxQuantity(item, variantIdx) : 1;
     var stock = (v && v.stock != null) ? v.stock : (item.stock != null ? item.stock : 999);
-    return Math.min(mq, stock);
+    if (stock == null || isNaN(stock)) stock = 999;
+    return Math.max(1, Math.min(mq, stock));
   }
   function _variantPrice(item, variantIdx) {
-    var v = (variantIdx != null && item.variants && item.variants[variantIdx]) ? item.variants[variantIdx] : null;
+    var v = _selectedVariant(item, variantIdx);
     return (v && v.price != null) ? v.price : item.price;
   }
   function _looksLikeComingSoon(msg) {
@@ -245,7 +277,7 @@
       if (isNaN(vi)) vi = null;
       var variants = item.variants || [];
       if (variants.length > 1 && (vi == null || vi < 0 || vi >= variants.length)) return;
-      var maxQ = item.allow_multi_quantity ? _effectiveMaxQty(item, vi) : 1;
+      var maxQ = _effectiveMaxQty(item, vi);
       var ce = { item: item, quantity: Math.max(1, Math.min(entry.quantity || 1, maxQ)) };
       if (vi != null) ce.variantIdx = vi;
       next[entry.item_id] = ce;
@@ -1105,7 +1137,7 @@
     } else if (item.stock != null && item.stock <= 0) { label = 'Out of Stock';
     } else { label = 'Add to Cart'; }
     var cartEntry = _cart[item.id];
-    if (item.allow_multi_quantity) {
+    if (_allowsMultiQuantity(item, cartEntry ? cartEntry.variantIdx : null)) {
       if (cartEntry) {
         var maxQ = _effectiveMaxQty(item, cartEntry.variantIdx);
         return '<div class="cart-stepper">' +
@@ -1562,7 +1594,7 @@
     html += '<div class="shop-modal-actions">';
     if (!cartEntry || disabled) {
       html += '<button class="shop-modal-btn shop-modal-btn--confirm" id="shopDetailAdd"' + (btnDisabled ? ' disabled' : '') + '>' + btnLabel + '</button>';
-    } else if (item.allow_multi_quantity) {
+    } else if (_allowsMultiQuantity(item, cartEntry ? cartEntry.variantIdx : _mSelIdx)) {
       var maxQ = _effectiveMaxQty(item, cartEntry ? cartEntry.variantIdx : _mSelIdx);
       html += '<div class="cart-stepper">' +
         '<button class="cart-step-btn" id="shopDetailDec">' + _svg.minus + '</button>' +
@@ -1892,8 +1924,8 @@
     html += '<div class="cart-items">';
     entries.forEach(function (entry) {
       var item    = entry.item;
-      var isMulti = item.allow_multi_quantity;
-      var maxQ    = isMulti ? _effectiveMaxQty(item, entry.variantIdx) : 1;
+      var isMulti = _allowsMultiQuantity(item, entry.variantIdx);
+      var maxQ    = _effectiveMaxQty(item, entry.variantIdx);
       html += '<div class="cart-row">';
       // Col 1: info
       var _cVariantIdx = entry.variantIdx;
