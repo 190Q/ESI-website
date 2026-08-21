@@ -209,16 +209,7 @@
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (data) {
           if (!data || !data.ok) return;
-          var itemMap = {};
-          (_binData.items || []).forEach(function (it) { itemMap[it.id] = it; });
-          _cart = {};
-          (data.items || []).forEach(function (entry) {
-            var item = itemMap[entry.item_id];
-            if (!item) return;
-            var maxQ = item.allow_multi_quantity
-              ? _effectiveMaxQty(item, entry.variant_index) : 1;
-            _cart[entry.item_id] = { item: item, quantity: Math.max(1, Math.min(entry.quantity, maxQ)) };
-          });
+          _applyPersistedCart(data.items || [], _binData.items || []);
           updateCartBadge();
         })
         .catch(function () {});
@@ -226,17 +217,50 @@
   } catch (e) { /* BroadcastChannel not available */ }
 
   /* Cart persistence */
+  function _isCartItemKey(id) {
+    return !!id && id.indexOf('__variantSel_') !== 0;
+  }
+  function _cartEntries() {
+    return Object.keys(_cart).filter(function (id) {
+      return _isCartItemKey(id) && _cart[id] && _cart[id].item;
+    }).map(function (id) { return _cart[id]; });
+  }
+  function _serializeCartItems() {
+    return _cartEntries().map(function (e) {
+      var o = { item_id: e.item.id, quantity: e.quantity };
+      if (e.variantIdx != null) o.variant_index = e.variantIdx;
+      return o;
+    });
+  }
+  function _applyPersistedCart(entries, binItems) {
+    var itemMap = {};
+    (binItems || []).forEach(function (it) { itemMap[it.id] = it; });
+    var next = {};
+    (entries || []).forEach(function (entry) {
+      if (!entry || !_isCartItemKey(entry.item_id)) return;
+      var item = itemMap[entry.item_id];
+      if (!item) return;
+      var vi = entry.variant_index;
+      if (vi != null) vi = parseInt(vi, 10);
+      if (isNaN(vi)) vi = null;
+      var variants = item.variants || [];
+      if (variants.length > 1 && (vi == null || vi < 0 || vi >= variants.length)) return;
+      var maxQ = item.allow_multi_quantity ? _effectiveMaxQty(item, vi) : 1;
+      var ce = { item: item, quantity: Math.max(1, Math.min(entry.quantity || 1, maxQ)) };
+      if (vi != null) ce.variantIdx = vi;
+      next[entry.item_id] = ce;
+    });
+    Object.keys(_cart).forEach(function (id) {
+      if (!_isCartItemKey(id)) next[id] = _cart[id];
+    });
+    _cart = next;
+  }
   function syncCart() {
     if (!_cartLoaded) return;
     if (_cartSyncTimer) clearTimeout(_cartSyncTimer);
     _cartSyncTimer = setTimeout(function () {
       _cartSyncTimer = null;
-      var items = Object.keys(_cart).map(function (id) {
-        var e = _cart[id];
-        var o = { item_id: id, quantity: e.quantity };
-        if (e.variantIdx != null) o.variant_index = e.variantIdx;
-        return o;
-      });
+      var items = _serializeCartItems();
       fetch('/api/shop/cart', {
         method: 'PUT', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -252,21 +276,8 @@
     fetch('/api/shop/cart', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
-        var itemMap = {};
-        (binItems || []).forEach(function (it) { itemMap[it.id] = it; });
         if (data && data.ok && data.items) {
-          _cart = {};
-          data.items.forEach(function (entry) {
-            var item = itemMap[entry.item_id];
-            if (!item) return;
-            // Multi-qty items: cap by max_quantity & stock; single-qty: always 1
-            var maxQ = item.allow_multi_quantity
-              ? _effectiveMaxQty(item, entry.variant_index)
-              : 1;
-            var ce = { item: item, quantity: Math.max(1, Math.min(entry.quantity, maxQ)) };
-            if (entry.variant_index != null) ce.variantIdx = entry.variant_index;
-            _cart[entry.item_id] = ce;
-          });
+          _applyPersistedCart(data.items, binItems || []);
         }
         _cartLoaded = true;
         var badge = document.getElementById('shopCartBadge');
@@ -280,7 +291,7 @@
 
   /* Cart helpers */
   function cartTotal() {
-    return Object.keys(_cart).reduce(function (n, id) { return n + _cart[id].quantity; }, 0);
+    return _cartEntries().reduce(function (n, e) { return n + (e.quantity || 0); }, 0);
   }
   function cartClear() { _cart = {}; updateCartBadge(); }
   function _debouncedRenderContent() {
@@ -1851,7 +1862,7 @@
     var modal = document.getElementById('shopModal');
     if (!modal) return;
     var bal     = _binData ? _binData.balance : null;
-    var entries = Object.keys(_cart).map(function (id) { return _cart[id]; });
+    var entries = _cartEntries();
     var qt      = cartTotal();
 
     /* Header (always present) */
@@ -2010,12 +2021,7 @@
     var modal      = document.getElementById('shopModal');
     var confirmBtn = document.getElementById('shopModalConfirm');
     if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Processing\u2026'; }
-    var items = Object.keys(_cart).map(function (id) {
-      var e = _cart[id];
-      var o = { item_id: id, quantity: e.quantity };
-      if (e.variantIdx != null) o.variant_index = e.variantIdx;
-      return o;
-    });
+    var items = _serializeCartItems();
     fetch('/api/shop/bin/cart/checkout', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
@@ -2646,16 +2652,7 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         if (!data || !data.ok) return;
-        var itemMap = {};
-        (_binData.items || []).forEach(function (it) { itemMap[it.id] = it; });
-        _cart = {};
-        (data.items || []).forEach(function (entry) {
-          var item = itemMap[entry.item_id];
-          if (!item) return;
-          var maxQ = item.allow_multi_quantity
-            ? _effectiveMaxQty(item, entry.variant_index) : 1;
-          _cart[entry.item_id] = { item: item, quantity: Math.max(1, Math.min(entry.quantity, maxQ)) };
-        });
+        _applyPersistedCart(data.items || [], _binData.items || []);
         updateCartBadge();
       })
       .catch(function () {});
