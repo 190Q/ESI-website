@@ -1384,8 +1384,6 @@
           <div class="esi-points-section-summary">
             <div class="esi-points-section-label">${escapeHtml(section.label || '')}</div>
             <div class="esi-points-section-totals">
-              <span><strong>${formatLe(section.le || 0)}</strong> LE</span>
-              <span style="color:var(--text-faint)">\u00b7</span>
               <span>${formatInt(section.clean_ep != null ? section.clean_ep : section.points || 0)} CEP / ${formatInt(section.dirty_ep || 0)} DEP</span>
               <span style="color:var(--text-faint)">\u00b7</span>
               <span>${history.length} entr${history.length === 1 ? 'y' : 'ies'}</span>
