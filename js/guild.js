@@ -1440,9 +1440,16 @@
     }
 
     // Exclude players no longer in the guild
-    const filteredPlayers = guildMembers.size > 0
+    const filteredPlayers = (guildMembers.size > 0
       ? players.filter(function (p) { return guildMembers.has(p.username); })
-      : players;
+      : players.slice()
+    ).sort(function (a, b) {
+      const c = (b.snipe_count || 0) - (a.snipe_count || 0);
+      if (c) return c;
+      const p = (b.total_points || 0) - (a.total_points || 0);
+      if (p) return p;
+      return String(a.username || '').localeCompare(String(b.username || ''), undefined, { sensitivity: 'base' });
+    });
 
     // Overall stats
     const statsGrid = document.getElementById('guildSnipesStatsGrid');

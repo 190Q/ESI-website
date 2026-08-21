@@ -7374,7 +7374,7 @@ def guild_snipes():
             "avg_speed": round(stat["_speed_sum"] / count, 3),
         })
     players_out.sort(
-        key=lambda p: (-p["total_points"], -p["snipe_count"], (p["username"] or "").lower())
+        key=lambda p: (-p["snipe_count"], -p["total_points"], (p["username"] or "").lower())
     )
 
     total_snipes = len(snipes_out)
