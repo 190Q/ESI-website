@@ -1176,6 +1176,11 @@ def auction_close_loop():
             _close_expired_auctions()
         except Exception as exc:
             print(f"[AUCTION] Close worker error: {exc}", file=sys.stderr)
+        try:
+            from shop.knight_bonus import scan_knight_promotions
+            scan_knight_promotions()
+        except Exception as exc:
+            print(f"[KNIGHT-BONUS] Worker error: {exc}", file=sys.stderr)
 
 _auction_worker_started = False
 

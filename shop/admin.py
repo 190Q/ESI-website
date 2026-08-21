@@ -865,10 +865,11 @@ def admin_reject_refund(purchase_id: str, chief_name: str) -> dict:
 
 
 def admin_get_queue() -> dict:
-    """Return pending bin_purchases + refund requests + pending donation_tickets."""
+    """Return pending bin_purchases + refunds + donations + knight bonuses."""
     pending_purchases = []
     refund_requests = []
     pending_donations = []
+    pending_knight_bonuses = []
 
     if os.path.isfile(_SHOP_DB):
         conn = sqlite3.connect(_SHOP_DB, timeout=5)
@@ -914,15 +915,31 @@ def admin_get_queue() -> dict:
 
         conn.close()
 
+    try:
+        from shop.knight_bonus import list_pending_knight_bonuses
+        pending_knight_bonuses = list_pending_knight_bonuses()
+    except Exception:
+        pending_knight_bonuses = []
+
     return {
         "purchases": pending_purchases,
         "refund_requests": refund_requests,
         "donations": pending_donations,
+        "knight_bonuses": pending_knight_bonuses,
     }
 
 def admin_fulfill(ticket_type: str, ticket_id: str, chief_note: str | None,
                   chief_name: str) -> dict:
-    """Mark a purchase or donation as fulfilled and notify the user."""
+    """Mark a purchase, donation, or knight bonus as fulfilled and notify the user."""
+    if ticket_type == "knight_bonus":
+        from shop.knight_bonus import resolve_knight_bonus
+        return resolve_knight_bonus(
+            ticket_id,
+            approve=True,
+            chief_name=chief_name,
+            chief_note=chief_note,
+        )
+
     now_iso = _now_iso()
     conn = sqlite3.connect(_SHOP_DB, timeout=10)
     conn.row_factory = sqlite3.Row
@@ -1022,9 +1039,17 @@ def admin_fulfill(ticket_type: str, ticket_id: str, chief_note: str | None,
 
 def admin_reject(ticket_type: str, ticket_id: str, reason: str,
                  chief_name: str) -> dict:
-    """Reject a purchase or donation with mandatory reason."""
+    """Reject a purchase, donation, or knight bonus with mandatory reason."""
     if not reason:
         return {"error": "Reason is required"}
+    if ticket_type == "knight_bonus":
+        from shop.knight_bonus import resolve_knight_bonus
+        return resolve_knight_bonus(
+            ticket_id,
+            approve=False,
+            chief_name=chief_name,
+            chief_note=reason,
+        )
     now_iso = _now_iso()
     conn = sqlite3.connect(_SHOP_DB, timeout=10)
     conn.row_factory = sqlite3.Row

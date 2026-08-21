@@ -3359,7 +3359,7 @@
     var btn = document.querySelector('#saTabs [data-tab="queue"]');
     if (!_shopEnabled) { _clearQueueBadges(); return; }
     if (!_queueData) return;
-    var count = (_queueData.purchases || []).length + (_queueData.refund_requests || []).length + (_queueData.donations || []).length;
+    var count = (_queueData.purchases || []).length + (_queueData.refund_requests || []).length + (_queueData.donations || []).length + (_queueData.knight_bonuses || []).length;
     if (_isParliament || _isOwnerShopAdmin()) {
       count += (_applicationsData || []).filter(function (a) { return a.status === 'pending'; }).length;
       count += (_creatorRequestsData || []).filter(function (r) { return r.status === 'pending'; }).length;
@@ -3414,6 +3414,9 @@
     ((_queueData && _queueData.donations) || []).forEach(function (d) {
       merged.push({ type: 'donation', date: d.submitted_at, id: d.ticket_id, data: d });
     });
+    ((_queueData && _queueData.knight_bonuses) || []).forEach(function (k) {
+      merged.push({ type: 'knight_bonus', date: k.submitted_at || k.created_at, id: k.ticket_id, data: k });
+    });
     if (_isParliament || _isOwnerShopAdmin()) {
       (_applicationsData || []).forEach(function (a) {
         if (a.status === 'pending') merged.push({ type: 'application', date: a.submitted_at, id: a.id, data: a });
@@ -3437,18 +3440,20 @@
   function renderQueueContent(c) {
     var pCount = ((_queueData && _queueData.purchases) || []).length;
     var dCount = ((_queueData && _queueData.donations) || []).length;
+    var kCount = ((_queueData && _queueData.knight_bonuses) || []).length;
     var rCount = ((_queueData && _queueData.refund_requests) || []).length;
     var _isP = _isParliament || _isOwnerShopAdmin();
     var aCount = _isP ? (_applicationsData || []).filter(function (a) { return a.status === 'pending'; }).length : 0;
     var crCount = _isP ? (_creatorRequestsData || []).filter(function (r) { return r.status === 'pending'; }).length : 0;
     var paCount = _isOwnerShopAdmin() ? (_privilegeApprovalsData || []).length : 0;
-    var total  = pCount + rCount + dCount + aCount + crCount + paCount;
+    var total  = pCount + rCount + dCount + kCount + aCount + crCount + paCount;
     var html = '';
     html += '<div class="sa-q-filters">' +
       '<button class="sa-q-pill' + (_queueFilter === 'all' ? ' active' : '') + '" data-qf="all">All <span class="sa-q-count">' + total + '</span></button>' +
       '<button class="sa-q-pill' + (_queueFilter === 'purchases' ? ' active' : '') + '" data-qf="purchases">Pending <span class="sa-q-count">' + pCount + '</span></button>' +
       '<button class="sa-q-pill' + (_queueFilter === 'refunds' ? ' active' : '') + '" data-qf="refunds">Refund Requests <span class="sa-q-count">' + rCount + '</span></button>' +
       '<button class="sa-q-pill' + (_queueFilter === 'donations' ? ' active' : '') + '" data-qf="donations">Donations <span class="sa-q-count">' + dCount + '</span></button>' +
+      '<button class="sa-q-pill' + (_queueFilter === 'knight_bonuses' ? ' active' : '') + '" data-qf="knight_bonuses">Knight Bonus <span class="sa-q-count">' + kCount + '</span></button>' +
       (_isP ? '<button class="sa-q-pill' + (_queueFilter === 'applications' ? ' active' : '') + '" data-qf="applications">Applications <span class="sa-q-count">' + aCount + '</span></button>' +
       '<button class="sa-q-pill' + (_queueFilter === 'creator_requests' ? ' active' : '') + '" data-qf="creator_requests">Creator Requests <span class="sa-q-count">' + crCount + '</span></button>' : '') +
       (_isOwnerShopAdmin() ? '<button class="sa-q-pill' + (_queueFilter === 'privilege_approvals' ? ' active' : '') + '" data-qf="privilege_approvals">Privilege Approvals <span class="sa-q-count">' + paCount + '</span></button>' : '') +
@@ -3462,7 +3467,7 @@
       html += '<div class="shop-empty sa-q-empty">No items in queue</div>';
     } else {
       merged.forEach(function (item) {
-        var filterMap = { purchase: 'purchases', refund: 'refunds', donation: 'donations', application: 'applications', creator_request: 'creator_requests', privilege_approval: 'privilege_approvals' };
+        var filterMap = { purchase: 'purchases', refund: 'refunds', donation: 'donations', knight_bonus: 'knight_bonuses', application: 'applications', creator_request: 'creator_requests', privilege_approval: 'privilege_approvals' };
         var hidden = _queueFilter !== 'all' && _queueFilter !== filterMap[item.type];
         html += _buildQueueCard(item, hidden);
       });
@@ -3499,6 +3504,7 @@
     var isApp = item.type === 'application';
     var isCreq = item.type === 'creator_request';
     var isPrivApproval = item.type === 'privilege_approval';
+    var isKnightBonus = item.type === 'knight_bonus';
 
     var html = '<div class="sa-q-card' + (hidden ? ' sa-q-hidden' : '') +
       '" data-qtype="' + item.type +
@@ -3528,6 +3534,9 @@
       html += '<span class="sa-q-type sa-q-type--creator-request">' + (_isNewItem ? 'New Item' : 'Edit Item') + '</span>';
       var _crItemLabel = _isNewItem ? (d.changes && d.changes.name ? esc(d.changes.name) : 'New') : esc(d.item_id);
       html += '<span class="sa-q-slug">' + _crItemLabel + '</span>';
+    } else if (isKnightBonus) {
+      html += '<span class="sa-q-type sa-q-type--knight-bonus">Knight Bonus</span>';
+      html += '<span class="sa-q-slug">First promotion to Knight+</span>';
     } else {
       html += '<span class="sa-q-type sa-q-type--donation">Donation</span>';
       html += '<span class="sa-q-slug">' + num(d.le_amount) + ' LE declared</span>';
@@ -3579,6 +3588,13 @@
           '<span class="sa-q-metric-value sa-q-val--clean">' + num(d.clean_ep_spent) + ' EP</span></div>';
         html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Dirty</span>' +
           '<span class="sa-q-metric-value sa-q-val--dirty">' + num(d.dirty_ep_spent) + ' EP</span></div>';
+      } else if (isKnightBonus) {
+        html += '<div class="sa-q-metric"><span class="sa-q-metric-label">EP to grant</span>' +
+          '<span class="sa-q-metric-value sa-q-val--dirty">' + num(d.dirty_ep_to_grant || d.amount || 250) + ' EP</span></div>';
+        html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Type</span>' +
+          '<span class="sa-q-metric-value sa-q-val--dirty">Dirty</span></div>';
+        html += '<div class="sa-q-metric"><span class="sa-q-metric-label">Once</span>' +
+          '<span class="sa-q-metric-value">Lifetime-time</span></div>';
       } else {
         html += '<div class="sa-q-metric"><span class="sa-q-metric-label">EP to grant</span>' +
           '<span class="sa-q-metric-value sa-q-val--dirty">' + num(d.dirty_ep_to_grant) + ' EP</span></div>';
@@ -3594,6 +3610,10 @@
           _svg.gift +
           '<span class="sa-q-note-text">Creator <strong>' + esc(d.creator_username) + '</strong> earns <span class="sa-q-commission-amount">+' + num(_saComm) + ' dirty EP</span> on fulfillment</span>' +
           '</div>';
+      }
+      if (isKnightBonus) {
+        html += '<div class="sa-q-note">' + _svg.pin +
+          ' First promotion into Knight or above. Rejecting still marks them ineligible forever.</div>';
       }
     }
 
@@ -3628,6 +3648,9 @@
       } else if (isRefund) {
         html += '<button class="sa-q-btn sa-q-btn--primary" data-action="approve-refund" data-id="' + esc(d.purchase_id) + '">Approve Refund</button>';
         html += '<button class="sa-q-btn sa-q-btn--reject" data-action="reject-refund" data-id="' + esc(d.purchase_id) + '">Deny</button>';
+      } else if (isKnightBonus) {
+        html += '<button class="sa-q-btn sa-q-btn--primary" data-action="fulfill" data-type="knight_bonus" data-id="' + esc(d.ticket_id) + '">Grant 250 Dirty EP</button>';
+        html += '<button class="sa-q-btn sa-q-btn--reject" data-action="reject" data-type="knight_bonus" data-id="' + esc(d.ticket_id) + '">Reject</button>';
       } else {
         html += '<button class="sa-q-btn sa-q-btn--primary" data-action="fulfill" data-type="donation" data-id="' + esc(d.ticket_id) + '">Confirm</button>';
         html += '<button class="sa-q-btn sa-q-btn--reject" data-action="reject" data-type="donation" data-id="' + esc(d.ticket_id) + '">Reject</button>';
@@ -3646,6 +3669,7 @@
         (_queueFilter === 'purchases' && t === 'purchase') ||
         (_queueFilter === 'refunds' && t === 'refund') ||
         (_queueFilter === 'donations' && t === 'donation') ||
+        (_queueFilter === 'knight_bonuses' && t === 'knight_bonus') ||
         (_queueFilter === 'applications' && t === 'application') ||
         (_queueFilter === 'creator_requests' && t === 'creator_request') ||
         (_queueFilter === 'privilege_approvals' && t === 'privilege_approval');
@@ -3669,6 +3693,7 @@
     var pCount = ((_queueData && _queueData.purchases) || []).length;
     var rCount = ((_queueData && _queueData.refund_requests) || []).length;
     var dCount = ((_queueData && _queueData.donations) || []).length;
+    var kCount = ((_queueData && _queueData.knight_bonuses) || []).length;
     var _isP = _isParliament || _isOwnerShopAdmin();
     var aCount = _isP ? (_applicationsData || []).filter(function (a) { return a.status === 'pending'; }).length : 0;
     var crCount = _isP ? (_creatorRequestsData || []).filter(function (r) { return r.status === 'pending'; }).length : 0;
@@ -3677,10 +3702,11 @@
       var cnt = p.querySelector('.sa-q-count');
       if (!cnt) return;
       var f = p.dataset.qf;
-      if (f === 'all') cnt.textContent = pCount + rCount + dCount + aCount + crCount + paCount;
+      if (f === 'all') cnt.textContent = pCount + rCount + dCount + kCount + aCount + crCount + paCount;
       else if (f === 'purchases') cnt.textContent = pCount;
       else if (f === 'refunds') cnt.textContent = rCount;
       else if (f === 'donations') cnt.textContent = dCount;
+      else if (f === 'knight_bonuses') cnt.textContent = kCount;
       else if (f === 'applications') cnt.textContent = aCount;
       else if (f === 'creator_requests') cnt.textContent = crCount;
       else if (f === 'privilege_approvals') cnt.textContent = paCount;
@@ -3803,11 +3829,19 @@
 
   function openFulfillModal(type, id, triggerBtn) {
     var modal = document.getElementById('saModal');
-    var label = type === 'purchase' ? 'Mark Fulfilled' : 'Confirm Donation';
+    var label = type === 'purchase' ? 'Mark Fulfilled'
+      : type === 'knight_bonus' ? 'Grant Knight Bonus'
+      : 'Confirm Donation';
+    var successLabel = type === 'purchase' ? 'Purchase'
+      : type === 'knight_bonus' ? 'Knight bonus'
+      : 'Donation';
     modal.innerHTML =
       '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
       '<div class="shop-modal-title">' + label + '</div>' +
       '<div class="shop-modal-body">' +
+        (type === 'knight_bonus'
+          ? '<p style="margin:0 0 10px">Grant <strong>250 dirty EP</strong> for this member\u2019s first promotion into Knight+.</p>'
+          : '') +
         '<label class="shop-modal-input-label">Note (optional)</label>' +
         '<textarea class="shop-modal-input" id="saFulfillNote" placeholder="Optional note\u2026" maxlength="50" rows="2"></textarea>' +
       '</div>' +
@@ -3822,11 +3856,13 @@
       apiPost('/api/admin/shop/queue/fulfill', { type: type, ticket_id: id, note: note || null })
         .then(function (res) {
           if (res.ok && res.data.ok) {
-            showToast('\u2713 ' + (type === 'purchase' ? 'Purchase' : 'Donation') + ' fulfilled.', 'success');
+            showToast('\u2713 ' + successLabel + ' fulfilled.', 'success');
             closeModal();
             var card = triggerBtn.closest('.sa-q-card');
             if (card) { card.style.opacity = '0.3'; card.style.pointerEvents = 'none'; }
-            var dataList = type === 'purchase' ? _queueData.purchases : _queueData.donations;
+            var dataList = type === 'purchase' ? _queueData.purchases
+              : type === 'knight_bonus' ? _queueData.knight_bonuses
+              : _queueData.donations;
             var key = type === 'purchase' ? 'purchase_id' : 'ticket_id';
             if (dataList) {
               for (var i = dataList.length - 1; i >= 0; i--) { if (dataList[i][key] === id) dataList.splice(i, 1); }
@@ -3845,10 +3881,16 @@
 
   function openRejectModal(type, id, triggerBtn) {
     var modal = document.getElementById('saModal');
+    var rejectLabel = type === 'purchase' ? 'Purchase'
+      : type === 'knight_bonus' ? 'Knight Bonus'
+      : 'Donation';
     modal.innerHTML =
       '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
-      '<div class="shop-modal-title">Reject ' + (type === 'purchase' ? 'Purchase' : 'Donation') + '</div>' +
+      '<div class="shop-modal-title">Reject ' + rejectLabel + '</div>' +
       '<div class="shop-modal-body">' +
+        (type === 'knight_bonus'
+          ? '<p style="margin:0 0 10px">Rejecting still marks this member ineligible forever (no second chance on re-promotion).</p>'
+          : '') +
         '<label class="shop-modal-input-label">Reason (required)</label>' +
         '<textarea class="shop-modal-input" id="saRejectReason" placeholder="Reason for rejection\u2026" maxlength="50" rows="2"></textarea>' +
       '</div>' +
@@ -3864,11 +3906,13 @@
       apiPost('/api/admin/shop/queue/reject', { type: type, ticket_id: id, reason: reason })
         .then(function (res) {
           if (res.ok && res.data.ok) {
-            showToast('\u2713 ' + (type === 'purchase' ? 'Purchase' : 'Donation') + ' rejected.', 'success');
+            showToast('\u2713 ' + rejectLabel + ' rejected.', 'success');
             closeModal();
             var card = triggerBtn.closest('.sa-q-card');
             if (card) { card.style.opacity = '0.3'; card.style.pointerEvents = 'none'; }
-            var dataList = type === 'purchase' ? _queueData.purchases : _queueData.donations;
+            var dataList = type === 'purchase' ? _queueData.purchases
+              : type === 'knight_bonus' ? _queueData.knight_bonuses
+              : _queueData.donations;
             var key = type === 'purchase' ? 'purchase_id' : 'ticket_id';
             if (dataList) {
               for (var i = dataList.length - 1; i >= 0; i--) { if (dataList[i][key] === id) dataList.splice(i, 1); }
