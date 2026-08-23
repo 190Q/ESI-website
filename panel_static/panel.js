@@ -1164,7 +1164,10 @@
         if (_currentScriptKey !== key) return;
         var body = document.getElementById('scriptConsoleBody');
         var status = document.getElementById('scriptRunStatus');
-        if (body) body.textContent = data.output || '(no output yet)';
+        if (body) {
+          body.textContent = data.output || '(no output yet)';
+          body.scrollTop = body.scrollHeight;
+        }
         if (status) status.textContent = data.running ? 'Running\u2026' : 'Finished';
         if (!data.running) {
           stopScriptLogPolling();
