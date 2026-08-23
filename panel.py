@@ -10,6 +10,7 @@ side effect).
     python panel.py
 """
 
+import ast
 import base64
 import functools
 import hashlib
@@ -17,6 +18,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -472,6 +474,247 @@ def _do_action(key, action):
     return None, "", f"Unsupported action {action!r} for kind {spec['kind']!r}"
 
 
+_SCRIPTS_DIR = os.path.join(_BASE_DIR, "scripts")
+
+_SCRIPTS = {
+    "ban-ip": {"path": os.path.join(_SCRIPTS_DIR, "ban_ip.py"), "label": "Ban / Blacklist IPs"},
+    "gdpr-delete": {"path": os.path.join(_SCRIPTS_DIR, "gdpr_delete.py"), "label": "GDPR: Delete User Data"},
+    "gdpr-export": {"path": os.path.join(_SCRIPTS_DIR, "gdpr_export.py"), "label": "GDPR: Export User Data"},
+    "gdpr-list": {"path": os.path.join(_SCRIPTS_DIR, "gdpr_list.py"), "label": "GDPR: List Users With Data"},
+    "gdpr-rectify": {"path": os.path.join(_SCRIPTS_DIR, "gdpr_rectify.py"), "label": "GDPR: Rectify User Data"},
+    "gdpr-restrict": {"path": os.path.join(_SCRIPTS_DIR, "gdpr_restrict.py"), "label": "GDPR: Restrict User Processing"},
+    "grant-knight-bonus": {"path": os.path.join(_SCRIPTS_DIR, "grant_knight_bonus.py"), "label": "Grant Knight EP Bonus"},
+    "send-cycle-announcement": {"path": os.path.join(_SCRIPTS_DIR, "send_cycle_announcement.py"), "label": "Send Cycle Announcement"},
+    "test-local": {"path": os.path.join(_SCRIPTS_DIR, "test_local.py"), "label": "Run Local Test Suite"},
+}
+
+
+def _script_screen_name(key):
+    return f"panel-script-{key}"
+
+
+def _script_spec(key):
+    return {"screen": _script_screen_name(key)}
+
+
+def _script_docstring_summary(path):
+    """First non-empty line of the script's module docstring, for the list view."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            src = f.read()
+        tree = ast.parse(src)
+        doc = ast.get_docstring(tree) or ""
+    except (OSError, SyntaxError, ValueError):
+        return ""
+    for line in doc.splitlines():
+        line = line.strip()
+        if line:
+            return line
+    return ""
+
+
+_HELP_SECTION_RE = re.compile(r"^(positional arguments|options|optional arguments):\s*$")
+_HELP_OPTION_START_RE = re.compile(r"^ {2}(-\S.*)$")
+_HELP_POSITIONAL_START_RE = re.compile(r"^ {2}(\S.*)$")
+_HELP_ALIAS_SPLIT_RE = re.compile(r",\s*(?=-)")
+
+
+def _split_header_and_help(line):
+    m = re.match(r"^(\S(?:.*?\S)?)(?: {2,}(.*))?$", line.strip())
+    if not m:
+        return line.strip(), None
+    return m.group(1), m.group(2)
+
+
+def _parse_option_header(header):
+    """'--ban IP' -> (['--ban'], ['IP']); '-h, --help' -> (['-h','--help'], []);
+    '--set KEY VALUE' -> (['--set'], ['KEY','VALUE']);
+    '--format {pretty,sql,python}' -> (['--format'], ['{pretty,sql,python}'])."""
+    flags, metavar_str = [], None
+    for segment in _HELP_ALIAS_SPLIT_RE.split(header):
+        parts = segment.strip().split(None, 1)
+        if not parts:
+            continue
+        flags.append(parts[0])
+        if len(parts) > 1 and metavar_str is None:
+            metavar_str = parts[1]
+    if metavar_str is None:
+        metavars = []
+    elif metavar_str.startswith("{"):
+        metavars = [metavar_str]
+    else:
+        metavars = metavar_str.split()
+    return flags, metavars
+
+
+def _parse_argparse_help(text):
+    positionals, flags = [], []
+    section, current = None, None
+
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        header_match = _HELP_SECTION_RE.match(stripped)
+        if header_match:
+            section = header_match.group(1)
+            current = None
+            continue
+        if section not in ("positional arguments", "options", "optional arguments"):
+            continue
+        if not stripped:
+            section, current = None, None
+            continue
+        if not line.startswith("  "):
+            break  # unindented text (epilog, etc.) - stop parsing entirely
+
+        if section == "positional arguments":
+            m = _HELP_POSITIONAL_START_RE.match(line)
+            if m:
+                name, inline_help = _split_header_and_help(m.group(1))
+                current = {"name": name, "help": inline_help or ""}
+                positionals.append(current)
+                continue
+        else:
+            m = _HELP_OPTION_START_RE.match(line)
+            if m:
+                header, inline_help = _split_header_and_help(m.group(1))
+                flag_names, metavars = _parse_option_header(header)
+                current = {
+                    "flags": flag_names,
+                    "metavars": metavars,
+                    "takes_value": bool(metavars),
+                    "help": inline_help or "",
+                }
+                flags.append(current)
+                continue
+
+        if current is not None:
+            extra = stripped
+            current["help"] = (current["help"] + " " + extra).strip() if current["help"] else extra
+
+    return {"positionals": positionals, "flags": flags}
+
+
+_SCRIPT_HELP_CACHE: dict = {}
+_script_help_lock = threading.Lock()
+
+
+def _get_script_help(key):
+    spec = _SCRIPTS.get(key)
+    if not spec:
+        return None
+    path = spec["path"]
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return None
+    with _script_help_lock:
+        cached = _SCRIPT_HELP_CACHE.get(key)
+        if cached and cached["mtime"] == mtime:
+            return cached["data"]
+    code, out, _err = _run(["python3", path, "--help"], timeout=10, cwd=_BASE_DIR)
+    if code != 0:
+        return None
+    data = _parse_argparse_help(out)
+    with _script_help_lock:
+        _SCRIPT_HELP_CACHE[key] = {"mtime": mtime, "data": data}
+    return data
+
+
+_SCRIPT_ARG_MAX_LEN = 500
+
+
+def _validate_script_args(key, payload):
+    """Re-validate a run request against the script's own freshly-parsed
+    --help output. Returns (argv_tail, error_message) - never trusts the
+    client's flag names/values beyond checking them against this allowlist.
+    Values may not start with '-' so they can never be reinterpreted as a
+    different option once placed into argv."""
+    help_data = _get_script_help(key)
+    if help_data is None:
+        return None, "Could not determine this script's flags (--help failed)."
+
+    argv = []
+
+    positionals = payload.get("positionals")
+    if not isinstance(positionals, list):
+        positionals = []
+    if len(positionals) > len(help_data["positionals"]):
+        return None, "Too many positional arguments."
+    for value in positionals:
+        value = str(value)
+        if not value or len(value) > _SCRIPT_ARG_MAX_LEN or value.startswith("-"):
+            return None, f"Invalid positional argument: {value!r}"
+        argv.append(value)
+
+    known_flags = {}
+    for entry in help_data["flags"]:
+        for name in entry["flags"]:
+            known_flags[name] = entry
+
+    submitted = payload.get("flags")
+    if not isinstance(submitted, list):
+        submitted = []
+    for item in submitted:
+        if not isinstance(item, dict):
+            return None, "Malformed flag entry."
+        name = str(item.get("name", ""))
+        entry = known_flags.get(name)
+        if entry is None:
+            return None, f"Unknown flag: {name!r}"
+        canonical = entry["flags"][0]  # never trust the client's own spelling
+        if not entry["takes_value"]:
+            argv.append(canonical)
+            continue
+        values = item.get("values")
+        if values is None and "value" in item:
+            values = [item["value"]]
+        if not isinstance(values, list):
+            values = []
+        expected = max(1, len(entry["metavars"]))
+        if len(values) != expected:
+            return None, f"Flag {name!r} expects {expected} value(s)."
+        argv.append(canonical)
+        for v in values:
+            v = str(v)
+            if len(v) > _SCRIPT_ARG_MAX_LEN or v.startswith("-"):
+                return None, f"Invalid value for {name!r}: {v!r}"
+            argv.append(v)
+
+    return argv, None
+
+
+def _start_script(key, argv_tail):
+    spec = _script_spec(key)
+    if _screen_pid(spec["screen"]) is not None:
+        return None, "", "This script is already running."
+    script_path = _SCRIPTS[key]["path"]
+    log_path = _log_path(spec)
+    try:
+        open(log_path, "w").close()  # fresh log per run
+    except OSError:
+        pass
+    quoted = " ".join(shlex.quote(a) for a in [script_path, *argv_tail])
+    bash_cmd = (
+        f"exec > >(tee -a {shlex.quote(log_path)}) 2>&1; "
+        f"cd {shlex.quote(_BASE_DIR)} && python3 {quoted}; "
+        'echo "[DONE] exit code: $?"'
+    )
+    try:
+        subprocess.Popen(
+            ["screen", "-S", spec["screen"], "-dm", "-h", "100000", "bash", "-c", bash_cmd],
+            shell=False,
+        )
+        return 0, "started", ""
+    except OSError as exc:
+        return None, "", str(exc)
+
+
+def _stop_script(key):
+    spec = _script_spec(key)
+    return _run(["screen", "-S", spec["screen"], "-X", "quit"], timeout=8)
+
+
 # ---------------------------------------------------------------------------
 # Audit log - every access attempt and every action, kept separate from the
 # main site's tables.
@@ -899,6 +1142,97 @@ def panel_download_log(key):
     resp = send_from_directory(_LOG_DIR, os.path.basename(path), as_attachment=True)
     resp.headers["Content-Disposition"] = f'attachment; filename="{key}.log"'
     return resp
+
+
+@app.route("/panel/api/scripts")
+@require_access("owner")
+def panel_list_scripts():
+    items = [
+        {
+            "key": key,
+            "label": spec["label"],
+            "description": _script_docstring_summary(spec["path"]),
+        }
+        for key, spec in _SCRIPTS.items()
+    ]
+    items.sort(key=lambda s: s["label"].lower())
+    return jsonify({"scripts": items})
+
+
+@app.route("/panel/api/scripts/<key>/help")
+@require_access("owner")
+def panel_script_help(key):
+    if key not in _SCRIPTS:
+        abort(404)
+    help_data = _get_script_help(key)
+    if help_data is None:
+        return jsonify({"error": "Failed to read this script's --help output"}), 500
+    return jsonify({
+        "key": key,
+        "label": _SCRIPTS[key]["label"],
+        "description": _script_docstring_summary(_SCRIPTS[key]["path"]),
+        "positionals": help_data["positionals"],
+        "flags": help_data["flags"],
+        "running": _screen_pid(_script_screen_name(key)) is not None,
+    })
+
+
+_SCRIPT_RUN_RATE_LIMIT = 5
+
+
+@app.route("/panel/api/scripts/<key>/run", methods=["POST"])
+@require_access("owner")
+@require_csrf
+def panel_script_run(key):
+    if key not in _SCRIPTS:
+        abort(404)
+    bucket_key = (real_client_ip() or "unknown", "panel_script_run", key)
+    if _rate_limited(bucket_key, _SCRIPT_RUN_RATE_LIMIT, 60):
+        return jsonify({"error": "Too many requests"}), 429
+    payload = request.get_json(silent=True) or {}
+    argv_tail, err = _validate_script_args(key, payload)
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    user = session.get("user")
+    code, _out, run_err = _start_script(key, argv_tail)
+    ok = code == 0
+    _audit(
+        "script_run", service=key, user=user, result="ok" if ok else "error",
+        detail=(run_err or " ".join(argv_tail)),
+    )
+    if not ok:
+        status = 409 if run_err == "This script is already running." else 500
+        return jsonify({"ok": False, "error": run_err or "Failed to start"}), status
+    return jsonify({"ok": True})
+
+
+@app.route("/panel/api/scripts/<key>/logs")
+@require_access("owner")
+def panel_script_logs(key):
+    if key not in _SCRIPTS:
+        abort(404)
+    bucket_key = (real_client_ip() or "unknown", "panel_script_logs", key)
+    if _rate_limited(bucket_key, 60, 60):
+        return jsonify({"error": "Too many requests"}), 429
+    spec = _script_spec(key)
+    return jsonify({
+        "output": _read_log_tail(spec),
+        "running": _screen_pid(spec["screen"]) is not None,
+    })
+
+
+@app.route("/panel/api/scripts/<key>/stop", methods=["POST"])
+@require_access("owner")
+@require_csrf
+@rate_limit(10, 60)
+def panel_script_stop(key):
+    if key not in _SCRIPTS:
+        abort(404)
+    user = session.get("user")
+    code, _out, err = _stop_script(key)
+    ok = code == 0
+    _audit("script_stop", service=key, user=user, result="ok" if ok else "error", detail=err)
+    return jsonify({"ok": ok})
 
 
 @app.errorhandler(404)
