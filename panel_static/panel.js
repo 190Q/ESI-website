@@ -14,6 +14,7 @@
   var SIDEBAR_SECTIONS = [
     {
       label: 'Website',
+      slug: 'website',
       items: [
         { id: 'gateway', type: 'screen', label: 'Website Gateway', icon: 'server' },
         { id: 'routes',  type: 'screen', label: 'Website Routes',  icon: 'server' },
@@ -22,6 +23,7 @@
     },
     {
       label: 'Bots',
+      slug: 'bots',
       items: [
         { id: 'q-bot', type: 'screen', label: 'Q-Bot', icon: 'bot' },
         { id: 'esi-bot', type: 'screen', label: 'ESI-Bot', icon: 'bot' },
@@ -30,6 +32,7 @@
     },
     {
       label: 'Tools',
+      slug: 'tools',
       items: [
         { id: 'scripts', type: 'scripts', label: 'Scripts', icon: 'scripts' },
       ],
@@ -149,7 +152,21 @@
     setMobileSidebarOpen(false);
   }
 
-  function setActivePanel(id) {
+  function sectionSlugForItem(id) {
+    for (var i = 0; i < SIDEBAR_SECTIONS.length; i++) {
+      var sec = SIDEBAR_SECTIONS[i];
+      for (var j = 0; j < sec.items.length; j++) {
+        if (sec.items[j].id === id) return sec.slug;
+      }
+    }
+    return null;
+  }
+
+  function panelPathFor(sectionSlug, id) {
+    return '/panel/' + encodeURIComponent(sectionSlug) + '/' + encodeURIComponent(id);
+  }
+
+  function setActivePanel(id, sectionSlug) {
     document.querySelectorAll('.nav-item[data-panel]').forEach(function (n) {
       n.classList.toggle('active', n.dataset.panel === id);
     });
@@ -157,7 +174,8 @@
       p.classList.toggle('active', p.id === 'panel-' + id);
     });
     try {
-      history.replaceState(null, '', '#screen=' + encodeURIComponent(id));
+      var slug = sectionSlug || sectionSlugForItem(id);
+      if (slug) history.replaceState(null, '', panelPathFor(slug, id));
     } catch (_err) {}
     if (isMobileSidebarMode()) setMobileSidebarOpen(false);
     if (id === 'scripts') return; // not a service/bot screen - has its own data flow
@@ -165,11 +183,24 @@
     fetchEvents(id);
   }
 
-  function getInitialPanelId() {
-    var match = String(location.hash || '').match(/screen=([^&]+)/);
-    if (match) {
-      try { return decodeURIComponent(match[1]); } catch (_err) {}
+  function findItemByPath(pathname) {
+    var parts = String(pathname || '').replace(/^\/panel\/?/, '').split('/').filter(Boolean);
+    if (parts.length < 2) return null;
+    var sectionSlug, itemId;
+    try {
+      sectionSlug = decodeURIComponent(parts[0]);
+      itemId = decodeURIComponent(parts[1]);
+    } catch (_err) {
+      return null;
     }
+    var section = SIDEBAR_SECTIONS.filter(function (s) { return s.slug === sectionSlug; })[0];
+    if (!section) return null;
+    return section.items.filter(function (it) { return it.id === itemId; })[0] || null;
+  }
+
+  function getInitialPanelId() {
+    var item = findItemByPath(location.pathname);
+    if (item) return item.id;
     return SIDEBAR_SECTIONS[0].items[0].id;
   }
 
@@ -189,7 +220,7 @@
       section.items.forEach(function (item) {
         var li = document.createElement('li');
         var a = document.createElement('a');
-        a.href = '#screen=' + encodeURIComponent(item.id);
+        a.href = panelPathFor(section.slug, item.id);
         a.className = 'nav-item';
         a.dataset.panel = item.id;
         a.dataset.itemType = item.type;
@@ -201,7 +232,7 @@
         a.addEventListener('click', function (event) {
           if (item.type === 'screen' || item.type === 'scripts') {
             event.preventDefault();
-            setActivePanel(item.id);
+            setActivePanel(item.id, section.slug);
           }
         });
         li.appendChild(a);

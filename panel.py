@@ -1130,6 +1130,18 @@ def panel_static(filename):
     return send_from_directory(_STATIC_DIR, filename)
 
 
+@app.route("/panel/<section>/<page>")
+def panel_spa_route(section, page):
+    """Serve the same SPA shell for the sidebar's own client-rendered routes
+    (/panel/website/gateway, /panel/bots/q-bot, /panel/tools/scripts, ...)
+    so a direct visit or refresh doesn't 404. panel.js reads the actual
+    section/page from location.pathname on load and picks the right panel.
+    Uses plain <string> converters (no slashes allowed), so this can never
+    shadow the more specific /panel/auth/*, /panel/api/*, or /panel/static/*
+    routes registered above, which all have more path segments."""
+    return send_from_directory(_STATIC_DIR, "index.html")
+
+
 # ---------------------------------------------------------------------------
 # Service control API - everything below requires owner access.
 # ---------------------------------------------------------------------------
