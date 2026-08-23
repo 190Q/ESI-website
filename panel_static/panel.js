@@ -981,6 +981,7 @@
   var _scriptsList = [];
   var _scriptsListLoaded = false;
   var _currentScriptKey = null;
+  var _currentScriptData = null;
   var _scriptsLogTimer = null;
 
   function scriptsPanelTemplate() {
@@ -1105,11 +1106,21 @@
     syncScriptsShellHeight();
     stopScriptLogPolling();
     _currentScriptKey = null;
+    _currentScriptData = null;
   }
 
   function renderScriptDetail(data) {
     var detail = document.getElementById('scriptsDetailView');
     if (!detail) return;
+    _currentScriptData = data;
+
+    var secretHtml = data.secret_stdin_flag ? (
+      '<div class="script-field">' +
+        '<label class="script-field-label">' + (data.secret_label || 'Secret value') + '</label>' +
+        '<div class="script-field-help">Sent securely over HTTPS and piped directly to the script\u2019s stdin \u2014 never written to argv, shell history, or the audit log.</div>' +
+        '<input type="password" class="script-field-input" id="scriptSecretInput" autocomplete="off">' +
+      '</div>'
+    ) : '';
 
     var positionalsHtml = (data.positionals || []).map(function (p, i) {
       return '<div class="script-field">' +
@@ -1161,6 +1172,7 @@
           '<button type="button" class="script-back-btn" id="scriptBackBtn">\u2190 Back to Scripts</button>' +
           '<h2 class="script-detail-title">' + data.label + '</h2>' +
           (data.description ? '<p class="script-detail-desc">' + data.description + '</p>' : '') +
+          (secretHtml ? '<div class="script-section-label">Secret</div>' + secretHtml : '') +
           (positionalsHtml ? '<div class="script-section-label">Arguments</div>' + positionalsHtml : '') +
           (flagsHtml ? '<div class="script-section-label">Flags</div>' + flagsHtml : '') +
           '<div class="script-run-row service-actions">' +
@@ -1208,7 +1220,10 @@
       });
       flags.push({ name: cb.dataset.flagName, values: values });
     });
-    return { positionals: positionals, flags: flags };
+    var payload = { positionals: positionals, flags: flags };
+    var secretInput = detail.querySelector('#scriptSecretInput');
+    if (secretInput && secretInput.value) payload.secret = secretInput.value;
+    return payload;
   }
 
   function describeRunPreview(payload) {
@@ -1218,6 +1233,10 @@
       parts.push(f.name);
       (f.values || []).forEach(function (v) { if (v) parts.push(v); });
     });
+    if (payload.secret && _currentScriptData && _currentScriptData.secret_stdin_flag) {
+      parts.push(_currentScriptData.secret_stdin_flag);
+      parts.push('\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 (hidden)');
+    }
     return parts.join(' ');
   }
 
@@ -1248,6 +1267,8 @@
         var runBtn = document.getElementById('scriptRunBtn');
         var stopBtn = document.getElementById('scriptStopBtn');
         var status = document.getElementById('scriptRunStatus');
+        var secretInput = document.getElementById('scriptSecretInput');
+        if (secretInput) secretInput.value = '';
         if (runBtn) runBtn.style.display = 'none';
         if (stopBtn) stopBtn.style.display = '';
         if (status) status.textContent = 'Running\u2026';

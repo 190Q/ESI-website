@@ -486,6 +486,13 @@ _SCRIPTS = {
     "grant-knight-bonus": {"path": os.path.join(_SCRIPTS_DIR, "grant_knight_bonus.py"), "label": "Grant Knight EP Bonus"},
     "send-cycle-announcement": {"path": os.path.join(_SCRIPTS_DIR, "send_cycle_announcement.py"), "label": "Send Cycle Announcement"},
     "test-local": {"path": os.path.join(_SCRIPTS_DIR, "test_local.py"), "label": "Run Local Test Suite"},
+    "set-esi-bot-token": {
+        "path": os.path.join(_SCRIPTS_DIR, "set_esi_bot_token.py"),
+        "label": "Set ESI-Bot Discord Token",
+        "secret_stdin_flag": "--token-stdin",
+        "secret_label": "New ESI-Bot Discord token",
+        "auto_flags": ["--yes"],
+    },
 }
 
 
@@ -624,6 +631,21 @@ def _get_script_help(key):
 _SCRIPT_ARG_MAX_LEN = 500
 
 
+def _hidden_script_flags(key):
+    """Flags a script declares that must never be settable through the
+    normal client-submitted flags list - either because the panel always
+    force-appends them itself (auto_flags, e.g. --yes so a detached screen
+    session never blocks on a confirmation prompt nobody can answer), or
+    because the flag's value is a secret that only travels through the
+    dedicated stdin channel (secret_stdin_flag), never through argv."""
+    spec_meta = _SCRIPTS.get(key) or {}
+    hidden = set(spec_meta.get("auto_flags", ()))
+    secret_flag = spec_meta.get("secret_stdin_flag")
+    if secret_flag:
+        hidden.add(secret_flag)
+    return hidden
+
+
 def _validate_script_args(key, payload):
     """Re-validate a run request against the script's own freshly-parsed
     --help output. Returns (argv_tail, error_message) - never trusts the
@@ -634,6 +656,7 @@ def _validate_script_args(key, payload):
     if help_data is None:
         return None, "Could not determine this script's flags (--help failed)."
 
+    hidden_flags = _hidden_script_flags(key)
     argv = []
 
     positionals = payload.get("positionals")
@@ -649,6 +672,8 @@ def _validate_script_args(key, payload):
 
     known_flags = {}
     for entry in help_data["flags"]:
+        if hidden_flags & set(entry["flags"]):
+            continue  # only settable automatically by the server, never by the client
         for name in entry["flags"]:
             known_flags[name] = entry
 
@@ -684,7 +709,20 @@ def _validate_script_args(key, payload):
     return argv, None
 
 
-def _start_script(key, argv_tail):
+def _start_script(key, argv_tail, stdin_secret=None):
+    """Launch a script in its own detached screen session.
+
+    stdin is always explicitly redirected - never left attached to the
+    screen session's own pty. A `screen -dm` session still allocates a
+    real pty even though nobody is attached to it, so anything that reads
+    from stdin (input(), getpass.getpass(), a bare readline()) would
+    otherwise block forever waiting for a human who can never type into
+    it, leaving a zombie screen session behind. Scripts that don't need
+    stdin get `/dev/null` (instant EOF - matches the documented "safely
+    aborts" behavior for scripts whose own confirm() relies on EOFError).
+    Scripts that declare a secret_stdin_flag get their secret fed from a
+    private 0600 temp file instead, so the secret never appears in argv
+    (visible via `ps`) or in this panel's own audit log."""
     spec = _script_spec(key)
     if _screen_pid(spec["screen"]) is not None:
         return None, "", "This script is already running."
@@ -695,10 +733,29 @@ def _start_script(key, argv_tail):
     except OSError:
         pass
     quoted = " ".join(shlex.quote(a) for a in [script_path, *argv_tail])
+
+    secret_path = None
+    cleanup_clause = ""
+    stdin_source = "/dev/null"
+    if stdin_secret is not None:
+        fd, secret_path = tempfile.mkstemp(prefix="esi_panel_secret_")
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(stdin_secret if stdin_secret.endswith("\n") else stdin_secret + "\n")
+        except OSError:
+            try:
+                os.remove(secret_path)
+            except OSError:
+                pass
+            return None, "", "Failed to stage secret input."
+        stdin_source = secret_path
+        cleanup_clause = f"rm -f {shlex.quote(secret_path)}; "
+
     bash_cmd = (
         f"exec > >(tee -a {shlex.quote(log_path)}) 2>&1; "
-        f"cd {shlex.quote(_BASE_DIR)} && python3 {quoted}; "
-        'echo "[DONE] exit code: $?"'
+        f"cd {shlex.quote(_BASE_DIR)} && python3 {quoted} < {shlex.quote(stdin_source)}; "
+        f"ec=$?; {cleanup_clause}"
+        'echo "[DONE] exit code: $ec"'
     )
     try:
         subprocess.Popen(
@@ -707,6 +764,11 @@ def _start_script(key, argv_tail):
         )
         return 0, "started", ""
     except OSError as exc:
+        if secret_path:
+            try:
+                os.remove(secret_path)
+            except OSError:
+                pass
         return None, "", str(exc)
 
 
@@ -1167,13 +1229,20 @@ def panel_script_help(key):
     help_data = _get_script_help(key)
     if help_data is None:
         return jsonify({"error": "Failed to read this script's --help output"}), 500
+    spec_meta = _SCRIPTS[key]
+    hidden_flags = _hidden_script_flags(key)
+    visible_flags = [
+        f for f in help_data["flags"] if not (hidden_flags & set(f["flags"]))
+    ]
     return jsonify({
         "key": key,
-        "label": _SCRIPTS[key]["label"],
-        "description": _script_docstring_summary(_SCRIPTS[key]["path"]),
+        "label": spec_meta["label"],
+        "description": _script_docstring_summary(spec_meta["path"]),
         "positionals": help_data["positionals"],
-        "flags": help_data["flags"],
+        "flags": visible_flags,
         "running": _screen_pid(_script_screen_name(key)) is not None,
+        "secret_stdin_flag": spec_meta.get("secret_stdin_flag"),
+        "secret_label": spec_meta.get("secret_label"),
     })
 
 
@@ -1193,8 +1262,25 @@ def panel_script_run(key):
     argv_tail, err = _validate_script_args(key, payload)
     if err:
         return jsonify({"ok": False, "error": err}), 400
+
+    spec_meta = _SCRIPTS[key]
+    secret_flag = spec_meta.get("secret_stdin_flag")
+    stdin_secret = None
+    if secret_flag:
+        argv_tail = [secret_flag] + argv_tail
+        for auto_flag in spec_meta.get("auto_flags", ()):
+            if auto_flag not in argv_tail:
+                argv_tail.append(auto_flag)
+        raw_secret = payload.get("secret")
+        if raw_secret is not None:
+            raw_secret = str(raw_secret)
+            if len(raw_secret) > 4096:
+                return jsonify({"ok": False, "error": "Secret value is too long."}), 400
+            if raw_secret:
+                stdin_secret = raw_secret
+
     user = session.get("user")
-    code, _out, run_err = _start_script(key, argv_tail)
+    code, _out, run_err = _start_script(key, argv_tail, stdin_secret=stdin_secret)
     ok = code == 0
     _audit(
         "script_run", service=key, user=user, result="ok" if ok else "error",
