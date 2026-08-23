@@ -41,7 +41,7 @@ reload_screen() {
     sleep 0.5
     : > "$logfile"
     echo "  ✓ $name reloading…" >> "$logfile"
-    screen -dmS "$name" bash -c "exec > >(tee -a $logfile) 2>&1; cd $DIR && source $DIR/venv/bin/activate && $cmd; echo 'CRASHED — press Enter to close'; read"
+    screen -dmS "$name" -h 100000 bash -c "exec > >(tee -a $logfile) 2>&1; cd $DIR && source $DIR/venv/bin/activate && $cmd; echo 'CRASHED — press Enter to close'; read"
     echo "  ✓ $name reloaded"
 }
 
@@ -55,6 +55,10 @@ reload_routes() {
 
 reload_gateway() {
     reload_screen "esi-website-gateway" "python3 $DIR/main.py"
+}
+
+reload_panel() {
+    reload_screen "esi-website-panel" "python3 $DIR/panel.py"
 }
 
 # Lock down secret files
@@ -78,7 +82,8 @@ else
             cache)   reload_cache   ;;
             routes)  reload_routes  ;;
             gateway) reload_gateway ;;
-            *)       echo "  Unknown service: $svc (use: cache, routes, gateway)" ;;
+            panel)   reload_panel   ;;
+            *)       echo "  Unknown service: $svc (use: cache, routes, gateway, panel)" ;;
         esac
     done
 fi

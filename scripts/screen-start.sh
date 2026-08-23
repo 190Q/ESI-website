@@ -46,7 +46,7 @@ start_screen() {
     sleep 0.3
 
     : > "$logfile"
-    screen -dmS "$name" bash -c "exec > >(tee -a $logfile) 2>&1; cd $DIR && source $DIR/venv/bin/activate && $cmd; echo 'CRASHED — press Enter to close'; read"
+    screen -dmS "$name" -h 100000 bash -c "exec > >(tee -a $logfile) 2>&1; cd $DIR && source $DIR/venv/bin/activate && $cmd; echo 'CRASHED — press Enter to close'; read"
     echo "  ✓ $name started"
 }
 
@@ -66,6 +66,8 @@ sleep 2
 start_screen "esi-website-routes"  "python3 $DIR/routes.py"
 sleep 1
 start_screen "esi-website-gateway" "python3 $DIR/main.py"
+sleep 1
+start_screen "esi-website-panel"   "python3 $DIR/panel.py"
 
 echo ""
 echo "  Attach:   screen -r esi-website-cache | esi-website-routes | esi-website-gateway"

@@ -37,6 +37,24 @@ def _resolve_esi_bot_dir():
 
 
 _ESI_BOT_DIR = _resolve_esi_bot_dir()
+
+
+def _resolve_qbot_dir():
+    """Resolve which local Q-Bot checkout the panel should control."""
+    env_dir = (os.environ.get("ESI_QBOT_DIR") or "").strip()
+    if env_dir:
+        return env_dir
+
+    sibling = os.path.join(os.path.dirname(_BASE_DIR), "Q-bot")
+    parent_sibling = os.path.join(os.path.dirname(os.path.dirname(_BASE_DIR)), "Q-bot")
+    if os.path.isdir(parent_sibling):
+        return parent_sibling
+    if os.path.isdir(sibling):
+        return sibling
+    return sibling
+
+
+_QBOT_DIR = _resolve_qbot_dir()
 _DATA_FOLDER            = os.path.join(_ESI_BOT_DIR, "data")
 _ASPECTS_JSON           = os.path.join(_DATA_FOLDER, "aspects.json")
 _INACTIVITY_JSON        = os.path.join(_DATA_FOLDER, "inactivity_exemptions.json")
@@ -134,8 +152,21 @@ BULK_PLAYTIME_REFRESH  = 600
 GATEWAY_PORT = 5000
 ROUTES_PORT  = 5001
 CACHE_PORT   = 5002
+PANEL_PORT   = int(os.environ.get("PANEL_PORT", "5003") or 5003)
 ROUTES_URL   = f"http://127.0.0.1:{ROUTES_PORT}"
 CACHE_URL    = f"http://127.0.0.1:{CACHE_PORT}"
+
+# Control-panel: OAuth redirect (separate callback path, same Discord app),
+# and an optional source-IP allowlist checked on top of Discord auth.
+# Left unset by default (no extra restriction) - Discord OAuth + the OWNER
+# check are the primary gate.
+# Set PANEL_ALLOWED_IPS later if additional layer is needed.
+# Then remove this comment.
+PANEL_REDIRECT_URI = os.environ.get("PANEL_REDIRECT_URI", "").strip()
+_PANEL_ALLOWED_IPS_RAW = os.environ.get("PANEL_ALLOWED_IPS", "")
+PANEL_ALLOWED_IPS = frozenset(
+    ip.strip() for ip in _PANEL_ALLOWED_IPS_RAW.split(",") if ip.strip()
+)
 
 # Internal proxy secret, shared between Gateway and Routes
 _GATEWAY_SECRET = os.environ.get("ESI_GATEWAY_SECRET", "").strip()

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>ESI Control Panel</title>
+<style id="esi-prepaint-hide">
+  html.theme-preload body { opacity: 0 !important; }
+</style>
+<script>
+  (function () {
+    try {
+      var storedTheme = String(localStorage.getItem('theme') || '').trim();
+      if (storedTheme && storedTheme !== 'custom') {
+        document.documentElement.classList.add('theme-preload');
+      }
+    } catch (_err) {}
+    // Safety net: this panel must still be usable when the gateway (which
+    // serves /js/theme-config.js) is down. If nothing releases the preload
+    // mask within 1.5s, force it off so the page is never stuck invisible.
+    setTimeout(function () {
+      document.documentElement.classList.remove('theme-preload');
+      var s = document.getElementById('esi-prepaint-hide');
+      if (s) s.remove();
+    }, 1500);
+  })();
+</script>
+<link rel="stylesheet" href="/css/themes.css">
+<link rel="stylesheet" href="/css/fonts.css">
+<script src="/js/theme-config.js"></script>
+<script>
+  if (window.ThemeConfig && typeof window.ThemeConfig.applyInitialTheme === 'function') {
+    window.ThemeConfig.applyInitialTheme();
+  }
+</script>
+<script src="/js/font-config.js"></script>
+<script>
+  if (window.FontConfig && typeof window.FontConfig.applyInitialFont === 'function') {
+    window.FontConfig.applyInitialFont();
+  }
+</script>
+<link rel="stylesheet" href="/css/base.css">
+<script src="/js/popup.js"></script>
+<link rel="stylesheet" href="/panel/static/panel.css">
+</head>
+<body>
+<script>
+  document.documentElement.classList.add('no-transitions');
+  if (localStorage.getItem('sidebarCollapsed') === 'true') {
+    document.documentElement.classList.add('sidebar-pre-collapsed');
+  }
+</script>
+
+<header class="navbar">
+  <div class="navbar-left">
+    <div class="guild-logo">
+      <button class="navbar-hamburger" id="navbarHamburgerBtn" type="button" aria-label="Toggle menu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="navbar-hamburger-icon" aria-hidden="true" focusable="false">
+          <line x1="5" y1="7" x2="19" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          <line x1="5" y1="17" x2="19" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      </button>
+      <img src="/images/guild_emblem.avif" alt="ESI Emblem" class="emblem-img">
+      <div class="guild-title">
+        <span class="guild-acronym">ESI</span>
+        <span class="guild-fullname">Empire of Sindria</span>
+      </div>
+    </div>
+  </div>
+
+  <nav class="navbar-center">
+    <span class="navbar-tagline" aria-label="Control Panel">
+      <span class="navbar-tagline-text">Control Panel</span>
+    </span>
+  </nav>
+
+  <div class="navbar-right">
+    <button class="btn-discord" id="loginBtn" style="opacity:0">
+      <svg width="20" height="20" viewBox="0 0 127.14 96.36" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+        <path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z" />
+      </svg>
+      <span class="btn-label">Login with Discord</span>
+    </button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-ornament top"></div>
+
+    <button class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="11 17 6 12 11 7" />
+        <polyline points="18 17 13 12 18 7" />
+      </svg>
+    </button>
+
+    <nav class="sidebar-nav" id="sidebarNav"></nav>
+
+    <div class="sidebar-bottom">
+      <div class="sidebar-ornament bottom"></div>
+      <button class="nav-item sidebar-settings-btn" id="settingsBtn" title="Settings">
+        <span class="nav-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </span>
+        <span class="nav-label">Settings</span>
+      </button>
+    </div>
+  </aside>
+
+  <button class="sidebar-mobile-backdrop" id="sidebarMobileBackdrop" type="button" aria-label="Close menu"></button>
+
+  <main class="content-area" id="contentArea">
+    <div id="panels-root"></div>
+  </main>
+</div>
+
+<!-- Settings modal (Appearance only - the rest of the main site's settings
+     configure pages that don't exist in this panel) -->
+<div class="modal-backdrop" id="settingsModalBackdrop">
+  <div class="modal settings-modal">
+    <button class="modal-close" id="settingsModalClose">&#10005;</button>
+    <h2 class="modal-title">Settings</h2>
+    <p class="modal-sub" style="font-weight:500">Customize your dashboard experience</p>
+
+    <div class="settings-body">
+      <div class="settings-section">
+        <div class="settings-section-label">
+          Appearance
+          <span class="settings-section-hint">
+            Shared with the main dashboard - changes apply to both.
+          </span>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Colour theme</div>
+            <div class="settings-row-desc">Switch the dashboard colour scheme</div>
+          </div>
+          <div class="settings-row-control">
+            <select class="settings-select" id="settingTheme" aria-label="Colour theme">
+              <option value="">Default</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-add-custom-wrap">
+          <button type="button" class="settings-add-custom" id="addCustomThemeBtn">+ Add Custom</button>
+          <button type="button" class="settings-add-custom-x" id="removeCustomThemeBtn" style="display:none">&times;</button>
+          <input type="file" id="customThemeFileInput" accept=".css" style="display:none">
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-row-info">
+            <div class="settings-row-title">Font</div>
+            <div class="settings-row-desc">Change the typeface used across the dashboard</div>
+          </div>
+          <div class="settings-row-control">
+            <select class="settings-select" id="settingFont" aria-label="Font">
+              <option value="">Cinzel &amp; Crimson Pro</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="settings-add-custom-wrap">
+          <button type="button" class="settings-add-custom" id="addCustomFontBtn">+ Add Custom</button>
+          <button type="button" class="settings-add-custom-x" id="removeCustomFontBtn" style="display:none">&times;</button>
+          <input type="file" id="customFontFileInput" accept=".css" style="display:none">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Account modal - trimmed to identity + log out (ranks/echelon/badges/shop
+     from the main site's version don't apply to a single owner account) -->
+<div class="modal-backdrop" id="accountModalBackdrop">
+  <div class="modal account-modal">
+    <button class="modal-close" id="accountModalClose">&#10005;</button>
+    <div class="account-modal-header">
+      <img class="account-modal-avatar" id="accountModalAvatar" src="" alt="">
+      <div class="account-modal-name" id="accountModalName"></div>
+      <div class="account-modal-sub" id="accountModalSub">Panel owner</div>
+    </div>
+    <div class="account-modal-footer">
+      <button class="account-modal-logout" id="logoutBtn">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+          <polyline points="16 17 21 12 16 7" />
+          <line x1="21" y1="12" x2="9" y2="12" />
+        </svg>
+        Log Out
+      </button>
+    </div>
+  </div>
+</div>
+
+<script src="/panel/static/panel.js"></script>
+</body>
+</html>
