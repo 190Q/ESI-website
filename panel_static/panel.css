@@ -464,3 +464,21 @@
   padding: 8px 0;
 }
 .script-detail-console .console-body { height: 500px; max-height: 60vh; overflow-y: auto; }
+.confirm-modal .confirm-modal-message { margin-bottom: 16px; }
+.confirm-modal-detail {
+  margin: 0 0 24px;
+  background: var(--green-deep);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  max-height: 220px;
+  overflow-y: auto;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-main);
+}
+.confirm-modal-actions { justify-content: center; margin-bottom: 0; }

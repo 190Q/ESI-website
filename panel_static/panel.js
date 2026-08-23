@@ -298,6 +298,107 @@
   }
 
 
+  function ensureConfirmModal() {
+    var bd = document.getElementById('panelConfirmBackdrop');
+    if (bd) return bd;
+    bd = document.createElement('div');
+    bd.id = 'panelConfirmBackdrop';
+    bd.className = 'modal-backdrop';
+    bd.innerHTML =
+      '<div class="modal confirm-modal">' +
+        '<button class="modal-close" id="panelConfirmClose" aria-label="Close">\u2715</button>' +
+        '<h2 class="modal-title" id="panelConfirmTitle">Confirm</h2>' +
+        '<p class="modal-sub confirm-modal-message" id="panelConfirmMessage"></p>' +
+        '<pre class="confirm-modal-detail" id="panelConfirmDetail" style="display:none"></pre>' +
+        '<div class="service-actions confirm-modal-actions">' +
+          '<button type="button" class="btn-secondary" id="panelConfirmCancel">Cancel</button>' +
+          '<button type="button" class="btn-primary" id="panelConfirmOk">Confirm</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(bd);
+    window.Popup.register(bd, { closeBtn: '#panelConfirmClose' });
+    return bd;
+  }
+
+  function showConfirm(opts) {
+    opts = opts || {};
+    var bd = ensureConfirmModal();
+    var titleEl = bd.querySelector('#panelConfirmTitle');
+    var msgEl = bd.querySelector('#panelConfirmMessage');
+    var detailEl = bd.querySelector('#panelConfirmDetail');
+    var okBtn = bd.querySelector('#panelConfirmOk');
+    var cancelBtn = bd.querySelector('#panelConfirmCancel');
+    var closeBtn = bd.querySelector('#panelConfirmClose');
+    titleEl.textContent = opts.title || 'Are you sure?';
+    msgEl.textContent = opts.message || '';
+    msgEl.style.display = opts.message ? '' : 'none';
+    if (opts.detail) { detailEl.textContent = opts.detail; detailEl.style.display = ''; }
+    else { detailEl.textContent = ''; detailEl.style.display = 'none'; }
+    okBtn.textContent = opts.confirmLabel || 'Confirm';
+    cancelBtn.textContent = opts.cancelLabel || 'Cancel';
+    okBtn.className = opts.danger ? 'btn-danger' : 'btn-primary';
+
+    function close() { window.Popup.close(bd); }
+    function settle(confirmed) {
+      okBtn.onclick = null;
+      cancelBtn.onclick = null;
+      closeBtn.onclick = null;
+      close();
+      if (confirmed && typeof opts.onConfirm === 'function') opts.onConfirm();
+      else if (!confirmed && typeof opts.onCancel === 'function') opts.onCancel();
+    }
+    okBtn.onclick = function () { settle(true); };
+    cancelBtn.onclick = function () { settle(false); };
+    closeBtn.onclick = function () { settle(false); };
+    window.Popup.open(bd);
+  }
+
+  function ensureAlertModal() {
+    var bd = document.getElementById('panelAlertBackdrop');
+    if (bd) return bd;
+    bd = document.createElement('div');
+    bd.id = 'panelAlertBackdrop';
+    bd.className = 'modal-backdrop';
+    bd.innerHTML =
+      '<div class="modal confirm-modal">' +
+        '<button class="modal-close" id="panelAlertClose" aria-label="Close">\u2715</button>' +
+        '<h2 class="modal-title" id="panelAlertTitle">Notice</h2>' +
+        '<p class="modal-sub confirm-modal-message" id="panelAlertMessage"></p>' +
+        '<pre class="confirm-modal-detail" id="panelAlertDetail" style="display:none"></pre>' +
+        '<div class="service-actions confirm-modal-actions">' +
+          '<button type="button" class="btn-primary" id="panelAlertOk">OK</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(bd);
+    window.Popup.register(bd, { closeBtn: '#panelAlertClose' });
+    return bd;
+  }
+
+  function showAlert(opts) {
+    if (typeof opts === 'string') opts = { message: opts };
+    opts = opts || {};
+    var bd = ensureAlertModal();
+    bd.querySelector('#panelAlertTitle').textContent = opts.title || 'Notice';
+    var msgEl = bd.querySelector('#panelAlertMessage');
+    msgEl.textContent = opts.message || '';
+    msgEl.style.display = opts.message ? '' : 'none';
+    var detailEl = bd.querySelector('#panelAlertDetail');
+    if (opts.detail) { detailEl.textContent = opts.detail; detailEl.style.display = ''; }
+    else { detailEl.textContent = ''; detailEl.style.display = 'none'; }
+    var okBtn = bd.querySelector('#panelAlertOk');
+    var closeBtn = bd.querySelector('#panelAlertClose');
+    function close() { window.Popup.close(bd); }
+    function settle() {
+      okBtn.onclick = null;
+      closeBtn.onclick = null;
+      close();
+      if (typeof opts.onClose === 'function') opts.onClose();
+    }
+    okBtn.onclick = settle;
+    closeBtn.onclick = settle;
+    window.Popup.open(bd);
+  }
+
   window._injectCustomCSS = function (type) {
     var id = 'esi-custom-' + type + '-style';
     var css = localStorage.getItem('esi_custom_' + type + '_css');
@@ -405,7 +506,7 @@
   function handleCustomCss(type, file) {
     if (!file) return;
     if (!file.name.toLowerCase().endsWith('.css') || file.size > 512 * 1024) {
-      window.alert('Please choose a .css file no larger than 512 KB.');
+      showAlert('Please choose a .css file no larger than 512 KB.');
       return;
     }
     var reader = new FileReader();
@@ -416,11 +517,11 @@
         ? (/\[data-theme=/.test(cssText) || (cssText.match(/--[\w-]+\s*:/g) || []).length >= 3)
         : (/\[data-font=/.test(cssText) || /@font-face/i.test(cssText) || /font-family\s*:/i.test(cssText));
       if (!looksValid) {
-        window.alert('That file does not look like a valid custom ' + type + ' CSS file.');
+        showAlert('That file does not look like a valid custom ' + type + ' CSS file.');
         return;
       }
       if (/url\(\s*(['"]?)(?!(?:https?:|data:|\/))/.test(cssText)) {
-        window.alert('This CSS references local companion files. Upload its zip bundle through the main dashboard Settings instead; it will automatically appear here.');
+        showAlert('This CSS references local companion files. Upload its zip bundle through the main dashboard Settings instead; it will automatically appear here.');
         return;
       }
       var attrRe = isTheme ? /data-theme="([^"]+)"/ : /data-font="([^"]+)"/;
@@ -575,7 +676,15 @@
     function addAction(label, cls, action, confirmation) {
       var btn = el('button', cls, label);
       btn.addEventListener('click', function () {
-        if (confirmation && !window.confirm(confirmation.replace('{label}', svc.label))) return;
+        if (confirmation) {
+          showConfirm({
+            title: confirmation.replace('{label}', svc.label),
+            confirmLabel: label,
+            danger: cls === 'btn-danger',
+            onConfirm: function () { runServiceAction(svc.key, action, body); },
+          });
+          return;
+        }
         runServiceAction(svc.key, action, body);
       });
       actions.appendChild(btn);
@@ -651,19 +760,23 @@
     })
       .then(function (response) {
         if (response.status === 429) {
-          window.alert('Rate limited: too many ' + action + ' requests. Wait a moment and try again.');
+          showAlert('Rate limited: too many ' + action + ' requests. Wait a moment and try again.');
           return null;
         }
         return response.json().catch(function () { return null; }).then(function (data) {
           if (!response.ok || !data || data.ok === false) {
             var detail = data && (data.error || data.stderr || data.stdout);
-            window.alert('Failed to ' + action + ' ' + key + (detail ? ':\n' + detail : ' (unknown error).'));
+            showAlert({
+              title: 'Failed to ' + action + ' ' + key,
+              message: detail ? '' : 'Unknown error.',
+              detail: detail || null,
+            });
           }
           return data;
         });
       })
       .catch(function () {
-        window.alert('Failed to ' + action + ' ' + key + ': request error.');
+        showAlert('Failed to ' + action + ' ' + key + ': request error.');
       })
       .finally(function () {
         buttons.forEach(function (b) { b.disabled = false; });
@@ -817,7 +930,9 @@
         : Promise.reject();
       copy
         .then(function () { btn.firstChild.textContent = 'Copied: ' + text + ' '; })
-        .catch(function () { window.prompt('Copy the attach command:', text); })
+        .catch(function () {
+          showAlert({ title: 'Copy attach command', message: 'Clipboard access failed \u2014 copy this manually:', detail: text });
+        })
         .finally(function () {
           setTimeout(function () { btn.firstChild.textContent = original; }, 2000);
         });
@@ -1109,7 +1224,15 @@
   function runScript() {
     if (!_currentScriptKey) return;
     var payload = collectScriptRunPayload();
-    if (!window.confirm('Run this script now?\n\n' + describeRunPreview(payload))) return;
+    showConfirm({
+      title: 'Run this script now?',
+      detail: describeRunPreview(payload),
+      confirmLabel: 'Run',
+      onConfirm: function () { executeScriptRun(payload); },
+    });
+  }
+
+  function executeScriptRun(payload) {
     fetch('/panel/api/scripts/' + encodeURIComponent(_currentScriptKey) + '/run', {
       method: 'POST',
       credentials: 'same-origin',
@@ -1119,7 +1242,7 @@
       .then(function (r) { return r.json().then(function (body) { return { ok: r.ok, body: body }; }); })
       .then(function (res) {
         if (!res.ok || !res.body || res.body.ok === false) {
-          window.alert('Failed to start: ' + ((res.body && res.body.error) || 'unknown error'));
+          showAlert('Failed to start: ' + ((res.body && res.body.error) || 'unknown error'));
           return;
         }
         var runBtn = document.getElementById('scriptRunBtn');
@@ -1130,12 +1253,20 @@
         if (status) status.textContent = 'Running\u2026';
         startScriptLogPolling();
       })
-      .catch(function () { window.alert('Failed to start: request error.'); });
+      .catch(function () { showAlert('Failed to start: request error.'); });
   }
 
   function stopScript() {
     if (!_currentScriptKey) return;
-    if (!window.confirm('Stop the running script?')) return;
+    showConfirm({
+      title: 'Stop the running script?',
+      confirmLabel: 'Stop',
+      danger: true,
+      onConfirm: function () { executeScriptStop(); },
+    });
+  }
+
+  function executeScriptStop() {
     fetch('/panel/api/scripts/' + encodeURIComponent(_currentScriptKey) + '/stop', {
       method: 'POST',
       credentials: 'same-origin',
