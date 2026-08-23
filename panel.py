@@ -755,11 +755,25 @@ def panel_callback():
         print(f"[PANEL-AUTH] OAuth callback error: {exc}", file=sys.stderr)
         return redirect("/panel/?auth=error")
 
+    nick = None
+    if DISCORD_GUILD_ID and DISCORD_TOKEN:
+        try:
+            member_resp = requests.get(
+                f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/members/{discord_user['id']}",
+                headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+                timeout=10,
+            )
+            if member_resp.ok:
+                nick = member_resp.json().get("nick")
+        except requests.RequestException:
+            pass
+
     session.clear()
     session.permanent = True
     user_data = {
         "id":            discord_user["id"],
         "username":      discord_user["username"],
+        "nick":          nick,
         "discriminator": discord_user.get("discriminator", "0"),
         "avatar":        discord_user.get("avatar"),
     }
@@ -787,7 +801,10 @@ def panel_auth_session():
     level = _access_level(user)
     return jsonify({
         "loggedIn": True,
-        "user": {"id": user["id"], "username": user["username"], "avatar": user.get("avatar")},
+        "user": {
+            "id": user["id"], "username": user["username"], "nick": user.get("nick"),
+            "avatar": user.get("avatar"),
+        },
         "accessLevel": level,
         "csrfToken": session.get("csrf_token"),
     })

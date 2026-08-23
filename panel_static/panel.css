@@ -254,3 +254,4 @@
 .event-top { display: flex; justify-content: space-between; color: var(--text-main); }
 .event-top .type { color: var(--gold-light); }
 .event-meta { color: var(--text-faint); margin-top: 2px; }
+.settings-modal .settings-body { padding-bottom: 28px; }

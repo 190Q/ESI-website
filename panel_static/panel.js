@@ -245,7 +245,7 @@
     img.alt = '';
     img.style.cssText = 'width:20px;height:20px;border-radius:50%;object-fit:cover;flex-shrink:0;';
     loginBtn.appendChild(img);
-    loginBtn.appendChild(el('span', 'btn-label', currentUser.username));
+    loginBtn.appendChild(el('span', 'btn-label', currentUser.nick || currentUser.username));
     loginBtn.style.opacity = '1';
     loginBtn.style.background = 'var(--online,#3BA55C)';
     loginBtn.style.boxShadow = '0 2px 12px rgba(var(--online-rgb,59,165,92),0.35)';
@@ -267,7 +267,7 @@
         return;
       }
       document.getElementById('accountModalAvatar').src = discordAvatarUrl(currentUser);
-      document.getElementById('accountModalName').textContent = currentUser.username;
+      document.getElementById('accountModalName').textContent = currentUser.nick || currentUser.username;
       document.getElementById('accountModalSub').textContent = accessLevel === 'owner' ? 'Panel owner' : (accessLevel || 'No panel access');
       window.Popup.open(backdrop);
     });
