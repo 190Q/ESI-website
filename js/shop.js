@@ -26,6 +26,9 @@
   var _auctionPoll    = null;  // 30s auction data refresh
   var _shellBuilt     = false;
   var _shopEnabled    = true;
+  var _canInteract    = false;  // guild member + not banned
+  var _shopLoggedIn   = false;
+  var _shopIsGuildMember = false;
   var _shopMaintenanceViewOnly = false;
   var _shopMaintenanceSettings = {
     shop_visible: true,
@@ -67,6 +70,71 @@
   function disabledMessage() {
     var msg = String(_shopDisabledMessage || '').trim();
     return msg || 'Coming soon';
+  }
+  function _syncAccessFromPayload(data) {
+    if (!data || typeof data !== 'object') return;
+    if (typeof data.logged_in === 'boolean') _shopLoggedIn = !!data.logged_in;
+    if (typeof data.is_guild_member === 'boolean') _shopIsGuildMember = !!data.is_guild_member;
+    if (typeof data.can_interact === 'boolean') {
+      _canInteract = !!data.can_interact;
+    } else {
+      // Fallback from client session when API omits flags
+      _shopLoggedIn = !!(window.state && window.state.loggedIn);
+      _shopIsGuildMember = !!(window.isGuildMember && window.isGuildMember());
+      _canInteract = _shopLoggedIn && _shopIsGuildMember && !(window.isShopBanned && window.isShopBanned());
+    }
+  }
+  function _refreshClientAccess() {
+    _shopLoggedIn = !!(window.state && window.state.loggedIn);
+    _shopIsGuildMember = !!(window.isGuildMember && window.isGuildMember());
+    if (_shopLoggedIn && _shopIsGuildMember && !(window.isShopBanned && window.isShopBanned())) {
+      // Keep server-provided can_interact if already true; otherwise derive
+      if (!_canInteract) _canInteract = true;
+    } else {
+      _canInteract = false;
+    }
+  }
+  function interactionBlockedMessage() {
+    if (!_shopLoggedIn) return 'Log in with Discord to use the shop.';
+    if (!_shopIsGuildMember) return 'You must be a guild member to use the shop.';
+    return 'You cannot interact with the shop.';
+  }
+  function interactionBlockedTitle() {
+    if (!_shopLoggedIn) return 'Login Required';
+    if (!_shopIsGuildMember) return 'Guild Members Only';
+    return 'Unavailable';
+  }
+  function openLoginRequiredModal(section) {
+    buildShell();
+    var modal = document.getElementById('shopModal');
+    if (!modal) return;
+    var bodyText = interactionBlockedMessage();
+    var title = section || interactionBlockedTitle();
+    var showLoginBtn = !_shopLoggedIn;
+    modal.innerHTML =
+      '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>' +
+      '<div class="shop-modal-title">' + esc(title) + '</div>' +
+      '<div class="shop-modal-body">' + esc(bodyText) + '</div>' +
+      (showLoginBtn
+        ? '<div class="shop-modal-actions"><button class="shop-modal-btn shop-modal-btn--confirm" id="shopLoginPromptBtn">Login with Discord</button></div>'
+        : '');
+    var loginBtn = document.getElementById('shopLoginPromptBtn');
+    if (loginBtn) {
+      loginBtn.addEventListener('click', function () {
+        var navLogin = document.getElementById('loginBtn');
+        if (navLogin) navLogin.click();
+      });
+    }
+    var backdrop = document.getElementById('shopModalBackdrop');
+    if (backdrop) {
+      backdrop.classList.remove('orders-open', 'cart-open');
+      backdrop.classList.add('open');
+    }
+  }
+  function interactionBtnLabel() {
+    if (!_shopLoggedIn) return 'Login to interact';
+    if (!_shopIsGuildMember) return 'Guild members only';
+    return 'Unavailable';
   }
   function _coerceBool(v, fallback) {
     if (typeof v === 'boolean') return v;
@@ -288,7 +356,7 @@
     _cart = next;
   }
   function syncCart() {
-    if (!_cartLoaded) return;
+    if (!_cartLoaded || !_canInteract) return;
     if (_cartSyncTimer) clearTimeout(_cartSyncTimer);
     _cartSyncTimer = setTimeout(function () {
       _cartSyncTimer = null;
@@ -378,6 +446,7 @@
       }
     });
     document.getElementById('shopCartBtn').addEventListener('click', function () {
+      if (!_canInteract) { openLoginRequiredModal('Cart'); return; }
       if (_shopEnabled === false && !_shopMaintenanceViewOnly) { openComingSoonModal('Cart'); return; }
       if (_shopEnabled === false && !_showItemsSection()) {
         openComingSoonModal('Cart', 'Under Maintenance');
@@ -386,6 +455,7 @@
       openCartModal();
     });
     document.getElementById('shopOrdersBtn').addEventListener('click', function () {
+      if (!_canInteract) { openLoginRequiredModal('My Orders'); return; }
       if (_shopEnabled === false && !_shopMaintenanceViewOnly) { openComingSoonModal('My Orders'); return; }
       openOrdersModal();
     });
@@ -396,6 +466,7 @@
     fetch('/api/shop/state', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
+        _syncAccessFromPayload(data);
         if (data && typeof data.shop_enabled === 'boolean') {
           _shopEnabled = !!data.shop_enabled;
         }
@@ -424,8 +495,15 @@
   function setTopActionsDisabled(disabled) {
     var cartBtn = document.getElementById('shopCartBtn');
     var ordBtn  = document.getElementById('shopOrdersBtn');
-    if (cartBtn) cartBtn.classList.toggle('shop-btn-disabled', !!disabled);
-    if (ordBtn) ordBtn.classList.toggle('shop-btn-disabled', !!disabled);
+    var locked = !!disabled || !_canInteract;
+    if (cartBtn) {
+      cartBtn.classList.toggle('shop-btn-disabled', locked);
+      cartBtn.title = !_canInteract ? interactionBlockedMessage() : '';
+    }
+    if (ordBtn) {
+      ordBtn.classList.toggle('shop-btn-disabled', locked);
+      ordBtn.title = !_canInteract ? interactionBlockedMessage() : '';
+    }
   }
 
   function renderComingSoonBalanceBar() {
@@ -501,6 +579,8 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         if (data) {
+          _syncAccessFromPayload(data);
+          setTopActionsDisabled(_shopEnabled === false && !_shopMaintenanceViewOnly);
           _binData = data;
           if (data.maintenance_settings) {
             _setMaintenanceSettings(data.maintenance_settings, _shopMaintenanceViewOnly);
@@ -524,6 +604,8 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         if (data) {
+          _syncAccessFromPayload(data);
+          setTopActionsDisabled(_shopEnabled === false && !_shopMaintenanceViewOnly);
           _auctionData = data;
           if (data.maintenance_settings) {
             _setMaintenanceSettings(data.maintenance_settings, _shopMaintenanceViewOnly);
@@ -588,19 +670,23 @@
     }
     el.classList.remove('shop-balance-bar--hidden');
     el.classList.remove('shop-balance-bar--coming-soon');
-    if (!_binData || !_binData.balance) {
-      el.classList.remove('shop-balance-bar--has-compact');
-      return;
+    var b = (_binData && _binData.balance) ? _binData.balance : {
+      spendable_clean: 0, spendable_dirty: 0, total_ep: 0,
+      reserved_clean: 0, reserved_dirty: 0,
+    };
+    if (!_shopLoggedIn) {
+      b = {
+        spendable_clean: 0, spendable_dirty: 0, total_ep: 0,
+        reserved_clean: 0, reserved_dirty: 0,
+      };
     }
     el.classList.add('shop-balance-bar--has-compact');
-    var b = _binData.balance;
     var html = '<div class="bal-blocks">' +
       _mkBlock('Clean EP', b.spendable_clean, b.reserved_clean) +
       _mkBlock('Dirty EP', b.spendable_dirty, b.reserved_dirty) +
       _mkBlock('Total EP', b.total_ep, 0) +
       '</div>';
-    var endsAt = _binData.cycle_ends_at;
-    var cycleId = _binData.current_cycle_id;
+    var endsAt = _binData && _binData.cycle_ends_at;
     if (endsAt) {
       var end  = new Date(endsAt);
       var diff = Math.max(0, end - new Date());
@@ -608,7 +694,7 @@
       var h = Math.floor((diff % 86400000) / 3600000);
       var m = Math.floor((diff % 3600000) / 60000);
       html += '<div class="bal-cycle">' +
-        '<span class="bal-cycle-label">End of Cycle' + '</span>' +
+        '<span class="bal-cycle-label">End of Cycle</span>' +
         '<span class="bal-cycle-value">' + d + 'd ' + h + 'h ' + m + 'm</span>' +
         '</div>';
     }
@@ -1578,8 +1664,9 @@
     // For multi-variant, disabled state is per-variant
     var _effStock = _mIsMultiV && _mSelIdx != null ? _mVariants[_mSelIdx].stock : item.stock;
     var _effActive = _mIsMultiV && _mSelIdx != null ? _mVariants[_mSelIdx].active !== false : true;
-    var btnDisabled = shopDisabled || inactive || visBlocked || onCooldown || (!_effActive) || (_effStock != null && _effStock <= 0);
-    if (shopDisabled) { btnLabel = disabledMessage(); }
+    var btnDisabled = !_canInteract || shopDisabled || inactive || visBlocked || onCooldown || (!_effActive) || (_effStock != null && _effStock <= 0);
+    if (!_canInteract) { btnLabel = interactionBtnLabel(); }
+    else if (shopDisabled) { btnLabel = disabledMessage(); }
     else if (schedPending) {
       var _mdiff = new Date(item.activate_at).getTime() - Date.now();
       var _mH = Math.ceil(_mdiff / 3600000);
@@ -1592,7 +1679,7 @@
       btnLabel = 'Available in ' + Math.ceil(Math.max(0, new Date(item.cooldown_ends_at) - new Date()) / 86400000) + 'd';
     } else if (onCooldown) { btnLabel = 'On Cooldown'; }
     html += '<div class="shop-modal-actions">';
-    if (!cartEntry || disabled) {
+    if (!_canInteract || !cartEntry || disabled) {
       html += '<button class="shop-modal-btn shop-modal-btn--confirm" id="shopDetailAdd"' + (btnDisabled ? ' disabled' : '') + '>' + btnLabel + '</button>';
     } else if (_allowsMultiQuantity(item, cartEntry ? cartEntry.variantIdx : _mSelIdx)) {
       var maxQ = _effectiveMaxQty(item, cartEntry ? cartEntry.variantIdx : _mSelIdx);
@@ -1628,6 +1715,7 @@
     }
     var addBtn = document.getElementById('shopDetailAdd');
     if (addBtn) addBtn.addEventListener('click', function () {
+      if (!_canInteract) { openLoginRequiredModal('Cart'); return; }
       var entry = { item: item, quantity: 1 };
       if (_mIsMultiV && _mSelIdx != null) entry.variantIdx = _mSelIdx;
       _cart[item.id] = entry;
@@ -1685,8 +1773,8 @@
     var myUuid   = (_auctionData && _auctionData.uuid) ? _auctionData.uuid : '';
     var isActive = auction.status === 'active';
     var itemActive = auction.active !== false;
-    var canBid = !shopDisabled && isActive && itemActive;
-    var isHighest = auction.current_highest_bidder_uuid === myUuid;
+    var canBid = _canInteract && !shopDisabled && isActive && itemActive;
+    var isHighest = _canInteract && auction.current_highest_bidder_uuid === myUuid;
     var bal = (_auctionData && _auctionData.balance) || (_binData && _binData.balance);
     var minBid = auction.current_highest_bid > 0
       ? auction.current_highest_bid + (auction.min_increment || 1) : (auction.starting_bid || 0);
@@ -1760,7 +1848,9 @@
       html += '</div>';
     } else {
       html += '<div class="shop-modal-actions">';
-      var abtnLabel = shopDisabled ? disabledMessage() : (!isActive ? 'Auction Ended' : !itemActive ? 'Auction Paused' : 'Unavailable');
+      var abtnLabel = !_canInteract
+        ? interactionBtnLabel()
+        : (shopDisabled ? disabledMessage() : (!isActive ? 'Auction Ended' : !itemActive ? 'Auction Paused' : 'Unavailable'));
       html += '<button class="shop-modal-btn shop-modal-btn--confirm" disabled>' + abtnLabel + '</button>';
       html += '</div>';
     }
@@ -2176,6 +2266,23 @@
     buildShell();
     var modal = document.getElementById('shopModal');
     if (!modal) return;
+    if (!_canInteract) {
+      var htmlLocked = '<button class="modal-close">\u2715</button>';
+      var detailImgsL = _getItemImages(item);
+      if (detailImgsL.length) htmlLocked += _buildCarousel(detailImgsL);
+      else htmlLocked += '<div class="detail-img-wrap detail-img-wrap--empty">No Image</div>';
+      htmlLocked += _catBadges(item.category);
+      htmlLocked += '<div class="shop-modal-title">' + esc(item.name) + '</div>';
+      if (item.description) htmlLocked += '<div class="detail-full-desc">' + esc(item.description) + '</div>';
+      htmlLocked += '<div class="shop-modal-actions">';
+      htmlLocked += '<button class="shop-modal-btn shop-modal-btn--confirm" disabled>' + interactionBtnLabel() + '</button>';
+      htmlLocked += '</div>';
+      modal.innerHTML = htmlLocked;
+      _bindCarousel(modal);
+      _freezeGifs(modal);
+      document.getElementById('shopModalBackdrop').classList.add('open');
+      return;
+    }
     var html = '<button class="modal-close">\u2715</button>';
     var detailImgs = _getItemImages(item);
     if (detailImgs.length) html += _buildCarousel(detailImgs);
@@ -2544,20 +2651,21 @@
     setComingSoonLayout(false);
     _setMaintenanceSettings({}, true);
     _shopMaintenanceViewOnly = false;
-    setTopActionsDisabled(false);
+    setTopActionsDisabled(!_canInteract);
     _applyMaintenanceSectionVisibility();
     document.getElementById('shopContent').innerHTML =
       '<div class="shop-loading"><span class="loading-spinner"></span> Loading shop\u2026</div>';
     fetchBinData(function (data) {
       if (!data) {
         document.getElementById('shopContent').innerHTML =
-          '<div class="shop-empty">Could not load shop data. You may not be a guild member.</div>';
+          '<div class="shop-empty">Could not load shop data.</div>';
         return;
       }
       renderBalanceBar();
       buildFilterBar();  // builds filter bar then calls renderContent()
       startCountdownTick();
-      loadCart(data.items || []);
+      if (_canInteract) loadCart(data.items || []);
+      else { _cart = {}; _cartLoaded = true; updateCartBadge(); }
     });
 
     // Pre-fetch auctions; update price range + re-render once ready
@@ -2657,15 +2765,12 @@
     });
   }
 
-  function initShop() {
-    if (_initDone) return;
+  function initShop(force) {
+    if (_initDone && !force) return;
     _initDone = true;
-    if (!window.state || !window.state.loggedIn) {
-      if (window.renderAuthGate) window.renderAuthGate(panel);
-      else panel.innerHTML = '<div class="shop-login-prompt">Log in with Discord to access the shop.</div>';
-      return;
-    }
+    _refreshClientAccess();
     buildShell();
+    setTopActionsDisabled(!_canInteract);
     refreshShopByState();
   }
 
@@ -2675,9 +2780,30 @@
   observer.observe(panel, { attributes: true, attributeFilter: ['class'] });
   if (panel.classList.contains('active')) initShop();
 
+  // Re-sync access when login/logout changes session state
+  var _lastAccessKey = '';
+  setInterval(function () {
+    if (!panel.classList.contains('active') || !_initDone) return;
+    var key = String(!!(window.state && window.state.loggedIn)) + '|' +
+      String(!!(window.isGuildMember && window.isGuildMember())) + '|' +
+      String(!!(window.isShopBanned && window.isShopBanned()));
+    if (key === _lastAccessKey) return;
+    _lastAccessKey = key;
+    _refreshClientAccess();
+    setTopActionsDisabled(!_canInteract || (_shopEnabled === false && !_shopMaintenanceViewOnly));
+    // Reload catalogue so personal balance/cart unlock after login
+    if (_canInteract) refreshShopByState();
+    else {
+      _cart = {};
+      _cartLoaded = true;
+      updateCartBadge();
+      renderBalanceBar();
+    }
+  }, 800);
+
   // Re-fetch cart when this tab regains visibility
   document.addEventListener('visibilitychange', function () {
-    if (_shopEnabled === false) return;
+    if (_shopEnabled === false || !_canInteract) return;
     if (document.visibilityState !== 'visible' || !_initDone || !_cartLoaded || !_binData) return;
     if (_cartSyncTimer) return; // pending write
     fetch('/api/shop/cart', { credentials: 'same-origin' })

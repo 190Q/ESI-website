@@ -37,7 +37,7 @@ export default function Sidebar() {
                 <span className="nav-label">Events</span>
               </a>
             </li>
-            <li id="shopNavItem" style={{ display: 'none' }}>
+            <li id="shopNavItem">
               <a href="#" className="nav-item" data-panel="shop">
                 <span className="nav-icon"><ShopIcon /></span>
                 <span className="nav-label">Shop</span>

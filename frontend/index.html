@@ -70,6 +70,7 @@
         css += '.navbar .navbar-center{display:none!important}';
         css += '.navbar .navbar-right{margin-left:auto!important;flex:0 1 auto!important;max-width:none!important}';
       }
+      css += '#shopNavItem{display:list-item!important}';
       // Auth-specific overrides (logged-in button + nav items)
       var u = localStorage.getItem('esi_user');
       if (u) {
@@ -105,12 +106,10 @@
             btn.classList.add('btn-discord--account');
           });
           obs.observe(document.documentElement, { childList: true, subtree: true });
-          // Nav visibility from last-known state
           var nc = localStorage.getItem('esi_nav_cache');
           if (nc) {
             try {
               var n = JSON.parse(nc);
-              if (n.shop) css += '#shopNavItem{display:list-item!important}';
               if (n.creatorStudio) css += '#creatorStudioNavItem{display:list-item!important}';
               if (n.shopAdmin) css += '#shopAdminNavItem{display:list-item!important}';
               if (n.guildInfo) css += '#guildInfoNavItem{display:list-item!important}';

@@ -1848,7 +1848,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
     const canPromotions = hasJurorPlus();
     const canEvents     = hasEventsAccess();
 
-    const canShop = isGuildMember() && !isShopBanned();
+    const canShop = !isShopBanned();
     const shopNavItem = document.getElementById('shopNavItem');
     if (shopNavItem) shopNavItem.style.display = canShop ? '' : 'none';
 
@@ -1887,8 +1887,13 @@ fetch('/auth/session', { credentials: 'same-origin' })
         (activePanel.id === 'panel-events-manage' && !canEvents) ||
         (activePanel.id === 'panel-guild-info'    && !canGuildInfo);
       if (blocked) {
-        if (!state.loggedIn && _LOGIN_REQUIRED_PANELS.indexOf(panelId) !== -1 && window.renderAuthGate) {
+        if (!state.loggedIn && panelId !== 'shop' && _LOGIN_REQUIRED_PANELS.indexOf(panelId) !== -1 && window.renderAuthGate) {
           window.renderAuthGate(activePanel);
+        } else if (panelId === 'shop' && !canShop) {
+          document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+          document.getElementById('panel-player').classList.add('active');
+          navItems.forEach(n => n.classList.remove('active'));
+          document.querySelector('[data-panel="player"]').classList.add('active');
         } else {
           document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
           document.getElementById('panel-player').classList.add('active');
@@ -2465,7 +2470,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
   var showToast = window.showToast;
 
   /* panel switching */
-  var _LOGIN_REQUIRED_PANELS = ['shop', 'creator-studio', 'shop-admin', 'inactivity', 'promotions', 'events-manage', 'guild-info'];
+  var _LOGIN_REQUIRED_PANELS = ['creator-studio', 'shop-admin', 'inactivity', 'promotions', 'events-manage', 'guild-info'];
 
   function switchToPanel(panel) {
     const validPanels = ['player', 'guild', 'bot', 'events', 'shop', 'creator-studio', 'shop-admin', 'profile', 'inactivity', 'promotions', 'events-manage', 'guild-info'];
@@ -2486,7 +2491,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
     // quietly fall back if they can't access the panel
     if (!_cachedLoginApplied || _configLoaded) {
       var _before = target;
-      if (target === 'shop'            && !isGuildMember())      target = 'player';
+      if (target === 'shop'            && isShopBanned())        target = 'player';
       if (target === 'creator-studio'  && !hasCreatorAccess())   target = 'player';
       if (target === 'shop-admin'      && !hasShopAdmin())       target = 'player';
       if (target === 'inactivity'      && !hasParliamentPlus())  target = 'player';
@@ -2523,6 +2528,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
   window.hasShopAdmin         = hasShopAdmin;
   window.hasCreatorAccess     = hasCreatorAccess;
   window.hasGuildInfoAccess   = hasGuildInfoAccess;
+  window.isGuildMember        = isGuildMember;
   window.renderMarkdown       = renderMarkdown;
 
   if (!_cachedLoginApplied) {

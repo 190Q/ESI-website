@@ -117,7 +117,10 @@ def list_bin_items(user_roles: list, discord_id: str,
     restricted ones.
     """
     tags = build_user_tags(user_roles)
-    mc_uuid, mc_username = resolve_uuid_for_user(discord_id)
+    # No guild rank tags = public/anonymous visibility rules
+    if not tags:
+        tags = None
+    mc_uuid, mc_username = resolve_uuid_for_user(discord_id) if discord_id else (None, None)
     user_position = get_user_cycle_position(mc_uuid) if mc_uuid else None
     all_items = get_items(tags=tags, user_position=user_position,
                           include_blocked=is_shop_admin)

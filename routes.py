@@ -1607,26 +1607,51 @@ def _require_guild_member(require_shop_enabled: bool = True):
     return user, None
 
 
+def _shop_viewer_context():
+    """Return public-browse context for catalogue endpoints.
+
+    Shop catalogue is visible to everyone. Interaction (cart, orders, buy,
+    bid, donate) still requires a logged-in guild member who is not banned.
+    """
+    user = session.get("user")
+    logged_in = bool(user)
+    roles = (user or {}).get("roles") or []
+    member = bool(user and is_guild_member(roles))
+    banned = False
+    admin_banned_flag = False
+    if user and not _is_owner_user(user):
+        role_set = set(roles)
+        if member and not (role_set & _SHOP_ADMIN):
+            mc_uuid, _ = resolve_uuid_for_user(user.get("id", ""))
+            if mc_uuid and is_shop_banned(mc_uuid):
+                banned = True
+        if (role_set & _SHOP_ADMIN) and is_admin_banned(user.get("id")):
+            admin_banned_flag = True
+    can_interact = bool(member and not banned)
+    return {
+        "user": user,
+        "logged_in": logged_in,
+        "is_guild_member": member,
+        "can_interact": can_interact,
+        "shop_banned": banned,
+        "admin_banned": admin_banned_flag,
+        "roles": roles if member else [],
+        "discord_id": (user or {}).get("id", "") if logged_in else "",
+        "is_shop_admin": bool(
+            member and (
+                (set(roles) & _SHOP_ADMIN) or _is_owner_user(user)
+            )
+        ),
+    }
+
+
 # EP balance endpoint (shop system)
 @app.route("/api/shop/state")
 @rate_limit(60)
 def shop_state():
-    user, err = _require_login()
-    if err:
-        return err
-    if not is_guild_member(user.get("roles") or []):
-        return jsonify({"error": "Shop is only available to guild members"}), 403
-    # Check ban status but return it as a flag instead of blocking
-    banned = False
-    admin_banned_flag = False
-    user_roles = set(user.get("roles") or [])
-    if not _is_owner_user(user):
-        if not (user_roles & _SHOP_ADMIN):
-            mc_uuid, _ = resolve_uuid_for_user(user.get("id", ""))
-            if mc_uuid and is_shop_banned(mc_uuid):
-                banned = True
-        if (user_roles & _SHOP_ADMIN) and is_admin_banned(user.get("id")):
-            admin_banned_flag = True
+    """Public shop state. Catalogue is browseable by everyone."""
+    ctx = _shop_viewer_context()
+    user = ctx["user"]
     _maybe_notify_owner_maintenance_eta_elapsed()
     state = _shop_get_state() or {}
     raw_maintenance_settings = state.get("maintenance_settings") or _shop_get_maintenance_settings() or {}
@@ -1641,8 +1666,11 @@ def shop_state():
         "message": message,
         "maintenance_view_only": maintenance_view_only,
         "maintenance_settings": maintenance_settings,
-        "shop_banned": banned,
-        "admin_banned": admin_banned_flag,
+        "logged_in": ctx["logged_in"],
+        "is_guild_member": ctx["is_guild_member"],
+        "can_interact": ctx["can_interact"],
+        "shop_banned": ctx["shop_banned"],
+        "admin_banned": ctx["admin_banned"],
     })
 
 @app.route("/api/me/ep-balance")
@@ -1759,19 +1787,23 @@ def me_shop_stats():
 @app.route("/api/shop/bin")
 @rate_limit(60)
 def shop_bin_list():
-    """Return all visible bin items for the logged-in user, with cooldowns and balance."""
-    user, err = _require_guild_member(require_shop_enabled=False)
-    if err:
-        return err
-    user_roles = user.get("roles") or []
-    _is_admin = bool(set(user_roles) & _SHOP_ADMIN) or _is_owner_user(user)
+    """Return visible bin items. Public browse; interaction flags included."""
+    ctx = _shop_viewer_context()
+    user = ctx["user"]
+    user_roles = ctx["roles"]
+    _is_admin = ctx["is_shop_admin"]
+    access_meta = {
+        "logged_in": ctx["logged_in"],
+        "is_guild_member": ctx["is_guild_member"],
+        "can_interact": ctx["can_interact"],
+    }
     if not _is_shop_enabled():
         maintenance_settings = _maintenance_settings_for_user(_shop_get_maintenance_settings() or {}, user)
         show_items = _maintenance_flag(maintenance_settings, "show_items", True)
         can_view_items = show_items
         result = list_bin_items(
             user_roles=user_roles,
-            discord_id=user.get("id", ""),
+            discord_id=ctx["discord_id"],
             is_shop_admin=_is_admin,
         )
         ro_items = []
@@ -1787,14 +1819,16 @@ def shop_bin_list():
             "items": ro_items,
             "item_order": (result.get("item_order") or []) if can_view_items else [],
             "read_only": True,
+            **access_meta,
         }
         payload.update(_shop_disabled_payload(user=user, maintenance_settings=maintenance_settings))
         return jsonify(payload), 200
     result = list_bin_items(
         user_roles=user_roles,
-        discord_id=user.get("id", ""),
+        discord_id=ctx["discord_id"],
         is_shop_admin=_is_admin,
     )
+    result.update(access_meta)
     return jsonify(result)
 
 
@@ -1952,17 +1986,21 @@ def shop_cart_save():
 @app.route("/api/shop/auctions")
 @rate_limit(60)
 def shop_auction_list():
-    """Return active + recently-closed auctions with user bid status."""
-    user, err = _require_guild_member(require_shop_enabled=False)
-    if err:
-        return err
-    user_roles = user.get("roles") or []
-    _is_admin = bool(set(user_roles) & _SHOP_ADMIN) or _is_owner_user(user)
+    """Return active + recently-closed auctions. Public browse."""
+    ctx = _shop_viewer_context()
+    user = ctx["user"]
+    user_roles = ctx["roles"]
+    _is_admin = ctx["is_shop_admin"]
+    access_meta = {
+        "logged_in": ctx["logged_in"],
+        "is_guild_member": ctx["is_guild_member"],
+        "can_interact": ctx["can_interact"],
+    }
     if not _is_shop_enabled():
         maintenance_settings = _maintenance_settings_for_user(_shop_get_maintenance_settings() or {}, user)
         show_items = _maintenance_flag(maintenance_settings, "show_items", True)
         can_view_items = show_items
-        result = list_auctions(discord_id=user.get("id", ""),
+        result = list_auctions(discord_id=ctx["discord_id"],
                                user_roles=user_roles,
                                is_shop_admin=_is_admin)
         ro_auctions = []
@@ -1977,12 +2015,15 @@ def shop_auction_list():
             **result,
             "auctions": ro_auctions,
             "read_only": True,
+            **access_meta,
         }
         payload.update(_shop_disabled_payload(user=user, maintenance_settings=maintenance_settings))
         return jsonify(payload), 200
-    return jsonify(list_auctions(discord_id=user.get("id", ""),
-                                user_roles=user_roles,
-                                is_shop_admin=_is_admin))
+    result = list_auctions(discord_id=ctx["discord_id"],
+                           user_roles=user_roles,
+                           is_shop_admin=_is_admin)
+    result.update(access_meta)
+    return jsonify(result)
 
 
 @app.route("/api/shop/auctions/bid", methods=["POST"])

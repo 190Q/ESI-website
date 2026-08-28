@@ -184,9 +184,11 @@ def list_auctions(discord_id: str, user_roles: list | None = None,
     If *is_shop_admin* is True, all auctions are returned but restricted
     ones are tagged with ``visibility_blocked=True``.
     """
-    mc_uuid, mc_username = resolve_uuid_for_user(discord_id)
+    mc_uuid, mc_username = resolve_uuid_for_user(discord_id) if discord_id else (None, None)
     user_position = get_user_cycle_position(mc_uuid) if mc_uuid else None
     tags = build_user_tags(user_roles or []) if user_roles else None
+    if not tags:
+        tags = None
     now = _dt.now(_tz.utc)
     now_iso = now.isoformat()
     cutoff = (now - _td(hours=48)).isoformat()
