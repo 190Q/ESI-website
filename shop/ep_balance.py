@@ -233,11 +233,20 @@ def resolve_uuid_for_user(discord_id: str) -> tuple[str | None, str | None]:
 
     return None, mc_username
 
-def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
+def fetch_ep_balance(
+    uuid: str,
+    points_cycle_id: int | None = None,
+    *,
+    ignore_death_tax: bool = False,
+) -> dict:
     """Compute the full EP balance for a player UUID.
     By default, earned EP is accumulated from all completed cycles (up to and
     including the previous cycle).  Pass points_cycle_id explicitly to cap
     which cycles are included.
+
+    After a death-tax wipe, cycles through the wipe and pre-death shop rows are
+    ignored so wiped EP cannot return on rejoin. Pass ``ignore_death_tax=True``
+    only when computing the pre-wipe snapshot.
 
     Returns a dict with keys: clean_ep, dirty_ep, total_ep,
     reserved_clean, reserved_dirty, spendable_clean, spendable_dirty.
@@ -245,13 +254,28 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
     if points_cycle_id is None:
         points_cycle_id = _previous_cycle_id()
 
+    wiped_through_cycle = 0
+    death_cutoff_iso = None
+    if not ignore_death_tax and uuid:
+        try:
+            from shop.death_tax import get_cemetery_record
+            cem = get_cemetery_record(uuid)
+            if cem:
+                wiped_through_cycle = int(cem.get("wiped_through_cycle") or 0)
+                death_cutoff_iso = cem.get("died_at") or None
+        except Exception:
+            wiped_through_cycle = 0
+            death_cutoff_iso = None
+
     clean_ep = 0
     dirty_ep = 0
     if os.path.isfile(_POINTS_DB):
         try:
             conn = sqlite3.connect(_POINTS_DB, timeout=5)
             if points_cycle_id > 0:
-                normalized_prev_cycle = get_user_cycle_totals(uuid, points_cycle_id)
+                normalized_prev_cycle = None
+                if points_cycle_id > wiped_through_cycle:
+                    normalized_prev_cycle = get_user_cycle_totals(uuid, points_cycle_id)
                 saw_previous_cycle_row = False
                 try:
                     rows = conn.execute(
@@ -270,6 +294,8 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
 
                 for cycle_id, pts, c, d in rows:
                     cycle_id = int(cycle_id or 0)
+                    if cycle_id <= wiped_through_cycle:
+                        continue
                     pts, c, d = int(pts), int(c), int(d)
                     override_applied = False
                     if cycle_id == points_cycle_id:
@@ -301,6 +327,7 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
 
                 if (
                     points_cycle_id > 0
+                    and points_cycle_id > wiped_through_cycle
                     and normalized_prev_cycle is not None
                     and not saw_previous_cycle_row
                 ):
@@ -316,6 +343,9 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
     if active_cycle_id > 0:
         active_cycle_start, _ = _get_cycle_bounds(active_cycle_id)
         active_cycle_start_iso = active_cycle_start.isoformat()
+
+    # After a death tax, only shop activity strictly after death counts
+    post_death_iso = death_cutoff_iso
 
     # 2. Active reservations + shop spending from shop.db
     reserved_clean = 0
@@ -344,8 +374,12 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
                     "COALESCE(SUM(CASE WHEN ep_type = 'dirty' "
                     "THEN reserved_amount ELSE 0 END), 0) "
                     "FROM ep_reservations "
-                    "WHERE uuid = ? AND released_at IS NULL",
-                    (active_cycle_start_iso, active_cycle_start_iso, uuid),
+                    "WHERE uuid = ? AND released_at IS NULL "
+                    "AND (? IS NULL OR created_at > ?)",
+                    (
+                        active_cycle_start_iso, active_cycle_start_iso, uuid,
+                        post_death_iso, post_death_iso,
+                    ),
                 ).fetchone()
                 if row:
                     reserved_clean = int(row[0])
@@ -356,8 +390,9 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
                     "SELECT ep_type, COALESCE(SUM(reserved_amount), 0) "
                     "FROM ep_reservations "
                     "WHERE uuid = ? AND released_at IS NULL "
+                    "AND (? IS NULL OR created_at > ?) "
                     "GROUP BY ep_type",
-                    (uuid,),
+                    (uuid, post_death_iso, post_death_iso),
                 ).fetchall()
                 for ep_type, amount in rows:
                     if ep_type == "clean":
@@ -375,8 +410,12 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
                     "THEN clean_ep_spent ELSE 0 END), 0), "
                     "COALESCE(SUM(dirty_ep_spent), 0) "
                     "FROM bin_purchases "
-                    "WHERE uuid = ? AND status IN ('pending', 'fulfilled')",
-                    (active_cycle_start_iso, active_cycle_start_iso, uuid),
+                    "WHERE uuid = ? AND status IN ('pending', 'fulfilled') "
+                    "AND (? IS NULL OR purchased_at > ?)",
+                    (
+                        active_cycle_start_iso, active_cycle_start_iso, uuid,
+                        post_death_iso, post_death_iso,
+                    ),
                 ).fetchone()
             else:
                 row = conn.execute(
@@ -385,8 +424,9 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
                     "0, "
                     "COALESCE(SUM(dirty_ep_spent), 0) "
                     "FROM bin_purchases "
-                    "WHERE uuid = ? AND status IN ('pending', 'fulfilled')",
-                    (uuid,),
+                    "WHERE uuid = ? AND status IN ('pending', 'fulfilled') "
+                    "AND (? IS NULL OR purchased_at > ?)",
+                    (uuid, post_death_iso, post_death_iso),
                 ).fetchone()
             if row:
                 spent_clean_current = int(row[0])
@@ -397,8 +437,9 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
             don_row = conn.execute(
                 "SELECT COALESCE(SUM(dirty_ep_to_grant), 0) "
                 "FROM donation_tickets "
-                "WHERE uuid = ? AND status = 'confirmed'",
-                (uuid,),
+                "WHERE uuid = ? AND status = 'confirmed' "
+                "AND (? IS NULL OR COALESCE(resolved_at, submitted_at, '') > ?)",
+                (uuid, post_death_iso, post_death_iso),
             ).fetchone()
             if don_row:
                 donated_dirty = int(don_row[0])
@@ -413,8 +454,12 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
                     "AND created_at < ? THEN amount ELSE 0 END), 0), "
                     "COALESCE(SUM(CASE WHEN ep_type = 'dirty' "
                     "THEN amount ELSE 0 END), 0) "
-                    "FROM ep_adjustments WHERE uuid = ?",
-                    (active_cycle_start_iso, active_cycle_start_iso, uuid),
+                    "FROM ep_adjustments WHERE uuid = ? "
+                    "AND (? IS NULL OR created_at > ?)",
+                    (
+                        active_cycle_start_iso, active_cycle_start_iso, uuid,
+                        post_death_iso, post_death_iso,
+                    ),
                 ).fetchone()
                 if row:
                     adj_clean_current = int(row[0])
@@ -423,8 +468,9 @@ def fetch_ep_balance(uuid: str, points_cycle_id: int | None = None) -> dict:
             else:
                 adj_rows = conn.execute(
                     "SELECT ep_type, COALESCE(SUM(amount), 0) "
-                    "FROM ep_adjustments WHERE uuid = ? GROUP BY ep_type",
-                    (uuid,),
+                    "FROM ep_adjustments WHERE uuid = ? "
+                    "AND (? IS NULL OR created_at > ?) GROUP BY ep_type",
+                    (uuid, post_death_iso, post_death_iso),
                 ).fetchall()
                 for ep_type, amount in adj_rows:
                     if ep_type == "clean":

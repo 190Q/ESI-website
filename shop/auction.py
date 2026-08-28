@@ -1183,6 +1183,11 @@ def auction_close_loop():
             scan_knight_promotions()
         except Exception as exc:
             print(f"[KNIGHT-BONUS] Worker error: {exc}", file=sys.stderr)
+        try:
+            from shop.death_tax import process_death_tax
+            process_death_tax()
+        except Exception as exc:
+            print(f"[DEATH-TAX] Worker error: {exc}", file=sys.stderr)
 
 _auction_worker_started = False
 

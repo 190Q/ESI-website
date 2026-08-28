@@ -1269,6 +1269,12 @@ from shop.cart import get_cart, save_cart
 from shop.auction import list_auctions, place_bid, start_auction_close_worker, _dm_in_background
 from shop.donate import submit_donation, get_donation_history
 from shop.orders import get_order_history
+from shop.death_tax import (
+    list_cemetery as _list_cemetery,
+    list_pending as _list_death_tax_pending,
+    get_cemetery_record as _get_cemetery_record,
+    process_death_tax as _process_death_tax,
+)
 from shop.admin import (
     admin_list_all_items_unfiltered, admin_set_override,
     admin_cancel_purchase, admin_cancel_auction, admin_extend_auction,
@@ -2913,6 +2919,68 @@ def _get_shop_admin_map(blocking: bool = False) -> dict:
         return fresh
     _start_shop_admin_map_refresh()
     return cached
+
+@app.route("/api/admin/shop/cemetery")
+@rate_limit(20)
+def admin_shop_cemetery():
+    """List players whose EP was wiped by the death tax."""
+    _user, _, err = _require_shop_admin(require_shop_enabled=False, maintenance_scope="users")
+    if err:
+        return err
+    try:
+        limit = int(request.args.get("limit", 200))
+    except (TypeError, ValueError):
+        limit = 200
+    try:
+        offset = int(request.args.get("offset", 0))
+    except (TypeError, ValueError):
+        offset = 0
+    return jsonify(_list_cemetery(limit=limit, offset=offset))
+
+
+@app.route("/api/admin/shop/cemetery/<uuid>")
+@rate_limit(20)
+def admin_shop_cemetery_entry(uuid):
+    """Return one cemetery record by Minecraft UUID."""
+    _user, _, err = _require_shop_admin(require_shop_enabled=False, maintenance_scope="users")
+    if err:
+        return err
+    rec = _get_cemetery_record(uuid)
+    if not rec:
+        return jsonify({"error": "Not found"}), 404
+    return jsonify(rec)
+
+
+@app.route("/api/admin/shop/death-tax/pending")
+@rate_limit(20)
+def admin_shop_death_tax_pending():
+    """List leavers queued for death tax (14-day grace)."""
+    _user, _, err = _require_shop_admin(require_shop_enabled=False, maintenance_scope="users")
+    if err:
+        return err
+    try:
+        limit = int(request.args.get("limit", 200))
+    except (TypeError, ValueError):
+        limit = 200
+    return jsonify({"pending": _list_death_tax_pending(limit=limit)})
+
+
+@app.route("/api/admin/shop/death-tax/process", methods=["POST"])
+@rate_limit(5)
+def admin_shop_death_tax_process():
+    """Manually run a death-tax scan (Parliament+)."""
+    user, is_parliament, err = _require_shop_admin(
+        require_shop_enabled=False,
+        maintenance_scope="users",
+        maintenance_action="users_edit",
+    )
+    if err:
+        return err
+    if not is_parliament and not _is_owner_user(user):
+        return jsonify({"error": "Parliament rank required"}), 403
+    result = _process_death_tax()
+    return jsonify(result), 200 if result.get("ok") else 500
+
 
 @app.route("/api/admin/shop/users")
 @rate_limit(10)

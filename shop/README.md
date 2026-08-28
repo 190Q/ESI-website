@@ -16,6 +16,7 @@ Guild shop system for the ESI website. Members spend EP (Experience Points) earn
 | `orders.py` | Order history queries |
 | `admin.py` | Admin operations — item CRUD, stock/active overrides, queue fulfillment, auction management, bid removal, logs |
 | `leaderboard.py` | Cycle leaderboard persistence — lazily caches per-cycle positions from `esi_points.db` into `shop.db` for top-N visibility |
+| `death_tax.py` | Death tax — 14 days after leaving, wipe EP + shop state and record the player in `cemetery.db` |
 | `dm_cards.py` | Branded notification card renderer — HTML template → Playwright screenshot → PNG |
 
 ## Data stores
@@ -34,7 +35,18 @@ Guild shop system for the ESI website. Members spend EP (Experience Points) earn
 
 **`esi_points.db`** (read-only from this app) — earned EP per cycle, owned by ESI-Bot.
 
+**`cemetery.db`** — permanent record of players whose EP was cleared by the death tax (`cemetery` table).
+
 **`shop_items.json`** — item catalogue. Written atomically (temp file + rename) by admin operations. Read by `items.py` and merged with `item_overrides` from the DB.
+
+## Death tax
+
+When a member leaves ESI they are queued in `shop.db` (`death_tax_pending`) with `dies_at = left_at + 14 days`. Rejoining before that cancels the tax. After the grace period the background worker:
+1. Snapshots and zeroes spendable EP via `ep_adjustments`
+2. Releases reservations and clears cart / cooldowns / purchase limits
+3. Writes a row to `cemetery.db`
+
+`fetch_ep_balance` ignores cycles through `wiped_through_cycle` and pre-death shop rows so wiped EP never returns on rejoin.
 
 ## EP balance model
 
