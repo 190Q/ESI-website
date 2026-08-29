@@ -2021,7 +2021,7 @@
   }
 
   /* Item Editor */
-  var _IE_RANKS = ['emperor', 'archduke', 'grand duke', 'duke', 'count', 'viscount', 'knight', 'squire'];
+  var _IE_RANKS = ['rankless', 'emperor', 'archduke', 'grand duke', 'duke', 'count', 'viscount', 'knight', 'squire'];
   var _ieCatTags = [];
   var _ieImages = [];
   var _ieVariants = [];       // [{id, label}] – variant (sub-item) tabs
@@ -2466,14 +2466,18 @@
     h += '<div class="ie-rank-chips" id="ieRankChips">';
     _IE_RANKS.forEach(function (rank) {
       var state = ranks[rank] || 0;
-      var label = rank.split(' ').map(function (w) { return w[0].toUpperCase() + w.slice(1); }).join(' ');
-      h += '<button class="ie-rank-chip" type="button" data-rank="' + esc(rank) + '" data-state="' + state + '">' + esc(label) + '</button>';
+      var label = rank === 'rankless'
+        ? 'Rankless'
+        : rank.split(' ').map(function (w) { return w[0].toUpperCase() + w.slice(1); }).join(' ');
+      h += '<button class="ie-rank-chip" type="button" data-rank="' + esc(rank) + '" data-state="' + state + '"' +
+           (rank === 'rankless' ? ' title="Guests and non-guild members"' : '') + '>' + esc(label) + '</button>';
     });
     h += '</div>';
     h += '<div class="ie-hint ie-rank-legend">' +
          '<span class="ie-rl-dot" style="background:var(--border)"></span>Neutral (no filter) &ensp;' +
          '<span class="ie-rl-dot" style="background:var(--gold)"></span>Include &ensp;' +
-         '<span class="ie-rl-dot" style="background:var(--danger)"></span>Exclude &ensp;- click to cycle</div>';
+         '<span class="ie-rl-dot" style="background:var(--danger)"></span>Exclude &ensp;- click to cycle' +
+         '<br><strong>Rankless</strong> = not logged in or logged in without a guild rank</div>';
     h += '</div>';
     // Top N from previous cycle
     var topN = (it.visible_to_top_n != null && it.visible_to_top_n > 0) ? String(it.visible_to_top_n) : '';

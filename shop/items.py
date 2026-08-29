@@ -23,6 +23,8 @@ _GUILD_RANKS = {
     "emperor", "archduke", "grand duke", "duke", "count",
     "viscount", "knight", "squire",
 }
+# Pseudo-rank for guests / logged-in users with no guild rank role
+_RANKLESS = "rankless"
 
 # Pattern for cycle-based durations like "3c" or "1c"
 _CYCLE_RE = re.compile(r"^(\d+)c$", re.IGNORECASE)
@@ -167,8 +169,10 @@ def _is_visible(item: dict, tags: set | None,
         * If there are includes, the user must match at least one.
         * If there are ONLY excludes (no includes), everyone not excluded
           can see the item.
-      - If *tags* is ``None`` (anonymous), only items with
-        ``visible_to_ranks = None`` are shown.
+      - ``"rankless"`` is a pseudo-rank for guests and non-guild members
+        (``tags is None``). Include it to show the item publicly; exclude
+        with ``!rankless`` to hide it from non-members when using
+        exclude-only filters.
 
     ``visible_to_top_n`` rules:
       - ``None`` -> no top-N restriction.
@@ -178,24 +182,30 @@ def _is_visible(item: dict, tags: set | None,
     # Rank-based visibility
     allowed = item.get("visible_to_ranks")
     if allowed is not None:
-        if tags is None:
-            return False
-
         includes: set = set()
         excludes: set = set()
         for entry in allowed:
-            e = entry.strip().lower()
+            e = str(entry or "").strip().lower()
+            if not e:
+                continue
             if e.startswith("!"):
                 excludes.add(e[1:])
             else:
                 includes.add(e)
 
-        # Any exclude match -> blocked
-        if excludes & tags:
-            return False
-        # If there are explicit includes, user must match at least one
-        if includes and not (includes & tags):
-            return False
+        if tags is None:
+            # Guests / non-guild members match the pseudo-rank "rankless"
+            if _RANKLESS in excludes:
+                return False
+            if includes and _RANKLESS not in includes:
+                return False
+        else:
+            # Any exclude match -> blocked
+            if excludes & tags:
+                return False
+            # If there are explicit includes, user must match at least one
+            if includes and not (includes & tags):
+                return False
 
     # Top-N visibility
     top_n = item.get("visible_to_top_n")
