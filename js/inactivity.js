@@ -563,6 +563,23 @@
     }
   }
 
+  function exemptionAppliesToCheckerWeek(e, checkerWeek) {
+    var weeks = e.weeks || [];
+    if (weeks.indexOf('permanent') !== -1) return true;
+    if (!checkerWeek) return false;
+    var checkerStart = checkerWeek.split('_')[0];
+    return weeks.some(function (w) {
+      if (w === 'permanent' || isWeekExpired(w)) return false;
+      return w.split('_')[0] === checkerStart;
+    });
+  }
+
+  function hasLiveExemption(e) {
+    var weeks = e.weeks || [];
+    if (weeks.indexOf('permanent') !== -1) return true;
+    return weeks.some(function (w) { return w !== 'permanent' && !isWeekExpired(w); });
+  }
+
   function updateCheckerList() {
     var listEl = document.getElementById('inacCheckerList');
     if (!listEl || !_checkerWeek) return;
@@ -577,22 +594,15 @@
     .then(function () {
       if (!_checkerWeek) return;
 
-      // build exempt sets in one pass
+      // only permanent / non-expired weeks that cover the selected checker week count
       var permanentSet = {};
       var exemptSet    = {};
-      var exemptAnySet = {};
-      var checkerStart = _checkerWeek ? _checkerWeek.split('_')[0] : null;
       _exemptions.forEach(function (e) {
         var uLow   = e.username.toLowerCase();
         var weeks  = e.weeks || [];
         var isPerm = weeks.indexOf('permanent') !== -1;
         if (isPerm) permanentSet[uLow] = true;
-        var matchesChecker = checkerStart && weeks.some(function (w) {
-          if (w === 'permanent') return false;
-          return w.split('_')[0] === checkerStart;
-        });
-        if (matchesChecker) exemptSet[uLow] = e;
-        exemptAnySet[uLow] = true;
+        if (exemptionAppliesToCheckerWeek(e, _checkerWeek)) exemptSet[uLow] = e;
       });
 
       // compute hours from the prefetched cache
@@ -610,7 +620,6 @@
       var allPlayers = _players.map(function (p) {
         var uLow   = p.username.toLowerCase();
         var ex     = exemptSet[uLow] || null;
-        var anyEx  = exemptAnySet[uLow] || false;
         var fullEx = _exemptions.find(function (e) { return e.username.toLowerCase() === uLow; });
         var isPerm = !!(fullEx && (fullEx.weeks || []).indexOf('permanent') !== -1);
         return {
@@ -619,7 +628,6 @@
           hours:      hoursMap[uLow] != null ? hoursMap[uLow] : 0,
           loading:    false,
           exempt:     ex,
-          anyExempt:  anyEx,
           permanent:  isPerm,
         };
       });
@@ -631,10 +639,12 @@
           .sort(function (a, b) { return a.hours - b.hours; });
       } else if (_checkerTab === 'active') {
         rows = allPlayers
-          .filter(function (p) { return !p.permanent && !p.anyExempt && p.hours >= _checkerHours; })
+          .filter(function (p) { return !p.permanent && !p.exempt && p.hours >= _checkerHours; })
           .sort(function (a, b) { return b.hours - a.hours; });
       } else { // exempt
-        rows = _exemptions.map(function (e) {
+        rows = _exemptions.filter(function (e) {
+          return exemptionAppliesToCheckerWeek(e, _checkerWeek);
+        }).map(function (e) {
           var isPerm = (e.weeks || []).indexOf('permanent') !== -1;
           var uLow   = e.username.toLowerCase();
           return {
@@ -652,13 +662,16 @@
 
       // update tab labels with counts
       var inactiveCount = allPlayers.filter(function (p) { return !p.permanent && !p.exempt && p.hours < _checkerHours; }).length;
-      var activeCount   = allPlayers.filter(function (p) { return !p.permanent && !p.anyExempt && p.hours >= _checkerHours; }).length;
+      var activeCount   = allPlayers.filter(function (p) { return !p.permanent && !p.exempt && p.hours >= _checkerHours; }).length;
+      var exemptCount   = _exemptions.filter(function (e) {
+        return exemptionAppliesToCheckerWeek(e, _checkerWeek);
+      }).length;
       var tabsEl = document.getElementById('inacCheckerTabs');
       if (tabsEl) {
         var tabs = tabsEl.querySelectorAll('.inac-checker-tab');
         if (tabs[0]) tabs[0].textContent = 'Inactive (' + inactiveCount + ')';
         if (tabs[1]) tabs[1].textContent = 'Active ('   + activeCount   + ')';
-        if (tabs[2]) tabs[2].textContent = 'Exempt ('   + _exemptions.length + ')';
+        if (tabs[2]) tabs[2].textContent = 'Exempt ('   + exemptCount   + ')';
       }
 
       renderCheckerRows(listEl, rows, hoursMap, allPlayers, /*isPartial=*/false);
@@ -768,27 +781,35 @@
     if (w === 'permanent') return false;
     var parts = w.split('_');
     if (parts.length !== 2) return false;
-    var endLocal = parseLocalDate(parts[1]);
-    var today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return endLocal < today;
+    var end = parseLocalDate(parts[1]);
+    var now = new Date();
+    var todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    return end.getTime() < todayUtc;
   }
 
   /* --- render the exemptions list --- */
 
   function renderList(exemptions) {
-    _exemptions = exemptions;
+    _exemptions = (exemptions || []).filter(hasLiveExemption);
+    var staleCount = (exemptions || []).length - _exemptions.length;
     var countEl = document.getElementById('inacCount');
     var listEl  = document.getElementById('inacList');
     if (!countEl || !listEl) return;
-    countEl.textContent = '(' + exemptions.length + ')';
+    countEl.textContent = '(' + _exemptions.length + ')' +
+      (staleCount > 0 ? ' · ' + staleCount + ' expired hidden' : '');
     if (_checkerWeek) updateCheckerList(); // keep checker list in sync
-    if (!exemptions.length) {
-      listEl.innerHTML = '<div class="inac-empty">No exemptions found.</div>';
+    if (!_exemptions.length) {
+      listEl.innerHTML = '<div class="inac-empty">' +
+        (staleCount > 0
+          ? 'No active exemptions (' + staleCount + ' fully expired).'
+          : 'No exemptions found.') +
+        '</div>';
       return;
     }
-    listEl.innerHTML = exemptions.map(function (e) {
-      var weeks = (e.weeks || []).slice().sort(function (a, b) {
+    listEl.innerHTML = _exemptions.map(function (e) {
+      var weeks = (e.weeks || []).filter(function (w) {
+        return w === 'permanent' || !isWeekExpired(w);
+      }).slice().sort(function (a, b) {
         if (a === 'permanent') return 1;
         if (b === 'permanent') return -1;
         return a.split('_')[0] < b.split('_')[0] ? -1 : 1;
@@ -796,8 +817,7 @@
       var badgesHtml = weeks.length
         ? weeks.map(function (w) {
             var isPerm   = w === 'permanent';
-            var expired  = !isPerm && isWeekExpired(w);
-            var cls      = isPerm ? 'inac-badge perm' : (expired ? 'inac-badge expired' : 'inac-badge');
+            var cls      = isPerm ? 'inac-badge perm' : 'inac-badge';
             return '<span class="' + cls + '">' + fmtWeekValue(w) + '</span>';
           }).join('')
         : '<span class="inac-badge expired">No weeks</span>';
