@@ -4808,6 +4808,11 @@ def _points_trim_excess_graid_history(username, cycle_ids, cycle_history, cycle_
     Returns (adjusted_history_rows, removed_ep_by_cycle).
     If current-cycle graph data for a user is absent, a per-day sanity cap is
     still applied as a fallback.
+
+    When a per-day expected map is available, excess is removed only within the
+    over-cap day(s). A leftover global budget must not steal EP from other days
+    (newest-first processing previously wiped later valid graids when an earlier
+    day was also over the daily cap).
     """
     ulow = (username or "").strip().lower()
     if not ulow or not cycle_ids or not cycle_history or not isinstance(cycle_graid_ep_by_user, dict):
@@ -4830,15 +4835,23 @@ def _points_trim_excess_graid_history(username, cycle_ids, cycle_history, cycle_
         if excess_total <= 0:
             continue
 
+        day_scoped = bool(expected_daily)
         excess_by_day = {}
-        for day, rec_ep in recorded_daily.items():
-            day_excess = max(0, int(_safe_number(rec_ep)) - int(_safe_number(expected_daily.get(day, 0))))
-            if day_excess > 0:
-                excess_by_day[day] = day_excess
+        if day_scoped:
+            for day, rec_ep in recorded_daily.items():
+                day_excess = max(
+                    0,
+                    int(_safe_number(rec_ep)) - int(_safe_number(expected_daily.get(day, 0))),
+                )
+                if day_excess > 0:
+                    excess_by_day[day] = day_excess
+            # Keep global budget in sync with day budgets
+            excess_total = min(excess_total, sum(excess_by_day.values())) if excess_by_day else excess_total
 
         trim_state[cid] = {
             "remaining_total": excess_total,
             "remaining_day": excess_by_day,
+            "day_scoped": day_scoped,
         }
 
     if not trim_state:
@@ -4854,7 +4867,12 @@ def _points_trim_excess_graid_history(username, cycle_ids, cycle_history, cycle_
         if not state:
             adjusted.append(dict(row))
             continue
-        if state.get("remaining_total", 0) <= 0:
+
+        remaining_total = int(_safe_number(state.get("remaining_total", 0)))
+        remaining_day_left = any(
+            int(_safe_number(v)) > 0 for v in (state.get("remaining_day") or {}).values()
+        )
+        if remaining_total <= 0 and not remaining_day_left:
             adjusted.append(dict(row))
             continue
 
@@ -4867,23 +4885,28 @@ def _points_trim_excess_graid_history(username, cycle_ids, cycle_history, cycle_
         removed = 0
         ts = (row.get("timestamp") or "").strip()
         day = ts.split("T", 1)[0] if ts else ""
+        day_scoped = bool(state.get("day_scoped"))
 
-        day_budget = int(_safe_number(state["remaining_day"].get(day, 0))) if day else 0
-        if day_budget > 0:
-            take = min(points, day_budget)
-            if take > 0:
-                removed += take
-                points -= take
-                state["remaining_day"][day] = day_budget - take
-                state["remaining_total"] = max(0, int(_safe_number(state["remaining_total"])) - take)
-
-        remaining_total = int(_safe_number(state.get("remaining_total", 0)))
-        if points > 0 and remaining_total > 0:
-            take = min(points, remaining_total)
-            if take > 0:
-                removed += take
-                points -= take
-                state["remaining_total"] = remaining_total - take
+        if day_scoped and day:
+            # Only remove this day's own excess
+            day_budget = int(_safe_number(state["remaining_day"].get(day, 0)))
+            if day_budget > 0:
+                take = min(points, day_budget)
+                if take > 0:
+                    removed += take
+                    points -= take
+                    state["remaining_day"][day] = day_budget - take
+                    state["remaining_total"] = max(
+                        0, int(_safe_number(state["remaining_total"])) - take
+                    )
+        else:
+            remaining_total = int(_safe_number(state.get("remaining_total", 0)))
+            if points > 0 and remaining_total > 0:
+                take = min(points, remaining_total)
+                if take > 0:
+                    removed += take
+                    points -= take
+                    state["remaining_total"] = remaining_total - take
 
         if removed > 0:
             removed_by_cycle[cid] = removed_by_cycle.get(cid, 0) + removed
@@ -8913,30 +8936,51 @@ def bot_databases():
             return 0.0
         return min(observed_count, expected_count) / expected_count
 
-    def read_coverage_ratios(coverage_db_path):
-        ratios = {}
+    def read_coverage_ratio_from_day_folder(folder_path, day_key=None):
+        """Read coverage_ratio from a day folder's coverage.db."""
+        if not folder_path or not os.path.isdir(folder_path):
+            return None
+
+        coverage_db_path = os.path.join(folder_path, "coverage.db")
         if not os.path.isfile(coverage_db_path):
-            return ratios
+            return None
+
         conn = None
         try:
             conn = _sqlite3.connect(coverage_db_path, timeout=3, check_same_thread=False)
             cursor = conn.cursor()
-            cursor.execute(
-                "SELECT day, coverage_ratio FROM daily_coverage"
-            )
-            for day, ratio in cursor.fetchall():
-                if not day:
-                    continue
-                try:
-                    ratios[str(day)] = float(ratio)
-                except (TypeError, ValueError):
-                    continue
-        except _sqlite3.Error:
-            return ratios
+            if day_key:
+                cursor.execute(
+                    "SELECT coverage_ratio FROM daily_coverage WHERE day = ? LIMIT 1",
+                    (day_key,),
+                )
+            else:
+                cursor.execute(
+                    "SELECT coverage_ratio FROM daily_coverage ORDER BY recorded_at_utc DESC LIMIT 1"
+                )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return float(row[0])
+        except (TypeError, ValueError, _sqlite3.Error):
+            return None
         finally:
             if conn is not None:
                 conn.close()
-        return ratios
+
+    def list_snapshot_db_files(folder_path):
+        db_files = []
+        if not folder_path or not os.path.isdir(folder_path):
+            return db_files
+        for filename in os.listdir(folder_path):
+            if not filename.endswith(".db"):
+                continue
+            if filename.lower() == "coverage.db":
+                continue
+            full_path = os.path.join(folder_path, filename)
+            if os.path.isfile(full_path):
+                db_files.append(full_path)
+        return db_files
 
     def collect_day_folders(tracking_path, prefix):
         folders = {}
@@ -8960,7 +9004,6 @@ def bot_databases():
         now_utc = _dt.now(_tz.utc)
         today = now_utc.date()
         day_folders = collect_day_folders(tracking_path, prefix)
-        recorded_ratios = read_coverage_ratios(os.path.join(tracking_path, "coverage.db"))
         metric_dates = []
         values = []
 
@@ -8970,22 +9013,17 @@ def bot_databases():
             day_key = day_date.strftime("%d-%m-%Y")
             metric_dates.append(day_iso)
 
-            ratio = recorded_ratios.get(day_key)
             folder_path = day_folders.get(day_date)
-            db_files = []
-            if folder_path and os.path.isdir(folder_path):
-                for filename in os.listdir(folder_path):
-                    if not filename.endswith(".db"):
-                        continue
-                    full_path = os.path.join(folder_path, filename)
-                    if os.path.isfile(full_path):
-                        db_files.append(full_path)
+            db_files = list_snapshot_db_files(folder_path)
             days_old = (today - day_date).days
+            recorded_ratio = read_coverage_ratio_from_day_folder(folder_path, day_key)
 
             # Prefer live folder-derived coverage when detailed snapshots are present
             has_detailed_snapshots = len(db_files) > 1
             if days_old < 7 or has_detailed_snapshots:
                 ratio = compute_live_coverage_ratio(db_files, day_date, now_utc)
+            elif recorded_ratio is not None:
+                ratio = recorded_ratio
             else:
                 ratio = 1.0 if db_files else 0.0
 
