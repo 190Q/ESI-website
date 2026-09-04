@@ -245,6 +245,12 @@
 .player-medals-entry + .player-medals-entry {
   border-top: 1px solid rgba(var(--gold-rgb), 0.06);
 }
+.player-medals-entry--has-desc {
+  cursor: default;
+}
+.player-medals-info-tooltip {
+  max-width: min(340px, calc(100vw - 24px));
+}
 .player-medals-entry-main {
   display: flex;
   align-items: flex-start;

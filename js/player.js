@@ -953,10 +953,16 @@
     _medalOverlay.className = 'owed-aspects-overlay';
     document.body.appendChild(_medalOverlay);
 
-    if (window.Popup) window.Popup.register(_medalPopup, { overlay: _medalOverlay });
+    if (window.Popup) {
+      window.Popup.register(_medalPopup, {
+        overlay: _medalOverlay,
+        onClose: function () { hideMedalInfoTooltip(true); },
+      });
+    }
     return _medalPopup;
   }
   function closeMedalPopup() {
+    hideMedalInfoTooltip(true);
     if (_medalPopup && window.Popup) window.Popup.close(_medalPopup);
   }
   function formatMedalPct(pct) {
@@ -973,10 +979,105 @@
       year: 'numeric',
     });
   }
+
+  /* Medal descriptions */
+  var MEDAL_DESCRIPTIONS = {
+    'Sindrian Eagle': 'The highest honour in the realm, the Sindrian Eagle is bestowed upon those who have played a pivotal role in the Empire.',
+    'Order of Sindria': 'Awarded to those who the guild holds in high esteem, and have dutifully contributed to its success.',
+    'Medal of Valliance': 'Awarded to members who have shown leadership and dedication to our guild\u2019s military, contributing greatly to our guild military\u2019s success throughout numerous battles.',
+    'Medal of Valiance': 'Awarded to members who have shown leadership and dedication to our guild\u2019s military, contributing greatly to our guild military\u2019s success throughout numerous battles.',
+    'Medal of Brilliance': 'Awarded to members who have distinguished themselves over their peers through significant contributions to the guild of any kind. Members who earn this medal take the initiative to do things for the guild without being asked to.',
+    'Medal of Inspiration': 'Awarded to members who have taken full advantage of their talents to bring glory to our Empire, be it through song, art, or building skills.',
+    'Medal of Benevolence': 'Awarded to members who have spared no expense in helping the guild grow, generously offering donations to the guild bank, or using their bombs and totems to the benefit of their fellow citizens.',
+    'Medal of Fellowship': 'Awarded to active members of the ESI community, who frequently chat with and help out other guild members. The conversations they start tend to be fun and interesting - Quality, not Quantity.',
+    'Medal of Allegiance': 'Awarded to those who have been in the guild for over 6 months without any serious infractions or criticisms.',
+  };
+  var _medalInfoTooltipEl = null;
+  var _medalInfoTooltipHideTimer = null;
+  var _medalInfoTooltipVisible = false;
+  function getMedalInfoTooltipEl() {
+    if (_medalInfoTooltipEl && document.body.contains(_medalInfoTooltipEl)) return _medalInfoTooltipEl;
+    _medalInfoTooltipEl = document.createElement('div');
+    _medalInfoTooltipEl.className = 'account-info-tooltip player-medals-info-tooltip';
+    _medalInfoTooltipEl.style.display = 'none';
+    document.body.appendChild(_medalInfoTooltipEl);
+    _medalInfoTooltipEl.addEventListener('mouseenter', function () {
+      clearTimeout(_medalInfoTooltipHideTimer);
+    });
+    _medalInfoTooltipEl.addEventListener('mouseleave', function () {
+      hideMedalInfoTooltip();
+    });
+    return _medalInfoTooltipEl;
+  }
+  function hideMedalInfoTooltip(immediate) {
+    clearTimeout(_medalInfoTooltipHideTimer);
+    function hideNow() {
+      if (!_medalInfoTooltipEl) return;
+      _medalInfoTooltipEl.style.display = 'none';
+      _medalInfoTooltipVisible = false;
+    }
+    if (immediate) hideNow();
+    else _medalInfoTooltipHideTimer = setTimeout(hideNow, 120);
+  }
+  function showMedalInfoTooltip(anchor, data) {
+    clearTimeout(_medalInfoTooltipHideTimer);
+    var tip = getMedalInfoTooltipEl();
+    tip.innerHTML = '';
+
+    var title = document.createElement('div');
+    title.className = 'account-info-tooltip-title';
+    title.textContent = data.title || '';
+    tip.appendChild(title);
+
+    var body = document.createElement('div');
+    body.className = 'account-info-tooltip-body';
+    body.textContent = data.body || '';
+    tip.appendChild(body);
+
+    tip.style.display = 'block';
+    _medalInfoTooltipVisible = true;
+
+    var popup = anchor.closest('.player-medals-popup') || _medalPopup;
+    var popupRect = popup ? popup.getBoundingClientRect() : null;
+    var anchorRect = anchor.getBoundingClientRect();
+    var margin = 10;
+    var tw = tip.offsetWidth;
+    var th = tip.offsetHeight;
+    if (!popupRect || popupRect.right + margin + tw > window.innerWidth - margin) {
+      tip.style.display = 'none';
+      _medalInfoTooltipVisible = false;
+      return;
+    }
+
+    var top = anchorRect.top;
+    var left = popupRect.right + margin;
+    if (top + th > window.innerHeight - margin) top = window.innerHeight - th - margin;
+    if (top < margin) top = margin;
+
+    tip.style.top = top + 'px';
+    tip.style.left = left + 'px';
+  }
+  function attachMedalInfoTooltip(element, data) {
+    if (!element || !data || !data.body) return;
+    element.classList.add('player-medals-entry--has-desc');
+    element.addEventListener('mouseenter', function () {
+      showMedalInfoTooltip(element, data);
+    });
+    element.addEventListener('mouseleave', function () {
+      hideMedalInfoTooltip();
+    });
+  }
+  function medalDescriptionFor(medal) {
+    if (!medal) return null;
+    var name = medal.name || '';
+    return MEDAL_DESCRIPTIONS[name] || null;
+  }
+
   function renderMedalPopupBody(data, loading) {
     var popup = ensureMedalPopup();
     var username = (_medalPlayerCtx.username || (data && data.username) || 'Player');
     var titleName = escapeHtml(username);
+    hideMedalInfoTooltip(true);
 
     if (loading) {
       popup.innerHTML =
@@ -1000,7 +1101,7 @@
     if (!medals.length) {
       listHtml = '<div class="owed-aspects-empty">No medal records found for ' + titleName + '.</div>';
     } else {
-      listHtml = medals.map(function (medal) {
+      listHtml = medals.map(function (medal, idx) {
         var name = escapeHtml(medal.name || 'Medal');
         var icon = medal.icon
           ? '<img class="player-medals-entry-icon" src="' + escapeHtml(medal.icon) + '" alt="">'
@@ -1046,7 +1147,7 @@
             '</div>'
           : '';
 
-        return '<div class="player-medals-entry">' +
+        return '<div class="player-medals-entry" data-medal-idx="' + idx + '">' +
           '<div class="player-medals-entry-main">' +
             icon +
             '<div class="player-medals-entry-body">' +
@@ -1078,6 +1179,17 @@
     if (closeBtn) closeBtn.addEventListener('click', function (e) {
       e.stopPropagation();
       closeMedalPopup();
+    });
+
+    // Attach description tooltips
+    popup.querySelectorAll('.player-medals-entry[data-medal-idx]').forEach(function (el) {
+      var idx = Number(el.getAttribute('data-medal-idx'));
+      var medal = medals[idx];
+      if (!medal) return;
+      var desc = medalDescriptionFor(medal);
+      if (!desc) return;
+      var title = (medal.name || 'Medal') + (medal.abbr ? ' [' + medal.abbr + ']' : '');
+      attachMedalInfoTooltip(el, { title: title, body: desc });
     });
   }
   function openMedalPopup() {
