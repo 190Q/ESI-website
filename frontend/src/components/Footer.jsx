@@ -84,7 +84,7 @@ export default function Footer() {
           <ul>
             <li>
               <a
-                href="https://discord.gg/sindria"
+                href="https://discord.gg/YwnAyzefdV"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="site-footer-link site-footer-link-icon"
