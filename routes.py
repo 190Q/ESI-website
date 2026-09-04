@@ -4431,17 +4431,6 @@ _POINTS_CYCLE_DURATION = _points_timedelta(weeks=2)
 _POINTS_HR_RANKS = {"strategist", "chief", "owner"}
 _POINTS_LE_DIVISOR = 10
 
-def _points_parse_max_graids_per_day():
-    raw = (os.environ.get("ESI_MAX_GRAIDS_PER_DAY") or "").strip()
-    if not raw:
-        return 10
-    try:
-        return max(1, int(raw))
-    except (TypeError, ValueError):
-        return 10
-
-_POINTS_MAX_GRAIDS_PER_DAY = _points_parse_max_graids_per_day()
-_POINTS_MAX_GRAID_EP_PER_DAY = _POINTS_MAX_GRAIDS_PER_DAY * 10
 _FRONTEND_MASK_METRIC_KEYS = [
     "caves", "chestsFound", "contentDone", "dungeons", "guildRaids",
     "mobsKilled", "playtime", "questsDone", "raids", "totalLevel",
@@ -4724,12 +4713,6 @@ def _points_recorded_graid_ep_by_day(history_rows, cycle_id):
             continue
         daily[day] = daily.get(day, 0) + int(h.get("points_gained") or 0)
     return daily
-def _points_current_cycle_graid_daily_ep_cap(cycle_id):
-    """Return per-day guild-raid EP cap for the current cycle, else 0."""
-    if int(_safe_number(cycle_id)) != _points_get_cycle_id():
-        return 0
-    return max(0, int(_safe_number(_POINTS_MAX_GRAID_EP_PER_DAY)))
-
 def _points_daily_ep_map_from_rows(daily_rows):
     """Convert graph daily rows into {YYYY-MM-DD: ep} map."""
     out = {}
@@ -4743,76 +4726,37 @@ def _points_daily_ep_map_from_rows(daily_rows):
         out[day] = out.get(day, 0) + ep
     return out
 
-def _points_cap_daily_ep_map(daily_ep, max_daily_ep, uncapped_days=None):
-    """Apply per-day EP cap to a {day: ep} mapping."""
-    uncapped_set = {
-        str(day or "").strip()
-        for day in (uncapped_days or [])
-        if str(day or "").strip()
-    }
-    if max_daily_ep <= 0:
-        return {str(k): max(0, int(_safe_number(v))) for k, v in (daily_ep or {}).items() if str(k).strip()}
-    capped = {}
-    for day, ep in (daily_ep or {}).items():
-        d = str(day or "").strip()
-        if not d:
-            continue
-        val = max(0, int(_safe_number(ep)))
-        if val <= 0:
-            continue
-        if d in uncapped_set:
-            capped[d] = val
-        else:
-            capped[d] = min(val, max_daily_ep)
-    return capped
-
 def _points_normalized_expected_graid_ep(username_lower, cycle_id, cycle_history, cycle_graid_ep_by_user):
-    """Return (expected_total_ep, expected_daily_ep_map, has_graph_source)."""
+    """Return (expected_total_ep, expected_daily_ep_map, has_graph_source).
+
+    Expected EP comes from graph-observed guild-raid deltas only. Real raids are
+    not hard-capped per day here — cache spike invalidation already filters fake
+    outage jumps, and trim only removes history that exceeds the graph.
+    """
     per_user = cycle_graid_ep_by_user.get(cycle_id) or {}
     has_graph_source = isinstance(per_user, dict) and username_lower in per_user
     expected_total = 0
     expected_daily = {}
-    recovered_days = set()
     if has_graph_source:
-        expected_total, expected_daily_rows, recovered_days = _points_graph_entry_total_and_daily(per_user, username_lower)
+        expected_total, expected_daily_rows, _recovered_days = _points_graph_entry_total_and_daily(
+            per_user, username_lower
+        )
         expected_total = max(0, int(_safe_number(expected_total)))
         expected_daily = _points_daily_ep_map_from_rows(expected_daily_rows)
-
-    daily_cap = _points_current_cycle_graid_daily_ep_cap(cycle_id)
-    if daily_cap > 0:
-        if has_graph_source:
-            if expected_daily:
-                expected_daily = _points_cap_daily_ep_map(
-                    expected_daily,
-                    daily_cap,
-                    uncapped_days=recovered_days,
-                )
-                expected_total = min(expected_total, sum(expected_daily.values()))
-            else:
-                recorded_daily = _points_recorded_graid_ep_by_day(cycle_history, cycle_id)
-                day_count = len(recorded_daily)
-                if day_count > 0:
-                    expected_total = min(expected_total, daily_cap * day_count)
-        else:
-            # No graph evidence for current cycle: apply hard daily sanity cap fallback.
-            recorded_daily = _points_recorded_graid_ep_by_day(cycle_history, cycle_id)
-            expected_daily = _points_cap_daily_ep_map(recorded_daily, daily_cap)
-            expected_total = sum(expected_daily.values())
+        if expected_daily:
+            expected_total = max(expected_total, sum(expected_daily.values()))
 
     return expected_total, expected_daily, has_graph_source
 
 
 def _points_trim_excess_graid_history(username, cycle_ids, cycle_history, cycle_graid_ep_by_user):
-    """Trim recorded guild-raid EP that exceeds validated/sane expectations.
+    """Trim recorded guild-raid EP that exceeds graph-observed expectations.
 
     Returns (adjusted_history_rows, removed_ep_by_cycle).
-    If current-cycle graph data for a user is absent, a per-day sanity cap is
-    still applied as a fallback.
-
-    When a per-day expected map is available, excess is removed only within the
-    over-cap day(s). A leftover global budget must not steal EP from other days
-    (newest-first processing previously wiped later valid graids when an earlier
-    day was also over the daily cap).
+    Only runs when graph data exists for the player. Real high-volume graid days
+    are kept in full when the graph agrees; excess above the graph (fake/inflated
+    history) is removed day-by-day so one day's leftover budget cannot wipe
+    another day's valid raids.
     """
     ulow = (username or "").strip().lower()
     if not ulow or not cycle_ids or not cycle_history or not isinstance(cycle_graid_ep_by_user, dict):
