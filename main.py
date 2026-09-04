@@ -647,23 +647,37 @@ def index():
     return send_from_directory(_BASE_DIR, "index.html")
 
 
-@app.route("/player/", defaults={"_path": ""})
-@app.route("/player/<path:_path>")
-@app.route("/guild")
-@app.route("/bot")
-@app.route("/inactivity")
-@app.route("/promotions")
-@app.route("/events")
-@app.route("/events/", defaults={"_path": ""})
-@app.route("/events/<path:_path>")
-@app.route("/shop")
-@app.route("/shop/", defaults={"_path": ""})
-@app.route("/shop/<path:_path>")
-@app.route("/shop-admin")
-@app.route("/events-manage")
-@app.route("/guild/info")
-def spa_route(_path=None):
+def _serve_spa(_path=None):
+    """Serve the SPA shell for panel deep-links."""
     return send_from_directory(_BASE_DIR, "index.html")
+
+
+_SPA_ROUTE_DEFS = (
+    ("/player",               "spa_player"),
+    ("/player/",              "spa_player_root",   {"_path": ""}),
+    ("/player/<path:_path>",  "spa_player_path"),
+    ("/guild",                "spa_guild"),
+    ("/bot",                  "spa_bot"),
+    ("/inactivity",           "spa_inactivity"),
+    ("/promotions",           "spa_promotions"),
+    ("/events",               "spa_events"),
+    ("/events/",              "spa_events_root",   {"_path": ""}),
+    ("/events/<path:_path>",  "spa_events_path"),
+    ("/shop",                 "spa_shop"),
+    ("/shop/",                "spa_shop_root",     {"_path": ""}),
+    ("/shop/<path:_path>",    "spa_shop_path"),
+    ("/shop-admin",           "spa_shop_admin"),
+    ("/events-manage",        "spa_events_manage"),
+    ("/guild/info",           "spa_guild_info"),
+)
+for _spa_rule, _spa_endpoint, *_spa_extra in _SPA_ROUTE_DEFS:
+    _spa_defaults = _spa_extra[0] if _spa_extra else None
+    app.add_url_rule(
+        _spa_rule,
+        endpoint=_spa_endpoint,
+        view_func=_serve_spa,
+        defaults=_spa_defaults,
+    )
 
 
 # Wynn Piece special-event landing page (standalone, not part of the SPA)
