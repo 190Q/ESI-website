@@ -27,7 +27,7 @@ from config import (
     _BASE_DIR, _ESI_BOT_DIR, _DATA_FOLDER, _API_TRACKING_DIR,
     _ASPECTS_JSON, _INACTIVITY_JSON, _USERNAME_MATCHES_JSON,
     _TRACKED_GUILD_JSON, _GUILD_LEVELS_JSON, _GUILD_TERRITORIES_JSON,
-    _EVENTS_JSON, _FRONTEND_METRIC_MASKS_JSON,
+    _EVENTS_JSON, _FRONTEND_METRIC_MASKS_JSON, _MEDALS_JSON,
     _POINTS_DB, _SNIPES_DB, _SHOP_DB,
     _USER_DB_PATH, _UPLOAD_DIR,
     WYNN_BASE, DISCORD_API, DISCORD_TOKEN, DISCORD_CLIENT_ID,
@@ -1100,6 +1100,230 @@ def player_decorations(username: str):
             stale = [k for k, v in _DECORATIONS_CACHE.items() if v[0] < cutoff]
             for k in stale:
                 del _DECORATIONS_CACHE[k]
+    return jsonify(payload)
+
+
+_MEDALS_FILE_CACHE = {"mtime": None, "by_uuid": {}}
+_MEDALS_FILE_LOCK = _threading.Lock()
+
+
+def _normalize_mc_uuid(value: str) -> str:
+    return _re.sub(r"[^0-9a-f]", "", (value or "").lower())
+
+
+def _medal_catalog_by_name():
+    return {m["name"]: m for m in _medals_for_client()}
+
+
+def _load_medals_by_uuid():
+    """Load medals.json into a uuid-indexed map (cached by file mtime)."""
+    path = _MEDALS_JSON
+    try:
+        mtime = os.path.getmtime(path) if os.path.exists(path) else None
+    except OSError:
+        mtime = None
+
+    with _MEDALS_FILE_LOCK:
+        if mtime is not None and _MEDALS_FILE_CACHE["mtime"] == mtime:
+            return _MEDALS_FILE_CACHE["by_uuid"]
+
+        raw = _load_json_file(path)
+        entries = raw if isinstance(raw, list) else []
+        by_uuid = {}
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            uuid_key = _normalize_mc_uuid(entry.get("uuid") or "")
+            if not uuid_key:
+                continue
+            medals = entry.get("medals") if isinstance(entry.get("medals"), list) else []
+            by_uuid[uuid_key] = medals
+
+        _MEDALS_FILE_CACHE["mtime"] = mtime
+        _MEDALS_FILE_CACHE["by_uuid"] = by_uuid
+        return by_uuid
+
+
+def _current_guild_member_uuids():
+    """Normalized UUIDs of players currently in the tracked guild."""
+    try:
+        _ranks, _members, guild_uuids = _points_guild_ranks_and_members()
+    except Exception:
+        guild_uuids = {}
+    uuid_set = {
+        _normalize_mc_uuid(u)
+        for u in (guild_uuids or {}).values()
+        if u
+    }
+    uuid_set.discard("")
+    if uuid_set:
+        return uuid_set
+
+    # Fallback: last known roster from tracked_guild.json
+    tracked = _load_json_file(_TRACKED_GUILD_JSON)
+    members = {}
+    if isinstance(tracked, dict):
+        prev = tracked.get("previous_data") or {}
+        if isinstance(prev, dict):
+            members = prev.get("members") or {}
+    if not isinstance(members, dict):
+        return set()
+
+    for rank_members in members.values():
+        if isinstance(rank_members, list):
+            iterable = rank_members
+        elif isinstance(rank_members, dict):
+            iterable = rank_members.values()
+        else:
+            continue
+        for entry in iterable:
+            if not isinstance(entry, dict):
+                continue
+            key = _normalize_mc_uuid(entry.get("uuid") or "")
+            if key:
+                uuid_set.add(key)
+    return uuid_set
+
+
+def _medal_holder_stats_among_guild(by_uuid):
+    """Count medal holders only among players currently in the guild.
+
+    Returns (holder_counts, guild_member_total).
+    Percentage denominator is the current guild roster size.
+    """
+    guild_uuids = _current_guild_member_uuids()
+    total_players = len(guild_uuids)
+    holder_counts = {}
+    if not guild_uuids:
+        return holder_counts, 0
+
+    for uuid_key, medals in (by_uuid or {}).items():
+        if uuid_key not in guild_uuids:
+            continue
+        if not isinstance(medals, list):
+            continue
+        seen_names = set()
+        for medal in medals:
+            if not isinstance(medal, dict):
+                continue
+            name = (medal.get("name") or "").strip()
+            if not name or name in seen_names:
+                continue
+            seen_names.add(name)
+            holder_counts[name] = holder_counts.get(name, 0) + 1
+    return holder_counts, total_players
+
+
+def _build_player_medal_details(username: str, uuid: str, owned_role_medals=None):
+    """Merge medals.json awards with catalog icons / Discord-owned medals."""
+    by_uuid = _load_medals_by_uuid()
+    holder_counts, total_players = _medal_holder_stats_among_guild(by_uuid)
+    catalog = _medal_catalog_by_name()
+    catalog_order = {m["name"]: idx for idx, m in enumerate(_medals_for_client())}
+
+    uuid_key = _normalize_mc_uuid(uuid)
+    stored = by_uuid.get(uuid_key) if uuid_key else None
+    stored_by_name = {}
+    if isinstance(stored, list):
+        for medal in stored:
+            if isinstance(medal, dict) and medal.get("name"):
+                stored_by_name[medal["name"]] = medal
+
+    owned_role_medals = owned_role_medals or []
+    names = set(stored_by_name.keys())
+    for medal in owned_role_medals:
+        if isinstance(medal, dict) and medal.get("name"):
+            names.add(medal["name"])
+
+    result = []
+    for name in sorted(names, key=lambda n: catalog_order.get(n, 999)):
+        meta = catalog.get(name) or {}
+        stored_medal = stored_by_name.get(name) or {}
+        awards_raw = stored_medal.get("awards") if isinstance(stored_medal.get("awards"), list) else []
+        awards = []
+        for award in awards_raw:
+            if not isinstance(award, dict):
+                continue
+            date = award.get("date")
+            reason = award.get("reason")
+            item = {}
+            if date:
+                item["date"] = date
+            # only include reason when it is a non-empty string
+            if isinstance(reason, str) and reason.strip():
+                item["reason"] = reason.strip()
+            if item:
+                awards.append(item)
+
+        count = stored_medal.get("count")
+        if count is None:
+            count = len(awards) if awards else None
+        try:
+            count = int(count) if count is not None else None
+        except (TypeError, ValueError):
+            count = len(awards) if awards else None
+
+        holders = int(holder_counts.get(name, 0))
+        holder_pct = round((holders / total_players) * 100, 1) if total_players else None
+
+        result.append({
+            "name": name,
+            "abbr": meta.get("abbr") or stored_medal.get("abbr") or "",
+            "icon": meta.get("icon") or stored_medal.get("icon") or "",
+            "count": count,
+            "holders": holders,
+            "holder_pct": holder_pct,
+            "awards": awards,
+            "has_details": bool(awards) or count is not None,
+        })
+
+    return {
+        "username": username or "",
+        "uuid": uuid or "",
+        "found": bool(stored_by_name) or bool(result),
+        "total_players": total_players,
+        "medals": result,
+    }
+
+
+@app.route("/api/player/<username>/medals")
+@rate_limit(30)
+def player_medals(username: str):
+    """Award history + rarity for a player's medals."""
+    uname = (username or "").strip()
+    uuid = (request.args.get("uuid") or "").strip()
+    if not uname and not uuid:
+        return jsonify({
+            "username": "",
+            "uuid": "",
+            "found": False,
+            "total_players": 0,
+            "medals": [],
+        })
+
+    # Reuse decorations cache when possible
+    owned = []
+    if uname:
+        key = uname.lower()
+        now = time()
+        with _DECORATIONS_CACHE_LOCK:
+            cached = _DECORATIONS_CACHE.get(key)
+        if cached and now - cached[0] < _DECORATIONS_CACHE_TTL:
+            owned = list((cached[1] or {}).get("medals") or [])
+        else:
+            discord_id = _resolve_discord_id(uname)
+            if discord_id:
+                roles = _fetch_discord_member_roles(discord_id)
+                owned, badges = _pick_decorations(roles)
+                payload_dec = {
+                    "discord_id": discord_id,
+                    "medals": owned,
+                    "badges": badges,
+                }
+                with _DECORATIONS_CACHE_LOCK:
+                    _DECORATIONS_CACHE[key] = (now, payload_dec)
+
+    payload = _build_player_medal_details(uname, uuid, owned_role_medals=owned)
     return jsonify(payload)
 
 

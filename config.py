@@ -80,6 +80,7 @@ _SHOP_DB                = os.path.join(_WEBSITE_DATA_DIR, "databases", "shop.db"
 _CEMETERY_DB            = os.path.join(_WEBSITE_DATA_DIR, "databases", "cemetery.db")
 _GUILD_INFO_DB          = os.path.join(_WEBSITE_DATA_DIR, "databases", "guild_info.db")
 _FRONTEND_METRIC_MASKS_JSON = os.path.join(_WEBSITE_DATA_DIR, "frontend_metric_masks.json")
+_MEDALS_JSON              = os.path.join(_WEBSITE_DATA_DIR, "medals.json")
 
 
 def _detect_server_tz_name():

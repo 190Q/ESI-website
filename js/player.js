@@ -898,10 +898,225 @@
   var _decorationsReq = 0;
   var _cachedPlayerMedals = [];
   var _medalsRenderRaf = 0;
+  var _medalTooltipEl = null;
+  var _medalPlayerCtx = { username: '', uuid: '' };
+  var _medalDetailsCache = null;
+  var _medalDetailsReq = 0;
+  var _medalPopup = null;
+  var _medalOverlay = null;
   var MEDAL_SIZE_PX = 35;
   var MEDAL_GAP_PX = 6;
   var MEDAL_MAX_RATIO = 0.33;
   var MEDAL_MAX_TOTAL = 8;
+  function getMedalTooltipEl() {
+    if (_medalTooltipEl && document.body.contains(_medalTooltipEl)) return _medalTooltipEl;
+    _medalTooltipEl = document.createElement('div');
+    _medalTooltipEl.id = 'profileMedalTooltip';
+    _medalTooltipEl.className = 'profile-medal-tooltip';
+    _medalTooltipEl.innerHTML =
+      '<span class="profile-medal-tooltip-name"></span>' +
+      '<span class="profile-medal-tooltip-hint">Click for more info</span>';
+    document.body.appendChild(_medalTooltipEl);
+    return _medalTooltipEl;
+  }
+  function hideMedalTooltip() {
+    if (!_medalTooltipEl) return;
+    _medalTooltipEl.style.display = 'none';
+  }
+  function positionMedalTooltip(e, tooltipEl) {
+    var margin = 8;
+    var left = e.clientX + 14;
+    var top  = e.clientY + 14;
+    if (left + tooltipEl.offsetWidth + margin > window.innerWidth) {
+      left = e.clientX - tooltipEl.offsetWidth - 14;
+    }
+    if (top + tooltipEl.offsetHeight + margin > window.innerHeight) {
+      top = e.clientY - tooltipEl.offsetHeight - 14;
+    }
+    tooltipEl.style.left = left + 'px';
+    tooltipEl.style.top  = top  + 'px';
+  }
+  function ensureMedalPopup() {
+    if (_medalPopup && document.body.contains(_medalPopup)) return _medalPopup;
+    var existingPopup = document.getElementById('playerMedalsPopup');
+    var existingOverlay = document.getElementById('playerMedalsOverlay');
+    if (existingPopup) existingPopup.remove();
+    if (existingOverlay) existingOverlay.remove();
+
+    _medalPopup = document.createElement('div');
+    _medalPopup.id = 'playerMedalsPopup';
+    _medalPopup.className = 'owed-aspects-popup player-medals-popup';
+    document.body.appendChild(_medalPopup);
+
+    _medalOverlay = document.createElement('div');
+    _medalOverlay.id = 'playerMedalsOverlay';
+    _medalOverlay.className = 'owed-aspects-overlay';
+    document.body.appendChild(_medalOverlay);
+
+    if (window.Popup) window.Popup.register(_medalPopup, { overlay: _medalOverlay });
+    return _medalPopup;
+  }
+  function closeMedalPopup() {
+    if (_medalPopup && window.Popup) window.Popup.close(_medalPopup);
+  }
+  function formatMedalPct(pct) {
+    if (pct == null || !Number.isFinite(Number(pct))) return null;
+    var n = Number(pct);
+    if (Number.isInteger(n)) return String(n);
+    return n.toFixed(1).replace(/\.0$/, '');
+  }
+  function formatMedalAwardDate(iso) {
+    if (!iso) return '';
+    return new Date(iso + (String(iso).length <= 10 ? 'T00:00:00' : '')).toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  }
+  function renderMedalPopupBody(data, loading) {
+    var popup = ensureMedalPopup();
+    var username = (_medalPlayerCtx.username || (data && data.username) || 'Player');
+    var titleName = escapeHtml(username);
+
+    if (loading) {
+      popup.innerHTML =
+        '<div class="owed-aspects-popup-header">' +
+          '<span class="owed-aspects-popup-title">Medals for ' + titleName + '</span>' +
+          '<button class="owed-aspects-popup-close" id="playerMedalsClose" type="button">\u2715</button>' +
+        '</div>' +
+        '<div class="owed-aspects-popup-list player-medals-popup-list">' +
+          '<div class="owed-aspects-empty">Loading\u2026</div>' +
+        '</div>';
+      var closeLoading = document.getElementById('playerMedalsClose');
+      if (closeLoading) closeLoading.addEventListener('click', function (e) {
+        e.stopPropagation();
+        closeMedalPopup();
+      });
+      return;
+    }
+
+    var medals = (data && data.medals) || [];
+    var listHtml;
+    if (!medals.length) {
+      listHtml = '<div class="owed-aspects-empty">No medal records found for ' + titleName + '.</div>';
+    } else {
+      listHtml = medals.map(function (medal) {
+        var name = escapeHtml(medal.name || 'Medal');
+        var icon = medal.icon
+          ? '<img class="player-medals-entry-icon" src="' + escapeHtml(medal.icon) + '" alt="">'
+          : '<span class="player-medals-entry-icon player-medals-entry-icon--empty" aria-hidden="true"></span>';
+
+        var countHtml = medal.count != null
+          ? '<span class="player-medals-entry-count">x' + escapeHtml(String(medal.count)) + '</span>'
+          : '';
+
+        var awards = medal.awards || [];
+        var dates = [];
+        var reasons = [];
+        awards.forEach(function (award) {
+          if (award && award.date) dates.push(formatMedalAwardDate(award.date));
+          if (award && award.reason) reasons.push(String(award.reason));
+        });
+
+        var pctRaw = Number(medal.holder_pct);
+        var hasPct = medal.holder_pct != null && Number.isFinite(pctRaw);
+        var pctClamped = hasPct ? Math.max(0, Math.min(100, pctRaw)) : 0;
+        var pctLabel = hasPct ? formatMedalPct(pctRaw) : null;
+
+        var barHtml = hasPct
+          ? '<div class="player-medals-entry-bar-row">' +
+              '<div class="player-medals-entry-bar-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + escapeHtml(String(pctClamped)) + '" aria-label="Held by ' + escapeHtml(pctLabel) + '% of guild">' +
+                '<div class="player-medals-entry-bar-fill" style="width:' + pctClamped + '%"></div>' +
+              '</div>' +
+              '<span class="player-medals-entry-bar-pct">' + escapeHtml(pctLabel) + '% of guild</span>' +
+            '</div>'
+          : '';
+
+        var datesHtml = dates.length
+          ? '<div class="player-medals-entry-dates">' + escapeHtml(dates.join(' \u00b7 ')) + '</div>'
+          : (!medal.has_details && !hasPct
+            ? '<div class="player-medals-entry-dates player-medals-entry-dates--muted">No award history yet</div>'
+            : '');
+
+        var reasonsHtml = reasons.length
+          ? '<div class="player-medals-entry-reasons">' +
+              reasons.map(function (reason) {
+                return '<div class="player-medals-entry-reason">' + escapeHtml(reason) + '</div>';
+              }).join('') +
+            '</div>'
+          : '';
+
+        return '<div class="player-medals-entry">' +
+          '<div class="player-medals-entry-main">' +
+            icon +
+            '<div class="player-medals-entry-body">' +
+              '<div class="player-medals-entry-top">' +
+                '<span class="player-medals-entry-name">' + name + '</span>' +
+                countHtml +
+              '</div>' +
+              barHtml +
+              datesHtml +
+              reasonsHtml +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    popup.innerHTML =
+      '<div class="owed-aspects-popup-header">' +
+        '<span class="owed-aspects-popup-title">Medals for ' + titleName +
+          (medals.length
+            ? '<span class="owed-aspects-popup-count">' + medals.length + '</span>'
+            : '') +
+        '</span>' +
+        '<button class="owed-aspects-popup-close" id="playerMedalsClose" type="button">\u2715</button>' +
+      '</div>' +
+      '<div class="owed-aspects-popup-list player-medals-popup-list">' + listHtml + '</div>';
+
+    var closeBtn = document.getElementById('playerMedalsClose');
+    if (closeBtn) closeBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      closeMedalPopup();
+    });
+  }
+  function openMedalPopup() {
+    hideMedalTooltip();
+    ensureMedalPopup();
+    var username = _medalPlayerCtx.username;
+    var uuid = _medalPlayerCtx.uuid;
+    if (!username && !uuid) return;
+
+    if (_medalDetailsCache
+        && _medalDetailsCache.username === username
+        && _medalDetailsCache.uuid === uuid) {
+      renderMedalPopupBody(_medalDetailsCache.data, false);
+      if (window.Popup) window.Popup.open(_medalPopup);
+      return;
+    }
+
+    renderMedalPopupBody(null, true);
+    if (window.Popup) window.Popup.open(_medalPopup);
+
+    var reqId = ++_medalDetailsReq;
+    var url = API_BASE + '/api/player/' + encodeURIComponent(username || '_') + '/medals';
+    if (uuid) url += '?uuid=' + encodeURIComponent(uuid);
+    fetch(url)
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (reqId !== _medalDetailsReq) return;
+        if (!data) {
+          renderMedalPopupBody({ username: username, medals: [] }, false);
+          return;
+        }
+        _medalDetailsCache = { username: username, uuid: uuid, data: data };
+        renderMedalPopupBody(data, false);
+      })
+      .catch(function () {
+        if (reqId !== _medalDetailsReq) return;
+        renderMedalPopupBody({ username: username, medals: [] }, false);
+      });
+  }
   function schedulePlayerDecorationsRender() {
     if (_medalsRenderRaf) return;
     _medalsRenderRaf = requestAnimationFrame(function () {
@@ -912,6 +1127,7 @@
   function applyPlayerDecorationsRender() {
     var medalsEl = document.getElementById('playerMedalsRow');
     if (!medalsEl) return;
+    hideMedalTooltip();
     medalsEl.textContent = '';
     if (!_cachedPlayerMedals.length) return;
     var profileCardEl = medalsEl.closest('.profile-card');
@@ -921,27 +1137,54 @@
     var totalCount = Math.min(_cachedPlayerMedals.length, MEDAL_MAX_TOTAL);
     var requiredWidth = (totalCount * MEDAL_SIZE_PX) + ((totalCount - 1) * MEDAL_GAP_PX);
     if (requiredWidth > maxMedalsWidth) return;
+    var tooltipEl = getMedalTooltipEl();
+    var nameEl = tooltipEl.querySelector('.profile-medal-tooltip-name');
     _cachedPlayerMedals.slice(0, totalCount).forEach(function (m) {
       var wrap = document.createElement('div');
       wrap.className = 'profile-medal';
-      wrap.title = (m.name || '') + (m.abbr ? ' [' + m.abbr + ']' : '');
+      wrap.setAttribute('role', 'button');
+      wrap.setAttribute('tabindex', '0');
+      wrap.setAttribute('aria-label', (m.name || 'Medal') + '. Click for more info');
       var img = document.createElement('img');
       img.className = 'profile-medal-img';
       img.src = m.icon;
       img.alt = m.name || '';
       wrap.appendChild(img);
+      wrap.addEventListener('mouseenter', function () {
+        nameEl.textContent = m.name || 'Medal';
+        tooltipEl.style.display = 'flex';
+      });
+      wrap.addEventListener('mousemove', function (e) {
+        positionMedalTooltip(e, tooltipEl);
+      });
+      wrap.addEventListener('mouseleave', hideMedalTooltip);
+      wrap.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        openMedalPopup();
+      });
+      wrap.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openMedalPopup();
+        }
+      });
       medalsEl.appendChild(wrap);
     });
   }
   function clearPlayerDecorations() {
     _cachedPlayerMedals = [];
+    _medalDetailsCache = null;
+    hideMedalTooltip();
     schedulePlayerDecorationsRender();
   }
   function renderPlayerDecorations(medals) {
     _cachedPlayerMedals = (medals || []).slice(0, MEDAL_MAX_TOTAL);
     schedulePlayerDecorationsRender();
   }
-  function fetchPlayerDecorations(username) {
+  function fetchPlayerDecorations(username, uuid) {
+    _medalPlayerCtx = { username: username || '', uuid: uuid || '' };
+    _medalDetailsCache = null;
     if (!username) { clearPlayerDecorations(); return; }
     var reqId = ++_decorationsReq;
     fetch(API_BASE + '/api/player/' + encodeURIComponent(username) + '/decorations')
@@ -969,7 +1212,7 @@
     document.getElementById('playerName').textContent = p.username || 'N/A';
 
     /* medals + badge decorations (fetched async) */
-    fetchPlayerDecorations(p.username);
+    fetchPlayerDecorations(p.username, p.uuid);
 
     /* rank badge */
     const rankEl  = document.getElementById('playerRankBadge');

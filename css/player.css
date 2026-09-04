@@ -190,6 +190,7 @@
   overflow: hidden;
   box-shadow: 0 2px 6px rgba(var(--black-rgb), 0.35);
   pointer-events: auto;
+  cursor: pointer;
   transition: transform var(--transition), border-color var(--transition);
 }
 .profile-medal:hover {
@@ -201,6 +202,148 @@
   height: 100%;
   object-fit: contain;
   display: block;
+  pointer-events: none;
+}
+.profile-medal-tooltip {
+  position: fixed;
+  background: rgba(var(--tooltip-bg-rgb), 0.96);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-family: var(--font-heading);
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 4px 16px rgba(var(--black-rgb), 0.45);
+  z-index: 999;
+  display: none;
+  flex-direction: column;
+  gap: 3px;
+}
+.profile-medal-tooltip-name {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--gold-light);
+}
+.profile-medal-tooltip-hint {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+
+/* Medals detail popup */
+.player-medals-popup {
+  width: 420px;
+}
+.player-medals-popup-list {
+  padding: 6px 0 10px;
+  max-height: 520px;
+}
+.player-medals-entry {
+  padding: 12px 18px;
+}
+.player-medals-entry + .player-medals-entry {
+  border-top: 1px solid rgba(var(--gold-rgb), 0.06);
+}
+.player-medals-entry-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.player-medals-entry-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border-mid);
+  background: var(--surface);
+  object-fit: contain;
+  flex-shrink: 0;
+  display: block;
+  margin-top: 1px;
+}
+.player-medals-entry-icon--empty {
+  display: inline-block;
+}
+.player-medals-entry-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.player-medals-entry-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.player-medals-entry-name {
+  font-family: var(--font-heading);
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  min-width: 0;
+}
+.player-medals-entry-count {
+  font-family: var(--font-heading);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-faint);
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+.player-medals-entry-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.player-medals-entry-bar-track {
+  flex: 1;
+  min-width: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.player-medals-entry-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--gold-dim), var(--gold));
+  transition: width 0.35s ease;
+}
+.player-medals-entry-bar-pct {
+  font-family: var(--font-heading);
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.player-medals-entry-dates {
+  font-family: var(--font-heading);
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+}
+.player-medals-entry-dates--muted {
+  color: var(--text-faint);
+  font-style: italic;
+}
+.player-medals-entry-reasons {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.player-medals-entry-reason {
+  font-family: var(--font-heading);
+  font-size: 0.72rem;
+  color: var(--gold-dim);
+  font-style: italic;
+  line-height: 1.4;
 }
 
 
