@@ -275,7 +275,7 @@ export default function SettingsModal() {
             </div>
 
             {/* Auction DM opt-out toggle */}
-            <div className="settings-row">
+            <div className="settings-row" id="settingAuctionDmRow" style={{ display: 'none' }}>
               <div className="settings-row-info">
                 <div className="settings-row-title">Reduce auction DMs</div>
                 <div className="settings-row-desc">

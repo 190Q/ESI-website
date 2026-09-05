@@ -337,7 +337,9 @@ select, option { font-family: inherit; }
   font-family: inherit;
   font-size: inherit;
 }
-.cs-open > .cs-dropdown {
+/* Open state: menu may be portaled to body (fixed) so overflow parents don't clip it */
+.cs-open > .cs-dropdown,
+.cs-dropdown.cs-dropdown--open {
   display: block;
 }
 .cs-option {

@@ -4,18 +4,110 @@
   // All selects on the site are auto-upgraded unless they have data-cs="false"
   var SELECTOR = 'select.graph-select, select.sf-select, select.settings-select, select.ev-select, select.ie-input, select.ie-cd-type, select.sa-filter-input, select.shop-modal-input, select.detail-variant-dropdown, select.char-select';
   var _open = null;
+  var _openDd = null;
+  var _openHome = null;
+  var _repositionRaf = null;
+
+  function _clearRepositionListeners() {
+    if (_repositionRaf) {
+      cancelAnimationFrame(_repositionRaf);
+      _repositionRaf = null;
+    }
+    window.removeEventListener('scroll', _onViewportChange, true);
+    window.removeEventListener('resize', _onViewportChange, true);
+  }
+
+  function _onViewportChange() {
+    if (!_open || !_openDd) return;
+    if (_repositionRaf) cancelAnimationFrame(_repositionRaf);
+    _repositionRaf = requestAnimationFrame(function () {
+      _repositionRaf = null;
+      if (_open && _openDd) _positionDropdown(_open, _openDd);
+    });
+  }
+
+  /* Fixed-position the menu */
+  function _positionDropdown(wrap, dd) {
+    var trigger = wrap.querySelector('.cs-trigger');
+    if (!trigger || !dd) return;
+    var rect = trigger.getBoundingClientRect();
+    var gap = 2;
+    var maxH = 220;
+    var vw = window.innerWidth || document.documentElement.clientWidth || 0;
+    var vh = window.innerHeight || document.documentElement.clientHeight || 0;
+    var spaceBelow = Math.max(0, vh - rect.bottom - gap - 8);
+    var spaceAbove = Math.max(0, rect.top - gap - 8);
+    var placeAbove = spaceBelow < Math.min(maxH, 140) && spaceAbove > spaceBelow;
+    var avail = placeAbove ? spaceAbove : spaceBelow;
+    var height = Math.max(80, Math.min(maxH, avail || maxH));
+
+    var width = Math.max(rect.width, 0);
+    var left = rect.left;
+    if (left + width > vw - 8) left = Math.max(8, vw - width - 8);
+    if (left < 8) left = 8;
+
+    dd.style.position = 'fixed';
+    dd.style.zIndex = '10050';
+    dd.style.left = Math.round(left) + 'px';
+    dd.style.width = Math.round(width) + 'px';
+    dd.style.right = 'auto';
+    dd.style.maxHeight = Math.round(height) + 'px';
+    if (placeAbove) {
+      dd.style.top = 'auto';
+      dd.style.bottom = Math.round(vh - rect.top + gap) + 'px';
+    } else {
+      dd.style.bottom = 'auto';
+      dd.style.top = Math.round(rect.bottom + gap) + 'px';
+    }
+  }
+
+  function _resetDropdownStyles(dd) {
+    if (!dd) return;
+    dd.style.position = '';
+    dd.style.zIndex = '';
+    dd.style.left = '';
+    dd.style.right = '';
+    dd.style.top = '';
+    dd.style.bottom = '';
+    dd.style.width = '';
+    dd.style.maxHeight = '';
+    dd.style.fontFamily = '';
+    dd.style.fontSize = '';
+  }
 
   /* helpers */
   function _close() {
     if (!_open) return;
-    _open.classList.remove('cs-open');
-    var t = _open.querySelector('.cs-trigger');
+    var wrap = _open;
+    var dd = _openDd || wrap.querySelector('.cs-dropdown');
+    wrap.classList.remove('cs-open');
+    var t = wrap.querySelector('.cs-trigger');
     if (t) t.setAttribute('aria-expanded', 'false');
+
+    _clearRepositionListeners();
+
+    // Restore dropdown into the wrap if it was portaled to body
+    if (dd) dd.classList.remove('cs-dropdown--open');
+    if (dd && _openHome && _openHome.parent) {
+      if (_openHome.next && _openHome.next.parentNode === _openHome.parent) {
+        _openHome.parent.insertBefore(dd, _openHome.next);
+      } else {
+        _openHome.parent.appendChild(dd);
+      }
+    }
+    _resetDropdownStyles(dd);
+
     _open = null;
+    _openDd = null;
+    _openHome = null;
   }
 
   document.addEventListener('mousedown', function (e) {
-    if (_open && !_open.contains(e.target)) _close();
+    if (!_open) return;
+    // Clicks on the portaled dropdown or the wrap both count as inside
+    if (_open.contains(e.target)) return;
+    if (_openDd && _openDd.contains(e.target)) return;
+    _close();
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && _open) _close();
@@ -165,9 +257,20 @@
         _close();
       } else {
         _close();
+        // Portal menu to body so overflow parents don't clip/expand scroll
+        _openHome = { parent: dd.parentNode, next: dd.nextSibling };
+        // Keep visual tokens after leaving the wrap's inheritance chain
+        dd.style.fontFamily = wrap.style.fontFamily || '';
+        dd.style.fontSize = wrap.style.fontSize || '';
+        document.body.appendChild(dd);
         wrap.classList.add('cs-open');
+        dd.classList.add('cs-dropdown--open');
         trigger.setAttribute('aria-expanded', 'true');
         _open = wrap;
+        _openDd = dd;
+        _positionDropdown(wrap, dd);
+        window.addEventListener('scroll', _onViewportChange, true);
+        window.addEventListener('resize', _onViewportChange, true);
         var s = dd.querySelector('.cs-selected');
         if (s) s.scrollIntoView({ block: 'nearest' });
       }
@@ -177,6 +280,7 @@
     dd.addEventListener('click', function (e) {
       var opt = e.target.closest('.cs-option');
       if (!opt) return;
+      e.stopPropagation();
       var idx = parseInt(opt.getAttribute('data-i'));
       if (!isNaN(idx)) {
         if (idx !== select.selectedIndex) {

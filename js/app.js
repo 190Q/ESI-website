@@ -2667,6 +2667,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
     _updateLoginRows();
     _updateSaveBtn();
     window.Popup.open(settingsBackdrop);
+    _refreshAuctionDmSettingVisibility();
   }
 
   function openSettings() {
@@ -2949,6 +2950,35 @@ fetch('/auth/session', { credentials: 'same-origin' })
     settingsSaveBtn.style.display = _isDirty() ? '' : 'none';
   }
 
+  function _canSeeAuctionDmSetting() {
+    // Auction DMs only apply to users who can interact with the shop
+    if (!state.loggedIn || !isGuildMember()) return false;
+    if (isShopBanned()) return false;
+    return true;
+  }
+
+  function _setAuctionDmSettingVisible(visible) {
+    var auctionDmRow = document.getElementById('settingAuctionDmRow');
+    if (!auctionDmRow) return;
+    auctionDmRow.style.display = visible ? '' : 'none';
+  }
+
+  function _refreshAuctionDmSettingVisibility() {
+    _setAuctionDmSettingVisible(_canSeeAuctionDmSetting());
+    if (!state.loggedIn) return;
+    // Confirm ban / interact flags from the server (ban is not always cached yet).
+    fetch('/api/shop/state', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        window._shopBanned = !!data.shop_banned;
+        if (typeof data.admin_banned === 'boolean') window._adminBanned = !!data.admin_banned;
+        var canSee = !!data.can_interact;
+        _setAuctionDmSettingVisible(canSee);
+      })
+      .catch(function () {});
+  }
+
   function _updateLoginRows() {
     var canInactivity = hasParliamentPlus();
     var canPromotions = hasJurorPlus();
@@ -2958,6 +2988,8 @@ fetch('/auth/session', { credentials: 'same-origin' })
     var promRow  = document.getElementById('settingPromotionsRow');
     if (inacRow  && !canInactivity) inacRow.remove();
     if (promRow  && !canPromotions) promRow.remove();
+
+    _setAuctionDmSettingVisible(_canSeeAuctionDmSetting());
 
     // remove the entire section if nothing remains
     var memberMgmtSection = document.getElementById('settingsMemberMgmtSection');
@@ -3326,16 +3358,16 @@ fetch('/auth/session', { credentials: 'same-origin' })
   // Live-hide the toast customization row when toasts are disabled
   _sToastsEnabled.addEventListener('change', _applyToastRowVisibility);
 
-  // Settings whose effects are picked up live
+  // Settings applied immediately on save (no page reload needed)
   var LIVE_APPLIED_KEYS = {
-    showEventsNavBadge: true,
-    showPinnedBanner:   true,
-    toastsEnabled:      true,
-    toastDuration:      true,
-    toastMax:           true,
+    showEventsNavBadge:  true,
+    showPinnedBanner:    true,
+    toastsEnabled:       true,
+    toastDuration:       true,
+    toastMax:            true,
+    shopAuctionDmOptOut: true,
   };
 
-  // Apply settings whose effects can take hold without a reload
   function _applyLiveSettings(prev, next) {
     var fullyLive = true;
     var changed = {};
