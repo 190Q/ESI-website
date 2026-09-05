@@ -719,10 +719,69 @@
     return Object.keys(cats).sort();
   }
 
+  /* Sort/filter price: multi-variant cards show "from X EP", so use the lowest variant price. */
+  function _itemSortPrice(it) {
+    if (!it) return 0;
+    var variants = it.variants || [];
+    if (variants.length > 1) {
+      var prices = variants.map(function (v) {
+        return (v && v.price != null) ? Number(v.price) : 0;
+      }).filter(function (p) { return !isNaN(p); });
+      if (prices.length) return Math.min.apply(null, prices);
+    }
+    return (it.price != null && !isNaN(Number(it.price))) ? Number(it.price) : 0;
+  }
+  function _itemMaxPrice(it) {
+    if (!it) return 0;
+    var variants = it.variants || [];
+    if (variants.length > 1) {
+      var prices = variants.map(function (v) {
+        return (v && v.price != null) ? Number(v.price) : 0;
+      }).filter(function (p) { return !isNaN(p); });
+      if (prices.length) return Math.max.apply(null, prices);
+    }
+    return _itemSortPrice(it);
+  }
+  /* Stock sort key: null/undefined stock = unlimited (Infinity). */
+  function _itemSortStock(it) {
+    if (!it || it.stock == null || isNaN(Number(it.stock))) return Infinity;
+    return Number(it.stock);
+  }
+  function _entrySortPrice(entry) {
+    if (!entry) return 0;
+    if (entry.kind === 'bin') return _itemSortPrice(entry.data);
+    var a = entry.data || {};
+    return a.current_highest_bid || a.starting_bid || 0;
+  }
+  function _entrySortStock(entry) {
+    if (!entry || entry.kind !== 'bin') return Infinity;
+    return _itemSortStock(entry.data);
+  }
+  /* Hard-unavailable for default/price sorts. */
+  function _isHardUnavailable(entry) {
+    if (!entry) return true;
+    if (entry.kind === 'bin') {
+      var it = entry.data;
+      if (!it.active) return true;
+      if (it.visibility_blocked) return true;
+      if (it.type !== 'donate' && it.on_cooldown) return true;
+      return false;
+    }
+    var a = entry.data;
+    return a.status !== 'active' || a.active === false || !!a.visibility_blocked;
+  }
+
   function _computePriceRange() {
     var prices = [];
     ((_binData && _binData.items) || []).forEach(function (it) {
-      if (it.price != null && it.price > 0) prices.push(it.price);
+      var variants = it.variants || [];
+      if (variants.length > 1) {
+        variants.forEach(function (v) {
+          if (v && v.price != null && v.price > 0) prices.push(Number(v.price));
+        });
+      } else if (it.price != null && it.price > 0) {
+        prices.push(Number(it.price));
+      }
     });
     ((_auctionData && _auctionData.auctions) || []).forEach(function (a) {
       var p = a.current_highest_bid || a.starting_bid || 0;
@@ -1062,8 +1121,16 @@
                (it.description || '').toLowerCase().indexOf(searchLow) !== -1 ||
                (it.id || '').toLowerCase().indexOf(searchLow) !== -1;
       });
-      if (_filterMinPrice !== null) fBin = fBin.filter(function (it) { return (it.price || 0) >= _filterMinPrice; });
-      if (_filterMaxPrice !== null) fBin = fBin.filter(function (it) { return (it.price || 0) <= _filterMaxPrice; });
+      // Multi-variant: match if any variant falls inside the price window.
+      if (_filterMinPrice !== null || _filterMaxPrice !== null) {
+        fBin = fBin.filter(function (it) {
+          var lo = _itemSortPrice(it);
+          var hi = _itemMaxPrice(it);
+          if (_filterMinPrice !== null && hi < _filterMinPrice) return false;
+          if (_filterMaxPrice !== null && lo > _filterMaxPrice) return false;
+          return true;
+        });
+      }
       if (_filterCat) fBin = fBin.filter(function (it) {
         var c = it.category;
         return Array.isArray(c) ? c.indexOf(_filterCat) !== -1 : c === _filterCat;
@@ -1113,20 +1180,39 @@
     Object.keys(binById).forEach(function (id) { filtered.push({ kind: 'bin', data: binById[id] }); });
     Object.keys(aucById).forEach(function (id) { filtered.push({ kind: 'auction', data: aucById[id] }); });
 
-    // Sort: always push unavailable items to the end, then apply user sort
+    // Sort:
+    // - Default/price: hard-unavailable + OOS go last.
+    // - Stock: sort purely by stock so OOS (0) leads "Least First"; still park
+    //   inactive/cooldown/restricted after stock-ordered active items.
+    var isStockSort = _sortBy === 'stock_asc' || _sortBy === 'stock_desc';
     filtered.sort(function (a, b) {
+      if (isStockSort) {
+        var hA = _isHardUnavailable(a) ? 1 : 0;
+        var hB = _isHardUnavailable(b) ? 1 : 0;
+        if (hA !== hB) return hA - hB;
+        var sA = _entrySortStock(a);
+        var sB = _entrySortStock(b);
+        if (_sortBy === 'stock_desc') {
+          if (sA === Infinity && sB === Infinity) return 0;
+          if (sA === Infinity) return -1;
+          if (sB === Infinity) return 1;
+          return sB - sA;
+        }
+        // stock_asc: least first (0 / OOS first); unlimited last
+        if (sA === Infinity && sB === Infinity) return 0;
+        if (sA === Infinity) return 1;
+        if (sB === Infinity) return -1;
+        return sA - sB;
+      }
+
       var uA = _isItemUnavailable(a) ? 1 : 0;
       var uB = _isItemUnavailable(b) ? 1 : 0;
       if (uA !== uB) return uA - uB;
       if (!_sortBy) return 0;
-      var pA = a.kind === 'bin' ? (a.data.price || 0) : (a.data.current_highest_bid || a.data.starting_bid || 0);
-      var pB = b.kind === 'bin' ? (b.data.price || 0) : (b.data.current_highest_bid || b.data.starting_bid || 0);
-      var sA = a.kind === 'bin' ? (a.data.stock != null ? a.data.stock : Infinity) : Infinity;
-      var sB = b.kind === 'bin' ? (b.data.stock != null ? b.data.stock : Infinity) : Infinity;
+      var pA = _entrySortPrice(a);
+      var pB = _entrySortPrice(b);
       if (_sortBy === 'price_desc') return pB - pA;
       if (_sortBy === 'price_asc')  return pA - pB;
-      if (_sortBy === 'stock_desc') return (sB === Infinity && sA === Infinity) ? 0 : sA === Infinity ? -1 : sB === Infinity ? 1 : sB - sA;
-      if (_sortBy === 'stock_asc')  return (sA === Infinity && sB === Infinity) ? 0 : sB === Infinity ? 1 : sA === Infinity ? -1 : sA - sB;
       return 0;
     });
 
