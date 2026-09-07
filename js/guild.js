@@ -669,17 +669,19 @@
 
     /* owed cards */
     const aspectsData = window.aspectsData || { total_aspects: 0, members: {} };
-    const owedAspects = Object.values(aspectsData.members || {}).reduce((s, m) => s + (flatMembers.some(fm => fm.name === m.name) ? (m.owed || 0) : 0), 0);
+    const guildMemberNames = new Set(flatMembers.map(fm => (fm.name || '').toLowerCase()));
+    const guildMemberUuids = new Set(flatMembers.map(fm => (fm.uuid || '').toLowerCase()).filter(Boolean));
+    const owedAspects = Object.entries(aspectsData.members || {}).reduce((s, [uid, m]) => s + ((guildMemberUuids.has(uid.toLowerCase()) || guildMemberNames.has((m.name || '').toLowerCase())) ? (m.owed || 0) : 0), 0);
     const territories = Object.keys((window.guildTerritories || {}).territories || {}).length;
     const aspectIconGuildSrc = themedKey('aspect-icon-guild', '/images/aspect_icon.avif');
     const pointIconGuildSrc = themedKey('point-icon-guild', '/images/point_icon.png');
     const territoryIconSrc = themedPath('/images/territory_icon.png');
     // only show ESI members in the owed list
     const RANK_PRIORITY = { owner: 6, chief: 5, strategist: 4, captain: 3, recruiter: 2, recruit: 1 };
-    const guildMemberNames = new Set(flatMembers.map(fm => fm.name));
 
-    const owedPlayers = Object.values(aspectsData.members || {})
-      .filter(m => m.owed > 0 && guildMemberNames.has(m.name))
+    const owedPlayers = Object.entries(aspectsData.members || {})
+      .filter(([uid, m]) => m.owed > 0 && (guildMemberUuids.has(uid.toLowerCase()) || guildMemberNames.has((m.name || '').toLowerCase())))
+      .map(([uid, m]) => m)
       .sort((a, b) => {
         if (b.owed !== a.owed) return b.owed - a.owed;
         const memberA = flatMembers.find(fm => fm.name === a.name);
@@ -715,7 +717,7 @@
 
     function getOwedPlayers() {
       return Object.entries(localAspectsData.members || {})
-        .filter(([, m]) => m.owed > 0 && guildMemberNames.has(m.name))
+        .filter(([uid, m]) => m.owed > 0 && (guildMemberUuids.has(uid.toLowerCase()) || guildMemberNames.has((m.name || '').toLowerCase())))
         .sort(([, a], [, b]) => {
           if (b.owed !== a.owed) return b.owed - a.owed;
           const memberA = flatMembers.find(fm => fm.name === a.name);
@@ -725,7 +727,7 @@
     }
 
     function getTotalOwed() {
-      return Object.values(localAspectsData.members || {}).reduce((s, m) => s + (guildMemberNames.has(m.name) ? (m.owed || 0) : 0), 0);
+      return Object.entries(localAspectsData.members || {}).reduce((s, [uid, m]) => s + ((guildMemberUuids.has(uid.toLowerCase()) || guildMemberNames.has((m.name || '').toLowerCase())) ? (m.owed || 0) : 0), 0);
     }
 
     function owedColor(n) {

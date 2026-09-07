@@ -29,10 +29,10 @@ def _resolve_esi_bot_dir():
 
     sibling = os.path.join(os.path.dirname(_BASE_DIR), "ESI-Bot")
     parent_sibling = os.path.join(os.path.dirname(os.path.dirname(_BASE_DIR)), "ESI-Bot")
-    if os.path.isdir(parent_sibling):
-        return parent_sibling
     if os.path.isdir(sibling):
         return sibling
+    if os.path.isdir(parent_sibling):
+        return parent_sibling
     return sibling
 
 
@@ -47,10 +47,10 @@ def _resolve_qbot_dir():
 
     sibling = os.path.join(os.path.dirname(_BASE_DIR), "Q-bot")
     parent_sibling = os.path.join(os.path.dirname(os.path.dirname(_BASE_DIR)), "Q-bot")
-    if os.path.isdir(parent_sibling):
-        return parent_sibling
     if os.path.isdir(sibling):
         return sibling
+    if os.path.isdir(parent_sibling):
+        return parent_sibling
     return sibling
 
 
@@ -959,7 +959,7 @@ def _get_latest_api_db():
             day_dt = _dt.strptime(name[4:], "%d-%m-%Y")
         except ValueError:
             continue
-        files = sorted(f for f in os.listdir(day_path) if f.endswith(".db"))
+        files = sorted(f for f in os.listdir(day_path) if f.endswith(".db") and os.path.isfile(os.path.join(day_path, f)))
         if files and (latest_dt is None or day_dt > latest_dt):
             latest_dt = day_dt
             latest_db = os.path.join(day_path, files[-1])

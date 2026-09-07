@@ -4433,18 +4433,37 @@ def _post_grand_duke(entry, dc, channel, headers, messages, poll_q, poll_hours):
 def player_rank_history(username: str):
     data = _load_json_file(_TRACKED_GUILD_JSON)
     member_history = data.get("member_history", {})
-    ulow = username.lower()
-    for entry in member_history.values():
-        if (entry.get("username") or "").lower() == ulow:
-            changes = entry.get("rank_changes") or []
-            if changes:
-                return jsonify({
-                    "username": entry["username"],
-                    "rank_changes": changes,
-                    "joined": entry.get("joined"),
-                    "left": entry.get("left"),
-                })
-            break
+    ulow = (username or "").strip().lower()
+    
+    # Try direct UUID lookup first if username is UUID or can be resolved
+    target_entry = None
+    if ulow in member_history:
+        target_entry = member_history[ulow]
+    else:
+        # Check by username or aliases
+        for uid_key, entry in member_history.items():
+            if (entry.get("username") or "").lower() == ulow or uid_key.lower() == ulow:
+                target_entry = entry
+                break
+        if not target_entry and os.path.exists(_POINTS_DB):
+            try:
+                conn = _sqlite3.connect(_POINTS_DB)
+                row = conn.execute("SELECT uuid FROM esi_points WHERE LOWER(username) = ? LIMIT 1", (ulow,)).fetchone()
+                conn.close()
+                if row and row[0] and row[0].lower() in member_history:
+                    target_entry = member_history[row[0].lower()]
+            except Exception:
+                pass
+
+    if target_entry:
+        changes = target_entry.get("rank_changes") or []
+        if changes:
+            return jsonify({
+                "username": target_entry.get("username") or username,
+                "rank_changes": changes,
+                "joined": target_entry.get("joined"),
+                "left": target_entry.get("left"),
+            })
     return jsonify({"username": username, "rank_changes": []})
 
 
@@ -5220,10 +5239,13 @@ def _points_rows_for_cycles(cycle_ids, guild_ranks, guild_members, guild_uuids=N
 
     out = []
     seen_users = set()
+    uuid_to_current_name = {uid.strip().lower(): name for name, uid in (guild_uuids or {}).items() if uid}
 
     for uuid, username, pts, clean, dirty in rows:
-        ulow = (username or "").lower()
-        if guild_members and ulow not in guild_members:
+        uuid_lower = (uuid or "").strip().lower()
+        current_name = uuid_to_current_name.get(uuid_lower) or username
+        ulow = (current_name or "").lower()
+        if guild_members and (uuid_lower not in uuid_to_current_name and ulow not in guild_members):
             continue
         total = int(pts or 0)
 
@@ -5232,7 +5254,7 @@ def _points_rows_for_cycles(cycle_ids, guild_ranks, guild_members, guild_uuids=N
         history = history_cache[uuid]
         cycle_history = [h for h in history if h.get("cycle_id") in cycle_ids]
         trimmed_history, removed_by_cycle = _points_trim_excess_graid_history(
-            username,
+            current_name,
             cycle_ids,
             cycle_history,
             cycle_graid_ep_by_user,
@@ -5241,7 +5263,7 @@ def _points_rows_for_cycles(cycle_ids, guild_ranks, guild_members, guild_uuids=N
         rank = guild_ranks.get(ulow, "")
         is_hr = rank in _POINTS_HR_RANKS
         fallback_ep, _ = _points_apply_graph_graid_fallback(
-            username,
+            current_name,
             cycle_ids,
             trimmed_history,
             cycle_graid_ep_by_user,
@@ -5266,13 +5288,15 @@ def _points_rows_for_cycles(cycle_ids, guild_ranks, guild_members, guild_uuids=N
 
         out.append({
             "uuid": uuid,
-            "username": username,
+            "username": current_name,
             "points": total,
             "clean_ep": clean_total,
             "dirty_ep": dirty_total,
             "fallback_ep": int(fallback_ep or 0),
         })
         seen_users.add(ulow)
+        if uuid_lower:
+            seen_users.add(uuid_lower)
 
     fallback_users = set()
     for cid in cycle_ids:
@@ -5465,21 +5489,46 @@ def player_points(username: str):
         current_cycle: _points_graph_graid_ep_by_username(current_cycle),
     }
 
-    # resolve uuid from points DB (case-insensitive)
-    try:
-        conn = _sqlite3.connect(_POINTS_DB)
-        c = conn.cursor()
-        c.execute(
-            "SELECT uuid, username FROM esi_points WHERE LOWER(username) = LOWER(?) "
-            "ORDER BY cycle_id DESC LIMIT 1",
-            (username,),
-        )
-        row = c.fetchone()
-        conn.close()
-    except _sqlite3.OperationalError:
-        row = None
-    resolved_name = row[1] if row else username
-    uuid = row[0] if row else guild_uuids.get((username or "").lower())
+    # resolve uuid (by UUID, guild_uuids, points DB, or latest api db)
+    uuid = None
+    resolved_name = username
+    if _UUID_RE.match(username):
+        uuid = username
+    if not uuid:
+        uuid = guild_uuids.get((username or "").lower())
+    if not uuid:
+        try:
+            conn = _sqlite3.connect(_POINTS_DB)
+            c = conn.cursor()
+            c.execute(
+                "SELECT uuid, username FROM esi_points WHERE LOWER(username) = LOWER(?) "
+                "ORDER BY cycle_id DESC LIMIT 1",
+                (username,),
+            )
+            row = c.fetchone()
+            conn.close()
+            if row:
+                uuid = row[0]
+                resolved_name = row[1]
+        except _sqlite3.OperationalError:
+            pass
+
+    if not uuid:
+        latest_db = _get_latest_api_db()
+        if latest_db:
+            try:
+                conn = _sqlite3.connect(latest_db)
+                row = conn.execute("SELECT uuid, username FROM player_stats WHERE LOWER(username) = LOWER(?) LIMIT 1", (username,)).fetchone()
+                conn.close()
+                if row and row[0]:
+                    uuid = row[0]
+                    resolved_name = row[1]
+            except Exception:
+                pass
+
+    uuid_to_current_name = {uid.strip().lower(): name for name, uid in (guild_uuids or {}).items() if uid}
+    if uuid and uuid.strip().lower() in uuid_to_current_name:
+        resolved_name = uuid_to_current_name[uuid.strip().lower()]
 
     if not uuid:
         return jsonify({"available": True, "username": username, "found": False})
@@ -8460,17 +8509,32 @@ def player_snipes(username: str):
 def public_rank_history(username: str):
     data = _load_json_file(_TRACKED_GUILD_JSON)
     member_history = data.get("member_history", {})
-    ulow = username.lower()
-    for entry in member_history.values():
-        if (entry.get("username") or "").lower() == ulow:
-            changes = entry.get("rank_changes") or []
-            if changes:
-                return jsonify({
-                    "username": entry["username"],
-                    "rank_changes": changes,
-                    "joined": entry.get("joined"),
-                })
-            break
+    ulow = (username or "").strip().lower()
+    target_entry = None
+    if ulow in member_history:
+        target_entry = member_history[ulow]
+    else:
+        for uid_key, entry in member_history.items():
+            if (entry.get("username") or "").lower() == ulow or uid_key.lower() == ulow:
+                target_entry = entry
+                break
+        if not target_entry and os.path.exists(_POINTS_DB):
+            try:
+                conn = _sqlite3.connect(_POINTS_DB)
+                row = conn.execute("SELECT uuid FROM esi_points WHERE LOWER(username) = ? LIMIT 1", (ulow,)).fetchone()
+                conn.close()
+                if row and row[0] and row[0].lower() in member_history:
+                    target_entry = member_history[row[0].lower()]
+            except Exception:
+                pass
+    if target_entry:
+        changes = target_entry.get("rank_changes") or []
+        if changes:
+            return jsonify({
+                "username": target_entry.get("username") or username,
+                "rank_changes": changes,
+                "joined": target_entry.get("joined"),
+            })
     return jsonify({"username": username, "rank_changes": []})
 
 
@@ -8513,12 +8577,28 @@ def public_playtime(username: str):
         return jsonify({"username": username, "data": []})
     all_snapshots.sort(key=lambda x: (x[0], x[1]))
 
+    # Collect all historical usernames for this player
+    names_to_check = {username.lower()}
+    if os.path.exists(_POINTS_DB):
+        try:
+            conn = _sqlite3.connect(_POINTS_DB)
+            row = conn.execute("SELECT uuid FROM esi_points WHERE LOWER(username) = ? LIMIT 1", (username.lower(),)).fetchone()
+            if row and row[0]:
+                for un in conn.execute("SELECT DISTINCT username FROM esi_points WHERE uuid = ?", (row[0],)).fetchall():
+                    if un and un[0]:
+                        names_to_check.add(un[0].lower())
+            conn.close()
+        except Exception:
+            pass
+
     def read_hours(db_path):
         try:
             conn = _sqlite3.connect(db_path, check_same_thread=False)
-            row = conn.execute("SELECT playtime_seconds FROM playtime WHERE username = ? COLLATE NOCASE", (username,)).fetchone()
+            placeholders = ",".join("?" * len(names_to_check))
+            rows = conn.execute(f"SELECT playtime_seconds FROM playtime WHERE LOWER(username) IN ({placeholders})", list(names_to_check)).fetchall()
             conn.close()
-            return round(row[0] / 3600, 1) if row else 0.0
+            max_secs = max([r[0] for r in rows if r and r[0] is not None], default=0)
+            return round(max_secs / 3600, 1)
         except Exception:
             return 0.0
     day_groups = {}

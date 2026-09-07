@@ -2038,17 +2038,51 @@ def _admin_get_users_uncached() -> list:
         matches = _cfg_load_json(_USERNAME_MATCHES_JSON) or {}
         uuid_to_discord: dict  = {}
         uuid_to_username: dict = {}
+        uuid_aliases: dict = {}
         for did, entry in matches.items():
             if isinstance(entry, dict):
                 u = entry.get("uuid")
                 if u:
+                    u_norm = u.strip().lower()
                     uuid_to_discord[u]  = did
+                    uuid_to_discord[u_norm] = did
                     uname = entry.get("username")
                     if uname:
                         uuid_to_username[u] = uname
+                        uuid_to_username[u_norm] = uname
+                        uuid_aliases.setdefault(u_norm, set()).add(uname)
     except Exception:
         uuid_to_discord  = {}
         uuid_to_username = {}
+        uuid_aliases     = {}
+
+    # Load latest guild members and map UUID -> current username
+    uuid_to_latest_username: dict = {}
+    latest_db = _get_latest_api_db()
+    if latest_db:
+        try:
+            conn_l = sqlite3.connect(latest_db, timeout=5)
+            for r in conn_l.execute("SELECT uuid, username FROM player_stats WHERE UPPER(COALESCE(guild_prefix, '')) = 'ESI'").fetchall():
+                if r[0] and r[1]:
+                    u_norm = r[0].strip().lower()
+                    uuid_to_latest_username[u_norm] = r[1]
+                    uuid_aliases.setdefault(u_norm, set()).add(r[1])
+            conn_l.close()
+        except Exception:
+            pass
+
+    # pull historical usernames from esi_points.db for aliases
+    if os.path.isfile(_POINTS_DB):
+        try:
+            conn_p = sqlite3.connect(_POINTS_DB, timeout=5)
+            for r in conn_p.execute("SELECT DISTINCT uuid, username FROM esi_points WHERE uuid IS NOT NULL").fetchall():
+                if r[0] and r[1]:
+                    u_norm = r[0].strip().lower()
+                    uuid_aliases.setdefault(u_norm, set()).add(r[1])
+            conn_p.close()
+        except Exception:
+            pass
+
     guild_member_uuids, guild_member_usernames = _load_current_guild_members()
 
 
@@ -2177,11 +2211,15 @@ def _admin_get_users_uncached() -> list:
     users: dict = {}
 
     def _get(uuid, username):
+        u_norm = (uuid or "").strip().lower()
+        if uuid not in users and u_norm in users:
+            return users[u_norm]
         if uuid not in users:
+            curr_name = uuid_to_latest_username.get(u_norm) or uuid_to_username.get(uuid) or uuid_to_username.get(u_norm) or username
             users[uuid] = {
                 "uuid":        uuid,
-                "username":    username,
-                "discord_id":  uuid_to_discord.get(uuid),
+                "username":    curr_name,
+                "discord_id":  uuid_to_discord.get(uuid) or uuid_to_discord.get(u_norm),
                 "ep_total":    0, "ep_clean": 0, "ep_dirty": 0,
                 "balance":     _make_balance(uuid),
                 "orders":      0, "fulfilled": 0, "rejected": 0, "pending_count": 0,
@@ -2190,6 +2228,7 @@ def _admin_get_users_uncached() -> list:
                 "first_seen":  None,
                 "last_activity": None,
                 "cart":        cart_by_uuid.get(uuid, []),
+                "aliases":     list(uuid_aliases.get(u_norm, set())),
             }
         return users[uuid]
 
@@ -2232,7 +2271,8 @@ def _admin_get_users_uncached() -> list:
     # Surface cart-only users (have a saved cart but no purchases/bids/donations yet)
     for mc_uuid in cart_by_uuid:
         if mc_uuid not in users:
-            username = uuid_to_username.get(mc_uuid, mc_uuid[:8] + "\u2026")
+            u_norm = mc_uuid.strip().lower()
+            username = uuid_to_latest_username.get(u_norm) or uuid_to_username.get(mc_uuid, mc_uuid[:8] + "\u2026")
             _get(mc_uuid, username)
 
     # Surface EP-only users (earned EP in the points cycle but no shop activity yet)
@@ -2241,12 +2281,19 @@ def _admin_get_users_uncached() -> list:
             continue
         if (raw.get("rc", 0) or 0) <= 0 and (raw.get("rd", 0) or 0) <= 0:
             continue
+        u_norm = mc_uuid.strip().lower()
         username = (
-            uuid_to_username.get(mc_uuid)
+            uuid_to_latest_username.get(u_norm)
+            or uuid_to_username.get(mc_uuid)
             or raw_ep_username_by_uuid.get(mc_uuid)
             or (mc_uuid[:8] + "\u2026")
         )
         _get(mc_uuid, username)
+
+    # Surface all current guild members so all members can be viewed/managed
+    for uid_norm, curr_uname in uuid_to_latest_username.items():
+        if uid_norm not in users:
+            _get(uid_norm, curr_uname)
 
     # Keep only users who are current guild members
     if guild_member_uuids or guild_member_usernames:

@@ -196,8 +196,8 @@ def _mc_username_from_matches(discord_id: str) -> str | None:
 def resolve_uuid_for_user(discord_id: str) -> tuple[str | None, str | None]:
     """Return ``(mc_uuid, mc_username)`` for a Discord user.
 
-    Falls back to querying esi_points.db by username if the matches file
-    has a username but no uuid.
+    Falls back to querying latest api_tracking DB or esi_points.db by username
+    if the matches file has a username but no uuid.
     """
     matches = _load_json_file(_USERNAME_MATCHES_JSON)
     entry = matches.get(str(discord_id))
@@ -213,23 +213,44 @@ def resolve_uuid_for_user(discord_id: str) -> tuple[str | None, str | None]:
     else:
         return None, None
 
-    # If we have a uuid already, return it
+    # If we have a uuid already, update mc_username to the latest known username
     if mc_uuid:
+        latest_db = _get_latest_api_db()
+        if latest_db:
+            try:
+                conn = sqlite3.connect(latest_db, timeout=5)
+                row = conn.execute("SELECT username FROM player_stats WHERE LOWER(uuid) = LOWER(?) LIMIT 1", (mc_uuid,)).fetchone()
+                conn.close()
+                if row and row[0]:
+                    mc_username = row[0]
+            except Exception:
+                pass
         return mc_uuid, mc_username
 
-    # Fallback: resolve uuid from esi_points by username
-    if mc_username and os.path.isfile(_POINTS_DB):
-        try:
-            conn = sqlite3.connect(_POINTS_DB, timeout=5)
-            row = conn.execute(
-                "SELECT uuid FROM esi_points WHERE LOWER(username) = LOWER(?) LIMIT 1",
-                (mc_username,),
-            ).fetchone()
-            conn.close()
-            if row:
-                return row[0], mc_username
-        except sqlite3.Error:
-            pass
+    # Fallback: resolve uuid from latest api DB or esi_points by username
+    if mc_username:
+        latest_db = _get_latest_api_db()
+        if latest_db:
+            try:
+                conn = sqlite3.connect(latest_db, timeout=5)
+                row = conn.execute("SELECT uuid, username FROM player_stats WHERE LOWER(username) = LOWER(?) LIMIT 1", (mc_username,)).fetchone()
+                conn.close()
+                if row and row[0]:
+                    return row[0], row[1]
+            except Exception:
+                pass
+        if os.path.isfile(_POINTS_DB):
+            try:
+                conn = sqlite3.connect(_POINTS_DB, timeout=5)
+                row = conn.execute(
+                    "SELECT uuid, username FROM esi_points WHERE LOWER(username) = LOWER(?) ORDER BY cycle_id DESC LIMIT 1",
+                    (mc_username,),
+                ).fetchone()
+                conn.close()
+                if row and row[0]:
+                    return row[0], row[1]
+            except sqlite3.Error:
+                pass
 
     return None, mc_username
 

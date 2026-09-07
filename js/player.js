@@ -1524,9 +1524,9 @@
     const owedEl = document.getElementById('owedCards');
     if (isEsiGuildMember(p)) {
       const aspectsData = window.aspectsData || { members: {} };
-      const playerUuid  = Object.entries(aspectsData.members || {}).find(([, m]) => m.name === p.username);
-      const playerAspectsUuid  = playerUuid ? playerUuid[0] : null;
-      const playerEntry = playerUuid ? playerUuid[1] : null;
+      const playerUuid  = Object.entries(aspectsData.members || {}).find(([uid, m]) => uid === p.uuid || (m && m.name && m.name.toLowerCase() === (p.username || '').toLowerCase()));
+      const playerAspectsUuid  = playerUuid ? playerUuid[0] : (p.uuid || null);
+      const playerEntry = playerAspectsUuid ? (aspectsData.members && aspectsData.members[playerAspectsUuid]) : null;
       owedEl.style.display = '';
       const aspectIconPlayerSrc = themedKey('aspect-icon-player', '/images/aspect_icon.avif');
       const pointIconPlayerSrc = themedKey('point-icon-player', '/images/point_icon.png');

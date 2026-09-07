@@ -4769,7 +4769,18 @@
     if (!_users) return [];
     var list = _users.slice();
     var s = (_usersFilters.search || '').toLowerCase();
-    if (s) list = list.filter(function (u) { return (u.username || '').toLowerCase().indexOf(s) !== -1; });
+    if (s) {
+      list = list.filter(function (u) {
+        var uname = (u.username || '').toLowerCase();
+        var uid   = (u.uuid || '').toLowerCase();
+        var did   = (u.discord_id || '').toLowerCase();
+        if (uname.indexOf(s) !== -1 || uid.indexOf(s) !== -1 || did.indexOf(s) !== -1) return true;
+        if (Array.isArray(u.aliases)) {
+          return u.aliases.some(function (a) { return (a || '').toLowerCase().indexOf(s) !== -1; });
+        }
+        return false;
+      });
+    }
     var act = _usersFilters.activity;
     if (act === 'purchases') list = list.filter(function (u) { return (u.orders  || 0) > 0; });
     else if (act === 'bids')      list = list.filter(function (u) { return (u.bids     || 0) > 0; });

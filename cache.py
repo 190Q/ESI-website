@@ -72,14 +72,12 @@ def _compute_bulk_playtime():
         return
 
     conn = _sqlite3.connect(_latest_db)
-    usernames = [
-        row[0] for row in conn.execute(
-            "SELECT username FROM player_stats WHERE UPPER(guild_prefix) = 'ESI' ORDER BY username"
-        ).fetchall()
-    ]
+    member_rows = conn.execute(
+        "SELECT username, uuid FROM player_stats WHERE UPPER(guild_prefix) = 'ESI' ORDER BY username"
+    ).fetchall()
     conn.close()
 
-    if not usernames:
+    if not member_rows:
         _bulk_playtime_cache["data"] = {
             "members": {},
             "guild": {
@@ -90,6 +88,37 @@ def _compute_bulk_playtime():
         }
         _bulk_playtime_cache["ts"] = time()
         return
+
+    usernames = [r[0] for r in member_rows if r[0]]
+    member_uuid_map = {r[0].lower(): (r[1] or "").strip().lower() for r in member_rows if r[0]}
+
+    # Build comprehensive UUID <-> username aliases
+    uuid_to_all_names = {}
+    name_to_uuid = {}
+    for uname, uid in member_rows:
+        if not uname:
+            continue
+        un_norm = uname.strip().lower()
+        uid_norm = (uid or "").strip().lower()
+        if uid_norm:
+            uuid_to_all_names.setdefault(uid_norm, set()).add(un_norm)
+            name_to_uuid[un_norm] = uid_norm
+
+    points_db = os.path.join(_ESI_BOT_DIR, "databases", "esi_points.db")
+    if os.path.exists(points_db):
+        try:
+            pconn = _sqlite3.connect(points_db)
+            for puid, puname in pconn.execute("SELECT DISTINCT uuid, username FROM esi_points WHERE uuid IS NOT NULL").fetchall():
+                if puid and puname:
+                    puid_norm = str(puid).strip().lower()
+                    puname_norm = str(puname).strip().lower()
+                    if puid_norm in uuid_to_all_names or puname_norm in name_to_uuid:
+                        target_uuid = puid_norm if puid_norm in uuid_to_all_names else name_to_uuid[puname_norm]
+                        uuid_to_all_names.setdefault(target_uuid, set()).add(puname_norm)
+                        name_to_uuid[puname_norm] = target_uuid
+            pconn.close()
+        except Exception:
+            pass
 
     # playtime tracking
     tracking_folder = os.path.join(_ESI_BOT_DIR, "databases", "playtime_tracking")
@@ -129,6 +158,8 @@ def _compute_bulk_playtime():
         ]
         daily_paths = [paths[0] for paths in daily_candidates]
         username_set = {u.lower() for u in usernames}
+        for names in uuid_to_all_names.values():
+            username_set.update(names)
 
         def read_all_hours(db_path):
             try:
@@ -137,10 +168,18 @@ def _compute_bulk_playtime():
                     "SELECT username, playtime_seconds FROM playtime"
                 ).fetchall()
                 c.close()
-                return {
-                    row[0].lower(): round(row[1] / 3600, 1)
-                    for row in rows if row[0].lower() in username_set
-                }
+                res = {}
+                for row in rows:
+                    if not row[0]:
+                        continue
+                    r_low = row[0].lower()
+                    if r_low in username_set:
+                        pts = round((row[1] or 0) / 3600, 1)
+                        uid = name_to_uuid.get(r_low)
+                        if uid:
+                            res[uid] = max(res.get(uid, 0.0), pts)
+                        res[r_low] = max(res.get(r_low, 0.0), pts)
+                return res
             except Exception:
                 return {}
 
@@ -184,8 +223,12 @@ def _compute_bulk_playtime():
     members = {}
     for username in usernames:
         ulow = username.lower()
-        data = [result.get(ulow, 0.0) for _, result in all_results]
-        members[ulow] = {"username": username, "data": data, "dates": dates}
+        muid = member_uuid_map.get(ulow)
+        data = [
+            result.get(muid, result.get(ulow, 0.0)) if muid else result.get(ulow, 0.0)
+            for _, result in all_results
+        ]
+        members[ulow] = {"username": username, "uuid": muid, "data": data, "dates": dates}
 
     # stat deltas from api_tracking snapshots
     _STAT_COLS = [
@@ -242,21 +285,31 @@ def _compute_bulk_playtime():
                 c = _sqlite3.connect(db_path, check_same_thread=False)
                 stats = {}
                 for row in c.execute(
-                    f"SELECT username, guild_prefix, {cols_sql} FROM player_stats"
+                    f"SELECT uuid, username, guild_prefix, {cols_sql} FROM player_stats"
                     " WHERE UPPER(guild_prefix) = 'ESI'"
                 ).fetchall():
-                    ulow = row[0].lower()
-                    entry = {"guildPrefix": (row[1] or "").upper()}
+                    row_uuid = (row[0] or "").strip().lower()
+                    ulow = (row[1] or "").strip().lower()
+                    entry = {"guildPrefix": (row[2] or "").upper(), "uuid": row_uuid, "username": row[1]}
                     for i in range(len(_STAT_COLS)):
-                        entry[_STAT_COLS[i][1]] = row[i + 2] or 0
-                    stats[ulow] = entry
+                        entry[_STAT_COLS[i][1]] = row[i + 3] or 0
+                    if row_uuid:
+                        stats[row_uuid] = entry
+                        uuid_to_all_names.setdefault(row_uuid, set()).add(ulow)
+                        name_to_uuid[ulow] = row_uuid
+                    if ulow:
+                        stats[ulow] = entry
                 try:
                     for row in c.execute(
                         "SELECT username, total_graids FROM guild_raid_stats"
                     ).fetchall():
-                        ulow = row[0].lower()
+                        ulow = (row[0] or "").strip().lower()
+                        uid = name_to_uuid.get(ulow)
+                        if uid and uid in stats:
+                            stats[uid]["guildRaids"] = row[1] or 0
+                            stats[uid]["guildRaidsOffsetApplied"] = False
                         if ulow not in stats:
-                            stats[ulow] = {"guildPrefix": ""}
+                            stats[ulow] = {"guildPrefix": "", "uuid": uid, "username": row[0]}
                         stats[ulow]["guildRaids"] = row[1] or 0
                         stats[ulow]["guildRaidsOffsetApplied"] = False
                 except Exception:
@@ -269,16 +322,18 @@ def _compute_bulk_playtime():
                         "SELECT LOWER(username), offset FROM graid_fault_offsets"
                     ).fetchall():
                         ulow = row[0]
+                        uid = name_to_uuid.get(ulow)
                         off = _safe_number(row[1])
-                        if ulow not in stats or "guildRaids" not in stats[ulow]:
-                            continue
-                        total = _safe_number(stats[ulow]["guildRaids"])
-                        if off > 0 and total > off:
-                            stats[ulow]["guildRaids"] = max(0, total - off)
-                            stats[ulow]["guildRaidsOffsetApplied"] = True
-                        else:
-                            stats[ulow]["guildRaids"] = max(0, total)
-                            stats[ulow]["guildRaidsOffsetApplied"] = False
+                        for key in [uid, ulow]:
+                            if not key or key not in stats or "guildRaids" not in stats[key]:
+                                continue
+                            total = _safe_number(stats[key]["guildRaids"])
+                            if off > 0 and total > off:
+                                stats[key]["guildRaids"] = max(0, total - off)
+                                stats[key]["guildRaidsOffsetApplied"] = True
+                            else:
+                                stats[key]["guildRaids"] = max(0, total)
+                                stats[key]["guildRaidsOffsetApplied"] = False
                 except Exception:
                     pass
                 c.close()
@@ -617,7 +672,10 @@ def _compute_bulk_playtime():
         for ulow in members:
             user_debug_intervals = []
             seen_non_zero = {}
-            first_user = api_snapshots[0].get(ulow, {}) if api_snapshots else {}
+            muid = members[ulow].get("uuid")
+            first_user = {}
+            if api_snapshots:
+                first_user = (api_snapshots[0].get(muid) if muid else None) or api_snapshots[0].get(ulow, {})
             for mk in metric_keys:
                 first_val = first_user.get(mk)
                 seen_non_zero[mk] = first_val is not None and _safe_number(first_val) > 0
@@ -629,8 +687,8 @@ def _compute_bulk_playtime():
                 for i in range(1, len(api_snapshots)):
                     prev_snap = api_snapshots[i - 1]
                     cur_snap = api_snapshots[i]
-                    prev_user = prev_snap.get(ulow)
-                    curr_user = cur_snap.get(ulow)
+                    prev_user = (prev_snap.get(muid) if muid else None) or prev_snap.get(ulow)
+                    curr_user = (cur_snap.get(muid) if muid else None) or cur_snap.get(ulow)
                     prev_value = prev_user.get(mk) if prev_user else None
                     curr_value = curr_user.get(mk) if curr_user else None
 
@@ -1259,12 +1317,33 @@ def _read_nonguild_playtime(ulow):
 
 @app.route("/cache/activity/member/<username>")
 def cache_activity_member(username):
-    ulow = username.lower()
+    ulow = (username or "").strip().lower()
     with _bulk_playtime_lock:
         bulk = _bulk_playtime_cache.get("data") or {}
-    member = (bulk.get("members") or {}).get(ulow)
-    if member:
-        return jsonify(member)
+    members = bulk.get("members") or {}
+    if ulow in members:
+        return jsonify(members[ulow])
+    
+    # Check if requested by UUID
+    for m in members.values():
+        if (m.get("uuid") or "").lower() == ulow:
+            return jsonify(m)
+            
+    # Check if requested by an old username alias
+    points_db = os.path.join(_ESI_BOT_DIR, "databases", "esi_points.db")
+    if os.path.exists(points_db):
+        try:
+            conn = _sqlite3.connect(points_db)
+            row = conn.execute("SELECT uuid FROM esi_points WHERE LOWER(username) = ? LIMIT 1", (ulow,)).fetchone()
+            conn.close()
+            if row and row[0]:
+                target_uuid = str(row[0]).strip().lower()
+                for m in members.values():
+                    if (m.get("uuid") or "").lower() == target_uuid:
+                        return jsonify(m)
+        except Exception:
+            pass
+
     # Fallback: read playtime from raw databases for non-guild players
     result = _read_nonguild_playtime(ulow)
     if result:
