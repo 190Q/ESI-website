@@ -703,8 +703,7 @@
       ' you have been warned because you haven\'t reached the playtime requirement of ' +
       '**' + hoursDisplay + ' hours** this week, without giving notice.\n\n' +
       'If you wish to stay in the guild or you think this is an error, you have 48 hours to either reach the required playtime or ' +
-      'state the reason of your inactivity in <#629912948948598825>/DM a ' +
-      '[Recruitment Manager](https://discord.com/channels/554418045397762048/1515398455957258250).\n\n' +
+      'state the reason of your inactivity in <#629912948948598825>' +
       '-# if you think this is a mistake, you can contact support using `/contact_support`.';
     copyToClipboard(warningText);
     window.showToast('Warning message copied to clipboard!', 'success');
