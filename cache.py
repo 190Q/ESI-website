@@ -1097,10 +1097,14 @@ def _compute_bulk_playtime():
             day_idx = i - 1
             if day_idx >= num_mk_days:
                 break
-            guild_total = sum(
-                1 for snap in api_snapshots[i].values()
-                if (snap.get("guildPrefix") or "").upper() == "ESI"
-            )
+            seen_esi_members = set()
+            for snap in api_snapshots[i].values():
+                if (snap.get("guildPrefix") or "").upper() != "ESI":
+                    continue
+                pid = snap.get("uuid") or (snap.get("username") or "").lower()
+                if pid:
+                    seen_esi_members.add(pid)
+            guild_total = len(seen_esi_members)
             queue_total = queue_totals_by_day[i] if i < len(queue_totals_by_day) else 0
             pending_total = pending_totals_by_day[i] if i < len(pending_totals_by_day) else 0
             pending_total = max(0, int(round(_safe_number(pending_total))))
@@ -1122,9 +1126,19 @@ def _compute_bulk_playtime():
                 if not prev_snap or not cur_snap:
                     new_members[idx - 1] = 0
                     continue
-                prev_users = set(prev_snap.keys())
-                cur_users = set(cur_snap.keys())
-                new_members[idx - 1] = sum(1 for ulow in cur_users if ulow not in prev_users)
+                prev_users = {
+                    (snap.get("uuid") or (snap.get("username") or "").lower())
+                    for snap in prev_snap.values()
+                    if (snap.get("guildPrefix") or "").upper() == "ESI"
+                    and (snap.get("uuid") or snap.get("username"))
+                }
+                cur_users = {
+                    (snap.get("uuid") or (snap.get("username") or "").lower())
+                    for snap in cur_snap.values()
+                    if (snap.get("guildPrefix") or "").upper() == "ESI"
+                    and (snap.get("uuid") or snap.get("username"))
+                }
+                new_members[idx - 1] = len(cur_users - prev_users)
         except Exception:
             pass
 
