@@ -3,6 +3,7 @@
 
   var MONTHS       = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var _allUsers    = {};
+  var _rawExemptions = [];
   var _exemptions  = [];
   var _editingId   = null;
   function _readSetting(key) {
@@ -251,8 +252,9 @@
     /* edit helpers */
     window._inacStartEdit = function (discordId) {
       var entry = null;
-      for (var i = 0; i < _exemptions.length; i++) {
-        if (_exemptions[i].discord_id === discordId) { entry = _exemptions[i]; break; }
+      var pool = _rawExemptions.length ? _rawExemptions : _exemptions;
+      for (var i = 0; i < pool.length; i++) {
+        if (pool[i].discord_id === discordId) { entry = pool[i]; break; }
       }
       if (!entry) return;
       _editingId = discordId;
@@ -300,7 +302,8 @@
       if (reasonEl) reasonEl.value = u.reason || '';
       selectWeeks(u.weeks || []);
       // if they already have an entry, switch to edit mode
-      var existing = _exemptions.find(function (e) { return e.username.toLowerCase() === uLow; });
+      var pool = _rawExemptions.length ? _rawExemptions : _exemptions;
+      var existing = pool.find(function (e) { return e.username.toLowerCase() === uLow; });
       if (existing && existing.discord_id) {
         _editingId = existing.discord_id;
         var submitBtn = document.getElementById('inacSubmit');
@@ -507,7 +510,7 @@
       return;
     }
 
-    listEl.innerHTML = rows.map(function (p) {
+    var html = rows.map(function (p) {
       var isPerm = p.permanent;
       var cls    = _checkerTab === 'active' ? 'active' : (_checkerTab === 'exempt' ? 'excused' : 'inactive');
       var extra  = '';
@@ -535,6 +538,7 @@
         extra +
       '</div>';
     }).join('');
+    listEl.innerHTML = window.DOMPurify ? DOMPurify.sanitize(html) : html;
 
     listEl.querySelectorAll('.inac-username-link').forEach(function (el) {
       el.addEventListener('click', function () {
@@ -569,7 +573,7 @@
     if (!checkerWeek) return false;
     var checkerStart = checkerWeek.split('_')[0];
     return weeks.some(function (w) {
-      if (w === 'permanent' || isWeekExpired(w)) return false;
+      if (w === 'permanent') return false;
       return w.split('_')[0] === checkerStart;
     });
   }
@@ -586,18 +590,19 @@
 
     listEl.innerHTML = '<div class="inac-checker-hint">Loading playtime\u2026</div>';
 
+    var exemptionsList = _rawExemptions.length ? _rawExemptions : _exemptions;
+
     var usernames = _players.map(function (p) { return p.username; })
-      .concat(_exemptions.map(function (e) { return e.username; }));
+      .concat(exemptionsList.map(function (e) { return e.username; }));
 
     (window.playtimePrefetchReady || Promise.resolve())
     .then(function () { return ensureMetricsCached(usernames); })
     .then(function () {
       if (!_checkerWeek) return;
 
-      // only permanent / non-expired weeks that cover the selected checker week count
       var permanentSet = {};
       var exemptSet    = {};
-      _exemptions.forEach(function (e) {
+      exemptionsList.forEach(function (e) {
         var uLow   = e.username.toLowerCase();
         var weeks  = e.weeks || [];
         var isPerm = weeks.indexOf('permanent') !== -1;
@@ -610,7 +615,7 @@
       _players.forEach(function (p) {
         hoursMap[p.username.toLowerCase()] = computeWeekPlaytime(p.username, _checkerWeek);
       });
-      _exemptions.forEach(function (e) {
+      exemptionsList.forEach(function (e) {
         var uLow = e.username.toLowerCase();
         if (hoursMap[uLow] == null) {
           hoursMap[uLow] = computeWeekPlaytime(e.username, _checkerWeek);
@@ -620,8 +625,8 @@
       var allPlayers = _players.map(function (p) {
         var uLow   = p.username.toLowerCase();
         var ex     = exemptSet[uLow] || null;
-        var fullEx = _exemptions.find(function (e) { return e.username.toLowerCase() === uLow; });
-        var isPerm = !!(fullEx && (fullEx.weeks || []).indexOf('permanent') !== -1);
+        var fullEx = exemptionsList.find(function (e) { return e.username.toLowerCase() === uLow; });
+        var isPerm = !!(permanentSet[uLow] || (fullEx && (fullEx.weeks || []).indexOf('permanent') !== -1));
         return {
           username:   p.username,
           discord_id: p.discord_id || null,
@@ -642,7 +647,7 @@
           .filter(function (p) { return !p.permanent && !p.exempt && p.hours >= _checkerHours; })
           .sort(function (a, b) { return b.hours - a.hours; });
       } else { // exempt
-        rows = _exemptions.filter(function (e) {
+        rows = exemptionsList.filter(function (e) {
           return exemptionAppliesToCheckerWeek(e, _checkerWeek);
         }).map(function (e) {
           var isPerm = (e.weeks || []).indexOf('permanent') !== -1;
@@ -663,7 +668,7 @@
       // update tab labels with counts
       var inactiveCount = allPlayers.filter(function (p) { return !p.permanent && !p.exempt && p.hours < _checkerHours; }).length;
       var activeCount   = allPlayers.filter(function (p) { return !p.permanent && !p.exempt && p.hours >= _checkerHours; }).length;
-      var exemptCount   = _exemptions.filter(function (e) {
+      var exemptCount   = exemptionsList.filter(function (e) {
         return exemptionAppliesToCheckerWeek(e, _checkerWeek);
       }).length;
       var tabsEl = document.getElementById('inacCheckerTabs');
@@ -766,7 +771,8 @@
     if (!dl) return;
     var names = Object.values(_allUsers).map(function (u) { return u.username; });
     names.sort(function (a, b) { return a.toLowerCase().localeCompare(b.toLowerCase()); });
-    dl.innerHTML = names.map(function (n) { return '<option value="' + n + '">'; }).join('');
+    var rawHtml = names.map(function (n) { return '<option value="' + n + '">'; }).join('');
+    dl.innerHTML = window.DOMPurify ? DOMPurify.sanitize(rawHtml) : rawHtml;
   }
 
   /* --- helpers --- */
@@ -789,8 +795,9 @@
   /* --- render the exemptions list --- */
 
   function renderList(exemptions) {
-    _exemptions = (exemptions || []).filter(hasLiveExemption);
-    var staleCount = (exemptions || []).length - _exemptions.length;
+    _rawExemptions = exemptions || [];
+    _exemptions = _rawExemptions.filter(hasLiveExemption);
+    var staleCount = _rawExemptions.length - _exemptions.length;
     var countEl = document.getElementById('inacCount');
     var listEl  = document.getElementById('inacList');
     if (!countEl || !listEl) return;
@@ -805,7 +812,7 @@
         '</div>';
       return;
     }
-    listEl.innerHTML = _exemptions.map(function (e) {
+    var html = _exemptions.map(function (e) {
       var weeks = (e.weeks || []).filter(function (w) {
         return w === 'permanent' || !isWeekExpired(w);
       }).slice().sort(function (a, b) {
@@ -832,6 +839,7 @@
         '</div>' +
       '</div>';
     }).join('');
+    listEl.innerHTML = window.DOMPurify ? DOMPurify.sanitize(html) : html;
     listEl.querySelectorAll('.inac-edit-btn').forEach(function (btn) {
       btn.addEventListener('click', function () { window._inacStartEdit(this.dataset.id); });
     });
