@@ -2494,12 +2494,12 @@ def admin_ban_user(uuid: str, reason: str, actor: str) -> dict:
     )
     _invalidate_users_cache()
 
-    # Automatically revoke creator status if user has creator flag
+    # Automatically revoke creator status if user has creator flag (without DM)
     if discord_id:
         try:
             from shop.creator import is_creator as _is_creator_check, revoke_creator_flag as _revoke_creator_flag
             if _is_creator_check(discord_id):
-                _revoke_creator_flag(discord_id, f"system:banned_by_{actor}", username)
+                _revoke_creator_flag(discord_id, f"system:banned_by_{actor}", username, notify=False)
         except Exception:
             pass
 

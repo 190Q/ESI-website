@@ -3799,14 +3799,14 @@ def _require_creator(
     roles = user.get("roles") or []
     if not is_guild_member(roles):
         try:
-            _creator_revoke_flag(discord_id, "system:not_in_guild", user.get("username") or discord_id)
+            _creator_revoke_flag(discord_id, "system:not_in_guild", user.get("username") or discord_id, notify=False)
         except Exception:
             pass
         return None, (jsonify({"error": "Creator status is only available to guild members"}), 403)
     mc_uuid, _ = resolve_uuid_for_user(discord_id)
     if mc_uuid and is_shop_banned(mc_uuid):
         try:
-            _creator_revoke_flag(discord_id, "system:shop_banned", user.get("username") or discord_id)
+            _creator_revoke_flag(discord_id, "system:shop_banned", user.get("username") or discord_id, notify=False)
         except Exception:
             pass
         return None, (jsonify({"error": "You have been banned from the shop"}), 403)

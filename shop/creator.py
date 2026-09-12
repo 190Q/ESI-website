@@ -246,15 +246,6 @@ def reconcile_creators() -> set[str]:
                 "system", "creator_flag_revoked", target,
                 {"discord_id": did, "reason": reason, "auto": True},
             )
-            _dm_card_in_background(
-                did, "creator_revoked",
-                "Creator Status",
-                fields=[
-                    ("STATUS", "Revoked"),
-                    ("REASON", reason),
-                ],
-                fallback_text=f"Your Creator status has been removed ({reason}).",
-            )
     return valid_ids
 
 # Creator flag
@@ -303,7 +294,7 @@ def _grant_creator_flag(conn: sqlite3.Connection, discord_id: str, granted_by: s
         (discord_id, _now_iso(), granted_by),
     )
 
-def revoke_creator_flag(discord_id: str, revoked_by: str, target_username: str = "") -> dict:
+def revoke_creator_flag(discord_id: str, revoked_by: str, target_username: str = "", notify: bool = True) -> dict:
     """Remove the creator flag from a user."""
     if not discord_id:
         return {"error": "discord_id is required"}
@@ -325,16 +316,17 @@ def revoke_creator_flag(discord_id: str, revoked_by: str, target_username: str =
         revoked_by, "creator_flag_revoked", target,
         {"discord_id": discord_id},
     )
-    # DM the user that their creator status has been revoked
-    _dm_card_in_background(
-        discord_id, "creator_revoked",
-        "Creator Status",
-        fields=[
-            ("STATUS", "Revoked"),
-            ("REVOKED BY", revoked_by),
-        ],
-        fallback_text=f"Your Creator status has been revoked by {revoked_by}.",
-    )
+    if notify:
+        # DM the user that their creator status has been revoked
+        _dm_card_in_background(
+            discord_id, "creator_revoked",
+            "Creator Status",
+            fields=[
+                ("STATUS", "Revoked"),
+                ("REVOKED BY", revoked_by),
+            ],
+            fallback_text=f"Your Creator status has been revoked by {revoked_by}.",
+        )
     return {"ok": True}
 
 def grant_creator_flag_standalone(discord_id: str, granted_by: str, target_username: str = "") -> dict:
