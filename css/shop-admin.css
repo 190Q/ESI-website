@@ -782,6 +782,24 @@ select.ie-input { cursor: pointer; }
 }
 .sa-row:not(.sa-header):hover { background: var(--surface-2); }
 .sa-row--inactive { opacity: 0.5; }
+.sa-row--creator-orphaned {
+  opacity: 0.52;
+  filter: grayscale(0.7);
+  background: rgba(var(--danger-rgb), 0.035);
+}
+.sa-row--creator-orphaned:not(.sa-header):hover {
+  opacity: 0.82;
+  filter: grayscale(0.25);
+  background: rgba(var(--danger-rgb), 0.07);
+}
+.sa-pill--creator-orphaned {
+  background: rgba(var(--danger-rgb), 0.15);
+  color: var(--danger);
+  border: 1px solid rgba(var(--danger-rgb), 0.35);
+  font-size: 0.62rem;
+  margin-left: 6px;
+  vertical-align: middle;
+}
 .sa-item-name { color: var(--gold-light); font-weight: 600; }
 .sa-item-id { font-size: .83rem; color: var(--text-faint); font-family: var(--font-heading); }
 

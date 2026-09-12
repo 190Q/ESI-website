@@ -141,12 +141,36 @@ def admin_list_items() -> list:
     return get_items(tags=None) or []   # tags=None -> no visibility filter
 
 def admin_list_all_items_unfiltered() -> list:
-    """Return every item regardless of visibility, with overrides applied."""
+    """Return every item regardless of visibility, with overrides applied and creator status enriched."""
     _reload_items()
     from shop.items import _load_json, _load_overrides, _merge
     items = _load_json()
     overrides = _load_overrides()
-    return _merge(items, overrides)
+    merged = _merge(items, overrides)
+
+    valid_creator_ids = set()
+    try:
+        from shop.creator import get_all_creator_ids, _resolve_creator_username
+        valid_creator_ids = get_all_creator_ids()
+    except Exception:
+        pass
+
+    for it in merged:
+        c_did = (it.get("creator_discord_id") or "").strip()
+        if c_did:
+            is_valid = c_did in valid_creator_ids
+            it["creator_valid"] = is_valid
+            it["creator_orphaned"] = not is_valid
+            try:
+                from shop.creator import _resolve_creator_username
+                it["creator_username"] = _resolve_creator_username(c_did)
+            except Exception:
+                it["creator_username"] = c_did
+        else:
+            it["creator_valid"] = None
+            it["creator_orphaned"] = False
+            it["creator_username"] = None
+    return merged
 
 def admin_set_override(item_id: str, active: bool | None, stock: int | None,
                        updated_by: str, clear_stock: bool = False) -> dict:
@@ -2469,6 +2493,16 @@ def admin_ban_user(uuid: str, reason: str, actor: str) -> dict:
         {"uuid": uuid, "username": username, "reason": reason},
     )
     _invalidate_users_cache()
+
+    # Automatically revoke creator status if user has creator flag
+    if discord_id:
+        try:
+            from shop.creator import is_creator as _is_creator_check, revoke_creator_flag as _revoke_creator_flag
+            if _is_creator_check(discord_id):
+                _revoke_creator_flag(discord_id, f"system:banned_by_{actor}", username)
+        except Exception:
+            pass
+
     return {"ok": True, "uuid": uuid, "banned_at": now_iso}
 
 def admin_unban_user(uuid: str, actor: str) -> dict:

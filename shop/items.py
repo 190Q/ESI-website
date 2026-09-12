@@ -33,10 +33,10 @@ def parse_duration(value) -> dict | None:
     """Parse a cooldown / subscription_duration value.
 
     Returns one of:
-      - ``None``                                -> no duration
-      - ``{"type": "days",         "value": N}``
-      - ``{"type": "end_of_cycle"}``
-      - ``{"type": "cycles",       "value": N}``
+      - None                                -> no duration
+      - {"type": "days",         "value": N}
+      - {"type": "end_of_cycle"}
+      - {"type": "cycles",       "value": N}
     """
     if value is None:
         return None
@@ -82,7 +82,7 @@ def _load_json() -> list:
 def _load_overrides() -> dict:
     """Read item_overrides from shop.db.
 
-    Returns a dict of ``{item_id: {"active": ..., "stock": ...}}``.
+    Returns a dict of {item_id: {"active": ..., "stock": ...}}.
     Only non-NULL columns are included so the merge step can distinguish
     "no override" from "explicitly set to a value".
     """
@@ -152,33 +152,30 @@ def _ensure_loaded() -> None:
     if not _loaded or (_time.monotonic() - _loaded_at) > _CACHE_TTL:
         reload()
 
+def _has_valid_creator(item: dict) -> bool:
+    """Return True if the item has no creator or its assigned creator is active and eligible."""
+    c_did = (item.get("creator_discord_id") or "").strip()
+    if not c_did:
+        return True
+    try:
+        from shop.creator import is_creator
+        return is_creator(c_did)
+    except Exception:
+        return False
+
 def _is_visible(item: dict, tags: set | None,
                 user_position: int | None = None) -> bool:
     """Check whether a user with *tags* is allowed to see *item*.
 
     *tags* is a **lowercased** set of the user's guild rank tags, e.g.
-    ``{"knight"}``.  ``None`` means anonymous / not a guild member.
+    {"knight"}.  None means anonymous / not a guild member.
 
     *user_position* is the user's 1-indexed leaderboard position in the
-    previous cycle, or ``None`` if unknown / not ranked.
-
-    ``visible_to_ranks`` rules:
-      - ``None`` -> visible to everyone.
-      - A list of strings -> split into includes and ``!``-prefixed excludes.
-        * If the user matches ANY exclude -> **hidden**.
-        * If there are includes, the user must match at least one.
-        * If there are ONLY excludes (no includes), everyone not excluded
-          can see the item.
-      - ``"rankless"`` is a pseudo-rank for guests and non-guild members
-        (``tags is None``). Include it to show the item publicly; exclude
-        with ``!rankless`` to hide it from non-members when using
-        exclude-only filters.
-
-    ``visible_to_top_n`` rules:
-      - ``None`` -> no top-N restriction.
-      - An integer N -> only users with ``user_position <= N`` can see it.
-        If *user_position* is ``None`` the item is hidden.
+    previous cycle, or None if unknown / not ranked.
     """
+    if not _has_valid_creator(item):
+        return False
+
     # Rank-based visibility
     allowed = item.get("visible_to_ranks")
     if allowed is not None:
@@ -216,16 +213,16 @@ def _is_visible(item: dict, tags: set | None,
     return True
 
 def _resolve_multi_quantity(item: dict) -> dict:
-    """Inject ``allow_multi_quantity`` into an item dict (mutates a copy).
+    """Inject allow_multi_quantity into an item dict (mutates a copy).
 
     Rules:
     - Only meaningful for bin items.
-    - ``max_quantity`` must be a positive integer AND ``cooldown`` must be
-      ``None`` for multi-quantity to be enabled.
+    - max_quantity must be a positive integer AND cooldown must be
+      None for multi-quantity to be enabled.
     - If either condition is unmet at the item level, variants are checked:
-      if ANY variant has a valid ``max_quantity`` and no cooldown (variant-
-      level overrides item-level), ``allow_multi_quantity`` is ``True`` and
-      the item-level ``max_quantity`` is set to the highest qualifying
+      if ANY variant has a valid max_quantity and no cooldown (variant-
+      level overrides item-level), allow_multi_quantity is True and
+      the item-level max_quantity is set to the highest qualifying
       variant value as a fallback for contexts that lack variant info.
     """
     item = dict(item)
@@ -271,32 +268,14 @@ def _resolve_multi_quantity(item: dict) -> dict:
 def get_items(tags: set | None = None,
               user_position: int | None = None,
               include_blocked: bool = False) -> list:
-    """Return every catalogue item visible to a user with *tags*.
-
-    Parameters
-    ----------
-    tags : set[str] or None
-        Lowercased set of the user's applicable tags, e.g.
-        ``{"knight", "citizen"}``.  ``None`` means anonymous / unknown 
-        only universally-visible items are returned.
-    user_position : int or None
-        1-indexed leaderboard position from the previous cycle.
-        Used for ``visible_to_top_n`` filtering.
-    include_blocked : bool
-        If ``True``, return ALL items regardless of visibility but tag
-        non-visible ones with ``visibility_blocked=True``.  Used for
-        chief+ shop admins who should see every item.
-
-    Returns
-    -------
-    list[dict]
-        Shallow copies of the matched item dicts, preserving JSON order.
-    """
+    """Return every catalogue item visible to a user with tags."""
     _ensure_loaded()
     with _items_lock:
         if include_blocked:
             result = []
             for item in _items_list:
+                if not _has_valid_creator(item):
+                    continue
                 out = _resolve_multi_quantity(item)
                 if not _is_visible(item, tags, user_position):
                     out["visibility_blocked"] = True
@@ -306,11 +285,7 @@ def get_items(tags: set | None = None,
                 if _is_visible(item, tags, user_position)]
 
 def get_item_unfiltered(item_id: str) -> dict | None:
-    """Look up a single item by ID with no visibility check.
-
-    Used by internal/admin code that must access items regardless of
-    the user's rank (e.g. auction settlement, admin panel).
-    """
+    """Look up a single item by ID with no visibility check."""
     _ensure_loaded()
     with _items_lock:
         item = _items_by_id.get(item_id)
@@ -321,11 +296,7 @@ def get_item_unfiltered(item_id: str) -> dict | None:
 
 def get_item(item_id: str, tags: set | None = None,
              user_position: int | None = None) -> dict | None:
-    """Look up a single item by ID, respecting visibility.
-
-    Returns a shallow copy of the item dict, or ``None`` if the item does
-    not exist or the given tags are not allowed to see it.
-    """
+    """Look up a single item by ID, respecting visibility."""
     _ensure_loaded()
     with _items_lock:
         item = _items_by_id.get(item_id)

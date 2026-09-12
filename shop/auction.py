@@ -229,6 +229,9 @@ def list_auctions(discord_id: str, user_roles: list | None = None,
                 item = get_item_unfiltered(row["item_id"])
                 if not item:
                     continue
+                from shop.items import _has_valid_creator
+                if not _has_valid_creator(item):
+                    continue
 
                 ends_at = _dt.fromisoformat(row["ends_at"])
                 if ends_at.tzinfo is None:
@@ -339,6 +342,10 @@ def place_bid(
         if not item:
             shop_conn.rollback()
             raise PurchaseError("Auction item no longer exists", 400)
+        from shop.items import _has_valid_creator
+        if not _has_valid_creator(item):
+            shop_conn.rollback()
+            raise PurchaseError("This auction item is currently unavailable", 400)
         if not item.get("active", True):
             shop_conn.rollback()
             raise PurchaseError("This auction is currently paused", 409)

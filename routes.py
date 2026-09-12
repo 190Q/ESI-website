@@ -3788,7 +3788,7 @@ def _require_creator(
     maintenance_scope: str | None = None,
     maintenance_action: str | None = None,
 ):
-    """Middleware: checks user is logged in, has creator flag, and is not shop-banned.
+    """Middleware: checks user is logged in, has creator flag, is a guild member, and is not shop-banned.
 
     Returns (user, err) like _require_guild_member.
     """
@@ -3796,6 +3796,20 @@ def _require_creator(
     if err:
         return None, err
     discord_id = user.get("id", "")
+    roles = user.get("roles") or []
+    if not is_guild_member(roles):
+        try:
+            _creator_revoke_flag(discord_id, "system:not_in_guild", user.get("username") or discord_id)
+        except Exception:
+            pass
+        return None, (jsonify({"error": "Creator status is only available to guild members"}), 403)
+    mc_uuid, _ = resolve_uuid_for_user(discord_id)
+    if mc_uuid and is_shop_banned(mc_uuid):
+        try:
+            _creator_revoke_flag(discord_id, "system:shop_banned", user.get("username") or discord_id)
+        except Exception:
+            pass
+        return None, (jsonify({"error": "You have been banned from the shop"}), 403)
     if not _is_creator(discord_id):
         return None, (jsonify({"error": "Creator status required"}), 403)
     maintenance_err = _admin_maintenance_guard(
@@ -3805,9 +3819,6 @@ def _require_creator(
     )
     if maintenance_err:
         return None, maintenance_err
-    mc_uuid, _ = resolve_uuid_for_user(discord_id)
-    if mc_uuid and is_shop_banned(mc_uuid):
-        return None, (jsonify({"error": "You have been banned from the shop"}), 403)
     return user, None
 
 

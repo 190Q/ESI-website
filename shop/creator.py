@@ -45,10 +45,13 @@ def _grant_creator_commission(
     """Grant the creator CREATOR_COMMISSION_PCT% of ep_spent as dirty EP.
 
     Called on purchase fulfillment (both admin and self-fulfillment paths).
-    Silently no-ops if the creator has no linked MC account.
+    Silently no-ops if the creator has no linked MC account or is no longer an active creator.
     Returns the amount granted (0 on failure or skip).
     """
     if not creator_discord_id or not ep_spent or ep_spent <= 0:
+        return 0
+
+    if not is_creator(creator_discord_id):
         return 0
 
     amount = int(ep_spent * CREATOR_COMMISSION_PCT / 100)  # floor via int()
@@ -180,9 +183,83 @@ def _get_conn(timeout: int = 5) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     return conn
 
+def check_creator_eligibility(discord_id: str) -> tuple[bool, str]:
+    """Check whether a user is currently eligible to hold Creator status.
+
+    A creator must:
+    1. Have a linked Minecraft account in username_matches.json.
+    2. Not be currently banned from the shop.
+    3. Be an active member of the ESI guild.
+    """
+    if not discord_id:
+        return False, "Authentication required"
+    mc_uuid, mc_username = resolve_uuid_for_user(discord_id)
+    if not mc_uuid and not mc_username:
+        return False, "No linked Minecraft account"
+    if mc_uuid and is_shop_banned(mc_uuid):
+        return False, "Banned from the shop"
+
+    try:
+        from shop.admin import _load_current_guild_members
+        member_uuids, member_usernames = _load_current_guild_members()
+        if member_uuids or member_usernames:
+            in_guild = (
+                (mc_uuid and mc_uuid.strip().lower() in member_uuids) or
+                (mc_username and mc_username.strip().lower() in member_usernames)
+            )
+            if not in_guild:
+                return False, "No longer in the guild"
+    except Exception:
+        pass
+
+    return True, ""
+
+def reconcile_creators() -> set[str]:
+    """Check all creator_flags, revoke status from ineligible members, and return valid IDs."""
+    if not os.path.isfile(_SHOP_DB):
+        return set()
+    try:
+        conn = _get_conn(timeout=10)
+        _ensure_creator_flags_table(conn)
+        rows = conn.execute("SELECT discord_id FROM creator_flags").fetchall()
+        conn.close()
+    except sqlite3.Error:
+        return set()
+
+    valid_ids: set[str] = set()
+    for r in rows:
+        did = r["discord_id"]
+        eligible, reason = check_creator_eligibility(did)
+        if eligible:
+            valid_ids.add(did)
+        else:
+            target = _resolve_creator_username(did)
+            try:
+                conn = _get_conn(timeout=10)
+                _ensure_creator_flags_table(conn)
+                conn.execute("DELETE FROM creator_flags WHERE discord_id = ?", (did,))
+                conn.commit()
+                conn.close()
+            except sqlite3.Error:
+                pass
+            _log_admin_action(
+                "system", "creator_flag_revoked", target,
+                {"discord_id": did, "reason": reason, "auto": True},
+            )
+            _dm_card_in_background(
+                did, "creator_revoked",
+                "Creator Status",
+                fields=[
+                    ("STATUS", "Revoked"),
+                    ("REASON", reason),
+                ],
+                fallback_text=f"Your Creator status has been removed ({reason}).",
+            )
+    return valid_ids
+
 # Creator flag
 def is_creator(discord_id: str) -> bool:
-    """Return True if the user has the creator flag."""
+    """Return True if the user has the creator flag and is currently eligible."""
     if not discord_id or not os.path.isfile(_SHOP_DB):
         return False
     try:
@@ -193,9 +270,29 @@ def is_creator(discord_id: str) -> bool:
             (discord_id,),
         ).fetchone()
         conn.close()
-        return row is not None
+        if not row:
+            return False
     except sqlite3.Error:
         return False
+
+    eligible, reason = check_creator_eligibility(discord_id)
+    if not eligible:
+        target = _resolve_creator_username(discord_id)
+        try:
+            conn = _get_conn(timeout=10)
+            _ensure_creator_flags_table(conn)
+            conn.execute("DELETE FROM creator_flags WHERE discord_id = ?", (discord_id,))
+            conn.commit()
+            conn.close()
+        except sqlite3.Error:
+            pass
+        _log_admin_action(
+            "system", "creator_flag_revoked", target,
+            {"discord_id": discord_id, "reason": reason, "auto": True},
+        )
+        return False
+
+    return True
 
 def _grant_creator_flag(conn: sqlite3.Connection, discord_id: str, granted_by: str) -> None:
     """Insert the creator flag (idempotent)."""
@@ -274,17 +371,8 @@ def grant_creator_flag_standalone(discord_id: str, granted_by: str, target_usern
     return {"ok": True}
 
 def get_all_creator_ids() -> set:
-    """Return the set of all discord_ids that have the creator flag."""
-    if not os.path.isfile(_SHOP_DB):
-        return set()
-    try:
-        conn = _get_conn()
-        _ensure_creator_flags_table(conn)
-        rows = conn.execute("SELECT discord_id FROM creator_flags").fetchall()
-        conn.close()
-        return {r[0] for r in rows}
-    except sqlite3.Error:
-        return set()
+    """Return the set of all discord_ids that have the creator flag and are eligible."""
+    return reconcile_creators()
 
 # Seller Applications
 def submit_application(discord_id: str, user_roles: list, answers: list | None = None) -> dict:
@@ -1115,7 +1203,8 @@ def reject_item_request(req_id: str, reviewer: str, reason: str | None = None) -
 
 
 def list_creators_with_usernames() -> list:
-    """Return a list of {discord_id, username} for all creators."""
+    """Return a list of {discord_id, username} for all active eligible creators."""
+    reconcile_creators()
     if not os.path.isfile(_SHOP_DB):
         return []
     try:

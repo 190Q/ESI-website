@@ -1190,11 +1190,13 @@
 
     function _renderItemRow(item, skipAuctionControls) {
       var isActive = item.active !== false;
-      var rowClass = 'sa-row' + (!isActive ? ' sa-row--inactive' : '');
+      var isCreatorOrphaned = !!item.creator_discord_id && (item.creator_valid === false || item.creator_orphaned === true);
+      var rowClass = 'sa-row' + (!isActive ? ' sa-row--inactive' : '') + (isCreatorOrphaned ? ' sa-row--creator-orphaned' : '');
 
       html += '<div class="' + rowClass + '" data-item-id="' + esc(item.id) + '"' + (canParliamentEdit ? ' draggable="true"' : '') + '>';
       html += '<span class="sa-grip" data-label="Order"' + (canParliamentEdit ? ' title="Drag to reorder"' : ' style="opacity:0.2;cursor:default"') + '>' + _svg.grip + '</span>';
-      html += '<span class="sa-item-name" data-label="Name">' + esc(item.name) + '</span>';
+      html += '<span class="sa-item-name" data-label="Name">' + esc(item.name) +
+        (isCreatorOrphaned ? ' <span class="sa-pill sa-pill--creator-orphaned" title="Creator is no longer in the guild or cannot access the shop. Assign another creator, set to None, or delete this item.">Creator Inactive</span>' : '') + '</span>';
       html += '<span class="sa-item-id" data-label="ID">' + esc(item.id) + '</span>';
       var _typePill = item.type === 'auction'
         ? '<span class="sa-pill sa-pill--auction">Auction</span>'
@@ -1281,9 +1283,12 @@
       } else if (_liveAucMap[item.id]) {
         var auc = _liveAucMap[item.id];
         var isActive = item.active !== false;
-        html += '<div class="sa-row sa-row--live' + (!isActive ? ' sa-row--inactive' : '') + '" data-item-id="' + esc(item.id) + '"' + (canParliamentEdit ? ' draggable="true"' : '') + '>';
+        var isCreatorOrphaned = !!item.creator_discord_id && (item.creator_valid === false || item.creator_orphaned === true);
+        var liveRowClass = 'sa-row sa-row--live' + (!isActive ? ' sa-row--inactive' : '') + (isCreatorOrphaned ? ' sa-row--creator-orphaned' : '');
+        html += '<div class="' + liveRowClass + '" data-item-id="' + esc(item.id) + '"' + (canParliamentEdit ? ' draggable="true"' : '') + '>';
         html += '<span class="sa-grip" data-label="Order"' + (canParliamentEdit ? ' title="Drag to reorder"' : ' style="opacity:0.2;cursor:default"') + '>' + _svg.grip + '</span>';
-        html += '<span class="sa-item-name" data-label="Name">' + esc(item.name) + '</span>';
+        html += '<span class="sa-item-name" data-label="Name">' + esc(item.name) +
+          (isCreatorOrphaned ? ' <span class="sa-pill sa-pill--creator-orphaned" title="Creator is no longer in the guild or cannot access the shop. Assign another creator, set to None, or delete this item.">Creator Inactive</span>' : '') + '</span>';
         html += '<span class="sa-item-id" data-label="ID">' + esc(item.id) + '</span>';
         html += '<span data-label="Type"><span class="sa-pill sa-pill--auction">Auction</span></span>';
         var liveCats = Array.isArray(item.category) ? item.category : (item.category ? [item.category] : []);
@@ -2260,15 +2265,26 @@
     var curVal = (item && item.creator_discord_id) || '';
     function _fill(creators) {
       sel.innerHTML = '<option value="">None</option>';
+      var found = false;
       creators.forEach(function (c) {
         var opt = document.createElement('option');
         opt.value = c.discord_id;
         opt.textContent = c.username;
-        if (c.discord_id === curVal) opt.selected = true;
+        if (c.discord_id === curVal) {
+          opt.selected = true;
+          found = true;
+        }
         sel.appendChild(opt);
       });
+      if (curVal && !found) {
+        var opt = document.createElement('option');
+        opt.value = curVal;
+        var prevName = (item && (item.creator_username || item.creator_discord_id)) || curVal;
+        opt.textContent = prevName + ' (Inactive / Removed)';
+        opt.selected = true;
+        sel.insertBefore(opt, sel.children[1] || null);
+      }
     }
-    if (_creatorsCache) { _fill(_creatorsCache); return; }
     fetch('/api/admin/shop/creators', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
