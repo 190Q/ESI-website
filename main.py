@@ -127,6 +127,7 @@ def _proxy_to_routes_path(path: str, pass_query: bool = True):
     headers["X-Forwarded-Host"] = request.host
     headers["X-Gateway-Secret"] = _GATEWAY_SECRET
     headers["X-Real-Client-IP"] = _real_client_ip() or request.remote_addr or ""
+    req_timeout = (10, 600) if (path.startswith("/api/wynnpiece/file/") or path.startswith("/api/wynnpiece/page/")) else 30
     try:
         resp = _proxy_session.request(
             method=request.method,
@@ -134,7 +135,7 @@ def _proxy_to_routes_path(path: str, pass_query: bool = True):
             headers=headers,
             data=request.get_data(),
             allow_redirects=False,
-            timeout=30,
+            timeout=req_timeout,
             stream=True,
         )
     except requests.ConnectionError:
