@@ -103,6 +103,15 @@ def _load_wynnpiece_blocked_default_links():
 
 _WYNNPIECE_BLOCKED_DEFAULT_LINKS = _load_wynnpiece_blocked_default_links()
 
+_proxy_session = requests.Session()
+_proxy_adapter = requests.adapters.HTTPAdapter(
+    pool_connections=50,
+    pool_maxsize=50,
+    max_retries=1,
+)
+_proxy_session.mount("http://", _proxy_adapter)
+_proxy_session.mount("https://", _proxy_adapter)
+
 
 def _proxy_to_routes_path(path: str, pass_query: bool = True):
     url = f"{ROUTES_URL}{path}"
@@ -119,13 +128,14 @@ def _proxy_to_routes_path(path: str, pass_query: bool = True):
     headers["X-Gateway-Secret"] = _GATEWAY_SECRET
     headers["X-Real-Client-IP"] = _real_client_ip() or request.remote_addr or ""
     try:
-        resp = requests.request(
+        resp = _proxy_session.request(
             method=request.method,
             url=url,
             headers=headers,
             data=request.get_data(),
             allow_redirects=False,
             timeout=30,
+            stream=True,
         )
     except requests.ConnectionError:
         return jsonify({
@@ -139,7 +149,16 @@ def _proxy_to_routes_path(path: str, pass_query: bool = True):
         (k, v) for k, v in resp.raw.headers.items()
         if k.lower() not in excluded
     ]
-    return Response(resp.content, resp.status_code, response_headers)
+
+    def generate():
+        try:
+            for chunk in resp.iter_content(chunk_size=65536):
+                if chunk:
+                    yield chunk
+        finally:
+            resp.close()
+
+    return Response(generate(), resp.status_code, response_headers)
 
 
 def _proxy_external_url(url: str, pass_query: bool = True):
