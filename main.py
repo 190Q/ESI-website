@@ -348,7 +348,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 # static file gating
 
 _ALLOWED_STATIC_PREFIXES = ("/css/", "/js/", "/images/", "/assets/", "/public/", "/wynnpiece/")
-_ALLOWED_STATIC_FILES    = ("/index.html", "/favicon.ico", "/wynnpiece")
+_ALLOWED_STATIC_FILES    = ("/index.html", "/favicon.ico", "/wynnpiece", "/wynnpiece/manage")
 _SPA_PANELS              = ("player", "guild", "bot", "inactivity", "promotions", "events", "shop", "shop-admin", "events-manage")
 
 # WordPress-probe detection: any hit on one of these paths is almost
@@ -599,7 +599,7 @@ def _gate_requests():
         # block specific sensitive wynnpiece files by name
         if path.startswith("/wynnpiece/"):
             basename = path.rsplit("/", 1)[-1].lower()
-            if basename in ("event_state.json", "wynnpiece.db", "config.py", "wynnpiece.py", "routes.py", "__init__.py"):
+            if basename in ("event_state.json", "managers.json", "wynnpiece.db", "config.py", "wynnpiece.py", "routes.py", "__init__.py"):
                 abort(403)
         # block direct access to wynnpiece attachments (served via gated route)
         if path.startswith("/wynnpiece/attachments/"):
@@ -707,6 +707,15 @@ def wynnpiece():
     return send_from_directory(
         os.path.join(_BASE_DIR, "wynnpiece", "html"),
         "wynnpiece.html",
+    )
+
+
+@app.route("/wynnpiece/manage")
+@app.route("/wynnpiece/manage/")
+def wynnpiece_manage():
+    return send_from_directory(
+        os.path.join(_BASE_DIR, "wynnpiece", "html"),
+        "manage.html",
     )
 
 
