@@ -869,11 +869,25 @@ def auth_refresh():
             timeout=10,
         )
         if member_resp.status_code == 404:
-            session.pop("user", None)
-            _remember_delete(discord_id=user_id)
-            resp = jsonify({"loggedIn": False})
-            _clear_remember_cookie(resp)
-            return resp
+            roles = []
+            nick = None
+            username = user.get("username")
+            avatar = user.get("avatar")
+            discriminator = user.get("discriminator", "0")
+            updated = {
+                "id":            user_id,
+                "username":      username,
+                "nick":          nick,
+                "discriminator": discriminator,
+                "avatar":        avatar,
+                "roles":         roles,
+                "role_objects":  [],
+            }
+            session["user"] = updated
+            _remember_update(user_id, updated)
+            updated_out = dict(updated)
+            updated_out["is_creator"] = _is_creator(user_id)
+            return jsonify({"loggedIn": True, "user": updated_out})
         if not member_resp.ok:
             return jsonify({"loggedIn": True, "user": user})
         member_data = member_resp.json()

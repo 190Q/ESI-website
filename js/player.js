@@ -140,8 +140,9 @@
 
   /* apply default player from settings */
   var _defaultPlayer = (window.esiSettings && window.esiSettings.get('defaultPlayer')) || '';
-  if (_defaultPlayer) playerInput.value = _defaultPlayer;
-  else if (!playerInput.value) playerInput.value = '190Q';
+  if (_defaultPlayer && _defaultPlayer !== '190Q' && !playerInput.value) {
+    playerInput.value = _defaultPlayer;
+  }
 
   /* events */
   function _parsePlayerSearchInput(raw) {
