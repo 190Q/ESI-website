@@ -64,6 +64,8 @@ from shop.state import (
 from guild_info import admin as _gi_admin
 import ipaddress
 
+from events import apply_leaderboard_row_hooks
+
 # Flask app
 
 app = Flask(__name__)
@@ -5421,7 +5423,7 @@ def _points_build_leaderboard(cycle_ids, guild_ranks, guild_members, history_cac
         )
         clean = effective_points - dirty
 
-        enriched.append({
+        row = {
             "uuid": uuid,
             "username": r["username"],
             "points": effective_points,
@@ -5430,7 +5432,9 @@ def _points_build_leaderboard(cycle_ids, guild_ranks, guild_members, history_cac
             "le": le,
             "rank": (rank or None),
             "metric_points": _points_metric_points_from_history(effective_history),
-        })
+        }
+        apply_leaderboard_row_hooks(row)
+        enriched.append(row)
 
     enriched.sort(key=lambda x: (x["points"], x["le"]), reverse=True)
     for i, p in enumerate(enriched, 1):

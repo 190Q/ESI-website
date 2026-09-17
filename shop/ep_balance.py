@@ -13,6 +13,7 @@ from config import (
     _load_json_file,
 )
 from shop.effective_points import get_user_cycle_totals
+from events import apply_ep_balance_hooks
 
 _UUID_RE = re.compile(
     r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
@@ -519,7 +520,7 @@ def fetch_ep_balance(
     spendable_clean = effective_clean - reserved_clean
     spendable_dirty = effective_dirty - reserved_dirty
 
-    return {
+    balance = {
         "clean_ep":        effective_clean,
         "dirty_ep":        effective_dirty,
         "total_ep":        effective_clean + effective_dirty,
@@ -528,6 +529,8 @@ def fetch_ep_balance(
         "spendable_clean": max(spendable_clean, 0),
         "spendable_dirty": max(spendable_dirty, 0),
     }
+    apply_ep_balance_hooks(balance, uuid, _is_hr_uuid(uuid))
+    return balance
 
 class InsufficientFunds(Exception):
     """Raised when the player cannot afford the requested spend."""
