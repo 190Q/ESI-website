@@ -207,6 +207,7 @@
   document.getElementById('viewCharacter').addEventListener('click', () => { switchView('character');   updateHash(); });
   document.getElementById('viewRankHistory').addEventListener('click', () => { switchView('rankHistory'); updateHash(); });
   document.getElementById('viewSnipes').addEventListener('click',    () => { switchView('snipes');      updateHash(); });
+  document.getElementById('viewDownload').addEventListener('click',  () => { downloadPlayerViews(); });
 
   const PLAYER_VIEWS = ['global', 'character', 'rankHistory', 'snipes'];
   const PLAYER_GLOBAL_LABEL_LONG = 'Global Data';
@@ -2876,6 +2877,201 @@
       if (graphState.data) refreshCompareGraph();
     }
   });
+
+  /* download visible views as JSON */
+  function isPlayerTabVisible(id) {
+    const btn = document.getElementById(id);
+    if (!btn) return false;
+    return btn.style.display !== 'none' && window.getComputedStyle(btn).display !== 'none';
+  }
+
+  async function downloadPlayerViews() {
+    if (!window.DownloadViews) {
+      if (typeof window.showToast === 'function') window.showToast('\u26a0 Download helper is not ready yet.', 'warn');
+      return;
+    }
+    if (!state.playerData) {
+      if (typeof window.showToast === 'function') window.showToast('\u26a0 No player data loaded.', 'warn');
+      return;
+    }
+
+    const username = state.playerData.username || 'player';
+    const files = [];
+
+    if (isPlayerTabVisible('viewGlobal')) {
+      const p = state.playerData;
+      const maskCtx = playerMaskContextFromPlayer(p);
+      const g = p.globalData || {};
+
+      const aspectsData = window.aspectsData || { total_aspects: 0, members: {} };
+      const playerUuid = p.uuid || '';
+      const playerName = (p.username || '').toLowerCase();
+      const playerEntry = Object.entries(aspectsData.members || {}).find(function (_ref) {
+        var uid = _ref[0];
+        var m = _ref[1];
+        return uid.toLowerCase() === playerUuid.toLowerCase() || (m && m.name && m.name.toLowerCase() === playerName);
+      });
+      const owedAspects = playerEntry ? (playerEntry[1].owed || 0) : 0;
+
+      let esiPoints = 0;
+      try {
+        const ptsRes = await fetch('/api/player/' + encodeURIComponent(p.username) + '/points');
+        const ptsData = ptsRes.ok ? await ptsRes.json() : { available: false };
+        const maskApi = getMetricMaskApi();
+        const maskedPts = (maskApi && typeof maskApi.applyPlayerPointsDataForDisplay === 'function')
+          ? maskApi.applyPlayerPointsDataForDisplay(ptsData, playerMaskContextFromIdentity(p.username, ptsData && ptsData.uuid))
+          : ptsData;
+        if (maskedPts && maskedPts.available) {
+          esiPoints = maskedPts.current_cycle && maskedPts.current_cycle.points != null ? maskedPts.current_cycle.points : 0;
+        }
+      } catch (_ptsErr) {
+        esiPoints = 0;
+      }
+
+      const maskedDungeons = isPlayerMetricMasked('dungeons', maskCtx) ? null : g.dungeons;
+      const dungeonList = maskedDungeons && maskedDungeons.list ? maskedDungeons.list : null;
+
+      let maskedRaids = g.raids;
+      let maskedGuildRaids = g.guildRaids;
+      if (isPlayerMetricMasked('raids', maskCtx)) {
+        maskedRaids = null;
+        maskedGuildRaids = null;
+      } else if (isPlayerMetricMasked('guildRaids', maskCtx)) {
+        maskedGuildRaids = { total: 0, list: {} };
+      }
+      const combinedRaids = combineRaidData(maskedRaids, maskedGuildRaids);
+      const raidList = combinedRaids && combinedRaids.list ? Object.entries(combinedRaids.list).map(function (_ref) {
+        var name = _ref[0];
+        var entry = _ref[1];
+        return { name: name, total: entry.total || 0, guild: entry.guild || 0 };
+      }) : null;
+
+      files.push({
+        name: 'global.json',
+        content: window.DownloadViews.stringify({
+          profile: {
+            username: p.username,
+            uuid: p.uuid,
+            online: p.online,
+            server: p.server || null,
+            firstJoin: p.firstJoin || null,
+            lastJoin: p.lastJoin || null,
+            supportRank: (p.supportRank || 'player').toUpperCase(),
+            guild: p.guild || null,
+          },
+          stats: {
+            playtime: fmtHours(maskPlayerMetricValue('playtime', p.playtime, maskCtx)),
+            wars: fmt(maskPlayerMetricValue('wars', g.wars, maskCtx)),
+            mobsKilled: fmt(maskPlayerMetricValue('mobsKilled', g.mobsKilled, maskCtx)),
+            chestsFound: fmt(maskPlayerMetricValue('chestsFound', g.chestsFound, maskCtx)),
+            questsDone: fmt(maskPlayerMetricValue('questsDone', g.completedQuests, maskCtx)),
+            totalLevel: fmt(maskPlayerMetricValue('totalLevel', g.totalLevel, maskCtx)),
+            contentDone: fmt(maskPlayerMetricValue('contentDone', g.contentCompletion, maskCtx)),
+            dungeons: fmt(maskPlayerMetricValue('dungeons', g.dungeons ? g.dungeons.total : null, maskCtx)),
+            raids: fmt(maskPlayerMetricValue('raids', g.raids ? g.raids.total : null, maskCtx)),
+            guildRaids: fmt(maskPlayerMetricValue('guildRaids', g.guildRaids ? g.guildRaids.total : null, maskCtx)),
+            worldEvents: fmt(maskPlayerMetricValue('worldEvents', g.worldEvents, maskCtx)),
+            caves: fmt(maskPlayerMetricValue('caves', g.caves, maskCtx)),
+            owedAspects: owedAspects,
+            esiPoints: esiPoints,
+          },
+          dungeons: dungeonList,
+          raids: raidList,
+          generated_at: new Date().toISOString(),
+        }),
+      });
+    }
+
+    if (isPlayerTabVisible('viewCharacter')) {
+      const sel = document.getElementById('charSelect');
+      const chars = state.playerData.characters || {};
+      const selectedUuid = sel ? sel.value : Object.keys(chars)[0];
+      const selectedChar = selectedUuid ? chars[selectedUuid] : null;
+      if (selectedChar) {
+        const maskCtx = playerMaskContextFromPlayer(state.playerData || {});
+        const type = selectedChar.type || 'Unknown';
+        const reskin = selectedChar.reskin || null;
+        const gm = selectedChar.gamemode && selectedChar.gamemode.length ? selectedChar.gamemode : null;
+        const nick = selectedChar.nickname || null;
+        const profs = selectedChar.professions || {};
+        const professions = Object.entries(profs).map(function (_ref) {
+          var name = _ref[0], data = _ref[1];
+          return { name: name, level: data.level || 1, xpPercent: data.xpPercent || 0 };
+        });
+        const dungData = selectedChar.dungeons || {};
+        const raidData = selectedChar.raids || {};
+        const questCount = selectedChar.quests ? selectedChar.quests.length : 0;
+        const worldEventsVal = maskPlayerMetricValue('worldEvents', selectedChar.worldEvents, maskCtx);
+        files.push({
+          name: 'character.json',
+          content: window.DownloadViews.stringify({
+            selectedCharacterUuid: selectedUuid || null,
+            summary: {
+              class: type + (reskin ? ' / ' + reskin : ''),
+              nickname: nick,
+              gamemode: gm,
+            },
+            stats: {
+              level: selectedChar.level || '?',
+              totalLevel: fmt(maskPlayerMetricValue('totalLevel', selectedChar.totalLevel, maskCtx)),
+              playtime: fmtHours(maskPlayerMetricValue('playtime', selectedChar.playtime, maskCtx)),
+              wars: fmt(maskPlayerMetricValue('wars', selectedChar.wars, maskCtx)),
+              logins: fmt(selectedChar.logins),
+              deaths: fmt(selectedChar.deaths),
+              contentCompletion: fmt(maskPlayerMetricValue('contentDone', selectedChar.contentCompletion, maskCtx)),
+              mobsKilled: fmt(maskPlayerMetricValue('mobsKilled', selectedChar.mobsKilled, maskCtx)),
+              chestsFound: fmt(maskPlayerMetricValue('chestsFound', selectedChar.chestsFound, maskCtx)),
+              caves: fmt(maskPlayerMetricValue('caves', selectedChar.caves, maskCtx)),
+              pvpKills: fmt(selectedChar.pvp ? selectedChar.pvp.kills : null),
+              pvpDeaths: fmt(selectedChar.pvp ? selectedChar.pvp.deaths : null),
+              quests: questCount,
+              discoveries: fmt(selectedChar.discoveries),
+              worldEvents: fmt(worldEventsVal),
+            },
+            professions: professions,
+            dungeons: dungData.list || null,
+            raids: raidData.list || null,
+            generated_at: new Date().toISOString(),
+          }),
+        });
+      } else {
+        files.push({
+          name: 'character.json',
+          content: window.DownloadViews.stringify({ selectedCharacterUuid: selectedUuid || null, character: null, generated_at: new Date().toISOString() }),
+        });
+      }
+    }
+
+    if (isPlayerTabVisible('viewRankHistory') && state.rankHistory) {
+      files.push({
+        name: 'rankHistory.json',
+        content: window.DownloadViews.stringify({
+          data: state.rankHistory,
+          generated_at: new Date().toISOString(),
+        }),
+      });
+    }
+
+    if (isPlayerTabVisible('viewSnipes') && state.playerSnipes) {
+      const s = state.playerSnipes;
+      files.push({
+        name: 'snipes.json',
+        content: window.DownloadViews.stringify({
+          username: s.username || username,
+          stats: s.stats || {},
+          snipes: s.snipes || [],
+          generated_at: new Date().toISOString(),
+        }),
+      });
+    }
+
+    if (!files.length) {
+      if (typeof window.showToast === 'function') window.showToast('\u26a0 No visible views to download.', 'warn');
+      return;
+    }
+
+    window.DownloadViews.downloadZip(username + '_player_views.zip', files);
+  }
 
   /* Path routing */
   // Map a data-panel identifier to its URL path.

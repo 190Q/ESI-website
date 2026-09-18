@@ -1,6 +1,6 @@
 import LoadingState, { ErrorState } from './LoadingState'
 import CollapsibleCard from './CollapsibleCard'
-import { CopyGraphIcon } from './Icons'
+import { CopyGraphIcon, DownloadIcon } from './Icons'
 import { resolveThemeImageKey } from '../themeImages'
 
 export default function GuildPanel() {
@@ -106,6 +106,9 @@ export default function GuildPanel() {
               <button className="view-btn" id="guildViewStatistics">Statistics</button>
               <button className="view-btn" id="guildViewSnipes" style={{ display: 'none' }}>Snipes</button>
               <button className="view-btn" id="guildViewLogs">Guild Logs</button>
+              <button type="button" className="view-download-btn" id="guildViewDownload" title="Download" aria-label="Download">
+                <DownloadIcon />
+              </button>
             </div>
 
             {/* Global */}

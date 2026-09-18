@@ -473,6 +473,7 @@
       document.getElementById('guildLoading').style.display = 'none';
       if (_guildFetchToast) _guildFetchToast.updateItem('api', 'success');
       _gCheckDone();
+      setTimeout(function () { ensureGuildStatisticsLoaded(); }, 0);
     } catch (err) {
       if (_guildFetchToast) _guildFetchToast.updateItem('api', 'error');
       _gCheckDone();
@@ -1374,7 +1375,7 @@
 
   /* guild snipes */
   const SNIPE_ROLE_EMOJIS = { DPS: '\u2694\uFE0F', Tank: '\uD83D\uDEE1\uFE0F', Healer: '\u2764\uFE0F', Solo: '\uD83D\uDD31' };
-  let guildSnipesData = null;
+  state.guildSnipesData = null;
 
   function _safeSanitize(html) {
     if (typeof DOMPurify !== 'undefined' && DOMPurify && typeof DOMPurify.sanitize === 'function') {
@@ -1393,7 +1394,7 @@
         scheduleGuildViewLabelCompaction();
         return false;
       }
-      guildSnipesData = data;
+      state.guildSnipesData = data;
       document.getElementById('guildViewSnipes').style.display = '';
       scheduleGuildViewLabelCompaction();
       renderGuildSnipes(data);
@@ -1542,6 +1543,9 @@
   document.getElementById('guildViewSnipes').addEventListener('click', () => { switchGuildView('snipes'); _onGuildStateChanged(); });
   if (document.getElementById('guildViewStatistics')) {
     document.getElementById('guildViewStatistics').addEventListener('click', () => { switchGuildView('statistics'); _onGuildStateChanged(); });
+  }
+  if (document.getElementById('guildViewDownload')) {
+    document.getElementById('guildViewDownload').addEventListener('click', () => { downloadGuildViews(); });
   }
 
   function switchGuildView(v) {
@@ -2157,12 +2161,24 @@
   ];
 
   function ensureGuildStatisticsLoaded() {
-    if (guildStatsState.loading) return;
     if (guildStatsState.loaded && guildStatsState.data) {
       renderGuildStatistics();
-      return;
+      return Promise.resolve(guildStatsState.data);
     }
-    loadGuildStatistics();
+    if (guildStatsState.loading) {
+      return new Promise(function (resolve, reject) {
+        var attempts = 0;
+        var check = function () {
+          if (guildStatsState.loaded && guildStatsState.data) return resolve(guildStatsState.data);
+          if (!guildStatsState.loading) return reject(new Error('Statistics failed to load'));
+          attempts++;
+          if (attempts > 200) return reject(new Error('Statistics load timed out'));
+          setTimeout(check, 50);
+        };
+        check();
+      });
+    }
+    return loadGuildStatistics();
   }
 
   async function loadGuildStatistics() {
@@ -2177,15 +2193,17 @@
       const data = result && result.data;
       if (!data || !data.available) {
         renderGuildStatisticsUnavailable();
-        return;
+        throw new Error('Statistics not available');
       }
       guildStatsState.data = data;
       guildStatsState.loaded = true;
       buildGuildStatsRankChips();
       bindGuildStatsFilters();
       renderGuildStatistics();
+      return data;
     } catch (err) {
       renderGuildStatisticsUnavailable(err && err.message);
+      throw err;
     } finally {
       guildStatsState.loading = false;
     }
@@ -2750,6 +2768,344 @@
     wrap.querySelectorAll('.guild-log-name-link').forEach(function (el) {
       el.addEventListener('click', function () { window.goToPlayer(el.dataset.username); });
     });
+  }
+
+  /* download visible views as JSON */
+  function isGuildTabVisible(id) {
+    const btn = document.getElementById(id);
+    if (!btn) return false;
+    return btn.style.display !== 'none' && window.getComputedStyle(btn).display !== 'none';
+  }
+
+  async function downloadGuildViews() {
+    if (!window.DownloadViews) {
+      if (typeof window.showToast === 'function') window.showToast('\u26a0 Download helper is not ready yet.', 'warn');
+      return;
+    }
+    if (!state.guildApiData) {
+      if (typeof window.showToast === 'function') window.showToast('\u26a0 No guild data loaded.', 'warn');
+      return;
+    }
+
+    try {
+      await ensureGuildStatisticsLoaded();
+    } catch (err) { /* continue statistics */ }
+
+    const files = [];
+
+    if (isGuildTabVisible('guildViewGlobal')) {
+      const data = state.guildApiData;
+      const members = data.members || {};
+      const flatMembers = flattenMembers(members);
+      const onlinePlayers = getOnlinePlayers(flatMembers);
+      const onlineCount = onlinePlayers.length;
+      const totalMembers = members.total || flatMembers.length;
+      const raidsAgg = aggregateGuildRaids(flatMembers);
+
+      const ownerGroup = members.owner;
+      const ownerName = ownerGroup && typeof ownerGroup === 'object'
+        ? Object.keys(ownerGroup)[0] || null
+        : null;
+
+      const statsTotals = (window.DataCache && typeof window.DataCache.readCache === 'function'
+        ? window.DataCache.readCache('/api/guild/stats')
+        : null) || {};
+
+      files.push({
+        name: 'global.json',
+        content: window.DownloadViews.stringify({
+          profile: {
+            name: data.name || 'Unknown Guild',
+            prefix: data.prefix || null,
+            level: fmt(data.level),
+            xpPercent: data.xpPercent != null ? data.xpPercent : null,
+            totalMembers: fmt(totalMembers),
+            onlineNow: fmt(onlineCount),
+            totalWars: fmt(data.wars),
+            founded: fmtDate(data.created),
+            owner: ownerName,
+          },
+          stats: {
+            guildLevel: fmt(data.level) + (data.xpPercent != null ? ` (${data.xpPercent}%)` : ''),
+            members: fmt(totalMembers),
+            onlineNow: fmt(onlineCount),
+            queue: statsTotals.queueTotal != null ? fmt(statsTotals.queueTotal) : 'N/A',
+            totalWars: fmt(data.wars),
+            guildRaids: fmt(raidsAgg.total),
+            founded: fmtDate(data.created),
+            mobsKilled: statsTotals.mobsKilled != null ? fmt(statsTotals.mobsKilled) : 'N/A',
+            questsCompleted: statsTotals.questsCompleted != null ? fmt(statsTotals.questsCompleted) : 'N/A',
+            chestsFound: statsTotals.chestsFound != null ? fmt(statsTotals.chestsFound) : 'N/A',
+            contentDone: statsTotals.contentDone != null ? fmt(statsTotals.contentDone) : 'N/A',
+          },
+          raids: raidsAgg,
+          members: flatMembers.map(function (m) {
+            const memberRaids = (m.globalData && m.globalData.guildRaids) || m.guildRaids;
+            return {
+              name: m.name,
+              role: capFirst(m.role),
+              contributed: fmt(m.contributed) + ' XP',
+              guildRaids: memberRaids ? fmt(memberRaids.total) : '0',
+            };
+          }),
+          generated_at: new Date().toISOString(),
+        }),
+      });
+    }
+
+    if (isGuildTabVisible('guildViewLogs')) {
+      const cached = window.DataCache && typeof window.DataCache.readCache === 'function'
+        ? window.DataCache.readCache('/api/guild/member-history')
+        : null;
+      let events = [];
+      if (Array.isArray(cached)) {
+        events = cached;
+      } else if (cached && cached.events) {
+        events = cached.events;
+      } else if (cached && cached.data && Array.isArray(cached.data)) {
+        events = cached.data;
+      } else if (cached && cached.data && cached.data.events) {
+        events = cached.data.events;
+      }
+      const displayedEvents = events
+        .filter(function (e) { return e.type !== 'member_count_change'; })
+        .slice()
+        .reverse();
+      files.push({
+        name: 'logs.json',
+        content: window.DownloadViews.stringify({
+          events: displayedEvents,
+          generated_at: new Date().toISOString(),
+        }),
+      });
+    }
+
+    if (isGuildTabVisible('guildViewSnipes') && state.guildSnipesData) {
+      const s = state.guildSnipesData;
+      files.push({
+        name: 'snipes.json',
+        content: window.DownloadViews.stringify({
+          stats: s.stats || {},
+          players: s.players || [],
+          snipes: s.snipes || [],
+          generated_at: new Date().toISOString(),
+        }),
+      });
+    }
+
+    if (guildStatsState.data) {
+      const data = guildStatsState.data;
+      const allMembers = data.members || [];
+      const filteredMembers = allMembers.filter(statsFilterMember);
+      const filters = {
+        ranks: Array.from(guildStatsState.filterRanks),
+        after: guildStatsState.filterAfter || null,
+        before: guildStatsState.filterBefore || null,
+      };
+      const summary = {
+        totalMembers: allMembers.length,
+        filteredMembers: filteredMembers.length,
+      };
+
+      const rankDistribution = {};
+      STATS_RANK_ORDER.forEach(function (r) { rankDistribution[r] = 0; });
+      filteredMembers.forEach(function (m) {
+        const r = m.rank || 'recruit';
+        rankDistribution[r] = (rankDistribution[r] || 0) + 1;
+      });
+
+      const queue = data.queue || {};
+      const rawHistory = Array.isArray(queue.history) ? queue.history : [];
+      const history = rawHistory.filter(function (h) { return statsDateInRange(h.date || h.timestamp); });
+      const totals = history.map(function (h) { return Number(h.total) || 0; });
+      const dailyAvg = totals.length ? statsAverage(totals) : 0;
+      const weeklyMean = totals.length ? statsAverage(weeklyChunk(totals, 7)) : 0;
+      const queueMedian = statsMedian(totals);
+      const queueMax = totals.length ? Math.max.apply(null, totals) : 0;
+      const currentQueue = (queue.current && Number(queue.current.total)) || 0;
+      const queueActivity = {
+        current: currentQueue.toLocaleString(),
+        avgPerDay: statsFmt(dailyAvg, 1),
+        avgPerWeek: statsFmt(weeklyMean, 1),
+        medianPerDay: statsFmt(queueMedian, 1),
+        peakPerDay: queueMax.toLocaleString(),
+        daysSampled: totals.length.toLocaleString(),
+      };
+
+      const joins = (data.joins || []).filter(statsFilterEvent);
+      const leaves = (data.leaves || []).filter(statsFilterEvent);
+      const joinTs = joins.map(function (j) { return +new Date(j.timestamp); }).filter(Number.isFinite);
+      const leaveTs = leaves.map(function (j) { return +new Date(j.timestamp); }).filter(Number.isFinite);
+      const allTs = joinTs.concat(leaveTs);
+      const weeks = statsWeeksBetween(allTs);
+      const joinsPerWeek = joinTs.length / Math.max(1, weeks);
+      const leavesPerWeek = leaveTs.length / Math.max(1, weeks);
+      const netPerWeek = joinsPerWeek - leavesPerWeek;
+      const joinsLeaves = {
+        joinsTotal: joinTs.length,
+        leavesTotal: leaveTs.length,
+        joinsPerWeek: statsFmt(joinsPerWeek, 1),
+        leavesPerWeek: statsFmt(leavesPerWeek, 1),
+        netPerWeek: (netPerWeek > 0 ? '+' : (netPerWeek < 0 ? '\u2212' : '')) + statsFmt(Math.abs(netPerWeek), 1),
+        spanWeeks: statsFmt(weeks, 1),
+      };
+
+      const leavesByRank = {};
+      STATS_RANK_ORDER.forEach(function (r) { leavesByRank[r] = 0; });
+      leaves.forEach(function (e) {
+        const r = (e.rank || 'recruit').toLowerCase();
+        leavesByRank[r] = (leavesByRank[r] || 0) + 1;
+      });
+
+      const TENURE_BUCKETS = [
+        { label: '< 1 day',     min: 0,                max: 86400 },
+        { label: '1\u20137 days',  min: 86400,            max: 7 * 86400 },
+        { label: '1\u20134 weeks', min: 7 * 86400,        max: 28 * 86400 },
+        { label: '1\u20133 mo',    min: 28 * 86400,       max: 90 * 86400 },
+        { label: '3\u20136 mo',    min: 90 * 86400,       max: 180 * 86400 },
+        { label: '6\u201312 mo',   min: 180 * 86400,      max: 365 * 86400 },
+        { label: '\u2265 1 year',  min: 365 * 86400,      max: Infinity },
+      ];
+      const tenureList = leaves.filter(function (e) { return Number.isFinite(e.tenure_seconds); });
+      const tenureCounts = TENURE_BUCKETS.map(function () { return 0; });
+      let totalTenure = 0;
+      tenureList.forEach(function (e) {
+        const t = e.tenure_seconds;
+        totalTenure += t;
+        for (let i = 0; i < TENURE_BUCKETS.length; i++) {
+          if (t >= TENURE_BUCKETS[i].min && t < TENURE_BUCKETS[i].max) { tenureCounts[i]++; break; }
+        }
+      });
+      const tenures = tenureList.map(function (e) { return e.tenure_seconds; }).sort(function (a, b) { return a - b; });
+      const tenureMedian = tenures[Math.floor(tenures.length / 2)] || 0;
+      const tenureAvg = totalTenure / Math.max(1, tenureList.length);
+      const leavesByTenure = {
+        avgTenure: statsFmtTenure(tenureAvg),
+        medianTenure: statsFmtTenure(tenureMedian),
+        sampleSize: tenureList.length,
+        buckets: TENURE_BUCKETS.map(function (b, i) { return { label: b.label, count: tenureCounts[i] }; }),
+      };
+
+      const esiTotals = {};
+      const esiCounts = {};
+      STATS_RANK_ORDER.forEach(function (r) { esiTotals[r] = 0; esiCounts[r] = 0; });
+      let esiGrandTotal = 0;
+      filteredMembers.forEach(function (m) {
+        const r = m.rank || 'recruit';
+        const pts = Number(m.esi_points) || 0;
+        esiTotals[r] = (esiTotals[r] || 0) + pts;
+        esiCounts[r] = (esiCounts[r] || 0) + 1;
+        esiGrandTotal += pts;
+      });
+      const esiPointsByRank = { grandTotal: esiGrandTotal.toLocaleString() };
+      STATS_RANK_ORDER.forEach(function (r) {
+        esiPointsByRank[r] = {
+          total: (esiTotals[r] || 0).toLocaleString(),
+          count: esiCounts[r] || 0,
+          average: statsFmt((esiCounts[r] || 0) > 0 ? esiTotals[r] / esiCounts[r] : 0, 1),
+        };
+      });
+
+      const snipeCounts = {};
+      const snipePoints = {};
+      STATS_RANK_ORDER.forEach(function (r) { snipeCounts[r] = 0; snipePoints[r] = 0; });
+      let totalSnipes = 0;
+      filteredMembers.forEach(function (m) {
+        const r = m.rank || 'recruit';
+        const c = Number(m.snipe_count) || 0;
+        const p = Number(m.snipe_points) || 0;
+        snipeCounts[r] = (snipeCounts[r] || 0) + c;
+        snipePoints[r] = (snipePoints[r] || 0) + p;
+        totalSnipes += c;
+      });
+      const snipesByRank = { total: totalSnipes };
+      STATS_RANK_ORDER.forEach(function (r) {
+        snipesByRank[r] = { count: snipeCounts[r] || 0, points: snipePoints[r] || 0 };
+      });
+
+      const ROLE_ORDER = ['DPS', 'Tank', 'Healer', 'Solo'];
+      const seenRoles = new Set();
+      const rolesByRank = {};
+      STATS_RANK_ORDER.forEach(function (r) { rolesByRank[r] = {}; });
+      let rolesGrandTotal = 0;
+      filteredMembers.forEach(function (m) {
+        const rank = m.rank || 'recruit';
+        const roles = m.snipe_roles || {};
+        Object.keys(roles).forEach(function (role) {
+          const n = Number(roles[role]) || 0;
+          if (!n) return;
+          seenRoles.add(role);
+          if (!rolesByRank[rank]) rolesByRank[rank] = {};
+          rolesByRank[rank][role] = (rolesByRank[rank][role] || 0) + n;
+          rolesGrandTotal += n;
+        });
+      });
+      const orderedRoles = Array.from(ROLE_ORDER).filter(function (r) { return seenRoles.has(r); })
+        .concat(Array.from(seenRoles).filter(function (r) { return ROLE_ORDER.indexOf(r) === -1; }).sort());
+      const snipeRolesByRank = { grandTotal: rolesGrandTotal, roles: orderedRoles };
+      STATS_RANK_ORDER.forEach(function (r) {
+        const roles = rolesByRank[r] || {};
+        const rankTotal = orderedRoles.reduce(function (sum, role) { return sum + (roles[role] || 0); }, 0);
+        if (!rankTotal) return;
+        snipeRolesByRank[r] = {
+          total: rankTotal,
+          roles: orderedRoles.reduce(function (obj, role) {
+            const n = roles[role] || 0;
+            if (n) obj[role] = n;
+            return obj;
+          }, {}),
+        };
+      });
+
+      const averages = {};
+      if (filteredMembers.length) {
+        STATS_METRICS.forEach(function (metric) {
+          const values = filteredMembers.map(function (m) { return Number(m[metric.key]) || 0; });
+          averages[metric.key] = {
+            label: metric.label,
+            average: statsFmt(statsAverage(values), metric.decimals),
+            median: statsFmt(statsMedian(values), metric.decimals),
+            max: statsFmt(Math.max.apply(null, values), metric.decimals),
+          };
+        });
+      }
+
+      const topRecruiters = filteredMembers
+        .filter(function (m) { return (m.recruited || 0) > 0; })
+        .sort(function (a, b) { return (b.recruited || 0) - (a.recruited || 0); })
+        .slice(0, 15)
+        .map(function (m) {
+          return { username: m.username, rank: m.rank, recruited: m.recruited || 0 };
+        });
+
+      files.push({
+        name: 'statistics.json',
+        content: window.DownloadViews.stringify({
+          filters: filters,
+          summary: summary,
+          displayed: {
+            rankDistribution: rankDistribution,
+            queueActivity: queueActivity,
+            joinsLeaves: joinsLeaves,
+            leavesByRank: leavesByRank,
+            leavesByTenure: leavesByTenure,
+            esiPointsByRank: esiPointsByRank,
+            snipesByRank: snipesByRank,
+            snipeRolesByRank: snipeRolesByRank,
+            averages: averages,
+            topRecruiters: topRecruiters,
+          },
+          generated_at: new Date().toISOString(),
+        }),
+      });
+    }
+
+    if (!files.length) {
+      if (typeof window.showToast === 'function') window.showToast('\u26a0 No visible views to download.', 'warn');
+      return;
+    }
+
+    window.DownloadViews.downloadZip((state.guildApiData.prefix || 'guild') + '_guild_views.zip', files);
   }
 
 })();

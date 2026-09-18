@@ -1,6 +1,6 @@
 import LoadingState, { ErrorState } from './LoadingState'
 import CollapsibleCard from './CollapsibleCard'
-import { CopyGraphIcon } from './Icons'
+import { CopyGraphIcon, DownloadIcon } from './Icons'
 
 export default function PlayerPanel() {
   return (
@@ -136,6 +136,9 @@ export default function PlayerPanel() {
               <button className="view-btn" id="viewCharacter">Character View</button>
               <button className="view-btn" id="viewRankHistory" style={{ display: 'none' }}>Rank History</button>
               <button className="view-btn" id="viewSnipes" style={{ display: 'none' }}>Snipes</button>
+              <button type="button" className="view-download-btn" id="viewDownload" title="Download" aria-label="Download">
+                <DownloadIcon />
+              </button>
             </div>
 
             {/* Global view */}

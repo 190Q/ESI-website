@@ -501,6 +501,32 @@
   color: var(--gold-light);
 }
 
+.view-download-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  margin-left: auto;
+  padding: 0;
+  transition: all var(--transition);
+}
+.view-download-btn svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.view-download-btn:hover {
+  border-color: var(--border-mid);
+  color: var(--gold-light);
+  background: var(--gold-glow);
+}
+
 /* Owed cards */
 .owed-cards {
   display: grid;
