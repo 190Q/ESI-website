@@ -18,6 +18,8 @@ import collections as _collections
 import functools as _functools
 import sqlite3 as _sqlite3
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from time import time
 from datetime import timedelta, datetime as _dt, timezone as _tz
 from flask import Flask, jsonify, abort, send_from_directory, redirect, request, session, Response as _Response
@@ -325,8 +327,36 @@ def _activity_rate_response(data_fn):
 _cache: dict = {}
 _cache_lock = _threading.Lock()
 
+_WYNN_REQUEST_TIMEOUT = 25
+_WYNN_RETRY_STATUS_CODES = {500, 502, 503, 504}
 
-def cached_get(url: str) -> dict:
+
+def _create_wynn_session() -> requests.Session:
+    session = requests.Session()
+    retries = Retry(
+        total=3,
+        connect=3,
+        read=1,
+        status_forcelist=list(_WYNN_RETRY_STATUS_CODES),
+        allowed_methods=["GET", "HEAD"],
+        backoff_factor=1.0,
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(
+        max_retries=retries,
+        pool_connections=10,
+        pool_maxsize=20,
+    )
+    session.mount("https://api.wynncraft.com/", adapter)
+    session.headers.update(API_HEADERS)
+    return session
+
+
+_wynn_session = _create_wynn_session()
+
+
+def cached_get(url: str, timeout: int = _WYNN_REQUEST_TIMEOUT) -> dict:
+    import sys as _sys
     now = time()
     with _cache_lock:
         entry = _cache.get(url)
@@ -334,9 +364,36 @@ def cached_get(url: str) -> dict:
         data, ts = entry
         if now - ts < CACHE_TTL:
             return data
-    resp = requests.get(url, headers=API_HEADERS, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
+    t0 = time()
+    try:
+        resp = _wynn_session.get(url, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.Timeout as e:
+        elapsed = time() - t0
+        print(
+            f"[WYNN] Timeout fetching {url} after {elapsed:.1f}s: {e}",
+            file=_sys.stderr,
+            flush=True,
+        )
+        raise
+    except requests.RequestException as e:
+        elapsed = time() - t0
+        status = e.response.status_code if getattr(e, "response", None) is not None else None
+        print(
+            f"[WYNN] Error fetching {url} after {elapsed:.1f}s (status={status}): {e}",
+            file=_sys.stderr,
+            flush=True,
+        )
+        raise
+
+    elapsed = time() - t0
+    if elapsed > 5:
+        print(
+            f"[WYNN] Slow fetch completed {url} in {elapsed:.1f}s",
+            file=_sys.stderr,
+            flush=True,
+        )
     with _cache_lock:
         _cache[url] = (data, now)
     return data

@@ -127,7 +127,12 @@ def _proxy_to_routes_path(path: str, pass_query: bool = True):
     headers["X-Forwarded-Host"] = request.host
     headers["X-Gateway-Secret"] = _GATEWAY_SECRET
     headers["X-Real-Client-IP"] = _real_client_ip() or request.remote_addr or ""
-    req_timeout = (10, 600) if (path.startswith("/api/wynnpiece/file/") or path.startswith("/api/wynnpiece/page/")) else 30
+    if path.startswith("/api/wynnpiece/file/") or path.startswith("/api/wynnpiece/page/"):
+        req_timeout = (10, 600)
+    elif path.startswith("/api/player/") or path.startswith("/api/guild/"):
+        req_timeout = 45
+    else:
+        req_timeout = 30
     try:
         resp = _proxy_session.request(
             method=request.method,
