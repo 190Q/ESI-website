@@ -772,7 +772,8 @@
 }
 .esi-points-popup .owed-aspects-row .owed-aspects-right {
   justify-content: flex-end;
-  gap: 0;
+  gap: 6px;
+  margin-right: 6px;
 }
 .esi-points-popup .owed-aspects-row .owed-aspects-player-count {
   min-width: 48px;
