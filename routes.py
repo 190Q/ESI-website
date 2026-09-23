@@ -4974,7 +4974,7 @@ def _points_graph_graid_ep_by_username(cycle_id):
                 break
             if not isinstance(day, str):
                 continue
-            if day <= start_day or day > end_day:
+            if day < start_day or day > end_day:
                 continue
             saw_cycle_day = True
             if day in recovered_days:
