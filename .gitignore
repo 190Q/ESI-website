@@ -247,7 +247,7 @@ scripts/ui_artifacts
 wynnpiece/
 
 # Data
-data/
+/data/
 
 # Shop
 images/shop/
