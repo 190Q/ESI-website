@@ -294,23 +294,24 @@
       devices.body.appendChild(donut(d.devices));
       row.appendChild(devices.root);
 
-      var countries = card({
+      var regions = card({
         title: 'Regions',
         span: 4,
+        foot: 'From the browser timezone, grouped by continent.',
         exportRows: function () {
           var rows = [['region', 'sessions']];
-          d.countries.forEach(function (c) { rows.push([c.label, c.value]); });
+          d.regions.forEach(function (r) { rows.push([r.label, r.value]); });
           return rows;
         },
         exportName: 'esi-analytics_regions_' + _state.range + '_' + stamp() + '.csv',
       });
-      if (d.countries.length) {
-        countries.body.appendChild(rankedRows(d.countries, { cls: 'an-c2' }));
+      if (d.regions.length) {
+        regions.body.appendChild(rankedRows(d.regions, { cls: 'an-c2' }));
       } else {
-        countries.body.appendChild(el('div', 'an-card-note',
-          'No country data in range. Country is read from Cloudflare\u2019s CF-IPCountry header, so this stays empty unless the site is served through Cloudflare.'));
+        regions.body.appendChild(el('div', 'an-card-note',
+          'No region data in range yet. Region is derived from the browser timezone the beacon reports.'));
       }
-      row.appendChild(countries.root);
+      row.appendChild(regions.root);
 
       var heat = card({
         title: 'Peak hours',

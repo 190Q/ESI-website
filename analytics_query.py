@@ -934,24 +934,59 @@ def _ua_groups(conn, start):
     return [{"label": "Human", "value": humans}, {"label": "Bot", "value": bots}], out
 
 
-def _regions(conn, start, limit=6):
-    """Region split and table, aggregated per session so bounce is real.
+_TIMEZONE_REGIONS = {
+    "Europe": "Europe",
+    "America": "Americas",
+    "Asia": "Asia",
+    "Africa": "Africa",
+    "Australia": "Oceania",
+    "Pacific": "Oceania",
+    "Atlantic": "Atlantic",
+    "Indian": "Indian Ocean",
+    "Antarctica": "Antarctica",
+    "Arctic": "Arctic",
+    "Etc": "UTC",
+    "UTC": "UTC",
+    "GMT": "UTC",
+}
 
-    Country is resolved from Cloudflare's header at request time and stored on
-    its own; the IP itself is never kept, so this is as precise as it gets.
+
+def _region_label(area):
+    """A timezone, or its area, to a readable region."""
+    text = str(area or "").strip()
+    if not text:
+        return "Unknown"
+    text = text.split("/", 1)[0]
+    return _TIMEZONE_REGIONS.get(text, text)
+
+
+def _regions(conn, start, limit=6):
+    """Region split and table, derived from the visitor's own timezone.
+
+    Region is the continent part of the IANA timezone the beacon reports
+    (Europe/Brussels -> Europe), taken per session so bounce is real. It is a
+    coarse proxy for where someone is, but it needs no IP lookup at all.
     """
     rows = conn.execute(
-        "WITH s AS (SELECT session_hash, COUNT(*) AS requests,"
-        " MIN(country) AS country, MIN(ip_hash) AS ip FROM requests"
-        " WHERE ts >= ? AND session_hash IS NOT NULL AND country IS NOT NULL"
+        "WITH tz AS (SELECT session_hash, MIN(timezone) AS timezone FROM events"
+        " WHERE ts >= ? AND session_hash IS NOT NULL AND timezone IS NOT NULL"
+        " GROUP BY session_hash),"
+        " r AS (SELECT session_hash, COUNT(*) AS requests, MIN(ip_hash) AS ip"
+        " FROM requests WHERE ts >= ? AND session_hash IS NOT NULL"
         " GROUP BY session_hash)"
-        " SELECT country, COUNT(*) AS sessions, COUNT(DISTINCT ip) AS visitors,"
-        " SUM(CASE WHEN requests = 1 THEN 1 ELSE 0 END) AS bounces"
-        " FROM s GROUP BY country ORDER BY sessions DESC",
-        (start,),
+        " SELECT CASE WHEN instr(tz.timezone, '/') > 0"
+        "             THEN substr(tz.timezone, 1, instr(tz.timezone, '/') - 1)"
+        "             ELSE tz.timezone END AS area,"
+        " COUNT(*) AS sessions, COUNT(DISTINCT r.ip) AS visitors,"
+        " SUM(CASE WHEN r.requests = 1 THEN 1 ELSE 0 END) AS bounces"
+        " FROM tz JOIN r ON r.session_hash = tz.session_hash"
+        " GROUP BY area ORDER BY sessions DESC",
+        (start, start),
     ).fetchall()
     if not rows:
         return [], [], 0
+
+    total_sessions = sum(row["sessions"] or 0 for row in rows) or 1
 
     def entry(label, sessions, visitors, bounces):
         return {
@@ -962,12 +997,11 @@ def _regions(conn, start, limit=6):
             "bounce": round(bounces / sessions * 100.0, 1) if sessions else 0.0,
         }
 
-    total_sessions = sum(row["sessions"] or 0 for row in rows) or 1
     top = rows[:limit]
     rest = rows[limit:]
-    split = [{"label": _country_name(row["country"]), "value": row["sessions"] or 0}
+    split = [{"label": _region_label(row["area"]), "value": row["sessions"] or 0}
              for row in top]
-    table = [entry(_country_name(row["country"]), row["sessions"] or 0,
+    table = [entry(_region_label(row["area"]), row["sessions"] or 0,
                    row["visitors"] or 0, row["bounces"] or 0) for row in top]
     if rest:
         other_sessions = sum(row["sessions"] or 0 for row in rest)
@@ -976,25 +1010,6 @@ def _regions(conn, start, limit=6):
         split.append({"label": "Other", "value": other_sessions})
         table.append(entry("Other", other_sessions, other_visitors, other_bounces))
     return split, table, len(rows)
-
-
-def _country_name(code):
-    """Two-letter code to a readable name, falling back to the code itself."""
-    if not code:
-        return "Unknown"
-    return _COUNTRY_NAMES.get(code, code)
-
-
-_COUNTRY_NAMES = {
-    "BE": "Belgium", "NL": "Netherlands", "DE": "Germany", "FR": "France",
-    "GB": "United Kingdom", "US": "United States", "CA": "Canada",
-    "IE": "Ireland", "ES": "Spain", "IT": "Italy", "PL": "Poland",
-    "SE": "Sweden", "NO": "Norway", "DK": "Denmark", "FI": "Finland",
-    "AT": "Austria", "CH": "Switzerland", "PT": "Portugal", "CZ": "Czechia",
-    "RO": "Romania", "AU": "Australia", "NZ": "New Zealand", "BR": "Brazil",
-    "IN": "India", "JP": "Japan", "KR": "South Korea", "SG": "Singapore",
-    "ZA": "South Africa", "TR": "Turkey", "UA": "Ukraine", "GR": "Greece",
-}
 
 
 def _audit_rows(start, end, actions):
@@ -2815,11 +2830,7 @@ def overview(range_id):
             " FROM requests WHERE ts >= ? AND blocked = 1 GROUP BY k ORDER BY n DESC LIMIT 8",
             (start,),
         ).fetchall()
-        countries = conn.execute(
-            "SELECT country AS k, COUNT(*) AS n FROM requests"
-            " WHERE ts >= ? AND country IS NOT NULL GROUP BY k ORDER BY n DESC LIMIT 6",
-            (start,),
-        ).fetchall()
+        region_split, region_table, region_count = _regions(conn, start)
         server_error_series = _fill(series, "server_errors", points)
         banner_ctr = _banner_ctr(conn, start, now)
         banner_ctr_previous = _banner_ctr(conn, previous_start, start)
@@ -2893,8 +2904,8 @@ def overview(range_id):
         "devices": [
             {"label": str(row["k"]).title(), "value": row["n"]} for row in devices
         ],
-        "countries": [
-            {"label": _country_name(row["k"]), "value": row["n"]} for row in countries
+        "regions": [
+            {"label": row["region"], "value": row["sessions"]} for row in region_table
         ],
         "peakHours": peak,
         "errors": {"total": total_errors, "top": error_rows},

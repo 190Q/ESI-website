@@ -428,7 +428,7 @@
     ctx.content.appendChild(panelKpiStrip(d, [
       { id: 'visitors',  label: 'Unique visitors', cls: 'an-c2', hint: 'Distinct visitors' },
       { id: 'sessions',  label: 'Sessions',        cls: 'an-c3', hint: 'Total sessions' },
-      { id: 'countries', label: 'Regions seen',    cls: 'an-c4', hint: 'Distinct countries in range' },
+      { id: 'countries', label: 'Regions seen',    cls: 'an-c4', hint: 'Distinct regions in range' },
       { id: 'bounceRate', label: 'Bounce rate',    cls: 'an-c5', hint: 'Single-interaction sessions' },
     ]));
 
@@ -436,7 +436,7 @@
     var table = card({
       title: 'Regions',
       span: 8,
-      foot: "Country level only, from Cloudflare's country header.",
+      foot: 'Continent level, derived from the browser timezone.',
       exportRows: function () {
         var rows = [['region', 'sessions', 'visitors', 'share_pct', 'bounce_pct']];
         d.regionTable.forEach(function (r) { rows.push([r.region, r.sessions, r.visitors, r.share, r.bounce]); });
@@ -457,7 +457,7 @@
       }));
     } else {
       table.body.appendChild(el('div', 'an-card-note',
-        'No country data in range. Country is read from Cloudflare\u2019s CF-IPCountry header, so this stays empty unless the site is served through Cloudflare.'));
+        'No region data in range yet. Region is derived from the browser timezone the beacon reports, grouped by continent.'));
     }
     row.appendChild(table.root);
     row.appendChild(donutCard({
@@ -476,7 +476,7 @@
         return [
           ['field', 'treatment'],
           ['ip_address', 'Never stored. Only a salted hash whose salt rotates daily'],
-          ['region', "Cloudflare's country header, stored as a two-letter code on its own"],
+          ['region', "Continent part of the browser's IANA timezone, from the beacon"],
           ['city', 'Not collected'],
           ['retention', 'Raw request rows pruned after 30 days'],
         ];
@@ -485,7 +485,7 @@
     });
     var notes = [
       'The IP address is never written to disk. Uniqueness is measured with a salted hash whose salt rotates at midnight, so a visitor cannot be followed across days.',
-      "Country comes from Cloudflare's CF-IPCountry header, accepted only from a genuine Cloudflare edge, and is stored as a two-letter code with no IP beside it.",
+      "Region is the continent part of the browser's IANA timezone reported by the beacon (Europe/Brussels becomes Europe). It is a coarse proxy for where someone is, and it needs no IP lookup at all.",
       'City is not collected at all, so there is no city breakdown on this page.',
       'Raw request rows are pruned after 30 days. Only the aggregates on this page survive longer.',
     ];
