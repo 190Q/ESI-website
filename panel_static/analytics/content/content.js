@@ -16,294 +16,42 @@
   var fmtInt = A.fmtInt;
   var fmtPct = A.fmtPct;
   var fmtMs = A.fmtMs;
-  var sumOf = A.sumOf;
-  var rng = A.rng;
-  var demoBase = A.demoBase;
-  var trendSeries = A.trendSeries;
-  var USE_DEMO_DATA = A.USE_DEMO_DATA;
+
+  var CONTENT_KPI_SPEC = {
+    shopViews:      { format: fmtInt, invert: false },
+    productViews:   { format: fmtInt, invert: false },
+    purchases:      { format: fmtInt, invert: false },
+    purchaseValue:  { format: fmtInt, invert: false },
+    playerLookups:  { format: fmtInt, invert: false },
+    uniquePlayers:  { format: fmtInt, invert: false },
+    cacheHitRate:   { format: function (v) { return fmtPct(v, 1); }, invert: false },
+    cacheMissLatency: { format: fmtMs, invert: true },
+    botViews:       { format: fmtInt, invert: false },
+    inactivityViews: { format: fmtInt, invert: false },
+    promotionViews: { format: fmtInt, invert: false },
+    guildInfoViews: { format: fmtInt, invert: false },
+    fileDownloads:  { format: fmtInt, invert: false },
+    gdprExports:    { format: fmtInt, invert: false },
+    wynnpieceViews: { format: fmtInt, invert: false },
+    blockedDefault: { format: fmtInt, invert: true },
+  };
 
   function loadContent(range) {
-    if (USE_DEMO_DATA) return Promise.resolve(buildContentDemo(range));
     return fetch('/panel/api/analytics/content?range=' + encodeURIComponent(range), {
       credentials: 'same-origin',
     }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
+    }).then(function (d) {
+      d.labels = A.bucketLabels(d.buckets, range);
+      Object.keys(CONTENT_KPI_SPEC).forEach(function (id) {
+        var kpi = d.kpis && d.kpis[id];
+        if (!kpi) return;
+        kpi.format = CONTENT_KPI_SPEC[id].format;
+        kpi.invert = CONTENT_KPI_SPEC[id].invert;
+      });
+      return d;
     });
-  }
-
-  function buildContentDemo(range) {
-    var base = demoBase(range);
-    var rand = rng(6151 + range.length * 457);
-    var labels = base.labels;
-    var n = labels.length;
-
-    function series(start, spread, trend) {
-      var out = [];
-      for (var i = 0; i < n; i++) {
-        var t = n > 1 ? i / (n - 1) : 0;
-        out.push(Math.max(0, Math.round(start * (1 + trend * t) + (rand() - 0.5) * spread)));
-      }
-      return out;
-    }
-
-    var shopViewSeries = series(1200, 420, 0.2);
-    var totalShopViews = 12480;
-    var productViews = 6420;
-    var purchases = 238;
-    var purchaseValue = 184200;
-
-    var cart = {
-      adds: 610,
-      removes: 184,
-      qtyChanges: 268,
-      abandoned: 372,
-      abandonmentRate: 42.1,
-    };
-
-    // Checkout start to completion, plus the drop-off between them.
-    var checkout = [
-      { label: 'Checkout started',   value: 412 },
-      { label: 'Checkout completed', value: 238 },
-    ];
-    var checkoutDropoff = 42.2;
-
-    var products = [
-      { item: 'Aspect Token',      views: 1240, purchases: 62, conversion: 5.0 },
-      { item: 'Raid Consumables',  views: 1080, purchases: 54, conversion: 5.0 },
-      { item: 'Emerald Pouch',     views: 960,  purchases: 41, conversion: 4.3 },
-      { item: 'Guild Banner',      views: 820,  purchases: 28, conversion: 3.4 },
-      { item: 'Detlas Teleport',   views: 690,  purchases: 31, conversion: 4.5 },
-      { item: 'Cosmetic Cape',     views: 540,  purchases: 12, conversion: 2.2 },
-      { item: 'Horse Whistle',     views: 480,  purchases: 7,  conversion: 1.5 },
-      { item: 'Loot Chest Key',    views: 610,  purchases: 3,  conversion: 0.5 },
-    ];
-
-    var shopFilters = [
-      { label: 'Category',    value: 1420 },
-      { label: 'Price range', value: 860 },
-      { label: 'Availability', value: 640 },
-      { label: 'Rarity',      value: 410 },
-    ];
-
-    var shopSearches = [
-      { label: 'aspect',   value: 96 },
-      { label: 'token',    value: 74 },
-      { label: 'pouch',    value: 48 },
-      { label: 'banner',   value: 31 },
-      { label: 'cape',     value: 22 },
-    ];
-
-    var purchasesTable = [
-      { item: 'Aspect Token',     buyer: '190Q',      value: 4800, at: '2026-09-30T14:12:00Z' },
-      { item: 'Raid Consumables', buyer: 'Sindria',   value: 1250, at: '2026-09-30T13:41:00Z' },
-      { item: 'Emerald Pouch',    buyer: 'Valaendor', value: 2400, at: '2026-09-30T11:08:00Z' },
-      { item: 'Guild Banner',     buyer: 'Meridia',   value: 3600, at: '2026-09-29T21:55:00Z' },
-      { item: 'Aspect Token',     buyer: 'Kestrel',   value: 4800, at: '2026-09-29T19:20:00Z' },
-      { item: 'Detlas Teleport',  buyer: 'Halcyon',   value: 480,  at: '2026-09-29T17:03:00Z' },
-      { item: 'Raid Consumables', buyer: 'Aurelia',   value: 1250, at: '2026-09-29T15:47:00Z' },
-      { item: 'Emerald Pouch',    buyer: 'Corvane',   value: 2400, at: '2026-09-29T12:31:00Z' },
-    ];
-
-    var balanceLookups = 1840;
-
-    var auctions = { views: 2140, bids: 186 };
-
-    var dmCards = { generated: 412, tested: 28 };
-
-    var shopAdmin = [
-      { label: 'Item edited',        value: 68 },
-      { label: 'Price changed',      value: 34 },
-      { label: 'Item created',       value: 26 },
-      { label: 'Item deleted',       value: 7 },
-      { label: 'Maintenance toggled', value: 3 },
-    ];
-
-    var maintenance = {
-      users: 214,
-      windows: 3,
-      minutes: 96,
-    };
-
-    var lookupSeries = series(2000, 700, 0.18);
-    var totalPlayerLookups = 14280;
-    var uniquePlayers = 1204;
-
-    var mostViewedPlayers = [
-      { label: '190Q',      value: 1840 },
-      { label: 'Sindria',   value: 1420 },
-      { label: 'Valaendor', value: 1060 },
-      { label: 'Meridia',   value: 780 },
-      { label: 'Kestrel',   value: 620 },
-      { label: 'Halcyon',   value: 480 },
-    ];
-
-    var topSearches = [
-      { label: '190Q',     value: 214 },
-      { label: 'sindria',  value: 168 },
-      { label: 'valaendor', value: 121 },
-      { label: 'meridia',  value: 96 },
-      { label: 'kestrel',  value: 74 },
-    ];
-
-    var statCardsExpanded = [
-      { label: 'Activity Comparison', value: 1840 },
-      { label: 'Guild Summary',       value: 1420 },
-      { label: 'Combat Stats',        value: 1060 },
-      { label: 'Raids & Dungeons',    value: 780 },
-      { label: 'Professions',         value: 540 },
-      { label: 'Playtime',            value: 410 },
-    ];
-
-    var metricMasks = [
-      { label: 'Playtime',     value: 412 },
-      { label: 'Guild Raids',  value: 268 },
-      { label: 'Chests Found', value: 184 },
-      { label: 'Mobs Killed',  value: 121 },
-      { label: 'Wars',         value: 96 },
-    ];
-
-    var graphInteractions = {
-      viewed: [
-        { label: 'Player activity', value: 4120 },
-        { label: 'Guild stats',     value: 2410 },
-        { label: 'Compare',         value: 980 },
-      ],
-      ranges: [
-        { label: '30 days', value: 2840 },
-        { label: '7 days',  value: 1420 },
-        { label: '60 days', value: 860 },
-        { label: '2 days',  value: 410 },
-      ],
-      hover: 8420,
-      zoom: 1860,
-    };
-
-    var lookupCache = {
-      hitRate: 74.2,
-      prevHitRate: 68.9,
-      missLatency: 210,
-    };
-    
-    var bot = {
-      panelViews: 1860,
-      logTailViews: 940,
-      commandTriggers: 412,
-      restartActions: 68,
-      sessionStarts: 96,
-      sessionStops: 88,
-    };
-
-    var inactivity = {
-      views: 1240,
-      topExemptions: [
-        { label: '190Q',      value: 214 },
-        { label: 'Sindria',   value: 168 },
-        { label: 'Valaendor', value: 121 },
-        { label: 'Meridia',   value: 96 },
-        { label: 'Halcyon',   value: 61 },
-      ],
-    };
-
-    var promotions = {
-      pageViews: 1640,
-      memberListViews: 980,
-      detailOpens: 412,
-    };
-
-    var creatorStudio = 240;
-    var guildInfo = { threadViews: 860 };
-
-    var uploads = [
-      { file: 'raid-schedule-october.pdf',   downloads: 412 },
-      { file: 'guild-banner.png',            downloads: 268 },
-      { file: 'event-rules.txt',             downloads: 184 },
-      { file: 'aspect-checklist.csv',        downloads: 121 },
-      { file: 'territory-map.png',           downloads: 96 },
-      { file: 'shop-price-list.json',        downloads: 74 },
-      { file: 'raid-composition-guide.pdf',  downloads: 48 },
-    ];
-    var totalDownloads = sumOf(uploads.map(function (u) { return u.downloads; }));
-
-    var gdpr = { generated: 41, downloaded: 33 };
-
-    var notFoundViews = 386;
-
-    var wynnpiece = {
-      pageViews: 1840,
-      customLinks: [
-        { label: 'wynnpiece/progression', value: 412 },
-        { label: 'wynnpiece/tracker',     value: 268 },
-        { label: 'wynnpiece/rewards',     value: 121 },
-      ],
-      blockedDefault: [
-        { label: '/wynnpiece/progression/default', value: 96 },
-        { label: '/wynnpiece/tracker/default',     value: 41 },
-      ],
-    };
-    var blockedDefaultTotal = sumOf(wynnpiece.blockedDefault.map(function (b) { return b.value; }));
-
-    return {
-      demo: true,
-      range: range,
-      generatedAt: new Date().toISOString(),
-      labels: labels,
-
-      kpis: {
-        shopViews:      { value: totalShopViews, prev: Math.round(totalShopViews * 0.9), series: shopViewSeries, format: fmtInt, invert: false },
-        productViews:   { value: productViews, prev: Math.round(productViews * 0.88), series: trendSeries(productViews, n, 0.22, rand), format: fmtInt, invert: false },
-        purchases:      { value: purchases, prev: 206, series: trendSeries(purchases, n, 0.3, rand), format: fmtInt, invert: false },
-        purchaseValue:  { value: purchaseValue, prev: 158400, series: trendSeries(purchaseValue, n, 0.28, rand), format: fmtInt, invert: false },
-
-        playerLookups:    { value: totalPlayerLookups, prev: Math.round(totalPlayerLookups * 0.91), series: lookupSeries, format: fmtInt, invert: false },
-        uniquePlayers:    { value: uniquePlayers, prev: 1096, series: trendSeries(uniquePlayers, n, 0.18, rand), format: fmtInt, invert: false },
-        cacheHitRate:     { value: lookupCache.hitRate, prev: lookupCache.prevHitRate, series: trendSeries(lookupCache.hitRate, n, 0.08, rand), format: function (v) { return fmtPct(v, 1); }, invert: false },
-        cacheMissLatency: { value: lookupCache.missLatency, prev: 236, series: trendSeries(lookupCache.missLatency, n, 0.2, rand), format: fmtMs, invert: true },
-
-        botViews:        { value: bot.panelViews, prev: 1640, series: trendSeries(bot.panelViews, n, 0.24, rand), format: fmtInt, invert: false },
-        inactivityViews: { value: inactivity.views, prev: 1080, series: trendSeries(inactivity.views, n, 0.22, rand), format: fmtInt, invert: false },
-        promotionViews:  { value: promotions.pageViews, prev: 1420, series: trendSeries(promotions.pageViews, n, 0.2, rand), format: fmtInt, invert: false },
-        guildInfoViews:  { value: guildInfo.threadViews, prev: 740, series: trendSeries(guildInfo.threadViews, n, 0.22, rand), format: fmtInt, invert: false },
-
-        fileDownloads:  { value: totalDownloads, prev: Math.round(totalDownloads * 0.88), series: trendSeries(totalDownloads, n, 0.26, rand), format: fmtInt, invert: false },
-        gdprExports:    { value: gdpr.generated, prev: 34, series: trendSeries(gdpr.generated, n, 0.35, rand), format: fmtInt, invert: false },
-        wynnpieceViews: { value: wynnpiece.pageViews, prev: 1620, series: trendSeries(wynnpiece.pageViews, n, 0.24, rand), format: fmtInt, invert: false },
-        blockedDefault: { value: blockedDefaultTotal, prev: 164, series: trendSeries(blockedDefaultTotal, n, 0.4, rand), format: fmtInt, invert: true },
-      },
-
-      shopViewSeries: shopViewSeries,
-      cart: cart,
-      checkout: checkout,
-      checkoutDropoff: checkoutDropoff,
-      products: products,
-      shopFilters: shopFilters,
-      shopSearches: shopSearches,
-      purchasesTable: purchasesTable,
-      balanceLookups: balanceLookups,
-      auctions: auctions,
-      dmCards: dmCards,
-      shopAdmin: shopAdmin,
-      maintenance: maintenance,
-
-      lookupSeries: lookupSeries,
-      mostViewedPlayers: mostViewedPlayers,
-      topSearches: topSearches,
-      statCardsExpanded: statCardsExpanded,
-      metricMasks: metricMasks,
-      graphInteractions: graphInteractions,
-      lookupCache: lookupCache,
-
-      bot: bot,
-      inactivity: inactivity,
-      promotions: promotions,
-      creatorStudio: creatorStudio,
-      guildInfo: guildInfo,
-
-      uploads: uploads,
-      gdpr: gdpr,
-      notFoundViews: notFoundViews,
-      wynnpiece: wynnpiece,
-    };
   }
 
   var CONTENT_TABS = [
@@ -316,7 +64,7 @@
   function buildContent(container) {
     return analyticsPanel({
       container: container,
-      label: 'Content',
+      label: 'Content',
       tabKey: 'content',
       tabs: CONTENT_TABS,
       load: loadContent,
@@ -344,7 +92,6 @@
       var t = [['metric', 'value']];
       t.push(['bot_panel_views', d.bot.panelViews]);
       t.push(['bot_log_tail_views', d.bot.logTailViews]);
-      t.push(['bot_command_triggers', d.bot.commandTriggers]);
       t.push(['bot_restart_actions', d.bot.restartActions]);
       t.push(['bot_session_starts', d.bot.sessionStarts]);
       t.push(['bot_session_stops', d.bot.sessionStops]);
@@ -532,15 +279,14 @@
     var dm = card({
       title: 'DM cards',
       span: 6,
-      foot: 'Cards generated by the shop and the test sends used while building them.',
+      foot: 'Cards generated by the shop.',
       exportRows: function () {
-        return [['metric', 'value'], ['cards_generated', d.dmCards.generated], ['test_sends', d.dmCards.tested]];
+        return [['metric', 'value'], ['cards_generated', d.dmCards.generated]];
       },
       exportName: csvName('content', 'dm-cards'),
     });
     dm.body.appendChild(miniStrip([
       { label: 'Generated',  value: fmtInt(d.dmCards.generated) },
-      { label: 'Test sends', value: fmtInt(d.dmCards.tested) },
     ]));
     row5.appendChild(dm.root);
     ctx.content.appendChild(row5);
@@ -617,19 +363,6 @@
     }).root);
     ctx.content.appendChild(row2);
 
-    var row3 = el('div', 'an-grid');
-    row3.appendChild(rankedCard({
-      title: 'Stat cards expanded', span: 6, items: d.statCardsExpanded, cls: 'an-c3', unit: 'card',
-      foot: 'Which collapsible stat cards people open.',
-      exportName: csvName('content', 'stat-cards'),
-    }).root);
-    row3.appendChild(rankedCard({
-      title: 'Metric masks', span: 6, items: d.metricMasks, cls: 'an-c5', unit: 'metric',
-      foot: 'Which metric columns people hide.',
-      exportName: csvName('content', 'metric-masks'),
-    }).root);
-    ctx.content.appendChild(row3);
-
     var row4 = el('div', 'an-grid');
     row4.appendChild(rankedCard({
       title: 'Graphs viewed', span: 4, items: d.graphInteractions.viewed, cls: 'an-c1', unit: 'graph',
@@ -640,17 +373,16 @@
       exportName: csvName('content', 'graph-ranges'),
     }).root);
     var graphIo = card({
-      title: 'Hover and zoom',
+      title: 'Graph hover',
       span: 4,
-      foot: 'Pointer activity on the graphs.',
+      foot: 'Pointer activity over the graphs. Counted at most once every five seconds.',
       exportRows: function () {
-        return [['metric', 'value'], ['hover_events', d.graphInteractions.hover], ['zoom_events', d.graphInteractions.zoom]];
+        return [['metric', 'value'], ['hover_events', d.graphInteractions.hover]];
       },
       exportName: csvName('content', 'graph-io'),
     });
     graphIo.body.appendChild(miniStrip([
       { label: 'Hover', value: fmtInt(d.graphInteractions.hover) },
-      { label: 'Zoom',  value: fmtInt(d.graphInteractions.zoom) },
     ]));
     row4.appendChild(graphIo.root);
     ctx.content.appendChild(row4);
@@ -676,7 +408,6 @@
           ['metric', 'value'],
           ['panel_views', d.bot.panelViews],
           ['log_tail_views', d.bot.logTailViews],
-          ['command_triggers', d.bot.commandTriggers],
           ['restart_actions', d.bot.restartActions],
         ];
       },
@@ -688,7 +419,6 @@
       { label: 'Restarts',    value: fmtInt(d.bot.restartActions) },
     ]));
     bot.body.appendChild(rankedRows([
-      { label: 'Command triggers', value: d.bot.commandTriggers },
       { label: 'Log tail views',   value: d.bot.logTailViews },
       { label: 'Restart actions',  value: d.bot.restartActions },
     ], { cls: 'an-c1' }));
@@ -719,17 +449,15 @@
       title: 'Inactivity',
       span: 6,
       exportRows: function () {
-        var rows = [['metric', 'value'], ['exemption_views', d.inactivity.views]];
-        d.inactivity.topExemptions.forEach(function (e) { rows.push(['exemption:' + e.label, e.value]); });
-        return rows;
+        return [['metric', 'value'], ['exemption_page_views', d.inactivity.views]];
       },
       exportName: csvName('content', 'inactivity'),
     });
     inact.body.appendChild(miniStrip([
-      { label: 'Exemption views', value: fmtInt(d.inactivity.views) },
+      { label: 'Page views', value: fmtInt(d.inactivity.views) },
     ]));
-    inact.body.appendChild(el('div', 'an-card-note', 'Most-viewed exemptions.'));
-    inact.body.appendChild(rankedRows(d.inactivity.topExemptions, { cls: 'an-c2' }));
+    inact.body.appendChild(el('div', 'an-card-note',
+      'Views of the exemptions page. Individual exemptions are not tracked.'));
     row2.appendChild(inact.root);
 
     var promos = card({
@@ -818,19 +546,14 @@
     var gdpr = card({
       title: 'GDPR exports',
       span: 4,
-      foot: 'Data exports generated for account holders and how many were collected.',
+      foot: 'Data exports generated for account holders.',
       exportRows: function () {
-        return [
-          ['metric', 'value'],
-          ['exports_generated', d.gdpr.generated],
-          ['exports_downloaded', d.gdpr.downloaded],
-        ];
+        return [['metric', 'value'], ['exports_generated', d.gdpr.generated]];
       },
       exportName: csvName('content', 'gdpr'),
     });
     gdpr.body.appendChild(miniStrip([
-      { label: 'Generated',  value: fmtInt(d.gdpr.generated) },
-      { label: 'Downloaded', value: fmtInt(d.gdpr.downloaded) },
+      { label: 'Generated', value: fmtInt(d.gdpr.generated) },
     ]));
     row.appendChild(gdpr.root);
     ctx.content.appendChild(row);

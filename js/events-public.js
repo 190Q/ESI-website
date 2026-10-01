@@ -20,6 +20,27 @@
   var _fetched      = false;
   var _activeToast  = null;
 
+  var _viewedEvents  = {};
+  var _focusingUntil = 0;
+
+  function trackEventView(props) {
+    try {
+      if (window.ESITrack) window.ESITrack.event('event', props);
+    } catch (e) { /* analytics must never break the panel */ }
+  }
+
+  function reportListView() {
+    if (Date.now() < _focusingUntil) return;
+    if (!panel.classList.contains('active')) return;
+    var cards = panel.querySelectorAll('.ev-row[id^="evp-event-"]');
+    for (var i = 0; i < cards.length; i++) {
+      var id = cards[i].id.slice('evp-event-'.length);
+      if (!id || _viewedEvents[id]) continue;
+      _viewedEvents[id] = true;
+      trackEventView({ action: 'view', event: id });
+    }
+  }
+
 
   var STATUS_TICK_MS = 30 * 1000;
 
@@ -31,6 +52,7 @@
     if (!panel.classList.contains('active')) return;
     if (!_fetched) return; // initial fetch is still in flight
     if (!document.getElementById('evpShell')) buildShell();
+    else reportListView();
   });
   observer.observe(panel, { attributes: true, attributeFilter: ['class'] });
 
@@ -265,6 +287,7 @@
         // Apply local time-based status transitions before the first render
         recomputeStatuses();
         updateNavIndicators();
+        focusFromUrl();
         // Always render once data is in
         if (!document.getElementById('evpShell')) buildShell();
         else { renderTabs(); renderList(); }
@@ -409,6 +432,11 @@
     tabsEl.querySelectorAll('[data-status]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         _activeStatus = this.dataset.status;
+        try {
+          if (window.ESITrack) {
+            window.ESITrack.event('nav_click', { target: 'events-tab:' + _activeStatus, area: 'inline' });
+          }
+        } catch (e) { /* analytics must never break the panel */ }
         renderTabs();
         renderList();
       });
@@ -583,6 +611,7 @@
           'No ' + esc(statusLabel(_activeStatus).toLowerCase()) + ' events.' +
         '</div>';
     }
+    reportListView();
   }
 
   window.evpRefreshNavIndicators = function () {
@@ -617,8 +646,39 @@
     loadEvents({ force: true });
   });
 
+  var _deepLinkDone = false;
+  function focusFromUrl() {
+    if (_deepLinkDone) return;
+    _deepLinkDone = true;
+    var parts = (window.location.pathname || '').replace(/^\/+/, '').split('/');
+    if (parts[0] !== 'events' || !parts[1] || parts[1] === 'manage') return;
+    var id = parts[1];
+    try { id = decodeURIComponent(id); } catch (e) { /* keep the raw segment */ }
+    var known = _events.some(function (ev) { return ev && String(ev.id) === String(id); });
+    if (!known) return;
+    if (typeof window.evpFocusEvent === 'function') {
+      window.evpFocusEvent(id, { source: 'link' });
+    }
+  }
+
   // Public API: navigate to the events panel and scroll to a specific event card
-  window.evpFocusEvent = function (eventId) {
+  window.evpFocusEvent = function (eventId, opts) {
+    var fromBanner = !(opts && opts.source === 'link');
+    var started = Date.now();
+    var reported = false;
+
+    _focusingUntil = Date.now() + 4000;
+    if (eventId) _viewedEvents[String(eventId)] = true;
+
+    function reportView(found) {
+      if (reported) return;
+      reported = true;
+      if (!found && !fromBanner) return;
+      trackEventView(fromBanner
+        ? { action: 'view', event: eventId, ms: Date.now() - started }
+        : { action: 'view', event: eventId });
+    }
+
     if (typeof window.switchToPanel === 'function') {
       window.switchToPanel('events');
     }
@@ -629,6 +689,7 @@
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       el.classList.add('ev-row--highlight');
       setTimeout(function () { el.classList.remove('ev-row--highlight'); }, 1800);
+      reportView(true);
       return true;
     }
 
@@ -655,7 +716,11 @@
       var attempts = 0;
       var iv = setInterval(function () {
         ensureTab();
-        if (tryScroll() || ++attempts >= 12) clearInterval(iv);
+        if (tryScroll()) { clearInterval(iv); return; }
+        if (++attempts >= 12) {
+          clearInterval(iv);
+          reportView(false);
+        }
       }, 120);
     }
   };

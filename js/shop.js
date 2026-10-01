@@ -961,7 +961,10 @@
       searchEl.addEventListener('input', function () {
         _filterSearch = this.value;
         if (_searchDebTimer) clearTimeout(_searchDebTimer);
-        _searchDebTimer = setTimeout(renderContent, 200);
+        _searchDebTimer = setTimeout(function () {
+          trackShop({ action: 'search', q: _filterSearch });
+          renderContent();
+        }, 200);
       });
     }
 
@@ -973,6 +976,7 @@
         var t = chip.dataset.sftype;
         if (t === _filterType) return;
         _filterType = t;
+        trackShop({ action: 'filter', filter: 'type' });
         bar.setAttribute('data-type', _filterType);
         bar.querySelectorAll('[data-sftype]').forEach(function (c) { c.classList.remove('active'); });
         chip.classList.add('active');
@@ -1025,6 +1029,7 @@
       el.addEventListener('change', function () {
         suppressOutsideClose(700);
         s.fn(this.value);
+        if (s.id !== 'sfSort') trackShop({ action: 'filter', filter: s.id });
         renderContent();
       });
     });
@@ -1671,8 +1676,15 @@
     });
   }
 
+  function trackShop(props) {
+    try {
+      if (window.ESITrack) window.ESITrack.event('shop', props);
+    } catch (e) { /* never let analytics break the shop */ }
+  }
+
   /* Detail modals */
   function openItemDetailModal(item) {
+    trackShop({ action: 'product_view', item: item && item.id });
     buildShell();
     var modal = document.getElementById('shopModal');
     if (!modal) return;
@@ -1852,6 +1864,7 @@
   }
 
   function openAuctionDetailModal(auction) {
+    trackShop({ action: 'product_view', item: String((auction && auction.item_id) || '') });
     buildShell();
     var modal = document.getElementById('shopModal');
     if (!modal) return;
@@ -2226,6 +2239,7 @@
   }
 
   function executeCartCheckout() {
+    trackShop({ action: 'checkout_start', step: Object.keys(_cart || {}).length });
     var modal      = document.getElementById('shopModal');
     var confirmBtn = document.getElementById('shopModalConfirm');
     if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Processing\u2026'; }

@@ -22,7 +22,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from time import time
 from datetime import timedelta, datetime as _dt, timezone as _tz
-from flask import Flask, jsonify, abort, send_from_directory, redirect, request, session, Response as _Response
+from urllib.parse import urlparse as _urlparse
+from flask import Flask, jsonify, abort, send_from_directory, redirect, request, session, g, Response as _Response
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import (
@@ -67,6 +68,36 @@ from guild_info import admin as _gi_admin
 import ipaddress
 
 from events import apply_leaderboard_row_hooks
+
+try:
+    import analytics as _analytics
+except ImportError:
+    _analytics = None
+
+
+def _track_server(kind, props=None, name=None, user_id=None):
+    """Record an event this service observed directly.
+
+    Server-side hooks cannot be forged by a client, so they skip the beacon's
+    token and rate limits. They still go through the same property validator,
+    so the stored shape is identical. Never raises.
+    """
+    if _analytics is None:
+        return False
+    try:
+        raw_path = _track_page_path()
+        return _analytics.record_server_event(
+            kind,
+            props=props,
+            name=name,
+            path=_analytics.normalise_route(raw_path) if raw_path else None,
+            session_cookie=request.cookies.get(_analytics.SESSION_COOKIE),
+            user_id=user_id,
+            ip=_real_ip(),
+            source=_track_source(),
+        )
+    except Exception:
+        return False
 
 # Flask app
 
@@ -355,6 +386,18 @@ def _create_wynn_session() -> requests.Session:
 _wynn_session = _create_wynn_session()
 
 
+def _mark_cache(status):
+    """Tag this request's response with whether the in-process cache served it.
+
+    The gateway forwards the header and records it in the request log, which is
+    what gives the panel a real cache hit rate.
+    """
+    try:
+        g._cache_status = status
+    except RuntimeError:
+        pass
+
+
 def cached_get(url: str, timeout: int = _WYNN_REQUEST_TIMEOUT) -> dict:
     import sys as _sys
     now = time()
@@ -363,7 +406,9 @@ def cached_get(url: str, timeout: int = _WYNN_REQUEST_TIMEOUT) -> dict:
     if entry:
         data, ts = entry
         if now - ts < CACHE_TTL:
+            _mark_cache("HIT")
             return data
+    _mark_cache("MISS")
     t0 = time()
     try:
         resp = _wynn_session.get(url, timeout=timeout)
@@ -627,6 +672,9 @@ def _after(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    cache_status = g.get("_cache_status")
+    if cache_status:
+        response.headers["X-Cache"] = cache_status
     return response
 
 
@@ -881,6 +929,7 @@ def auth_callback():
     session["user"] = user_data
     session["_last_active"] = time()
     token = _remember_create(user_data)
+    _track_server("feature", {"action": "run", "name": "site-login"}, user_id=user["id"])
     resp = redirect("/?auth=success")
     _set_remember_cookie(resp, token)
     return resp
@@ -1076,6 +1125,7 @@ def auth_dev_login():
     }
     session["user"] = user_data
     token = _remember_create(user_data)
+    _track_server("feature", {"action": "run", "name": "dev-login"}, user_id=user_id)
     # Honour a `redirect=0` flag so callers (curl/JSON clients) can get the
     # resulting session payload instead of being bounced back to `/`.
     if request.values.get("redirect") == "0":
@@ -1960,6 +2010,8 @@ def shop_state():
     raw_maintenance_settings = state.get("maintenance_settings") or _shop_get_maintenance_settings() or {}
     maintenance_settings = _maintenance_settings_for_user(raw_maintenance_settings, user)
     enabled = bool(state.get("shop_enabled"))
+    if not enabled:
+        _track_server("shop", {"action": "disabled_view"}, user_id=ctx["discord_id"])
     message = None if enabled else (state.get("message") or _shop_get_disabled_message())
     maintenance_view_only = bool((not enabled) and maintenance_settings.get("shop_visible", True))
     return jsonify({
@@ -1994,6 +2046,7 @@ def me_ep_balance():
         }), 200
 
     balance = fetch_ep_balance(mc_uuid)
+    _track_server("shop", {"action": "balance"}, user_id=discord_id)
 
     current_cycle = _points_get_cycle_id()
     _, cycle_end = _points_get_cycle_bounds(current_cycle)
@@ -2132,6 +2185,7 @@ def shop_bin_list():
         is_shop_admin=_is_admin,
     )
     result.update(access_meta)
+    _track_server("shop", {"action": "view"}, user_id=ctx["discord_id"])
     return jsonify(result)
 
 
@@ -2178,6 +2232,8 @@ def shop_bin_cart_checkout():
             user_roles=user.get("roles") or [],
             cart_items=cart,
         )
+        _track_server("shop", {"action": "checkout_done", "step": len(cart)},
+                      user_id=user.get("id", ""))
         return jsonify({"ok": True, "items": results})
     except PurchaseError as exc:
         return jsonify({"error": exc.message}), exc.status
@@ -2213,6 +2269,8 @@ def shop_bin_purchase():
             acknowledged_clean=ack_clean,
             acknowledged_dirty=ack_dirty,
         )
+        _track_server("shop", {"action": "checkout_done", "item": item_id},
+                      user_id=user.get("id", ""))
         return jsonify({"ok": True, **result})
     except PurchaseError as exc:
         return jsonify({"error": exc.message}), exc.status
@@ -2222,6 +2280,26 @@ def shop_bin_purchase():
             "needed": exc.needed,
             "available": exc.available,
         }), 402
+
+
+def _track_cart_change(discord_id, before, after):
+    """Record what a cart save actually changed.
+
+    The endpoint receives the whole cart, so an add or a remove only means
+    something when compared against what was stored before it. Done here rather
+    than in the browser because this is the side that knows both states.
+    """
+    for item_id, qty in after.items():
+        if item_id not in before:
+            _track_server("shop", {"action": "cart_add", "item": item_id, "step": qty},
+                          user_id=discord_id)
+        elif before[item_id] != qty:
+            _track_server("shop", {"action": "qty_change", "item": item_id, "step": qty},
+                          user_id=discord_id)
+    for item_id in before:
+        if item_id not in after:
+            _track_server("shop", {"action": "cart_remove", "item": item_id},
+                          user_id=discord_id)
 
 
 # Shop cart persistence endpoints
@@ -2280,7 +2358,13 @@ def shop_cart_save():
         vi = int(vi_raw) if vi_raw is not None else None
         if item_id and qty >= 1:
             items.append({"item_id": item_id, "quantity": qty, "variant_index": vi})
+    stored = {}
+    for entry in (get_cart(user.get("id", "")) or []):
+        if isinstance(entry, dict) and entry.get("item_id"):
+            stored[entry["item_id"]] = int(entry.get("quantity") or 1)
     ok = save_cart(user.get("id", ""), items)
+    _track_cart_change(user.get("id", ""), stored,
+                       {entry["item_id"]: entry["quantity"] for entry in items})
     return jsonify({"ok": ok})
 
 
@@ -7169,6 +7253,8 @@ def events_create():
     _auto_transition_event_status(event)
     data[event_id] = event
     _save_json_file(_EVENTS_JSON, data)
+    _track_server("event", {"action": "create", "event": event_id},
+                  user_id=user.get("id"))
     out = dict(event)
     out["can_manage"]    = True
     out["status_forced"] = bool(event.get("status_forced"))
@@ -7229,6 +7315,8 @@ def events_update(event_id):
     _enforce_pin_invariants(updated)
     data[event_id] = updated
     _save_json_file(_EVENTS_JSON, data)
+    _track_server("event", {"action": "edit", "event": event_id},
+                  user_id=user.get("id"))
     out = dict(updated)
     out["can_manage"]    = True
     out["status_forced"] = bool(updated.get("status_forced"))
@@ -7303,6 +7391,8 @@ def events_set_status(event_id):
     _enforce_pin_invariants(ev)
     data[event_id] = ev
     _save_json_file(_EVENTS_JSON, data)
+    _track_server("event", {"action": "status", "event": event_id},
+                  user_id=user.get("id"))
     out = dict(ev)
     _migrate_legacy_prize(out)
     out["can_manage"]    = True
@@ -7322,6 +7412,8 @@ def events_delete(event_id):
         return jsonify({"ok": True})
     del data[event_id]
     _save_json_file(_EVENTS_JSON, data)
+    _track_server("event", {"action": "delete", "event": event_id},
+                  user_id=user.get("id"))
     return jsonify({"ok": True})
 
 
@@ -7351,6 +7443,8 @@ def events_pin(event_id):
     ev["updated_at"] = time()
     data[event_id] = ev
     _save_json_file(_EVENTS_JSON, data)
+    _track_server("event", {"action": "pin", "event": event_id},
+                  user_id=user.get("id"))
     out = dict(ev)
     _migrate_legacy_prize(out)
     out["can_manage"] = _user_can_manage_event(user, ev)
@@ -7373,11 +7467,34 @@ def events_unpin(event_id):
     ev["updated_at"] = time()
     data[event_id] = ev
     _save_json_file(_EVENTS_JSON, data)
+    _track_server("event", {"action": "unpin", "event": event_id},
+                  user_id=user.get("id"))
     out = dict(ev)
     _migrate_legacy_prize(out)
     out["can_manage"] = _user_can_manage_event(user, ev)
     out["can_pin"]    = True
     return jsonify(out)
+
+
+_LAST_PINNED_IDS = {"value": None}
+
+
+def _track_pinned_feed(pinned):
+    """Record a pinned-list fetch, and whether the answer actually changed.
+
+    The banner polls this endpoint, so the figure worth having is how often the
+    pinned set moves rather than how often it is asked for.
+    """
+    try:
+        fingerprint = ",".join(sorted(str(ev.get("id") or "") for ev in pinned))
+    except Exception:
+        fingerprint = ""
+    previous = _LAST_PINNED_IDS["value"]
+    count = len(pinned) if isinstance(pinned, list) else 0
+    _track_server("feed", {"action": "fetch", "items": count})
+    if previous is not None and previous != fingerprint:
+        _track_server("feed", {"action": "changed", "items": count})
+    _LAST_PINNED_IDS["value"] = fingerprint
 
 
 def _public_events_response(payload, max_age=60):
@@ -7481,6 +7598,7 @@ def events_pinned_public():
     else:
         out = list(pinned_by_audience.values())
         out.sort(key=lambda e: -float(e.get("pinned_at") or 0))
+    _track_pinned_feed(out)
     return _public_events_response(out, max_age=60)
 
 
@@ -8091,9 +8209,12 @@ def player(username: str):
 
     try:
         data = cached_get(f"{WYNN_BASE}/player/{username}?fullResult")
+        _track_server("lookup", {"type": "player", "ok": True})
         return jsonify(data)
     except requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
+        if status == 404:
+            _track_server("lookup", {"type": "player", "ok": False})
         if status in (404, 429) or status >= 500:
             _friendly_http_error(e)
     except (requests.Timeout, requests.RequestException):
@@ -8130,9 +8251,12 @@ def guild_by_prefix(prefix: str):
 def guild_by_name(name: str):
     try:
         data = cached_get(f"{WYNN_BASE}/guild/{name}")
+        _track_server("lookup", {"type": "guild", "ok": True})
         return jsonify(data)
     except requests.HTTPError as e:
         status = e.response.status_code if e.response is not None else 502
+        if status == 404:
+            _track_server("lookup", {"type": "guild", "ok": False})
         abort(status, description=f"Wynncraft API error: {e}")
     except requests.RequestException as e:
         abort(502, description=f"Could not reach Wynncraft API: {e}")
@@ -10239,6 +10363,258 @@ def guild_info_logs():
     return jsonify(_gi_admin.get_logs(page=page, per_page=per_page))
 
 
+# analytics beacon
+#
+# Everything reaching these two endpoints is attacker-controlled. The token
+# proves the caller loaded a real page, the allow-list in analytics.py bounds
+# what can be stored, and the server derives the timestamp, page, panel, user
+# and IP hash instead of believing the payload. Nothing here feeds the ban
+# system: a burst of real traffic must never ban a real visitor.
+
+_TRACK_MAX_EVENTS = 20
+_TRACK_MAX_ERRORS = 10
+_TRACK_TOKEN_TTL = 1800
+_TRACK_SESSION_CALLS = 60
+_TRACK_SESSION_PERIOD = 60.0
+_SAME_SITE_VALUES = ("same-origin", "same-site", "none")
+_SEARCH_HOST_MARKERS = (
+    "google.", "bing.", "duckduckgo.", "ecosia.", "search.brave.", "yandex.",
+)
+_SOCIAL_HOST_MARKERS = (
+    "discord.", "twitter.", "x.com", "facebook.", "reddit.", "t.co", "bsky.",
+)
+
+
+def _track_origin_error():
+    """Reject beacons that did not come from our own pages.
+
+    Sec-Fetch-Site is the reliable signal where the browser sends it; the
+    Origin/Referer comparison is the fallback. Either way a cross-site caller
+    never gets past here.
+    """
+    site = (request.headers.get("Sec-Fetch-Site") or "").strip().lower()
+    if site:
+        if site in _SAME_SITE_VALUES:
+            return None
+        return jsonify({"error": "Cross-origin beacon rejected"}), 403
+    origin = (request.headers.get("Origin") or request.headers.get("Referer") or "").strip()
+    if not origin:
+        return jsonify({"error": "Missing origin"}), 403
+    try:
+        host = (_urlparse(origin).netloc or "").lower()
+    except ValueError:
+        return jsonify({"error": "Invalid origin"}), 403
+    if host and host == (request.host or "").lower():
+        return None
+    return jsonify({"error": "Cross-origin beacon rejected"}), 403
+
+
+def _track_clean_path(value):
+    """Accept only something that looks like one of our own page paths."""
+    if not isinstance(value, str):
+        return None
+    path = value.strip()
+    if not path.startswith("/") or ".." in path or "//" in path[1:]:
+        return None
+    return (path[:200] or "/")
+
+
+def _track_page_path(claimed=None):
+    """The page the beacon came from.
+
+    A same-origin Referer is the one thing the client cannot fake, so it wins.
+    The claimed path is only a fallback, and is taken solely if it looks like
+    one of ours.
+    """
+    referer = (request.headers.get("Referer") or "").strip()
+    if referer:
+        try:
+            parsed = _urlparse(referer)
+        except ValueError:
+            parsed = None
+        if parsed is not None and (parsed.netloc or "").lower() == (request.host or "").lower():
+            return _track_clean_path(parsed.path)
+    return _track_clean_path(claimed)
+
+
+def _track_panel_from_path(path):
+    """Derive the panel id from a /panel/<section>/<page> path."""
+    if not path:
+        return None
+    parts = path.strip("/").split("/")
+    if len(parts) >= 3 and parts[0] == "panel":
+        return (parts[1] + "/" + parts[2])[:40]
+    return None
+
+
+def _track_source():
+    """Coarse traffic source, derived from the referring host."""
+    referer = (request.headers.get("Referer") or "").strip()
+    if not referer:
+        return "direct"
+    try:
+        host = (_urlparse(referer).netloc or "").lower()
+    except ValueError:
+        return "direct"
+    if not host:
+        return "direct"
+    if host == (request.host or "").lower():
+        return "internal"
+    if any(marker in host for marker in _SEARCH_HOST_MARKERS):
+        return "search"
+    if any(marker in host for marker in _SOCIAL_HOST_MARKERS):
+        return "social"
+    return "external"
+
+
+def _track_referrer_host():
+    """The referring host, or None. Capped on the way into the table."""
+    referer = (request.headers.get("Referer") or "").strip()
+    if not referer:
+        return None
+    try:
+        host = (_urlparse(referer).netloc or "").lower()
+    except ValueError:
+        return None
+    return host or None
+
+
+@app.route("/api/track/token")
+@rate_limit(30, 60)
+def track_token():
+    """Mint a short-lived beacon token bound to this visitor's session."""
+    if _analytics is None:
+        return jsonify({"error": "Analytics unavailable"}), 503
+    origin_error = _track_origin_error()
+    if origin_error:
+        return origin_error
+    sid, fresh = _analytics.ensure_session_cookie(
+        request.cookies.get(_analytics.SESSION_COOKIE)
+    )
+    response = jsonify({
+        "token": _analytics.issue_track_token(_analytics.hash_session(sid)),
+        "expires_in": _TRACK_TOKEN_TTL,
+        "max_events": _TRACK_MAX_EVENTS,
+        "max_errors": _TRACK_MAX_ERRORS,
+    })
+    if fresh:
+        _analytics.set_session_cookie(response, fresh, secure=not DEV_MODE)
+    return response
+
+
+@app.route("/api/track", methods=["POST"])
+@rate_limit(120, 60)
+def track_events():
+    """Accept one batch of client events.
+
+    Order matters: origin, then token, then rate limit, then allow-list.
+    Nothing is stored until all four have passed, and anything that fails is
+    counted as a rejection instead.
+    """
+    if _analytics is None:
+        return jsonify({"error": "Analytics unavailable"}), 503
+    origin_error = _track_origin_error()
+    if origin_error:
+        _analytics.record_rejected("bad_origin")
+        return origin_error
+
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        _analytics.record_rejected("bad_body")
+        return jsonify({"error": "Invalid request body"}), 400
+
+    sid, fresh = _analytics.ensure_session_cookie(
+        request.cookies.get(_analytics.SESSION_COOKIE)
+    )
+    session_hash = _analytics.hash_session(sid)
+    if not _analytics.verify_track_token(body.get("token"), session_hash):
+        _analytics.record_rejected("bad_token")
+        return jsonify({"error": "Invalid or expired token"}), 403
+    if not _analytics.session_rate_ok(session_hash, _TRACK_SESSION_CALLS, _TRACK_SESSION_PERIOD):
+        _analytics.record_rejected("session_rate")
+        return jsonify({"error": "Too many batches"}), 429
+
+    events = body.get("events") or []
+    errors = body.get("errors") or []
+    if not isinstance(events, list) or not isinstance(errors, list):
+        _analytics.record_rejected("bad_batch")
+        return jsonify({"error": "events and errors must be arrays"}), 400
+    if len(events) > _TRACK_MAX_EVENTS or len(errors) > _TRACK_MAX_ERRORS:
+        _analytics.record_rejected("batch_too_large")
+        return jsonify({"error": "Batch too large"}), 413
+    if not _analytics.session_budget_ok(session_hash, len(events) + len(errors)):
+        _analytics.record_rejected("session_budget")
+        return jsonify({"error": "Daily event budget reached"}), 429
+
+    client, client_reason = _analytics.clean_client(body.get("client"))
+    if client_reason:
+        _analytics.record_rejected(client_reason)
+        client = {}
+
+    raw_path = _track_page_path(body.get("path"))
+    user = session.get("user") or {}
+    context = {
+        "session_hash": session_hash,
+        "user_id": user.get("id"),
+        "path": _analytics.normalise_route(raw_path) if raw_path else None,
+        "panel": _track_panel_from_path(raw_path),
+        "referrer": _track_referrer_host(),
+        "source": _track_source(),
+        "device": client.get("device"),
+        "os_name": client.get("os"),
+        "browser": client.get("browser"),
+        "locale": client.get("locale"),
+        "tz_name": client.get("timezone"),
+    }
+
+    accepted = 0
+    rejected = 0
+    for item in events:
+        if not isinstance(item, dict):
+            rejected += 1
+            _analytics.record_rejected("event:not_object")
+            continue
+        kind = item.get("kind")
+        if not _analytics.is_known_kind(kind):
+            rejected += 1
+            _analytics.record_rejected("event:unknown_kind")
+            continue
+        props, prop_reason = _analytics.clean_event_props(kind, item.get("props"))
+        if prop_reason:
+            rejected += 1
+            _analytics.record_rejected(prop_reason)
+            continue
+        _analytics.record_event(
+            kind=kind, name=item.get("name"), props=props,
+            ip=_real_ip(), **context
+        )
+        accepted += 1
+
+    for item in errors:
+        if not isinstance(item, dict):
+            rejected += 1
+            _analytics.record_rejected("error:not_object")
+            continue
+        if not _analytics.record_client_error(
+            kind=item.get("kind"),
+            message=item.get("message"),
+            source=item.get("source"),
+            line=item.get("line"),
+            build=item.get("build"),
+            path=context["path"],
+            session_hash=session_hash,
+        ):
+            rejected += 1
+            _analytics.record_rejected("error:unknown_kind")
+            continue
+        accepted += 1
+
+    response = jsonify({"ok": True, "accepted": accepted, "rejected": rejected})
+    if fresh:
+        _analytics.set_session_cookie(response, fresh, secure=not DEV_MODE)
+    return response
+
+
 # error handlers
 
 @app.errorhandler(404)
@@ -10258,6 +10634,36 @@ def bad_gateway(e):
 
 
 # startup
+
+
+def _publish_route_registry():
+    """Hand this service's url_map to the analytics store.
+
+    The panel derives "never called" from this rather than a hand-maintained
+    list. Rules are stored in the same normalised form as the request log, so
+    the two can be compared directly.
+    """
+    if _analytics is None:
+        return
+    try:
+        entries = []
+        for rule in app.url_map.iter_rules():
+            path = str(rule.rule)
+            if not path.startswith(("/api/", "/auth/")):
+                continue
+            if "<path:" in path:
+                continue
+            if path.startswith("/api/track"):
+                continue
+            methods = sorted(rule.methods - {"HEAD", "OPTIONS"})
+            entries.append((_analytics.normalise_route(path), ",".join(methods)))
+        _analytics.write_route_registry(entries)
+    except Exception:
+        pass
+
+
+_publish_route_registry()
+
 
 if __name__ == "__main__":
     _auction_worker_on = start_auction_close_worker()

@@ -16,252 +16,37 @@
   var fmtInt = A.fmtInt;
   var fmtPct = A.fmtPct;
   var fmtMs = A.fmtMs;
-  var sumOf = A.sumOf;
-  var rng = A.rng;
-  var demoBase = A.demoBase;
-  var trendSeries = A.trendSeries;
-  var USE_DEMO_DATA = A.USE_DEMO_DATA;
+
+  var HEALTH_KPI_SPEC = {
+    jsErrors:       { format: fmtInt, invert: true },
+    rejections:     { format: fmtInt, invert: true },
+    failedRequests: { format: fmtInt, invert: true },
+    notFoundViews:  { format: fmtInt, invert: true },
+    brokenAssets:   { format: fmtInt, invert: true },
+    retries:        { format: fmtInt, invert: true },
+    gaveUp:         { format: fmtInt, invert: true },
+    blocked:        { format: fmtInt, invert: true },
+    bansIssued:     { format: fmtInt, invert: true },
+    rateLimited:    { format: fmtInt, invert: true },
+    bruteForce:     { format: fmtInt, invert: true },
+  };
 
   function loadHealth(range) {
-    if (USE_DEMO_DATA) return Promise.resolve(buildHealthDemo(range));
     return fetch('/panel/api/analytics/health?range=' + encodeURIComponent(range), {
       credentials: 'same-origin',
     }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
-    });
-  }
-
-  function buildHealthDemo(range) {
-    var base = demoBase(range);
-    var rand = rng(8821 + range.length * 691);
-    var labels = base.labels;
-    var n = labels.length;
-
-    function series(start, spread, trend) {
-      var out = [];
-      for (var i = 0; i < n; i++) {
-        var t = n > 1 ? i / (n - 1) : 0;
-        out.push(Math.max(0, Math.round(start * (1 + trend * t) + (rand() - 0.5) * spread)));
-      }
-      return out;
-    }
-
-    var errorSeries = series(22, 18, -0.15);
-    var jsErrors = 412;
-    var unhandledRejections = 96;
-    var failedRequests = 268;
-    var notFoundViews = 386;
-
-    // Client-side JS errors: message, stack location and the build they came from.
-    var jsErrorList = [
-      { message: "TypeError: Cannot read properties of undefined (reading 'username')", file: 'js/player.js', line: 412, build: '2f8c1a', count: 84 },
-      { message: 'Uncaught (in promise) Error: NetworkError when attempting to fetch resource.', file: 'js/app.js', line: 1108, build: '2f8c1a', count: 61 },
-      { message: "TypeError: Cannot read properties of null (reading 'classList')", file: 'js/pinned-banner.js', line: 219, build: '9d31e4', count: 42 },
-      { message: 'RangeError: Invalid time value', file: 'js/events.js', line: 1335, build: '2f8c1a', count: 28 },
-      { message: "SyntaxError: Unexpected token '<'", file: 'js/data-cache.js', line: 74, build: '9d31e4', count: 19 },
-      { message: 'TypeError: graphState.data is undefined', file: 'js/guild.js', line: 1431, build: '2f8c1a', count: 12 },
-    ];
-
-    var rejectionList = [
-      { label: 'Failed to fetch', value: 38 },
-      { label: 'AbortError: the user aborted a request', value: 24 },
-      { label: 'NetworkError when attempting to fetch resource', value: 19 },
-      { label: 'TimeoutError: signal timed out', value: 9 },
-      { label: 'TypeError: Failed to parse response', value: 6 },
-    ];
-
-    // Failed fetch / XHR calls with status and duration.
-    var failedRequestList = [
-      { url: '/api/guild',              status: 504, duration: 45000, count: 42 },
-      { url: '/api/player/190Q/stats',  status: 504, duration: 31200, count: 31 },
-      { url: '/api/shop/items',         status: 503, duration: 12400, count: 26 },
-      { url: '/api/events/pinned',      status: 500, duration: 980,  count: 24 },
-      { url: '/api/player/UnknownUser', status: 404, duration: 1210, count: 19 },
-      { url: '/api/guild/member-history', status: 504, duration: 45000, count: 14 },
-      { url: '/auth/session',           status: 503, duration: 8600, count: 11 },
-    ];
-
-    var toasts = {
-      apiErrors: 214,
-      toastsShown: 386,
-      top: [
-        { label: 'Could not load guild data', value: 62 },
-        { label: 'Lookup failed',             value: 48 },
-        { label: 'Rate limited, try again',   value: 31 },
-        { label: 'Saved to clipboard',        value: 24 },
-        { label: 'Signed out',                value: 18 },
-      ],
-    };
-
-    var notFoundPaths = [
-      { label: '/favicon-32.png',            value: 96 },
-      { label: '/api/player/UnknownUser',    value: 71 },
-      { label: '/images/missing-badge.png',  value: 58 },
-      { label: '/js/graph-shared.js.map',    value: 41 },
-      { label: '/fonts/Cinzel-Bold.woff2',   value: 34 },
-      { label: '/robots.txt',                value: 28 },
-    ];
-
-    var brokenAssets = [
-      { label: '/images/missing-badge.png',  value: 58 },
-      { label: '/favicon-32.png',            value: 41 },
-      { label: '/images/old-banner.avif',    value: 26 },
-      { label: '/fonts/Monocraft-Bold.ttf',  value: 12 },
-    ];
-
-    var gaveUp = [
-      { label: 'Player lookup',    value: 24 },
-      { label: 'Guild lookup',     value: 18 },
-      { label: 'Shop checkout',    value: 11 },
-      { label: 'Event load',       value: 6 },
-      { label: 'Save preferences', value: 4 },
-    ];
-    var retries = 268;
-    var gaveUpTotal = sumOf(gaveUp.map(function (g) { return g.value; }));
-
-    var skeleton = { median: 420, p95: 1180, slowest: 3400 };
-
-    var builds = [
-      { label: '2f8c1a', value: 4820 },
-      { label: '9d31e4', value: 1610 },
-      { label: '7b02ff', value: 380 },
-    ];
-
-    // Per-build comparison so releases can be told apart.
-    var errorsByBuild = [
-      { build: '2f8c1a', sessions: 4820, jsErrors: 254, failedRequests: 168, errorRate: 5.3 },
-      { build: '9d31e4', sessions: 1610, jsErrors: 121, failedRequests: 74, errorRate: 7.5 },
-      { build: '7b02ff', sessions: 380, jsErrors: 37, failedRequests: 26, errorRate: 9.7 },
-    ];
-
-    var blockedSeries = series(180, 90, 0.1);
-
-    // The gate's named rules.
-    var blockedReasons = [
-      { label: 'Scanner probe',       value: 612 },
-      { label: 'WordPress probe',     value: 288 },
-      { label: 'Injection payload',   value: 141 },
-      { label: 'Banned method',       value: 74 },
-      { label: 'HTTP/1.0 fingerprint', value: 52 },
-    ];
-
-    var banTriggers = [
-      { label: 'Scanner probe',       value: 14 },
-      { label: 'WordPress probe',     value: 11 },
-      { label: 'Injection payload',   value: 6 },
-      { label: 'Banned method',       value: 4 },
-      { label: 'HTTP/1.0 fingerprint', value: 2 },
-    ];
-    var bansIssued = sumOf(banTriggers.map(function (b) { return b.value; }));
-
-    var strikes = 96;
-    var rateLimited = 122;
-    var bruteForce = 48;
-
-    var bannedStillHitting = {
-      ips: 9,
-      requests: 214,
-      top: [
-        { label: '203.0.113.0', value: 68 },
-        { label: '198.51.100.0', value: 41 },
-        { label: '192.0.2.0',    value: 26 },
-      ],
-    };
-
-    var cfSkips = 14;
-
-    var malformed = { total: 68, badRequest: 61, versionNotSupported: 7 };
-
-    var offendingPaths = [
-      { label: '/wp-login.php',     value: 288 },
-      { label: '/.env',             value: 141 },
-      { label: '/phpmyadmin',       value: 96 },
-      { label: '/xmlrpc.php',       value: 74 },
-      { label: '/.git/config',      value: 52 },
-      { label: '/admin.php',        value: 38 },
-    ];
-
-    var offendingAgents = [
-      { label: 'python-requests/2.31', value: 214 },
-      { label: 'curl/8.4.0',           value: 168 },
-      { label: 'Go-http-client/1.1',   value: 96 },
-      { label: 'Nikto/2.5.0',          value: 62 },
-      { label: 'masscan/1.3',          value: 41 },
-    ];
-
-    var offendingAsns = [
-      { label: 'AS14061 DigitalOcean', value: 214 },
-      { label: 'AS16509 Amazon',       value: 148 },
-      { label: 'AS24940 Hetzner',      value: 121 },
-      { label: 'AS16276 OVH',          value: 86 },
-      { label: 'AS9009 M247',          value: 42 },
-    ];
-
-    // Z-score against the trailing baseline for each bucket.
-    var anomalies = [];
-    for (var i = 0; i < n; i++) {
-      var baseline = 2400;
-      var value = base.traffic.requests[i];
-      anomalies.push({
-        bucket: labels[i],
-        requests: value,
-        baseline: baseline,
-        z: Math.round(((value - baseline) / 420) * 10) / 10,
+    }).then(function (d) {
+      d.labels = A.bucketLabels(d.buckets, range);
+      Object.keys(HEALTH_KPI_SPEC).forEach(function (id) {
+        var kpi = d.kpis && d.kpis[id];
+        if (!kpi) return;
+        kpi.format = HEALTH_KPI_SPEC[id].format;
+        kpi.invert = HEALTH_KPI_SPEC[id].invert;
       });
-    }
-    var flagged = anomalies.filter(function (a) { return Math.abs(a.z) >= 2; });
-
-    return {
-      demo: true,
-      range: range,
-      generatedAt: new Date().toISOString(),
-      labels: labels,
-
-      kpis: {
-        jsErrors:      { value: jsErrors, prev: 468, series: errorSeries, format: fmtInt, invert: true },
-        rejections:    { value: unhandledRejections, prev: 112, series: trendSeries(unhandledRejections, n, 0.3, rand), format: fmtInt, invert: true },
-        failedRequests: { value: failedRequests, prev: 302, series: trendSeries(failedRequests, n, 0.3, rand), format: fmtInt, invert: true },
-        notFoundViews: { value: notFoundViews, prev: 342, series: trendSeries(notFoundViews, n, 0.28, rand), format: fmtInt, invert: true },
-
-        brokenAssets:  { value: sumOf(brokenAssets.map(function (b) { return b.value; })), prev: 164, series: trendSeries(sumOf(brokenAssets.map(function (b) { return b.value; })), n, 0.3, rand), format: fmtInt, invert: true },
-        retries:       { value: retries, prev: 302, series: trendSeries(retries, n, 0.25, rand), format: fmtInt, invert: true },
-        gaveUp:        { value: gaveUpTotal, prev: 76, series: trendSeries(gaveUpTotal, n, 0.3, rand), format: fmtInt, invert: true },
-        skeletonMedian: { value: skeleton.median, prev: 486, series: trendSeries(skeleton.median, n, 0.2, rand), format: fmtMs, invert: true },
-
-        blocked:       { value: sumOf(blockedReasons.map(function (b) { return b.value; })), prev: 986, series: blockedSeries, format: fmtInt, invert: true },
-        bansIssued:    { value: bansIssued, prev: 31, series: trendSeries(bansIssued, n, 0.4, rand), format: fmtInt, invert: true },
-        rateLimited:   { value: rateLimited, prev: 148, series: trendSeries(rateLimited, n, 0.35, rand), format: fmtInt, invert: true },
-        bruteForce:    { value: bruteForce, prev: 39, series: trendSeries(bruteForce, n, 0.45, rand), format: fmtInt, invert: true },
-      },
-
-      errorSeries: errorSeries,
-      jsErrorList: jsErrorList,
-      rejectionList: rejectionList,
-      failedRequestList: failedRequestList,
-      toasts: toasts,
-      notFoundPaths: notFoundPaths,
-
-      brokenAssets: brokenAssets,
-      gaveUp: gaveUp,
-      retries: retries,
-      skeleton: skeleton,
-      builds: builds,
-      errorsByBuild: errorsByBuild,
-
-      blockedSeries: blockedSeries,
-      blockedReasons: blockedReasons,
-      banTriggers: banTriggers,
-      strikes: strikes,
-      bannedStillHitting: bannedStillHitting,
-      cfSkips: cfSkips,
-      malformed: malformed,
-      offendingPaths: offendingPaths,
-      offendingAgents: offendingAgents,
-      offendingAsns: offendingAsns,
-      anomalies: anomalies,
-      flaggedAnomalies: flagged,
-    };
+      return d;
+    });
   }
 
   var HEALTH_TABS = [
@@ -273,7 +58,7 @@
   function buildHealth(container) {
     return analyticsPanel({
       container: container,
-      label: 'Health & Security',
+      label: 'Health & Security',
       tabKey: 'health',
       tabs: HEALTH_TABS,
       load: loadHealth,
@@ -292,9 +77,9 @@
 
   function healthExportRows(d, tab) {
     if (tab === 'frontend') {
-      var f = [['build', 'sessions', 'js_errors', 'failed_requests', 'error_rate_pct']];
+      var f = [['build', 'sessions', 'js_errors', 'failed_requests', 'errors_per_session']];
       d.errorsByBuild.forEach(function (b) {
-        f.push([b.build, b.sessions, b.jsErrors, b.failedRequests, b.errorRate]);
+        f.push([b.build, b.sessions, b.jsErrors, b.failedRequests, b.perSession]);
       });
       return f;
     }
@@ -421,10 +206,9 @@
   function healthFrontendTab(ctx) {
     var d = ctx.data;
     ctx.content.appendChild(panelKpiStrip(d, [
-      { id: 'brokenAssets',   label: 'Broken assets', cls: 'an-c5', hint: 'Images and assets that failed to load' },
-      { id: 'retries',        label: 'Retries',       cls: 'an-c6', hint: 'Requests the front end retried' },
-      { id: 'gaveUp',         label: 'Gave up',       cls: 'an-c5', hint: 'Times a user stopped after retries failed' },
-      { id: 'skeletonMedian', label: 'Skeleton time', cls: 'an-c3', hint: 'Median time a loading skeleton was shown' },
+      { id: 'brokenAssets', label: 'Broken assets', cls: 'an-c5', hint: 'Images and assets that failed to load' },
+      { id: 'retries',      label: 'Retries',       cls: 'an-c6', hint: 'Failed calls to a URL the browser asked for again' },
+      { id: 'gaveUp',       label: 'Gave up',       cls: 'an-c5', hint: 'URLs that failed three times running' },
     ]));
 
     var row = el('div', 'an-grid');
@@ -441,30 +225,9 @@
     ctx.content.appendChild(row);
 
     var row2 = el('div', 'an-grid');
-    var skeleton = card({
-      title: 'Skeleton time',
-      span: 6,
-      foot: 'How long the loading placeholders stayed on screen.',
-      exportRows: function () {
-        return [
-          ['metric', 'value'],
-          ['median_ms', d.skeleton.median],
-          ['p95_ms', d.skeleton.p95],
-          ['slowest_ms', d.skeleton.slowest],
-        ];
-      },
-      exportName: csvName('health', 'skeleton-time'),
-    });
-    skeleton.body.appendChild(miniStrip([
-      { label: 'Median',  value: fmtMs(d.skeleton.median) },
-      { label: 'p95',     value: fmtMs(d.skeleton.p95) },
-      { label: 'Slowest', value: fmtMs(d.skeleton.slowest) },
-    ]));
-    row2.appendChild(skeleton.root);
-
     row2.appendChild(rankedCard({
-      title: 'Builds in use', span: 6, items: d.builds, cls: 'an-c1', unit: 'build',
-      foot: 'Frontend build per session.',
+      title: 'Builds in use', span: 12, items: d.builds, cls: 'an-c1', unit: 'build',
+      foot: 'Frontend build per session, read from the hashed bundle name.',
       exportName: csvName('health', 'builds'),
     }).root);
     ctx.content.appendChild(row2);
@@ -473,11 +236,11 @@
     var byBuild = card({
       title: 'Errors by build',
       span: 12,
-      foot: 'Compare releases: error rate is JS errors plus failed requests over sessions.',
+      foot: 'Compare releases. Errors per session is JS errors plus failed requests, divided by sessions.',
       exportRows: function () {
-        var rows = [['build', 'sessions', 'js_errors', 'failed_requests', 'error_rate_pct']];
+        var rows = [['build', 'sessions', 'js_errors', 'failed_requests', 'errors_per_session']];
         d.errorsByBuild.forEach(function (b) {
-          rows.push([b.build, b.sessions, b.jsErrors, b.failedRequests, b.errorRate]);
+          rows.push([b.build, b.sessions, b.jsErrors, b.failedRequests, b.perSession]);
         });
         return rows;
       },
@@ -489,7 +252,7 @@
         { key: 'sessions',       label: 'Sessions',        num: true, format: fmtInt },
         { key: 'jsErrors',       label: 'JS errors',       num: true, format: fmtInt },
         { key: 'failedRequests', label: 'Failed requests', num: true, format: fmtInt },
-        { key: 'errorRate',      label: 'Error rate',      num: true, format: function (v) { return fmtPct(v, 1); } },
+        { key: 'perSession',     label: 'Per session',     num: true, format: function (v) { return Number(v).toFixed(2); } },
       ],
       rows: d.errorsByBuild,
     }));
@@ -539,20 +302,21 @@
     row2.appendChild(chart.root);
 
     var enforce = card({
-      title: 'Strikes and rate limits',
+      title: 'Enforcement',
       span: 4,
+      foot: 'Strike counts are held in memory only, so they cannot be reported over a range.',
       exportRows: function () {
         return [
           ['metric', 'value'],
-          ['strikes_recorded', d.strikes],
           ['rate_limited_429', d.kpis.rateLimited.value],
+          ['ips_banned', d.kpis.bansIssued.value],
         ];
       },
       exportName: csvName('health', 'enforcement'),
     });
     enforce.body.appendChild(miniStrip([
-      { label: 'Strikes recorded', value: fmtInt(d.strikes) },
-      { label: 'Rate limited',     value: fmtInt(d.kpis.rateLimited.value) },
+      { label: 'Rate limited', value: fmtInt(d.kpis.rateLimited.value) },
+      { label: 'IPs banned',   value: fmtInt(d.kpis.bansIssued.value) },
     ]));
     row2.appendChild(enforce.root);
     ctx.content.appendChild(row2);
@@ -564,38 +328,15 @@
     }).root);
     row3.appendChild(rankedCard({
       title: 'Top offending user agents', span: 4, items: d.offendingAgents, cls: 'an-c6', unit: 'agent',
+      foot: 'Grouped by user-agent class, not the full string.',
       exportName: csvName('health', 'offending-agents'),
-    }).root);
-    row3.appendChild(rankedCard({
-      title: 'Top offending ASNs', span: 4, items: d.offendingAsns, cls: 'an-c4', unit: 'asn',
-      exportName: csvName('health', 'offending-asns'),
     }).root);
     ctx.content.appendChild(row3);
 
     var row4 = el('div', 'an-grid');
-    var stillHitting = card({
-      title: 'Banned IPs still hitting',
-      span: 4,
-      foot: 'Addresses already banned that keep sending requests. Addresses are truncated.',
-      exportRows: function () {
-        var rows = [['metric', 'value']];
-        rows.push(['distinct_ips', d.bannedStillHitting.ips]);
-        rows.push(['requests', d.bannedStillHitting.requests]);
-        d.bannedStillHitting.top.forEach(function (t) { rows.push(['ip:' + t.label, t.value]); });
-        return rows;
-      },
-      exportName: csvName('health', 'banned-still-hitting'),
-    });
-    stillHitting.body.appendChild(miniStrip([
-      { label: 'Distinct IPs', value: fmtInt(d.bannedStillHitting.ips) },
-      { label: 'Requests',     value: fmtInt(d.bannedStillHitting.requests) },
-    ]));
-    stillHitting.body.appendChild(rankedRows(d.bannedStillHitting.top, { cls: 'an-c5' }));
-    row4.appendChild(stillHitting.root);
-
     var cf = card({
       title: 'Cloudflare skips',
-      span: 4,
+      span: 6,
       foot: 'Requests from a Cloudflare edge with no usable CF-Connecting-IP, so the real client could not be resolved.',
       exportRows: function () {
         return [['metric', 'value'], ['cloudflare_skips', d.cfSkips]];
@@ -609,7 +350,7 @@
 
     var malformed = card({
       title: 'Malformed HTTP',
-      span: 4,
+      span: 6,
       foot: 'Rejected at the WSGI layer before the request reached the app.',
       exportRows: function () {
         return [
@@ -633,7 +374,7 @@
     var anomalies = card({
       title: 'Traffic anomalies',
       span: 12,
-      foot: 'Buckets whose request count sits two or more standard deviations from the trailing baseline.',
+      foot: 'Buckets whose request count sits two or more standard deviations from the mean of the range.',
       exportRows: function () {
         var rows = [['bucket', 'requests', 'baseline', 'z_score']];
         d.anomalies.forEach(function (a) { rows.push([a.bucket, a.requests, a.baseline, a.z]); });

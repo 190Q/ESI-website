@@ -448,6 +448,13 @@
   syncNavbarCenterVisibility();
   setMobileSidebarOpen(false);
 
+  /* analytics */
+  function trackUi(action) {
+    try {
+      if (window.ESITrack) window.ESITrack.event('ui', { action: action });
+    } catch (e) { /* analytics must never break the UI */ }
+  }
+
   /* nav clicks */
   navItems.forEach(item => {
     item.addEventListener('click', e => {
@@ -466,6 +473,9 @@
       const panel = document.getElementById('panel-' + target);
       if (panel) panel.classList.add('active');
       if (window.updateHash) window.updateHash();
+      try {
+        if (window.ESITrack) window.ESITrack.event('nav_click', { target: target, area: 'sidebar' });
+      } catch (e) { /* analytics must never break navigation */ }
       if (isMobileSidebarMode()) setMobileSidebarOpen(false);
     });
   });
@@ -476,7 +486,10 @@
     closeBtn: document.getElementById('accountModalClose'),
   });
 
-  function openAccountModal()  { window.Popup.open(accountModalBackdrop); }
+  function openAccountModal()  {
+    window.Popup.open(accountModalBackdrop);
+    trackUi('account_modal_opened');
+  }
   function closeAccountModal() { window.Popup.close(accountModalBackdrop); }
   function setLoginButtonLoadingState() {
     loginBtn.disabled = true;
@@ -3396,6 +3409,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
     _pushSettingsToServer(values);
     _settingsSnapshot = values;
     _updateSaveBtn();
+    trackUi('settings_saved');
     var fullyLive = _applyLiveSettings(prev, values);
     if (fullyLive) {
       showToast('\u2713 Settings saved.', 'success');
@@ -3406,6 +3420,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   /* reset button */
   settingsResetBtn.addEventListener('click', function () {
+    trackUi('settings_reset');
     var prev = _settingsSnapshot;
     esiSettings.reset();
     _populateSettingsForm();

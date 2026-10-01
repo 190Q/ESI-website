@@ -4,7 +4,6 @@
   var A = window.ESIAnalytics;
   var _state = A.state;
   var writeState = A.writeState;
-  var USE_DEMO_DATA = A.USE_DEMO_DATA;
   var DAY_LABELS = A.DAY_LABELS;
   var METRICS = A.METRICS;
   var el = A.el;
@@ -13,10 +12,7 @@
   var fmtMs = A.fmtMs;
   var fmtPct = A.fmtPct;
   var deltaPct = A.deltaPct;
-  var rng = A.rng;
   var stamp = A.stamp;
-  var demoBase = A.demoBase;
-  var trendSeries = A.trendSeries;
   var sparkline = A.sparkline;
   var timeSeriesChart = A.timeSeriesChart;
   var rankedRows = A.rankedRows;
@@ -29,132 +25,33 @@
   var analyticsPanel = A.analyticsPanel;
   var analyticsFoot = A.analyticsFoot;
 
+  var OVERVIEW_KPI_SPEC = {
+    requests:  { format: fmtInt, invert: false },
+    visitors:  { format: fmtInt, invert: false },
+    activeNow: { format: fmtInt, invert: false },
+    logins:    { format: fmtInt, invert: false },
+    errorRate: { format: function (v) { return fmtPct(v); },    invert: true  },
+    p95:       { format: fmtMs,  invert: true  },
+    bannerCtr: { format: function (v) { return fmtPct(v, 1); }, invert: false },
+    blocked:   { format: fmtInt, invert: false },
+  };
+
   function loadOverview(range) {
-    if (USE_DEMO_DATA) return Promise.resolve(buildDemo(range));
     return fetch('/panel/api/analytics/overview?range=' + encodeURIComponent(range), {
       credentials: 'same-origin',
     }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
+    }).then(function (d) {
+      d.labels = A.bucketLabels(d.buckets, range);
+      Object.keys(OVERVIEW_KPI_SPEC).forEach(function (id) {
+        var kpi = d.kpis && d.kpis[id];
+        if (!kpi) return;
+        kpi.format = OVERVIEW_KPI_SPEC[id].format;
+        kpi.invert = OVERVIEW_KPI_SPEC[id].invert;
+      });
+      return d;
     });
-  }
-
-  function buildDemo(range) {
-    var base = demoBase(range);
-    var rand = rng(5231 + range.length * 811);
-    var labels = base.labels;
-    var n = labels.length;
-    var traffic = base.traffic;
-    var requests = traffic.requests;
-    var visitors = traffic.visitors;
-    var errors = traffic.errors;
-    var p95 = traffic.p95;
-    var blocked = traffic.blocked;
-    function sum(a) { return a.reduce(function (x, y) { return x + y; }, 0); }
-    function avg(a) { return a.length ? sum(a) / a.length : 0; }
-
-    // 7 x 24 grid with a plausible diurnal and weekend shape.
-    var heat = [];
-    for (var d = 0; d < 7; d++) {
-      var row = [];
-      for (var h = 0; h < 24; h++) {
-        var peak = Math.exp(-Math.pow((h - 19) / 4.2, 2)) + 0.45 * Math.exp(-Math.pow((h - 13) / 3.2, 2));
-        var weekend = d >= 5 ? 1.18 : 1;
-        row.push(Math.round(peak * weekend * (60 + rand() * 45)));
-      }
-      heat.push(row);
-    }
-
-    var kpis = {
-      requests:  { value: sum(requests), prev: Math.round(sum(requests) * 0.87), series: requests, format: fmtInt, invert: false },
-      visitors:  { value: 3812, prev: 3311, series: visitors, format: fmtInt, invert: false },
-      activeNow: { value: 47, prev: null, series: trendSeries(47, n, 0.3, rand), format: fmtInt, invert: false },
-      logins:    { value: 268, prev: 241, series: trendSeries(268, n, 0.3, rand), format: fmtInt, invert: false },
-      errorRate: {
-        value: (sum(errors) / Math.max(1, sum(requests))) * 100,
-        prev: 0.71, series: errors,
-        format: function (v) { return fmtPct(v); }, invert: true,
-      },
-      p95:       { value: avg(p95), prev: 342, series: p95, format: fmtMs, invert: true },
-      bannerCtr: { value: 8.4, prev: 6.1, series: trendSeries(8.4, n, 0.25, rand), format: function (v) { return fmtPct(v, 1); }, invert: false },
-      blocked:   { value: sum(blocked), prev: Math.round(sum(blocked) * 0.92), series: blocked, format: fmtInt, invert: false },
-    };
-
-    return {
-      demo: true,
-      range: range,
-      generatedAt: new Date().toISOString(),
-      labels: labels,
-      traffic: { requests: requests, visitors: visitors, errors: errors, p95: p95, blocked: blocked },
-      kpis: kpis,
-      live: { rpm: 41, sessions: 47, epm: 0.6, p95: 288, series: requests.slice(-30) },
-      topPaths: [
-        { path: '/api/player/190Q',        views: 18422, unique: 1204, avgMs: 142,  status: '200' },
-        { path: '/api/guild',              views: 12930, unique: 986,  avgMs: 168,  status: '200' },
-        { path: '/',                       views: 9810,  unique: 2741, avgMs: 12,   status: '200' },
-        { path: '/api/events/pinned',      views: 7422,  unique: 1893, avgMs: 24,   status: '200' },
-        { path: '/js/pinned-banner.js',    views: 6104,  unique: 1802, avgMs: 3,    status: '200' },
-        { path: '/api/shop/items',         views: 4310,  unique: 512,  avgMs: 210,  status: '200' },
-        { path: '/api/player/UnknownUser', views: 388,   unique: 71,   avgMs: 1210, status: '404' },
-        { path: '/wp-login.php',           views: 214,   unique: 9,    avgMs: 2,    status: '403' },
-      ],
-      sources: [
-        { label: 'Direct',   value: 4210 },
-        { label: 'Discord',  value: 2840 },
-        { label: 'Search',   value: 1120 },
-        { label: 'Referral', value: 460  },
-      ],
-      panels: [
-        { label: 'Player',     views: 6420 },
-        { label: 'Guild',      views: 4180 },
-        { label: 'Events',     views: 2960 },
-        { label: 'Shop',       views: 1740 },
-        { label: 'Bot',        views: 860  },
-        { label: 'Promotions', views: 540  },
-        { label: 'Inactivity', views: 410  },
-      ],
-      pinned: [
-        { event: 'Wynnpiece Treasure Hunt', impressions: 3184, clicks: 412, ctr: 12.9, collapses: 688  },
-        { event: 'Guild Anniversary Raid',  impressions: 2410, clicks: 188, ctr: 7.8,  collapses: 1210 },
-        { event: 'Aspect Hunt Night',       impressions: 1760, clicks: 96,  ctr: 5.5,  collapses: 902  },
-        { event: 'Build Contest',           impressions: 980,  clicks: 24,  ctr: 2.4,  collapses: 731  },
-      ],
-      devices: [
-        { label: 'Desktop', value: 5940 },
-        { label: 'Mobile',  value: 2180 },
-        { label: 'Tablet',  value: 380  },
-      ],
-      countries: [
-        { label: 'Belgium',       value: 2140 },
-        { label: 'Netherlands',   value: 1180 },
-        { label: 'Germany',       value: 940  },
-        { label: 'France',        value: 760  },
-        { label: 'United States', value: 690  },
-        { label: 'Other',         value: 2790 },
-      ],
-      peakHours: heat,
-      errors: {
-        total: sum(errors),
-        top: [
-          { label: 'Upstream 503 (routes restarting)',  count: 84 },
-          { label: 'TypeError in player.js:412',        count: 41 },
-          { label: 'Failed fetch /api/guild (timeout)', count: 27 },
-          { label: '404 /api/player/UnknownUser',       count: 19 },
-        ],
-      },
-      security: {
-        blocked: sum(blocked),
-        banned: 37,
-        rateLimited: 122,
-        topRule: 'Scanner probe',
-        byRule: [
-          { label: 'Scanner probe',     count: 612 },
-          { label: 'WordPress probe',   count: 288 },
-          { label: 'Injection payload', count: 141 },
-          { label: 'Banned method',     count: 74  },
-        ],
-      },
-    };
   }
 
   function buildOverview(container) {
@@ -400,7 +297,6 @@
       var countries = card({
         title: 'Regions',
         span: 4,
-        foot: 'Country level only, derived from a truncated IP.',
         exportRows: function () {
           var rows = [['region', 'sessions']];
           d.countries.forEach(function (c) { rows.push([c.label, c.value]); });
@@ -408,13 +304,18 @@
         },
         exportName: 'esi-analytics_regions_' + _state.range + '_' + stamp() + '.csv',
       });
-      countries.body.appendChild(rankedRows(d.countries, { cls: 'an-c2' }));
+      if (d.countries.length) {
+        countries.body.appendChild(rankedRows(d.countries, { cls: 'an-c2' }));
+      } else {
+        countries.body.appendChild(el('div', 'an-card-note',
+          'No country data in range. Country is read from Cloudflare\u2019s CF-IPCountry header, so this stays empty unless the site is served through Cloudflare.'));
+      }
       row.appendChild(countries.root);
 
       var heat = card({
         title: 'Peak hours',
         span: 4,
-        foot: 'Requests by weekday and hour.',
+        foot: 'Requests by weekday and hour, in UTC.',
         exportRows: function () {
           var header = ['weekday'];
           for (var h = 0; h < 24; h++) header.push(h + ':00');
@@ -450,10 +351,13 @@
       ));
       row.appendChild(errors.root);
 
+      var topRule = d.security.topRule;
       var sec = card({
         title: 'Security',
         span: 6,
-        foot: 'Top rule: ' + d.security.topRule + '.',
+        foot: d.security.byRule.length
+          ? 'Top rule: ' + (topRule === 'unspecified' ? 'unrecorded' : topRule) + '.'
+          : 'No blocked requests in range.',
         exportRows: function () {
           var rows = [['metric', 'value']];
           rows.push(['blocked_requests', d.security.blocked]);
@@ -477,7 +381,9 @@
       });
       sec.body.appendChild(mini);
       sec.body.appendChild(rankedRows(
-        d.security.byRule.map(function (r) { return { label: r.label, value: r.count }; }),
+        d.security.byRule.map(function (r) {
+          return { label: r.label === 'unspecified' ? 'Unrecorded' : r.label, value: r.count };
+        }),
         { cls: 'an-c6' }
       ));
       row.appendChild(sec.root);
@@ -485,18 +391,22 @@
       return row;
     }
 
-    // Live mode is a demo affordance: it jitters the "Live now" card so the
-    // polling path is exercised before the API exists.
-    function startLive(d) {
+    function pollLive() {
       ctx.every(15000, function () {
         var host = content.querySelector('[data-live]');
-        if (!host) return;
-        var r = rng(Date.now() >>> 0);
-        d.live.rpm = Math.max(0, Math.round(d.live.rpm + (r() - 0.5) * 14));
-        d.live.sessions = Math.max(0, Math.round(d.live.sessions + (r() - 0.5) * 6));
-        d.live.epm = Math.max(0, d.live.epm + (r() - 0.5) * 0.6);
-        d.live.p95 = Math.max(40, Math.round(d.live.p95 + (r() - 0.5) * 40));
-        renderLive(host, d.live);
+        if (!host || !host.parentNode) return;
+        fetch('/panel/api/analytics/live', { credentials: 'same-origin' })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (live) {
+            if (!live || !host.parentNode) return;
+            renderLive(host, live);
+            var spark = host.parentNode.querySelector('.an-spark-fill');
+            if (spark && live.series && live.series.length > 1) {
+              spark.textContent = '';
+              spark.appendChild(sparkline(live.series, 'an-c2'));
+            }
+          })
+          .catch(function () { /* a dropped poll is not worth interrupting for */ });
       });
     }
 
@@ -508,7 +418,7 @@
     content.appendChild(buildRow5(d));
     content.appendChild(buildRow6(d));
     content.appendChild(analyticsFoot(d));
-    if (USE_DEMO_DATA) startLive(d);
+    pollLive();
   }
 
   A.registerPanel('analytics-overview', { build: buildOverview });

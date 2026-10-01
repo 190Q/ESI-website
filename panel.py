@@ -40,20 +40,17 @@ from config import (
     BOT_SCREEN_SESSION, TRACKER_SCREEN_SESSION,
     GATEWAY_PORT, ROUTES_PORT, CACHE_PORT,
     _TICKET_GUILD_ID, _STAFF_ROLE_DEFS,
+    _ROLE_EMPEROR, _ROLE_GRAND_DUKE, _ROLE_ARCHDUKE, _ROLE_CONGRESS,
+    _ROLE_PARLIAMENT, _ROLE_JUROR, _ROLE_CITIZEN,
     DEV_MODE,
 )
 from security_gate import register_security_gate, real_client_ip, BanningWSGIRequestHandler
+import analytics_query
 
 _STATIC_DIR = os.path.join(_BASE_DIR, "panel_static")
 _LOG_DIR = os.path.join(_BASE_DIR, "logs")
 os.makedirs(_LOG_DIR, exist_ok=True)
 
-
-# ---------------------------------------------------------------------------
-# Compute inline-script hashes from panel_static/index.html so CSP survives
-# frontend rebuilds without ever needing 'unsafe-inline' - same mechanism
-# routes.py uses for the main site's index.html.
-# ---------------------------------------------------------------------------
 
 _INLINE_SCRIPT_RE = re.compile(
     rb"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>",
@@ -93,13 +90,6 @@ def _get_inline_script_hashes():
     return _inline_script_cache["hashes"]
 
 
-# ---------------------------------------------------------------------------
-# Panel-only secret key. Deliberately NOT shared with the main site's
-# .flask_secret: if the panel were ever compromised, an attacker holding a
-# shared secret could forge session cookies for the main site too. A
-# separate secret keeps the blast radius contained to the panel itself.
-# ---------------------------------------------------------------------------
-
 def _get_panel_secret_key():
     key = os.environ.get("PANEL_SECRET_KEY")
     if key:
@@ -131,12 +121,6 @@ register_security_gate(app, service_name="panel")
 _SESSION_IDLE_TIMEOUT = 30 * 60  # 30 min - tighter than the main site's 3h
 
 
-# ---------------------------------------------------------------------------
-# Controllable services registry - the ONLY things panel.py is allowed to
-# touch. Every action dispatches through this fixed dict; nothing here is
-# ever built from user-supplied input.
-# ---------------------------------------------------------------------------
-
 SERVICES = {
     "gateway": {"kind": "website", "screen": "esi-website-gateway", "reload_arg": "gateway", "label": "Website Gateway", "port": GATEWAY_PORT, "command": "python3 main.py"},
     "routes":  {"kind": "website", "screen": "esi-website-routes",  "reload_arg": "routes",  "label": "Website Routes", "port": ROUTES_PORT, "command": "python3 routes.py"},
@@ -156,11 +140,6 @@ _RELOAD_SCRIPT = os.path.join(_BASE_DIR, "scripts", "screen-reload.sh")
 def _log_path(spec):
     return os.path.join(_LOG_DIR, f"{spec['screen']}.log")
 
-
-# ---------------------------------------------------------------------------
-# subprocess helpers - list-form args only, never shell=True, never built
-# from anything other than the fixed SERVICES dict above.
-# ---------------------------------------------------------------------------
 
 def _run(args, timeout=8, cwd=None):
     try:
@@ -245,14 +224,6 @@ def _read_log_tail(spec, max_lines=600, max_bytes=200_000):
     return _read_hardcopy(spec["screen"])
 
 
-# ---------------------------------------------------------------------------
-# Process-tree resource metrics. `screen -ls` only reports the PID of the
-# screen manager itself, so we walk its full descendant tree (screen -> bash
-# -> python3) with a single `ps` call and sum CPU/RSS across it. Note: ps's
-# %cpu is a lifetime average since the process started, not an instantaneous
-# rate - good enough to spot a leak/spike trend, not a precise live gauge.
-# ---------------------------------------------------------------------------
-
 def _list_processes():
     code, out, _ = _run(["ps", "-eo", "pid,ppid,pcpu,rss,comm", "--no-headers"], timeout=5)
     if code != 0:
@@ -298,11 +269,6 @@ def _descendant_metrics(root_pid):
         "memory_mb": round(total_rss_kb / 1024, 1),
     }
 
-
-# ---------------------------------------------------------------------------
-# Request-rate parsing - only meaningful for the 3 website services, whose
-# Flask dev servers log werkzeug-style access lines to their log file.
-# ---------------------------------------------------------------------------
 
 _ACCESS_LOG_RE = re.compile(r'\[(\d{2}/\w{3}/\d{4} \d{2}:\d{2}:\d{2})\] "[A-Z]+ \S+ HTTP/\d\.\d" \d{3}')
 
@@ -777,11 +743,6 @@ def _stop_script(key):
     return _run(["screen", "-S", spec["screen"], "-X", "quit"], timeout=8)
 
 
-# ---------------------------------------------------------------------------
-# Audit log - every access attempt and every action, kept separate from the
-# main site's tables.
-# ---------------------------------------------------------------------------
-
 _AUDIT_DB = os.path.join(_LOG_DIR, "panel_audit.db")
 _audit_local = threading.local()
 
@@ -825,10 +786,6 @@ def _audit(action, service=None, user=None, result="ok", detail=""):
     except sqlite3.Error:
         pass
 
-
-# ---------------------------------------------------------------------------
-# Privilege model
-# ---------------------------------------------------------------------------
 
 def _is_owner(user) -> bool:
     """Same rule as routes.py's _is_owner_user - matches the OWNER env var
@@ -930,11 +887,6 @@ def require_csrf(fn):
     return wrapper
 
 
-# ---------------------------------------------------------------------------
-# In-memory rate limiter for action endpoints (defense against accidental /
-# malicious rapid double-restarts). Separate from the main site's limiter.
-# ---------------------------------------------------------------------------
-
 _rate_state: dict = {}
 _rate_lock = threading.Lock()
 
@@ -965,10 +917,6 @@ def rate_limit(max_calls, window=60):
     return deco
 
 
-# ---------------------------------------------------------------------------
-# Request hooks
-# ---------------------------------------------------------------------------
-
 @app.before_request
 def _panel_ip_allowlist():
     if PANEL_ALLOWED_IPS:
@@ -983,6 +931,8 @@ def _panel_session_idle_timeout():
     last = session.get("_last_active")
     now = time()
     if last and now - last > _SESSION_IDLE_TIMEOUT and session.get("user"):
+        _audit("logout", user=session.get("user"), result="idle_timeout",
+               detail="idle timeout")
         session.clear()
     session["_last_active"] = now
 
@@ -1002,10 +952,6 @@ def _panel_security_headers(response):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
-
-# ---------------------------------------------------------------------------
-# Auth routes
-# ---------------------------------------------------------------------------
 
 @app.route("/panel/auth/login")
 @rate_limit(20, 60)
@@ -1028,11 +974,13 @@ def panel_login():
 def panel_callback():
     error = request.args.get("error")
     if error:
+        _audit("login_failed", result="error", detail=f"provider: {error}")
         return redirect("/panel/?auth=error")
     code = request.args.get("code")
     state = request.args.get("state")
     saved_state = session.pop("oauth_state", None)
     if not state or state != saved_state:
+        _audit("login_failed", result="error", detail="OAuth state mismatch")
         return redirect("/panel/?auth=error")
     try:
         token_resp = requests.post(
@@ -1058,6 +1006,7 @@ def panel_callback():
         discord_user = user_resp.json()
     except (requests.RequestException, KeyError) as exc:
         print(f"[PANEL-AUTH] OAuth callback error: {exc}", file=sys.stderr)
+        _audit("login_failed", result="error", detail=f"token exchange: {exc}"[:200])
         return redirect("/panel/?auth=error")
 
     nick = None
@@ -1115,10 +1064,6 @@ def panel_auth_session():
     })
 
 
-# ---------------------------------------------------------------------------
-# Panel UI
-# ---------------------------------------------------------------------------
-
 @app.route("/panel/")
 @app.route("/panel")
 def panel_index():
@@ -1141,10 +1086,6 @@ def panel_spa_route(section, page):
     routes registered above, which all have more path segments."""
     return send_from_directory(_STATIC_DIR, "index.html")
 
-
-# ---------------------------------------------------------------------------
-# Service control API - everything below requires owner access.
-# ---------------------------------------------------------------------------
 
 @app.route("/panel/api/services")
 @require_access("owner")
@@ -1341,6 +1282,178 @@ def _panel_not_found(e):
 @app.errorhandler(429)
 def _panel_rate_limited(e):
     return jsonify({"error": "Too many requests"}), 429
+
+
+_RANK_ROLES = (
+    ("Emperor",    _ROLE_EMPEROR),
+    ("Grand Duke", _ROLE_GRAND_DUKE),
+    ("Archduke",   _ROLE_ARCHDUKE),
+    ("Congress",   _ROLE_CONGRESS),
+    ("Parliament", _ROLE_PARLIAMENT),
+    ("Juror",      _ROLE_JUROR),
+    ("Citizen",    _ROLE_CITIZEN),
+)
+_RANK_FALLBACK = "Below Citizen"
+
+_roster_cache = {"data": None, "ts": 0.0}
+_ROSTER_TTL = 600
+_roster_lock = threading.Lock()
+
+
+def _rank_for_roles(role_ids):
+    held = set(role_ids or ())
+    for name, role_id in _RANK_ROLES:
+        if role_id and role_id in held:
+            return name
+    return _RANK_FALLBACK
+
+
+def _guild_roster():
+    """{user_id: rank} plus the member count, cached for ten minutes.
+
+    Used by the Audience panel's rank breakdown and its "never logged in"
+    figure. Returns None when the bot token or guild is not configured, so the
+    panel can say the figures are unavailable rather than show a zero.
+    """
+    if not DISCORD_TOKEN or not DISCORD_GUILD_ID:
+        return None
+    now = time()
+    with _roster_lock:
+        cached = _roster_cache["data"]
+        if cached is not None and now - _roster_cache["ts"] < _ROSTER_TTL:
+            return cached
+    ranks = {}
+    after = "0"
+    try:
+        while True:
+            resp = requests.get(
+                f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/members",
+                params={"limit": 1000, "after": after},
+                headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
+                timeout=10,
+            )
+            if not resp.ok:
+                return None
+            batch = resp.json()
+            if not isinstance(batch, list) or not batch:
+                break
+            for member in batch:
+                user = member.get("user") or {}
+                uid = str(user.get("id") or "")
+                if uid:
+                    ranks[uid] = _rank_for_roles(member.get("roles"))
+            if len(batch) < 1000:
+                break
+            after = str((batch[-1].get("user") or {}).get("id") or "")
+            if not after:
+                break
+    except requests.RequestException:
+        return None
+    result = {"total": len(ranks), "ranks": ranks}
+    with _roster_lock:
+        _roster_cache["data"] = result
+        _roster_cache["ts"] = now
+    return result
+
+
+_ANALYTICS_RANGE_IDS = ("24h", "7d", "30d", "90d", "all")
+
+
+def _analytics_range():
+    """The requested range, constrained to the allow-listed set."""
+    wanted = (request.args.get("range") or "").strip()
+    if wanted in _ANALYTICS_RANGE_IDS:
+        return wanted
+    return analytics_query.DEFAULT_RANGE
+
+
+@app.route("/panel/api/analytics/traffic")
+@require_access("owner")
+@rate_limit(120, 60)
+def panel_analytics_traffic():
+    try:
+        return jsonify(analytics_query.traffic(_analytics_range()))
+    except sqlite3.Error as exc:
+        print(f"[PANEL-ANALYTICS] traffic query failed: {exc}", file=sys.stderr)
+        return jsonify({"error": "Analytics database is unavailable"}), 503
+
+
+@app.route("/panel/api/analytics/overview")
+@require_access("owner")
+@rate_limit(120, 60)
+def panel_analytics_overview():
+    try:
+        return jsonify(analytics_query.overview(_analytics_range()))
+    except sqlite3.Error as exc:
+        print(f"[PANEL-ANALYTICS] overview query failed: {exc}", file=sys.stderr)
+        return jsonify({"error": "Analytics database is unavailable"}), 503
+
+
+@app.route("/panel/api/analytics/audience")
+@require_access("owner")
+@rate_limit(120, 60)
+def panel_analytics_audience():
+    try:
+        return jsonify(analytics_query.audience(_analytics_range(), roster=_guild_roster()))
+    except sqlite3.Error as exc:
+        print(f"[PANEL-ANALYTICS] audience query failed: {exc}", file=sys.stderr)
+        return jsonify({"error": "Analytics database is unavailable"}), 503
+
+
+@app.route("/panel/api/analytics/engagement")
+@require_access("owner")
+@rate_limit(120, 60)
+def panel_analytics_engagement():
+    try:
+        return jsonify(analytics_query.engagement(_analytics_range()))
+    except sqlite3.Error as exc:
+        print(f"[PANEL-ANALYTICS] engagement query failed: {exc}", file=sys.stderr)
+        return jsonify({"error": "Analytics database is unavailable"}), 503
+
+
+@app.route("/panel/api/analytics/content")
+@require_access("owner")
+@rate_limit(120, 60)
+def panel_analytics_content():
+    try:
+        return jsonify(analytics_query.content(_analytics_range()))
+    except sqlite3.Error as exc:
+        print(f"[PANEL-ANALYTICS] content query failed: {exc}", file=sys.stderr)
+        return jsonify({"error": "Analytics database is unavailable"}), 503
+
+
+@app.route("/panel/api/analytics/health")
+@require_access("owner")
+@rate_limit(120, 60)
+def panel_analytics_health():
+    try:
+        return jsonify(analytics_query.health(_analytics_range()))
+    except sqlite3.Error as exc:
+        print(f"[PANEL-ANALYTICS] health query failed: {exc}", file=sys.stderr)
+        return jsonify({"error": "Analytics database is unavailable"}), 503
+
+
+@app.route("/panel/api/analytics/rollups")
+@require_access("owner")
+@rate_limit(120, 60)
+def panel_analytics_rollups():
+    try:
+        return jsonify(analytics_query.rollups(_analytics_range()))
+    except sqlite3.Error as exc:
+        print(f"[PANEL-ANALYTICS] rollups query failed: {exc}", file=sys.stderr)
+        return jsonify({"error": "Analytics database is unavailable"}), 503
+
+
+@app.route("/panel/api/analytics/live")
+@require_access("owner")
+@rate_limit(240, 60)
+def panel_analytics_live():
+    """The Overview's Live now card polls this every 15 seconds."""
+    try:
+        return jsonify(analytics_query.live())
+    except sqlite3.Error as exc:
+        print(f"[PANEL-ANALYTICS] live query failed: {exc}", file=sys.stderr)
+        return jsonify({"error": "Analytics database is unavailable"}), 503
 
 
 if __name__ == "__main__":

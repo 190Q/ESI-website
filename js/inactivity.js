@@ -3,6 +3,12 @@
 
   var MONTHS       = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var _allUsers    = {};
+  function trackFeature(props) {
+    try {
+      if (window.ESITrack) window.ESITrack.event('feature', props);
+    } catch (e) { /* never let analytics break the panel */ }
+  }
+
   var _rawExemptions = [];
   var _exemptions  = [];
   var _editingId   = null;
@@ -246,6 +252,9 @@
     document.getElementById('inacSubmit').addEventListener('click', submitExemption);
     document.getElementById('inacExemptionsToggle').addEventListener('click', function () {
       toggleCollapse(this);
+      if (this.classList.contains('open')) {
+        trackFeature({ action: 'view', name: 'inactivity-exemptions' });
+      }
     });
     initChecker();
 

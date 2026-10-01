@@ -54,6 +54,19 @@ def build_export(conn, discord_id: str) -> dict:
     }
 
 
+def _record_run():
+    """Record the export run in the analytics store.
+
+    GDPR exports are a panel figure, and this script is the only place a run
+    happens. Failure to record must never fail the export itself.
+    """
+    try:
+        import analytics
+        analytics.record_server_event("feature", {"action": "run", "name": "gdpr-export"})
+    except Exception:
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("discord_id", help="Discord snowflake ID of the user")
@@ -101,6 +114,7 @@ def main():
     with open(out_path, "w", encoding="utf-8") as fh:
         fh.write(serialized)
     print(f"[OK] Exported data for {discord_id} -> {out_path}")
+    _record_run()
 
 
 if __name__ == "__main__":

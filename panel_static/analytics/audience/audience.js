@@ -4,7 +4,6 @@
   var A = window.ESIAnalytics;
   var _state = A.state;
   var writeState = A.writeState;
-  var USE_DEMO_DATA = A.USE_DEMO_DATA;
   var el = A.el;
   var fmtInt = A.fmtInt;
   var fmtDuration = A.fmtDuration;
@@ -12,11 +11,6 @@
   var fmtDateTime = A.fmtDateTime;
   var deltaPct = A.deltaPct;
   var sumOf = A.sumOf;
-  var avgOf = A.avgOf;
-  var rng = A.rng;
-  var demoBase = A.demoBase;
-  var trendSeries = A.trendSeries;
-  var sparkline = A.sparkline;
   var timeSeriesChart = A.timeSeriesChart;
   var rankedRows = A.rankedRows;
   var card = A.card;
@@ -30,306 +24,35 @@
   var panelKpiStrip = A.panelKpiStrip;
   var csvName = A.csvName;
 
+  var AUDIENCE_KPI_SPEC = {
+    visitors:      { format: fmtInt, invert: false },
+    newVisitors:   { format: fmtInt, invert: false },
+    returning:     { format: fmtInt, invert: false },
+    sessions:      { format: fmtInt, invert: false },
+    duration:      { format: fmtDuration, invert: false },
+    pagesPerSession: { format: function (v) { return v == null ? '\u2014' : v.toFixed(2); }, invert: false },
+    bounceRate:    { format: function (v) { return fmtPct(v, 1); }, invert: true },
+    logins:        { format: fmtInt, invert: false },
+    loginSuccessRate: { format: function (v) { return fmtPct(v, 1); }, invert: false },
+    countries:     { format: fmtInt, invert: false },
+  };
+
   function loadAudience(range) {
-    if (USE_DEMO_DATA) return Promise.resolve(buildAudienceDemo(range));
     return fetch('/panel/api/analytics/audience?range=' + encodeURIComponent(range), {
       credentials: 'same-origin',
     }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
+    }).then(function (d) {
+      d.labels = A.bucketLabels(d.buckets, range);
+      Object.keys(AUDIENCE_KPI_SPEC).forEach(function (id) {
+        var kpi = d.kpis && d.kpis[id];
+        if (!kpi) return;
+        kpi.format = AUDIENCE_KPI_SPEC[id].format;
+        kpi.invert = AUDIENCE_KPI_SPEC[id].invert;
+      });
+      return d;
     });
-  }
-
-  function buildAudienceDemo(range) {
-    var base = demoBase(range);
-    var rand = rng(7717 + range.length * 349);
-    var labels = base.labels;
-    var visitors = base.traffic.visitors;
-    var n = labels.length;
-
-    function series(start, spread, trend) {
-      var out = [];
-      for (var i = 0; i < n; i++) {
-        var t = n > 1 ? i / (n - 1) : 0;
-        out.push(Math.max(0, Math.round(start * (1 + trend * t) + (rand() - 0.5) * spread)));
-      }
-      return out;
-    }
-
-    var totalVisitors = sumOf(visitors);
-    var newSeries = visitors.map(function (v) { return Math.round(v * 0.58); });
-    var returningSeries = visitors.map(function (v, i) { return Math.max(0, v - newSeries[i]); });
-    var sessions = visitors.map(function (v) { return Math.round(v * (1.4 + rand() * 0.4)); });
-    var logins = series(38, 22, 0.15);
-    var totalSessions = sumOf(sessions);
-    var totalNew = sumOf(newSeries);
-    var totalReturning = sumOf(returningSeries);
-
-    var avgDuration = 262;
-    var pagesPerSession = 3.42;
-    var bounceRate = 42.1;
-
-    var activeSeries = [];
-    for (var m = 0; m < 60; m++) {
-      activeSeries.push(Math.max(0, Math.round(46 + Math.sin(m / 7) * 9 + (rand() - 0.5) * 10)));
-    }
-    var activeWindow = {
-      now: activeSeries[activeSeries.length - 1],
-      peak: Math.max.apply(null, activeSeries),
-      low: Math.min.apply(null, activeSeries),
-      avg: avgOf(activeSeries),
-      prev: Math.max(1, Math.round(avgOf(activeSeries) * 0.86)),
-      series: activeSeries,
-    };
-    var neverLoggedIn = { count: 128, total: 410 };
-    var loginAttempts = sumOf(logins) + 24;
-    var loginSuccesses = sumOf(logins);
-    var loginFailures = loginAttempts - loginSuccesses;
-
-    return {
-      demo: true,
-      range: range,
-      generatedAt: new Date().toISOString(),
-      labels: labels,
-      kpis: {
-        visitors:      { value: totalVisitors, prev: Math.round(totalVisitors * 0.87), series: visitors, format: fmtInt, invert: false },
-        newVisitors:   { value: totalNew, prev: Math.round(totalNew * 0.91), series: newSeries, format: fmtInt, invert: false },
-        returning:     { value: totalReturning, prev: Math.round(totalReturning * 0.82), series: returningSeries, format: fmtInt, invert: false },
-        sessions:      { value: totalSessions, prev: Math.round(totalSessions * 0.89), series: sessions, format: fmtInt, invert: false },
-        duration:      { value: avgDuration, prev: 238, series: trendSeries(avgDuration, n, 0.12, rand), format: fmtDuration, invert: false },
-        pagesPerSession: { value: pagesPerSession, prev: 3.11, series: trendSeries(pagesPerSession, n, 0.1, rand), format: function (v) { return v.toFixed(2); }, invert: false },
-        bounceRate:    { value: bounceRate, prev: 46.8, series: trendSeries(bounceRate, n, 0.1, rand), format: function (v) { return fmtPct(v, 1); }, invert: true },
-        logins:        { value: loginSuccesses, prev: Math.round(loginSuccesses * 0.9), series: logins, format: fmtInt, invert: false },
-        loginSuccessRate: { value: (loginSuccesses / loginAttempts) * 100, prev: 92.4, series: trendSeries((loginSuccesses / loginAttempts) * 100, n, 0.03, rand), format: function (v) { return fmtPct(v, 1); }, invert: false },
-        countries:     { value: 34, prev: 31, series: trendSeries(34, n, 0.08, rand), format: fmtInt, invert: false },
-      },
-      visitorSeries: { total: visitors, new: newSeries, returning: returningSeries },
-      split: [
-        { label: 'New',       value: totalNew },
-        { label: 'Returning', value: totalReturning },
-      ],
-      frequency: [
-        { label: '1 visit',  value: Math.round(totalVisitors * 0.48) },
-        { label: '2-5',      value: Math.round(totalVisitors * 0.34) },
-        { label: '6-10',     value: Math.round(totalVisitors * 0.12) },
-        { label: '11+',      value: Math.round(totalVisitors * 0.06) },
-      ],
-      sources: [
-        { label: 'Direct',   value: 4210 },
-        { label: 'Discord',  value: 2840 },
-        { label: 'Search',   value: 1120 },
-        { label: 'Referral', value: 460 },
-      ],
-      utm: [
-        { campaign: 'wynnpiece-launch',   source: 'discord', medium: 'social', sessions: 1240, conversion: 8.4 },
-        { campaign: 'guild-anniversary',  source: 'discord', medium: 'social', sessions: 860,  conversion: 12.1 },
-        { campaign: 'aspect-hunt-night',  source: 'discord', medium: 'social', sessions: 410,  conversion: 5.2 },
-        { campaign: 'shop-restock',       source: 'discord', medium: 'social', sessions: 240,  conversion: 3.8 },
-      ],
-      activeWindow: activeWindow,
-      durationBuckets: [
-        { label: '< 30s',    value: Math.round(totalSessions * 0.18) },
-        { label: '30s - 2m', value: Math.round(totalSessions * 0.27) },
-        { label: '2 - 10m',  value: Math.round(totalSessions * 0.34) },
-        { label: '10 - 30m', value: Math.round(totalSessions * 0.15) },
-        { label: '> 30m',    value: Math.round(totalSessions * 0.06) },
-      ],
-      pagesBuckets: [
-        { label: '1 page', value: Math.round(totalSessions * 0.42) },
-        { label: '2-3',    value: Math.round(totalSessions * 0.31) },
-        { label: '4-6',    value: Math.round(totalSessions * 0.18) },
-        { label: '7+',     value: Math.round(totalSessions * 0.09) },
-      ],
-      bounceByEntry: [
-        { label: '/',              value: 38.2 },
-        { label: '/player/<user>', value: 44.6 },
-        { label: '/guild',         value: 47.8 },
-        { label: '/events',        value: 51.3 },
-        { label: '/shop',          value: 56.1 },
-      ],
-      devices: [
-        { label: 'Desktop', value: 5940 },
-        { label: 'Mobile',  value: 2180 },
-        { label: 'Tablet',  value: 380 },
-      ],
-      os: [
-        { label: 'Windows', value: 3810 },
-        { label: 'macOS',   value: 1620 },
-        { label: 'Android', value: 1420 },
-        { label: 'iOS',     value: 980 },
-        { label: 'Linux',   value: 610 },
-        { label: 'Other',   value: 60 },
-      ],
-      browsers: [
-        { label: 'Chrome',  value: 4820 },
-        { label: 'Firefox', value: 1610 },
-        { label: 'Safari',  value: 1180 },
-        { label: 'Edge',    value: 690 },
-        { label: 'Opera',   value: 190 },
-        { label: 'Other',   value: 60 },
-      ],
-      screens: [
-        { label: '1920 x 1080', value: 3420 },
-        { label: '2560 x 1440', value: 1480 },
-        { label: '1366 x 768',  value: 1120 },
-        { label: '1440 x 900',  value: 760 },
-        { label: '390 x 844',   value: 690 },
-        { label: '2560 x 1600', value: 420 },
-      ],
-      viewports: [
-        { label: '1920 x 937',  value: 2810 },
-        { label: '1512 x 850',  value: 1240 },
-        { label: '1366 x 655',  value: 980 },
-        { label: '390 x 664',   value: 690 },
-        { label: '2560 x 1300', value: 620 },
-        { label: 'Other',       value: 1330 },
-      ],
-      connection: [
-        { label: '4g',       value: 4210 },
-        { label: 'wifi',     value: 3180 },
-        { label: '5g',       value: 740 },
-        { label: '3g',       value: 260 },
-        { label: 'slow-2g',  value: 70 },
-      ],
-      locales: [
-        { label: 'en-GB', value: 4120 },
-        { label: 'en-US', value: 1840 },
-        { label: 'nl-NL', value: 1120 },
-        { label: 'de-DE', value: 880 },
-        { label: 'fr-FR', value: 640 },
-        { label: 'Other', value: 690 },
-      ],
-      timezones: [
-        { label: 'Europe/Brussels',   value: 2340 },
-        { label: 'Europe/Amsterdam',  value: 1180 },
-        { label: 'Europe/Berlin',     value: 940 },
-        { label: 'Europe/Paris',      value: 760 },
-        { label: 'America/New_York',  value: 690 },
-        { label: 'Other',             value: 2790 },
-      ],
-      memory: [
-        { label: '8 GB',  value: 2840 },
-        { label: '16 GB', value: 2210 },
-        { label: '4 GB',  value: 1480 },
-        { label: '32 GB', value: 980 },
-        { label: '2 GB',  value: 620 },
-        { label: 'Unknown', value: 380 },
-      ],
-      cores: [
-        { label: '8 cores',  value: 3120 },
-        { label: '4 cores',  value: 1980 },
-        { label: '16 cores', value: 1420 },
-        { label: '2 cores',  value: 740 },
-        { label: '12 cores', value: 680 },
-        { label: '32 cores', value: 320 },
-      ],
-      bots: [
-        { label: 'Human', value: 7420 },
-        { label: 'Bot',   value: 1180 },
-      ],
-      crawlers: [
-        { label: 'Googlebot',  value: 480 },
-        { label: 'Bingbot',    value: 210 },
-        { label: 'AhrefsBot',  value: 160 },
-        { label: 'SemrushBot', value: 140 },
-        { label: 'Discordbot', value: 120 },
-        { label: 'Other',      value: 70 },
-      ],
-      privacy: {
-        dnt: 1240,
-        gpc: 310,
-        consent: [
-          { label: 'Granted',  value: 2840 },
-          { label: 'Declined', value: 180 },
-          { label: 'Not asked yet', value: 5580 },
-        ],
-      },
-      regions: [
-        { label: 'Belgium',       value: 2140 },
-        { label: 'Netherlands',   value: 1180 },
-        { label: 'Germany',       value: 940 },
-        { label: 'France',        value: 760 },
-        { label: 'United States', value: 690 },
-        { label: 'Other',         value: 2790 },
-      ],
-      regionTable: [
-        { region: 'Belgium',       sessions: 3010, visitors: 2140, share: 25.2, bounce: 38.4 },
-        { region: 'Netherlands',   sessions: 1660, visitors: 1180, share: 13.9, bounce: 41.2 },
-        { region: 'Germany',       sessions: 1320, visitors: 940,  share: 11.1, bounce: 43.7 },
-        { region: 'France',        sessions: 1070, visitors: 760,  share: 9.0,  bounce: 45.1 },
-        { region: 'United States', sessions: 970,  visitors: 690,  share: 8.1,  bounce: 49.6 },
-        { region: 'Other',         sessions: 3920, visitors: 2790, share: 32.7, bounce: 44.8 },
-      ],
-      cities: [
-        { label: 'Brussels',   value: 980 },
-        { label: 'Amsterdam',  value: 620 },
-        { label: 'Antwerp',    value: 410 },
-        { label: 'Berlin',     value: 380 },
-        { label: 'Paris',      value: 340 },
-        { label: 'Rotterdam',  value: 290 },
-        { label: 'Other',      value: 5570 },
-      ],
-      auth: {
-        funnel: [
-          { label: 'Login started',  value: loginAttempts },
-          { label: 'OAuth redirect', value: loginAttempts - 10 },
-          { label: 'Callback',       value: loginAttempts - 16 },
-          { label: 'Session issued', value: loginSuccesses },
-        ],
-        attempts: loginAttempts,
-        successes: loginSuccesses,
-        failures: loginFailures,
-        abandoned: 10,
-        callbackErrors: 3,
-        loginSeries: logins,
-        failureReasons: [
-          { label: 'OAuth state mismatch',   value: 9 },
-          { label: 'User denied access',     value: 6 },
-          { label: 'Token exchange failed',  value: 3 },
-          { label: 'Guild lookup failed',    value: 2 },
-        ],
-        logouts: [
-          { label: 'Manual',        value: 186 },
-          { label: 'Idle timeout',  value: 94 },
-          { label: 'Session expiry', value: 41 },
-        ],
-        logoutTotal: 321,
-        idleTimeoutRate: 29.3,
-        reauthRate: 12.4,
-        sessionHealth: [
-          { label: 'Avg session',    value: '18m 40s' },
-          { label: 'Median session', value: '9m 12s' },
-          { label: 'Idle timeouts',  value: '29.3%' },
-          { label: 'Re-auth rate',   value: '12.4%' },
-        ],
-        ranks: [
-          { label: 'Citizen',    value: 214 },
-          { label: 'Below Citizen', value: 36 },
-          { label: 'Juror',      value: 62 },
-          { label: 'Parliament', value: 38 },
-          { label: 'Congress',   value: 21 },
-          { label: 'Archduke',   value: 14 },
-          { label: 'Grand Duke', value: 6 },
-          { label: 'Emperor',    value: 1 },
-        ],
-        neverLoggedIn: neverLoggedIn,
-        activeAccounts: [
-          { account: '190Q',      rank: 'Emperor',    logins: 84, sessions: 96,  lastSeen: '2026-09-30T13:41:00Z' },
-          { account: 'Sindria',   rank: 'Grand Duke', logins: 61, sessions: 72,  lastSeen: '2026-09-29T21:12:00Z' },
-          { account: 'Valaendor', rank: 'Archduke',   logins: 47, sessions: 58,  lastSeen: '2026-09-30T09:03:00Z' },
-          { account: 'Meridia',   rank: 'Congress',   logins: 33, sessions: 41,  lastSeen: '2026-09-28T18:55:00Z' },
-          { account: 'Kestrel',   rank: 'Parliament', logins: 28, sessions: 35,  lastSeen: '2026-09-27T11:20:00Z' },
-          { account: 'Halcyon',   rank: 'Juror',      logins: 19, sessions: 24,  lastSeen: '2026-09-30T07:44:00Z' },
-        ],
-        panelActivity: [
-          { label: 'Account modal opened', value: 640 },
-          { label: 'Settings changed',     value: 218 },
-          { label: 'Theme changed',        value: 96 },
-          { label: 'Font changed',         value: 41 },
-        ],
-        devLogin: 0,
-      },
-    };
   }
 
   // Tiny inline sparkline. Non-uniform scaling is fine at this size.
@@ -340,6 +63,7 @@
     { id: 'devices',  label: 'Devices' },
     { id: 'regions',  label: 'Regions' },
     { id: 'auth',     label: 'Auth' },
+    { id: 'accounts', label: 'Accounts' },
   ];
 
   var VISITOR_METRICS = [
@@ -366,11 +90,21 @@
     else if (ctx.tab === 'devices') audienceDevicesTab(ctx);
     else if (ctx.tab === 'regions') audienceRegionsTab(ctx);
     else if (ctx.tab === 'auth') audienceAuthTab(ctx);
+    else if (ctx.tab === 'accounts') audienceAccountsTab(ctx);
     else audienceVisitorsTab(ctx);
     ctx.content.appendChild(analyticsFoot(ctx.data));
   }
 
   function audienceExportRows(d, tab) {
+    if (tab === 'accounts') {
+      var acc = [['account', 'rank', 'logins', 'logouts', 'sessions', 'events',
+                  'panel_views', 'active_seconds', 'first_seen', 'last_seen']];
+      d.accounts.list.forEach(function (a) {
+        acc.push([a.account, a.rank, a.logins, a.logouts, a.sessions, a.events,
+                  a.panelViews, a.activeSeconds, a.firstSeen || '', a.lastSeen || '']);
+      });
+      return acc;
+    }
     if (tab === 'sessions') {
       var s = [['bucket', 'sessions']];
       d.labels.forEach(function (l, i) { s.push([l, d.kpis.sessions.series[i]]); });
@@ -468,21 +202,20 @@
     var utm = card({
       title: 'UTM campaigns',
       span: 12,
-      foot: 'Campaign tagging on links posted to Discord.',
+      foot: 'Campaign tagging on links posted to Discord. Arrivals counts landing page views carrying that campaign.',
       exportRows: function () {
-        var rows = [['campaign', 'source', 'medium', 'sessions', 'conversion_pct']];
-        d.utm.forEach(function (u) { rows.push([u.campaign, u.source, u.medium, u.sessions, u.conversion]); });
+        var rows = [['campaign', 'source', 'medium', 'arrivals']];
+        d.utm.forEach(function (u) { rows.push([u.campaign, u.source, u.medium, u.arrivals]); });
         return rows;
       },
       exportName: csvName('audience', 'utm'),
     });
     utm.body.appendChild(dataTable({
       columns: [
-        { key: 'campaign',   label: 'Campaign',   ident: true },
-        { key: 'source',     label: 'Source' },
-        { key: 'medium',     label: 'Medium' },
-        { key: 'sessions',   label: 'Sessions',   num: true, format: fmtInt },
-        { key: 'conversion', label: 'Conversion', num: true, format: function (v) { return fmtPct(v, 1); } },
+        { key: 'campaign', label: 'Campaign', ident: true },
+        { key: 'source',   label: 'Source' },
+        { key: 'medium',   label: 'Medium' },
+        { key: 'arrivals', label: 'Arrivals', num: true, format: fmtInt },
       ],
       rows: d.utm,
     }));
@@ -626,7 +359,7 @@
     }).root);
     row2.appendChild(rankedCard({
       title: 'Connection type', span: 4, items: d.connection, cls: 'an-c4', unit: 'connection',
-      foot: 'From navigator.connection where available.',
+      foot: 'From navigator.connection. \u201cUnknown\u201d means the browser does not expose it.',
       exportName: csvName('audience', 'connection'),
     }).root);
     ctx.content.appendChild(row2);
@@ -668,22 +401,23 @@
     var priv = card({
       title: 'Privacy signals',
       span: 12,
-      foot: 'Do Not Track and Global Privacy Control are honoured; consent state is recorded before any non-essential measurement.',
+      foot: 'Read from the request headers, so nothing has to be collected from the visitors who set them.',
       exportRows: function () {
-        var rows = [['signal', 'value']];
-        rows.push(['do_not_track', d.privacy.dnt]);
-        rows.push(['global_privacy_control', d.privacy.gpc]);
-        d.privacy.consent.forEach(function (c) { rows.push(['consent:' + c.label, c.value]); });
-        return rows;
+        return [
+          ['signal', 'value'],
+          ['do_not_track', d.privacy.dnt],
+          ['global_privacy_control', d.privacy.gpc],
+        ];
       },
       exportName: csvName('audience', 'privacy-signals'),
     });
     priv.body.appendChild(miniStrip([
       { label: 'Do Not Track', value: fmtInt(d.privacy.dnt) },
       { label: 'Global Privacy Control', value: fmtInt(d.privacy.gpc) },
-      { label: 'Consent granted', value: fmtInt(d.privacy.consent[0].value) },
     ]));
-    priv.body.appendChild(rankedRows(d.privacy.consent, { cls: 'an-c2' }));
+    priv.body.appendChild(el('div', 'an-card-note',
+      'Do Not Track is honoured by not measuring at all, so those visitors appear only in this server-side count. ' +
+      'The site has no consent prompt, so there is no granted or declined state to report.'));
     row5.appendChild(priv.root);
     ctx.content.appendChild(row5);
   }
@@ -702,7 +436,7 @@
     var table = card({
       title: 'Regions',
       span: 8,
-      foot: 'Country level only. City precision is deliberately not stored.',
+      foot: "Country level only, from Cloudflare's country header.",
       exportRows: function () {
         var rows = [['region', 'sessions', 'visitors', 'share_pct', 'bounce_pct']];
         d.regionTable.forEach(function (r) { rows.push([r.region, r.sessions, r.visitors, r.share, r.bounce]); });
@@ -710,16 +444,21 @@
       },
       exportName: csvName('audience', 'regions'),
     });
-    table.body.appendChild(dataTable({
-      columns: [
-        { key: 'region',   label: 'Region' },
-        { key: 'sessions', label: 'Sessions', num: true, format: fmtInt },
-        { key: 'visitors', label: 'Visitors', num: true, format: fmtInt },
-        { key: 'bounce',   label: 'Bounce',   num: true, format: function (v) { return fmtPct(v, 1); } },
-        { key: 'share',    label: 'Share',    num: true, bar: true, format: function (v) { return fmtPct(v, 1); } },
-      ],
-      rows: d.regionTable,
-    }));
+    if (d.regionTable.length) {
+      table.body.appendChild(dataTable({
+        columns: [
+          { key: 'region',   label: 'Region' },
+          { key: 'sessions', label: 'Sessions', num: true, format: fmtInt },
+          { key: 'visitors', label: 'Visitors', num: true, format: fmtInt },
+          { key: 'bounce',   label: 'Bounce',   num: true, format: function (v) { return fmtPct(v, 1); } },
+          { key: 'share',    label: 'Share',    num: true, bar: true, format: function (v) { return fmtPct(v, 1); } },
+        ],
+        rows: d.regionTable,
+      }));
+    } else {
+      table.body.appendChild(el('div', 'an-card-note',
+        'No country data in range. Country is read from Cloudflare\u2019s CF-IPCountry header, so this stays empty unless the site is served through Cloudflare.'));
+    }
     row.appendChild(table.root);
     row.appendChild(donutCard({
       title: 'Region split', span: 4, items: d.regions, unit: 'region',
@@ -728,31 +467,27 @@
     ctx.content.appendChild(row);
 
     var row2 = el('div', 'an-grid');
-    row2.appendChild(rankedCard({
-      title: 'Cities', span: 6, items: d.cities, cls: 'an-c1', unit: 'city',
-      exportName: csvName('audience', 'cities'),
-    }).root);
 
     var how = card({
       title: 'How this is derived',
-      span: 6,
+      span: 12,
       foot: 'See the Privacy Policy for the full retention schedule.',
       exportRows: function () {
         return [
           ['field', 'treatment'],
-          ['ip_address', 'Last octet / last 80 bits zeroed before storage'],
-          ['region', 'Coarse country lookup, kept separate from the access log'],
-          ['city', 'Aggregated only, never linked to a session'],
-          ['retention', 'Access log rows pruned after 14 days'],
+          ['ip_address', 'Never stored. Only a salted hash whose salt rotates daily'],
+          ['region', "Cloudflare's country header, stored as a two-letter code on its own"],
+          ['city', 'Not collected'],
+          ['retention', 'Raw request rows pruned after 30 days'],
         ];
       },
       exportName: csvName('audience', 'geo-method'),
     });
     var notes = [
-      'IP addresses are truncated before they are written to disk, so the stored value can never identify a household.',
-      'Country is resolved from a separate coarse lookup and stored on its own, never alongside the truncated IP.',
-      'City figures are aggregated to the region before they reach this panel.',
-      'Access log rows are deleted after 14 days; only the aggregates on this page survive longer.',
+      'The IP address is never written to disk. Uniqueness is measured with a salted hash whose salt rotates at midnight, so a visitor cannot be followed across days.',
+      "Country comes from Cloudflare's CF-IPCountry header, accepted only from a genuine Cloudflare edge, and is stored as a two-letter code with no IP beside it.",
+      'City is not collected at all, so there is no city breakdown on this page.',
+      'Raw request rows are pruned after 30 days. Only the aggregates on this page survive longer.',
     ];
     var list = el('ul', 'an-notes');
     notes.forEach(function (text) { list.appendChild(el('li', null, text)); });
@@ -829,7 +564,7 @@
     var health = card({
       title: 'Session health',
       span: 4,
-      foot: 'The idle timeout fires after 3 hours of inactivity.',
+      foot: 'Session length measured from the request log.',
       exportRows: function () {
         var rows = [['metric', 'value']];
         a.sessionHealth.forEach(function (s) { rows.push([s.label, s.value]); });
@@ -874,21 +609,26 @@
     var never = card({
       title: 'Never logged in',
       span: 4,
-      foot: 'Guild members who have never completed a Discord login.',
+      foot: 'Guild members with no recorded activity in range.',
       exportRows: function () {
         return [['metric', 'value'], ['never_logged_in', a.neverLoggedIn.count], ['guild_members', a.neverLoggedIn.total]];
       },
       exportName: csvName('audience', 'never-logged-in'),
     });
-    never.body.appendChild(miniStrip([
-      { label: 'Never logged in', value: fmtInt(a.neverLoggedIn.count) },
-      { label: 'Guild members',   value: fmtInt(a.neverLoggedIn.total) },
-      { label: 'Coverage',        value: fmtPct(((a.neverLoggedIn.total - a.neverLoggedIn.count) / a.neverLoggedIn.total) * 100, 1) },
-    ]));
-    never.body.appendChild(rankedRows([
-      { label: 'Has logged in',   value: a.neverLoggedIn.total - a.neverLoggedIn.count },
-      { label: 'Never logged in', value: a.neverLoggedIn.count },
-    ], { cls: 'an-c6' }));
+    if (!a.neverLoggedIn.available) {
+      never.body.appendChild(el('div', 'an-card-note',
+        'Unavailable: the Discord bot token or guild is not configured, so the member list cannot be read.'));
+    } else {
+      never.body.appendChild(miniStrip([
+        { label: 'Never logged in', value: fmtInt(a.neverLoggedIn.count) },
+        { label: 'Guild members',   value: fmtInt(a.neverLoggedIn.total) },
+        { label: 'Coverage',        value: fmtPct(((a.neverLoggedIn.total - a.neverLoggedIn.count) / Math.max(1, a.neverLoggedIn.total)) * 100, 1) },
+      ]));
+      never.body.appendChild(rankedRows([
+        { label: 'Has logged in',   value: a.neverLoggedIn.total - a.neverLoggedIn.count },
+        { label: 'Never logged in', value: a.neverLoggedIn.count },
+      ], { cls: 'an-c6' }));
+    }
     row4.appendChild(never.root);
     ctx.content.appendChild(row4);
 
@@ -897,8 +637,8 @@
       title: 'Panel activity',
       span: 12,
       foot: a.devLogin === 0
-        ? 'Dev-login has never fired - correct for production.'
-        : 'Dev-login has fired ' + a.devLogin + ' times - investigate immediately.',
+        ? 'No /auth/dev-login requests in range.'
+        : 'Dev-login has fired ' + a.devLogin + ' times in range.',
       exportRows: function () {
         var rows = [['action', 'count']];
         a.panelActivity.forEach(function (p) { rows.push([p.label, p.value]); });
@@ -909,11 +649,112 @@
     });
     activity.body.appendChild(rankedRows(a.panelActivity, { cls: 'an-c4' }));
     var devLine = el('div', 'an-card-note');
-    devLine.textContent = 'Dev-login usage: ' + a.devLogin + ' (expected 0 in production) - ' +
-      (a.devLogin === 0 ? 'OK' : 'ALERT');
+    devLine.textContent = 'Dev-login usage: ' + a.devLogin + ' in range - ' +
+      (a.devLogin === 0 ? 'none' : 'ALERT');
     activity.body.appendChild(devLine);
     row5.appendChild(activity.root);
     ctx.content.appendChild(row5);
+  }
+
+  /* Accounts tab - everyone who has ever logged in, with range activity. */
+  function audienceAccountsTab(ctx) {
+    var acc = ctx.data.accounts;
+
+    var summary = card({
+      title: 'Accounts',
+      span: 12,
+      foot: 'Every account in the site user store, with activity in the selected range.',
+      exportRows: function () {
+        return [
+          ['metric', 'value'],
+          ['total_accounts', acc.total],
+          ['active_in_range', acc.activeInRange],
+          ['with_activity', acc.withActivity],
+          ['logged_in_now', acc.loggedInNow],
+          ['linked_to_minecraft', acc.linked],
+          ['restricted', acc.restricted],
+          ['logins_in_range', acc.totalLogins],
+        ];
+      },
+      exportName: csvName('audience', 'accounts-summary'),
+    });
+    summary.body.appendChild(miniStrip([
+      { label: 'Total accounts',  value: fmtInt(acc.total) },
+      { label: 'Active in range', value: fmtInt(acc.activeInRange) },
+      { label: 'Logged in now',   value: fmtInt(acc.loggedInNow) },
+      { label: 'Linked',          value: fmtInt(acc.linked) },
+      { label: 'Restricted',      value: fmtInt(acc.restricted) },
+    ]));
+    var summaryRow = el('div', 'an-grid');
+    summaryRow.appendChild(summary.root);
+    ctx.content.appendChild(summaryRow);
+
+    var row = el('div', 'an-grid');
+    row.appendChild(rankedCard({
+      title: 'Most active', span: 6,
+      items: acc.list.slice(0, 8).map(function (a) {
+        return { label: a.account, value: a.events + a.logins };
+      }),
+      cls: 'an-c1', unit: 'actions',
+      foot: 'Events and logins in range.',
+      exportName: csvName('audience', 'most-active-accounts'),
+    }).root);
+    var least = acc.list.slice().sort(function (a, b) {
+      return (a.events + a.logins) - (b.events + b.logins);
+    });
+    row.appendChild(rankedCard({
+      title: 'Least active', span: 6,
+      items: least.slice(0, 8).map(function (a) {
+        return { label: a.account, value: a.events + a.logins };
+      }),
+      cls: 'an-c6', unit: 'actions',
+      foot: 'Accounts with the fewest actions in range.',
+      exportName: csvName('audience', 'least-active-accounts'),
+    }).root);
+    ctx.content.appendChild(row);
+
+    var row2 = el('div', 'an-grid');
+    var table = card({
+      title: 'All accounts, ranked by activity',
+      span: 12,
+      foot: 'Ranked by events and logins in range. Names prefer the linked Minecraft username. Logins come from the site sign-in hook.',
+      exportRows: function () {
+        var rows = [['pos', 'account', 'discord', 'guild_rank', 'linked', 'tokens',
+                     'logins', 'events', 'sessions', 'panel_views', 'active_seconds',
+                     'last_seen']];
+        acc.list.forEach(function (a) {
+          rows.push([a.pos, a.account, a.discord, a.rank, a.linked ? 'yes' : 'no',
+                     a.tokens, a.logins, a.events, a.sessions, a.panelViews,
+                     a.activeSeconds, a.lastSeen || '']);
+        });
+        return rows;
+      },
+      exportName: csvName('audience', 'accounts'),
+    });
+    if (acc.list.length) {
+      table.body.appendChild(dataTable({
+        tableClass: 'an-table--wrap',
+        columns: [
+          { key: 'pos',           label: '#',           num: true },
+          { key: 'account',       label: 'Account' },
+          { key: 'discord',       label: 'Discord' },
+          { key: 'rank',          label: 'Guild rank' },
+          { key: 'tokens',        label: 'Tokens',      num: true, format: fmtInt },
+          { key: 'logins',        label: 'Logins',      num: true, format: fmtInt },
+          { key: 'events',        label: 'Events',      num: true, format: fmtInt },
+          { key: 'sessions',      label: 'Sessions',    num: true, format: fmtInt },
+          { key: 'panelViews',    label: 'Panel views', num: true, format: fmtInt },
+          { key: 'activeSeconds', label: 'Active time', num: true, format: fmtDuration },
+          { key: 'lastSeen',      label: 'Last active', format: function (v) { return v ? fmtDateTime(v) : '\u2014'; } },
+        ],
+        rows: acc.list,
+      }));
+    } else {
+      table.body.appendChild(el('div', 'an-card-note',
+        'No accounts yet. The list is built from the site user store, so it fills in as people log in.'));
+    }
+    row2.appendChild(table.root);
+    ctx.content.appendChild(row2);
   }
 
   A.registerPanel('analytics-audience', { build: buildAudience });

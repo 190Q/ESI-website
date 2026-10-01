@@ -117,6 +117,11 @@ def _dm_card_in_background(
     """
     if low_urgency and _is_dm_opted_out(discord_id):
         return
+    try:
+        import analytics as _analytics
+        _analytics.record_server_event("shop", {"action": "dm_card"})
+    except Exception:
+        pass
     from shop.dm_cards import render_card
     png = render_card(card_type, item_name, amount, amount_label, fields, comment)
     if png:

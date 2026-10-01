@@ -14,131 +14,32 @@
   var timeSeriesChart = A.timeSeriesChart;
   var fmtInt = A.fmtInt;
   var fmtPct = A.fmtPct;
-  var rng = A.rng;
-  var demoBase = A.demoBase;
-  var trendSeries = A.trendSeries;
-  var USE_DEMO_DATA = A.USE_DEMO_DATA;
+
+  var DATA_KPI_SPEC = {
+    dau:   { format: fmtInt, invert: false },
+    wau:   { format: fmtInt, invert: false },
+    mau:   { format: fmtInt, invert: false },
+    day1:  { format: function (v) { return fmtPct(v, 1); }, invert: false },
+    day7:  { format: function (v) { return fmtPct(v, 1); }, invert: false },
+    day30: { format: function (v) { return fmtPct(v, 1); }, invert: false },
+  };
 
   function loadData(range) {
-    if (USE_DEMO_DATA) return Promise.resolve(buildDataDemo(range));
     return fetch('/panel/api/analytics/rollups?range=' + encodeURIComponent(range), {
       credentials: 'same-origin',
     }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
-    });
-  }
-
-  function buildDataDemo(range) {
-    var base = demoBase(range);
-    var rand = rng(4073 + range.length * 887);
-    var labels = base.labels;
-    var n = labels.length;
-
-    function series(start, spread, trend) {
-      var out = [];
-      for (var i = 0; i < n; i++) {
-        var t = n > 1 ? i / (n - 1) : 0;
-        out.push(Math.max(0, Math.round(start * (1 + trend * t) + (rand() - 0.5) * spread)));
-      }
-      return out;
-    }
-
-    var activeSeries = series(1240, 380, 0.15);
-    var dau = 1240;
-    var wau = 3820;
-    var mau = 9420;
-
-    // Busiest hours, for scheduling events and maintenance.
-    var peakHours = [
-      { label: '19:00', value: 412 },
-      { label: '20:00', value: 386 },
-      { label: '18:00', value: 341 },
-      { label: '21:00', value: 296 },
-      { label: '13:00', value: 248 },
-      { label: '12:00', value: 214 },
-    ];
-
-    var mostUsed = [
-      { label: 'Player panel',  value: 6420 },
-      { label: 'Guild panel',   value: 4180 },
-      { label: 'Events panel',  value: 2960 },
-      { label: 'Player lookup', value: 2840 },
-      { label: 'Shop panel',    value: 1740 },
-      { label: 'Pinned banner', value: 1280 },
-    ];
-
-    var leastUsed = [
-      { label: 'WynnPiece page',   value: 62 },
-      { label: 'Guild info',       value: 86 },
-      { label: 'Creator studio',   value: 124 },
-      { label: 'Events manage',    value: 186 },
-      { label: 'Inactivity panel', value: 214 },
-      { label: 'Shop admin',       value: 268 },
-    ];
-
-    var retention = { day1: 42.6, day7: 24.1, day30: 11.8 };
-
-    var cohorts = [
-      { cohort: '1 Sep',  users: 412, day1: 44.2, day7: 26.1, day30: 12.4 },
-      { cohort: '8 Sep',  users: 386, day1: 43.1, day7: 24.8, day30: 11.6 },
-      { cohort: '15 Sep', users: 441, day1: 45.6, day7: 27.3, day30: 13.1 },
-      { cohort: '22 Sep', users: 468, day1: 46.8, day7: 28.4, day30: 0 },
-      { cohort: '29 Sep', users: 392, day1: 47.4, day7: 0,    day30: 0 },
-    ];
-
-    // Of the sessions that logged in, how many opened each panel.
-    var adoption = [
-      { panel: 'Player',     sessions: 6819, adopted: 5480, rate: 80.4 },
-      { panel: 'Guild',      sessions: 6819, adopted: 4180, rate: 61.3 },
-      { panel: 'Events',     sessions: 6819, adopted: 2960, rate: 43.4 },
-      { panel: 'Shop',       sessions: 6819, adopted: 1740, rate: 25.5 },
-      { panel: 'Bot',        sessions: 6819, adopted: 860,  rate: 12.6 },
-      { panel: 'Promotions', sessions: 6819, adopted: 540,  rate: 7.9 },
-      { panel: 'Inactivity', sessions: 6819, adopted: 410,  rate: 6.0 },
-    ];
-
-    // Visit -> login -> panel -> action.
-    var conversion = [
-      { step: 'Visit',         value: 12480 },
-      { step: 'Login',         value: 2860 },
-      { step: 'Open a panel',  value: 2410 },
-      { step: 'Take an action', value: 1180 },
-    ];
-    var conversionRates = [];
-    for (var c = 1; c < conversion.length; c++) {
-      conversionRates.push({
-        step: conversion[c - 1].step + ' \u2192 ' + conversion[c].step,
-        rate: (conversion[c].value / conversion[c - 1].value) * 100,
+    }).then(function (d) {
+      d.labels = A.bucketLabels(d.buckets, range);
+      Object.keys(DATA_KPI_SPEC).forEach(function (id) {
+        var kpi = d.kpis && d.kpis[id];
+        if (!kpi) return;
+        kpi.format = DATA_KPI_SPEC[id].format;
+        kpi.invert = DATA_KPI_SPEC[id].invert;
       });
-    }
-
-    return {
-      demo: true,
-      range: range,
-      generatedAt: new Date().toISOString(),
-      labels: labels,
-
-      kpis: {
-        dau: { value: dau, prev: 1112, series: activeSeries, format: fmtInt, invert: false },
-        wau: { value: wau, prev: 3480, series: trendSeries(wau, n, 0.16, rand), format: fmtInt, invert: false },
-        mau: { value: mau, prev: 8720, series: trendSeries(mau, n, 0.1, rand), format: fmtInt, invert: false },
-
-        day1:  { value: retention.day1,  prev: 40.8, series: trendSeries(retention.day1, n, 0.1, rand),  format: function (v) { return fmtPct(v, 1); }, invert: false },
-        day7:  { value: retention.day7,  prev: 22.4, series: trendSeries(retention.day7, n, 0.14, rand), format: function (v) { return fmtPct(v, 1); }, invert: false },
-        day30: { value: retention.day30, prev: 10.2, series: trendSeries(retention.day30, n, 0.18, rand), format: function (v) { return fmtPct(v, 1); }, invert: false },
-      },
-
-      activeSeries: activeSeries,
-      peakHours: peakHours,
-      mostUsed: mostUsed,
-      leastUsed: leastUsed,
-      retention: retention,
-      cohorts: cohorts,
-      adoption: adoption,
-      conversion: conversion,
-      conversionRates: conversionRates,
-    };
+      return d;
+    });
   }
 
   var DATA_TABS = [
@@ -149,7 +50,7 @@
   function buildData(container) {
     return analyticsPanel({
       container: container,
-      label: 'Data',
+      label: 'Data',
       tabKey: 'data',
       tabs: DATA_TABS,
       load: loadData,
@@ -180,9 +81,9 @@
   function dataActivityTab(ctx) {
     var d = ctx.data;
     ctx.content.appendChild(panelKpiStrip(d, [
-      { id: 'dau', label: 'Daily active users',   cls: 'an-c1', hint: 'Distinct users active in a day' },
-      { id: 'wau', label: 'Weekly active users',  cls: 'an-c2', hint: 'Distinct users active in a week' },
-      { id: 'mau', label: 'Monthly active users', cls: 'an-c4', hint: 'Distinct users active in a month' },
+      { id: 'dau', label: 'Daily active members',   cls: 'an-c1', hint: 'Distinct logged-in members active in a day' },
+      { id: 'wau', label: 'Weekly active members',  cls: 'an-c2', hint: 'Distinct logged-in members active in a week' },
+      { id: 'mau', label: 'Monthly active members', cls: 'an-c4', hint: 'Distinct logged-in members active in a month' },
     ]));
 
     var row = el('div', 'an-grid');
@@ -198,10 +99,10 @@
     });
     chart.body.appendChild(timeSeriesChart({
       labels: d.labels,
-      series: [{ name: 'Daily active users', values: d.activeSeries, area: true }],
+      series: [{ name: 'Daily active members', values: d.activeSeries, area: true }],
       formatValue: fmtInt,
       height: 288,
-      ariaLabel: 'Daily active users over time',
+      ariaLabel: 'Daily active members over time',
     }));
     row.appendChild(chart.root);
 
@@ -255,6 +156,9 @@
       ],
       rows: d.cohorts,
     }));
+    cohorts.body.appendChild(el('div', 'an-card-note',
+      'Cohorts cover logged-in members only. The visitor hash is salted per day, so anonymous visitors cannot be followed across a week by design. ' +
+      'Day 30 needs 60 days of history, and raw rows are pruned at 30, so it reads 0 until the nightly rollup has been running that long.'));
     row.appendChild(cohorts.root);
     ctx.content.appendChild(row);
 

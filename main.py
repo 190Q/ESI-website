@@ -20,13 +20,14 @@ import hashlib
 import os
 import re
 import sys
+import time
 import requests
-from flask import Flask, request, Response, jsonify, send_from_directory, abort
+from flask import Flask, request, Response, jsonify, send_from_directory, abort, g
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.serving import WSGIRequestHandler
 
 from config import (
-    _BASE_DIR, _UPLOAD_DIR, GATEWAY_PORT, ROUTES_URL, _GATEWAY_SECRET,
+    _BASE_DIR, _UPLOAD_DIR, GATEWAY_PORT, ROUTES_URL, _GATEWAY_SECRET, DEV_MODE,
 )
 
 
@@ -205,6 +206,10 @@ def _serve_custom_link(path: str):
     pass_query = bool(link.get("pass_query", True))
     if not target:
         return None
+    _track_server("link", {
+        "target": target,
+        "external": target.startswith(("http://", "https://")),
+    })
     if target.startswith("/api/") or target.startswith("/auth/"):
         return _proxy_to_routes_path(target, pass_query=pass_query)
     if target.startswith("http://") or target.startswith("https://"):
@@ -224,6 +229,50 @@ try:
     _HAS_LOGGER = True
 except ImportError:
     _HAS_LOGGER = False
+
+# analytics: every served request goes here, including successful ones
+try:
+    from analytics import (
+        record_request as _record_request,
+        record_server_event as _record_server_event,
+        normalise_route as _normalise_route,
+        cleanup_old_analytics,
+        rollup_recent as _rollup_recent,
+        ensure_session_cookie as _ensure_session_cookie,
+        set_session_cookie as _set_session_cookie,
+        SESSION_COOKIE as _ANALYTICS_SESSION_COOKIE,
+    )
+except ImportError:
+    _record_request = None
+    _record_server_event = None
+    _normalise_route = None
+    cleanup_old_analytics = None
+    _rollup_recent = None
+    _ensure_session_cookie = None
+    _set_session_cookie = None
+    _ANALYTICS_SESSION_COOKIE = "esi_sid"
+
+_ANALYTICS_SKIP_PREFIXES = ("/api/track",)
+
+
+def _track_server(kind, props=None):
+    """Record an event the gateway observed directly. Never raises.
+
+    Unlike the beacon these hooks cannot be forged by a client, so they carry
+    no token. The gateway already knows the page, the session and the IP.
+    """
+    if _record_server_event is None:
+        return False
+    try:
+        return _record_server_event(
+            kind,
+            props=props,
+            path=_normalise_route(request.path),
+            session_cookie=request.cookies.get(_ANALYTICS_SESSION_COOKIE),
+            ip=_real_client_ip(),
+        )
+    except Exception:
+        return False
 
 # ip ban system
 try:
@@ -283,10 +332,33 @@ def _real_client_ip():
     return request.remote_addr
 
 
+def _request_country():
+    """The visitor's two-letter country, or None.
+
+    Taken from Cloudflare's CF-IPCountry, and only trusted when the TCP peer is
+    one of the proxies in front of the app - nginx on loopback or a genuine
+    Cloudflare edge. A direct client could set the header freely, so anywhere
+    else it is ignored. Only the country is ever stored; the IP is not.
+    """
+    peer = request.environ.get("REMOTE_ADDR") or request.remote_addr
+    trusted_peer = peer in ("127.0.0.1", "::1") or _is_cloudflare_peer(peer)
+    if not trusted_peer:
+        return None
+    code = (request.headers.get("CF-IPCountry") or "").strip().upper()
+    if len(code) != 2 or code in ("XX", "T1"):
+        return None
+    return code
+
+
 def _log_cf_skip(peer: str, reason: str) -> None:
     """Print a notice that a blacklist was suppressed because the TCP peer
     was a Cloudflare edge (blacklisting it would block real visitors).
     """
+    if _record_server_event is not None:
+        try:
+            _record_server_event("feature", {"action": "run", "name": "cf-skip"})
+        except Exception:
+            pass
     print(
         f"[IP-BAN] Skipped blacklist for Cloudflare edge peer {peer} "
         f"(no usable CF-Connecting-IP): {reason}",
@@ -506,6 +578,7 @@ _BANNED_METHODS = frozenset({
 
 @app.before_request
 def _gate_requests():
+    g._analytics_t0 = time.perf_counter()
     ip = _real_client_ip()
     # Never blacklist the Cloudflare edge itself - that would kill every
     # legitimate visitor routed through the same POP.
@@ -517,6 +590,8 @@ def _gate_requests():
 
     def _do_blacklist(reason: str) -> None:
         """Blacklist the real client IP, or log a Cloudflare-skip notice."""
+        # Remembered so the analytics row can say why the request was blocked.
+        g._analytics_block_reason = reason
         if _HAS_BAN and ip:
             blacklist_ip(ip, reason=reason)
         elif cf_skip:
@@ -528,6 +603,7 @@ def _gate_requests():
 
     # reject banned IPs immediately
     if _HAS_BAN and ip and is_banned(ip):
+        g._analytics_block_reason = "Already banned"
         print(
             f"[IP-BAN] gate: already-banned hit  ip={ip}  method={request.method}  path={request.path}",
             file=sys.stderr,
@@ -559,6 +635,7 @@ def _gate_requests():
         abort(403)
     # block dotfiles (always)
     if "/." in path or path.startswith("."):
+        g._analytics_block_reason = "Dotfile"
         abort(403)
     if not _is_wp:
         # HTTP/1.0 direct to the gateway (no upstream proxy header) is a scanner
@@ -628,6 +705,77 @@ def _gate_requests():
 
 # logging + security headers
 
+
+def _ensure_analytics_session(response):
+    """Return this visitor's analytics session id, minting the cookie if needed.
+
+    /api/track is skipped: routes.py mints the cookie for those paths itself,
+    and two Set-Cookie headers for the same name would race, leaving the
+    beacon token bound to an id the browser never stored.
+    """
+    if _ensure_session_cookie is None:
+        return None
+    if request.path.startswith(_ANALYTICS_SKIP_PREFIXES):
+        return None
+    sid, fresh = _ensure_session_cookie(request.cookies.get(_ANALYTICS_SESSION_COOKIE))
+    if fresh:
+        _set_session_cookie(response, fresh, secure=not DEV_MODE)
+    return sid
+
+
+def _record_analytics(response, session_sid=None):
+    """Feed one served request into the analytics store. Never raises.
+
+    Runs for every response, including the ones the gate rejects, so the
+    Traffic and Health panels see failures as well as successes.
+    """
+    if _record_request is None:
+        return
+    try:
+        path = request.path
+        if path.startswith(_ANALYTICS_SKIP_PREFIXES):
+            return
+
+        started = getattr(g, "_analytics_t0", None)
+        duration_ms = None
+        if started is not None:
+            duration_ms = (time.perf_counter() - started) * 1000.0
+
+        # Streaming proxy responses have no computed length
+        size = None
+        try:
+            size = response.calculate_content_length()
+        except Exception:
+            size = None
+        if size is None:
+            declared = response.headers.get("Content-Length")
+            if declared and declared.isdigit():
+                size = int(declared)
+
+        status = response.status_code
+        block_reason = getattr(g, "_analytics_block_reason", None)
+        if status == 403 and not block_reason:
+            block_reason = "Permission denied"
+        _record_request(
+            method=request.method,
+            path=path,
+            status=status,
+            duration_ms=duration_ms,
+            response_bytes=size,
+            cache=response.headers.get("X-Cache"),
+            ip=_real_client_ip(),
+            user_agent=request.headers.get("User-Agent"),
+            session_cookie=session_sid,
+            blocked=(status == 403),
+            block_reason=block_reason,
+            country=_request_country(),
+            dnt=(request.headers.get("DNT") or "").strip() == "1",
+            gpc=(request.headers.get("Sec-GPC") or "").strip() == "1",
+        )
+    except Exception:
+        pass
+
+
 @app.after_request
 def _after_request(response):
     ip = _real_client_ip() or "unknown"
@@ -636,7 +784,8 @@ def _after_request(response):
     strike_ip = ip if not (_is_cloudflare_peer(peer) and ip == peer) else None
     # record strikes for the ip ban system (skip for wynnpiece paths)
     _is_wp = request.path.startswith("/wynnpiece") or request.path.startswith("/api/wynnpiece")
-    if _HAS_BAN and strike_ip and not _is_wp:
+    _is_beacon = request.path.startswith(_ANALYTICS_SKIP_PREFIXES)
+    if _HAS_BAN and strike_ip and not _is_wp and not _is_beacon:
         if response.status_code == 403:
             record_strike(strike_ip, "blocked")
         elif response.status_code == 429:
@@ -662,6 +811,7 @@ def _after_request(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    _record_analytics(response, _ensure_analytics_session(response))
     return response
 
 
@@ -731,6 +881,13 @@ _ALLOWED_UPLOAD_EXTENSIONS = frozenset({
     'zip', 'gz', 'tar',
 })
 
+_DOWNLOAD_KINDS = {
+    'pdf': 'pdf', 'csv': 'csv', 'json': 'json',
+    'png': 'image', 'jpg': 'image', 'jpeg': 'image', 'gif': 'image',
+    'webp': 'image', 'avif': 'image',
+    'zip': 'archive', 'gz': 'archive', 'tar': 'archive',
+}
+
 @app.route("/uploads/<string:filename>")
 def serve_upload(filename):
     safe = os.path.basename(filename)
@@ -742,6 +899,7 @@ def serve_upload(filename):
     resp = send_from_directory(_UPLOAD_DIR, filename, as_attachment=True)
     resp.headers['Content-Type'] = 'application/octet-stream'
     resp.headers['Content-Disposition'] = f'attachment; filename="{safe}"'
+    _track_server("download", {"file": safe, "kind": _DOWNLOAD_KINDS.get(ext, 'other')})
     return resp
 
 
@@ -796,6 +954,16 @@ def _log_cleanup_loop():
             cleanup_old_logs()
         except Exception:
             pass
+        if _rollup_recent is not None:
+            try:
+                _rollup_recent()
+            except Exception:
+                pass
+        if cleanup_old_analytics is not None:
+            try:
+                cleanup_old_analytics()
+            except Exception:
+                pass
         if _HAS_BAN:
             try:
                 cleanup_ban_history()
@@ -804,7 +972,7 @@ def _log_cleanup_loop():
 
 
 if __name__ == "__main__":
-    if _HAS_LOGGER:
+    if _HAS_LOGGER or cleanup_old_analytics is not None:
         import threading as _t
         _t.Thread(target=_log_cleanup_loop, daemon=True).start()
 

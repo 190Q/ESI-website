@@ -231,6 +231,12 @@
   }
 
   /* --- login gate --- */
+  function trackFeature(props) {
+    try {
+      if (window.ESITrack) window.ESITrack.event('feature', props);
+    } catch (e) { /* never let analytics break the panel */ }
+  }
+
   function renderGate(status) {
     var loggedIn = window.state && window.state.loggedIn;
     if (!loggedIn && window.renderAuthGate) { window.renderAuthGate(panel); return; }
@@ -293,6 +299,7 @@
         '<div id="promTableWrap"></div>' +
       '</div>';
 
+    trackFeature({ action: 'view', name: 'promotions-members' });
     document.getElementById('promSearch').addEventListener('input', function () {
       _filter = this.value.trim().toLowerCase();
       renderTable();
@@ -406,6 +413,7 @@
     
     wrap.querySelectorAll('.prom-name-link').forEach(function (el) {
       el.addEventListener('click', function () {
+        trackFeature({ action: 'open', name: 'promotion-member' });
         var joined = this.dataset.joined;
         var opts = null;
         if (joined) {

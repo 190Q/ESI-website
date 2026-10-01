@@ -123,6 +123,12 @@ window._removeCustomCSS = (type) => {
 if ((document.documentElement.getAttribute('data-theme') || '') === 'custom') window._injectCustomCSS('theme');
 if (savedFont === 'custom') window._injectCustomCSS('font');
 
+function trackAppearance(kind, props) {
+  try {
+    if (window.ESITrack) window.ESITrack.event(kind, props);
+  } catch (_err) { /* analytics must never break the page */ }
+}
+
 window.setTheme = (name) => {
   const prev = document.documentElement.getAttribute('data-theme') || '';
   if (name === undefined || name === null) return `Current theme: ${prev || 'default'}`;
@@ -169,6 +175,7 @@ window.setTheme = (name) => {
     fireAfterFrame();
   }
   if (current === prev) return `Theme already set to '${current || 'default'}'`;
+  trackAppearance('theme', { theme: current || 'default' });
   return `Theme changed: '${prev || 'default'}' → '${current || 'default'}'`;
 };
 
@@ -191,6 +198,7 @@ window.setFont = (name) => {
     window.FontConfig.ensureBuiltInFontStylesLoaded();
   }
   if (current === prev) return `Font already set to '${current || 'default'}'`;
+  trackAppearance('font', { font: current || 'default' });
   return `Font changed: '${prev || 'default'}' → '${current || 'default'}'`;
 };
 

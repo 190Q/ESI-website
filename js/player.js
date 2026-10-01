@@ -592,8 +592,21 @@
     }
   }
 
+  var _lastGraphHover = 0;
+  function trackContent(kind, props) {
+    try {
+      if (window.ESITrack) window.ESITrack.event(kind, props);
+    } catch (e) { /* never let analytics break the page */ }
+  }
+
   async function lookupPlayer(username, options) {
     if (!username) return;
+    trackContent('search', { scope: 'player', q: username });
+    trackContent('graph', { action: 'view', graph: 'player-activity' });
+    var focusDays = options && options.graphFocus && options.graphFocus.rangeDays;
+    if (focusDays) {
+      trackContent('graph', { action: 'range', graph: 'player-activity', range: focusDays + 'd' });
+    }
     searchBtn.disabled = true;
     _searchButtonState = 'loading';
     _renderSearchButtonLabel();
@@ -2154,6 +2167,11 @@
 
     canvas.addEventListener('mouseleave', hideHover);
     canvas.addEventListener('mousemove', function (e) {
+    var nowMs = Date.now();
+    if (nowMs - _lastGraphHover > 5000) {
+      _lastGraphHover = nowMs;
+      trackContent('graph', { action: 'hover', graph: 'player-activity' });
+    }
       const model = compareGraph.hoverModel;
       if (!model || !model.series.length) { hideHover(); return; }
 
@@ -3177,6 +3195,21 @@
     }
   }
 
+  var _deepLinkReported = false;
+  function reportDeepLink(panel) {
+    if (_deepLinkReported) return;
+    _deepLinkReported = true;
+    try {
+      if (!window.ESITrack) return;
+      var path = window.location.pathname || '/';
+      if (!path || path === '/') return;
+      window.ESITrack.event('deep_link', {
+        target: path.slice(0, 120),
+        ok: !!document.getElementById('panel-' + panel),
+      });
+    } catch (e) { /* analytics must never break routing */ }
+  }
+
   function navigateFromPath() {
     var pathname = window.location.pathname;
     // strip leading slash and split
@@ -3209,6 +3242,7 @@
       playerInput.value = '';
     }
     if (window.switchToPanel) window.switchToPanel(panel);
+    reportDeepLink(panel);
   }
 
   window.addEventListener('popstate', navigateFromPath);

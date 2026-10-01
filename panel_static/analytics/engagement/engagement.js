@@ -17,360 +17,37 @@
   var fmtInt = A.fmtInt;
   var fmtPct = A.fmtPct;
   var fmtDuration = A.fmtDuration;
-  var sumOf = A.sumOf;
-  var avgOf = A.avgOf;
-  var rng = A.rng;
-  var demoBase = A.demoBase;
-  var trendSeries = A.trendSeries;
-  var USE_DEMO_DATA = A.USE_DEMO_DATA;
+
+  var ENGAGEMENT_KPI_SPEC = {
+    panelViews:    { format: fmtInt, invert: false },
+    panelSwitches: { format: fmtInt, invert: false },
+    deepLinks:     { format: fmtInt, invert: false },
+    avgPanelTime:  { format: fmtDuration, invert: false },
+    impressions:   { format: fmtInt, invert: false },
+    bannerCtr:     { format: function (v) { return fmtPct(v, 1); }, invert: false },
+    collapseRate:  { format: function (v) { return fmtPct(v, 1); }, invert: true },
+    bannerClicks:  { format: fmtInt, invert: false },
+    listViews:     { format: fmtInt, invert: false },
+    eventViews:    { format: fmtInt, invert: false },
+    eventPins:     { format: fmtInt, invert: false },
+  };
 
   function loadEngagement(range) {
-    if (USE_DEMO_DATA) return Promise.resolve(buildEngagementDemo(range));
     return fetch('/panel/api/analytics/engagement?range=' + encodeURIComponent(range), {
       credentials: 'same-origin',
     }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
+    }).then(function (d) {
+      d.labels = A.bucketLabels(d.buckets, range);
+      Object.keys(ENGAGEMENT_KPI_SPEC).forEach(function (id) {
+        var kpi = d.kpis && d.kpis[id];
+        if (!kpi) return;
+        kpi.format = ENGAGEMENT_KPI_SPEC[id].format;
+        kpi.invert = ENGAGEMENT_KPI_SPEC[id].invert;
+      });
+      return d;
     });
-  }
-
-  function buildEngagementDemo(range) {
-    var base = demoBase(range);
-    var rand = rng(3391 + range.length * 733);
-    var labels = base.labels;
-    var n = labels.length;
-
-    function series(start, spread, trend) {
-      var out = [];
-      for (var i = 0; i < n; i++) {
-        var t = n > 1 ? i / (n - 1) : 0;
-        out.push(Math.max(0, Math.round(start * (1 + trend * t) + (rand() - 0.5) * spread)));
-      }
-      return out;
-    }
-
-    var PANEL_SPECS = [
-      { label: 'Player',        share: 0.27, seconds: 184 },
-      { label: 'Guild',         share: 0.18, seconds: 156 },
-      { label: 'Events',        share: 0.14, seconds: 121 },
-      { label: 'Shop',          share: 0.11, seconds: 143 },
-      { label: 'Bot',           share: 0.08, seconds: 96 },
-      { label: 'Promotions',    share: 0.07, seconds: 88 },
-      { label: 'Inactivity',    share: 0.05, seconds: 102 },
-      { label: 'Shop admin',    share: 0.04, seconds: 268 },
-      { label: 'Events manage', share: 0.03, seconds: 241 },
-      { label: 'Guild info',    share: 0.02, seconds: 74 },
-      { label: 'WynnPiece',     share: 0.01, seconds: 312 },
-    ];
-
-    var totalPanelViews = 18420;
-    var panels = PANEL_SPECS.map(function (s) {
-      return {
-        label: s.label,
-        views: Math.round(totalPanelViews * s.share),
-        avgSeconds: s.seconds,
-      };
-    });
-
-    var panelSeries = series(2600, 900, 0.18);
-
-    // Panel to panel moves, which also give the total switch count.
-    var flow = [
-      { from: 'Player', to: 'Guild',      moves: 1840 },
-      { from: 'Player', to: 'Events',     moves: 1120 },
-      { from: 'Guild',  to: 'Player',     moves: 1490 },
-      { from: 'Guild',  to: 'Promotions', moves: 640 },
-      { from: 'Events', to: 'Shop',       moves: 520 },
-      { from: 'Shop',   to: 'Player',     moves: 480 },
-      { from: 'Player', to: 'Shop',       moves: 410 },
-      { from: 'Guild',  to: 'Inactivity', moves: 260 },
-    ];
-    var panelSwitches = sumOf(flow.map(function (f) { return f.moves; }));
-
-    // Deep-link entries against landing on the root.
-    var entryTypes = [
-      { label: 'Landed on /', value: 2410 },
-      { label: 'Deep link',   value: 1180 },
-    ];
-
-    var navClicks = [
-      { label: 'Sidebar', value: 9840 },
-      { label: 'Navbar',  value: 1240 },
-    ];
-
-    var footerClicks = [
-      { label: 'Discord',          value: 320 },
-      { label: 'GitHub',           value: 148 },
-      { label: 'Privacy Policy',   value: 96 },
-      { label: 'Terms of Service', value: 41 },
-      { label: 'Cookie Policy',    value: 28 },
-      { label: 'Contact',          value: 17 },
-    ];
-
-    var themes = [
-      { label: 'Empire of Sindria',  value: 4820 },
-      { label: 'Midnight Afterglow', value: 1410 },
-      { label: 'Catppuccin',         value: 690 },
-      { label: 'Purple',             value: 420 },
-      { label: 'Custom',             value: 190 },
-    ];
-
-    var fonts = [
-      { label: 'Cinzel & Crimson Pro', value: 5210 },
-      { label: 'Inter',                value: 1640 },
-      { label: 'Minecraft',            value: 520 },
-      { label: 'Custom',               value: 160 },
-    ];
-
-    var appearance = {
-      themeSwitches: 612,
-      fontChanges: 218,
-      customThemes: 96,
-      customFonts: 41,
-    };
-
-    var depth = {
-      scroll: [
-        { label: '25%',  value: 4210 },
-        { label: '50%',  value: 3120 },
-        { label: '75%',  value: 1980 },
-        { label: '100%', value: 940 },
-      ],
-      tabHidden: 2840,
-      idleSeconds: 96,
-      activeSeconds: 312,
-      firstUse: [
-        { label: 'Player',     value: 412 },
-        { label: 'Guild',      value: 388 },
-        { label: 'Events',     value: 296 },
-        { label: 'Shop',       value: 214 },
-        { label: 'Bot',        value: 84 },
-        { label: 'Promotions', value: 61 },
-      ],
-    };
-
-    var PINNED_SPECS = [
-      { event: 'Wynnpiece Treasure Hunt', status: 'ongoing',  audience: 'public',     impressions: 3184, visible: 2910, clicks: 412, collapses: 688,  reexpands: 96,  unique: 1180, repeat: 268 },
-      { event: 'Guild Anniversary Raid',  status: 'upcoming', audience: 'guild_only', impressions: 2410, visible: 2240, clicks: 188, collapses: 1210, reexpands: 214, unique: 640,  repeat: 186 },
-      { event: 'Aspect Hunt Night',       status: 'upcoming', audience: 'public',     impressions: 1760, visible: 1610, clicks: 96,  collapses: 902,  reexpands: 148, unique: 410,  repeat: 128 },
-      { event: 'Build Contest',           status: 'upcoming', audience: 'public',     impressions: 980,  visible: 890,  clicks: 24,  collapses: 731,  reexpands: 61,  unique: 212,  repeat: 74 },
-    ];
-
-    var pinned = PINNED_SPECS.map(function (p) {
-      var ctr = p.clicks / p.impressions;
-      return {
-        event: p.event,
-        status: p.status,
-        audience: p.audience,
-        impressions: p.impressions,
-        visible: p.visible,
-        clicks: p.clicks,
-        ctr: ctr * 100,
-        collapses: p.collapses,
-        collapseRate: (p.collapses / p.impressions) * 100,
-        reexpands: p.reexpands,
-        uniqueUsers: p.unique,
-        repeatUsers: p.repeat,
-        dwell: Math.round((p.visible / p.impressions) * (8 + ctr * 90) * 10) / 10,
-      };
-    });
-
-    var bannerImpressions = sumOf(pinned.map(function (p) { return p.impressions; }));
-    var bannerVisible = sumOf(pinned.map(function (p) { return p.visible; }));
-    var bannerClicks = sumOf(pinned.map(function (p) { return p.clicks; }));
-    var bannerCollapses = sumOf(pinned.map(function (p) { return p.collapses; }));
-
-    var bannerByPanel = [
-      { label: 'Player', value: 2140 },
-      { label: 'Guild',  value: 1420 },
-      { label: 'Bot',    value: 386 },
-    ];
-
-    var bannerSlots = [
-      { label: 'Slot 1', value: 2840 },
-      { label: 'Slot 2', value: 1190 },
-      { label: 'Slot 3', value: 640 },
-      { label: 'Slot 4', value: 210 },
-    ];
-
-    var bannerByDevice = [
-      { label: 'Desktop', value: 3100 },
-      { label: 'Mobile',  value: 1040 },
-      { label: 'Tablet',  value: 190 },
-    ];
-
-    // Guild-only pins carry a badge.
-    var bannerByAudience = [
-      { label: 'Public',     value: 5924 },
-      { label: 'Guild only', value: 2410 },
-    ];
-
-    // Interaction rate, not a raw count.
-    var bannerStatusRate = [
-      { label: 'Ongoing',  value: 12.9 },
-      { label: 'Upcoming', value: 6.7 },
-    ];
-
-    var bannerToggle = [
-      { label: 'Banner on',  value: 5480 },
-      { label: 'Banner off', value: 610 },
-    ];
-
-    var pinActivity = [
-      { label: 'Pinned',   value: 41 },
-      { label: 'Unpinned', value: 33 },
-    ];
-
-    var descriptionLinks = [
-      { label: 'wynncraft.com/news', value: 214 },
-      { label: 'discord.gg/sindria', value: 168 },
-      { label: 'Wynnpiece page',     value: 96 },
-      { label: 'Shop listing',       value: 42 },
-    ];
-
-    var bannerFetch = {
-      fetches: 7422,
-      changedEvents: 74,
-      uniqueViewers: 1893,
-      repeatViewers: 642,
-    };
-
-    var listViews = 8240;
-    var eventSeries = series(820, 320, 0.22);
-
-    var eventReferrers = [
-      { label: 'Events page',   value: 4120 },
-      { label: 'Pinned banner', value: 1180 },
-      { label: 'Deep link',     value: 640 },
-    ];
-
-    var eventList = [
-      { event: 'Wynnpiece Treasure Hunt', views: 1840, fromBanner: 412, fromList: 1120, pins: 12 },
-      { event: 'Guild Anniversary Raid',  views: 1420, fromBanner: 188, fromList: 1010, pins: 9 },
-      { event: 'Aspect Hunt Night',       views: 1060, fromBanner: 96,  fromList: 810,  pins: 7 },
-      { event: 'Build Contest',           views: 690,  fromBanner: 24,  fromList: 520,  pins: 5 },
-      { event: 'Raid Practice',           views: 480,  fromBanner: 0,   fromList: 410,  pins: 3 },
-      { event: 'Territory Defence',       views: 310,  fromBanner: 0,   fromList: 280,  pins: 2 },
-    ];
-
-    var eventFilters = [
-      { label: 'Status: upcoming', value: 1420 },
-      { label: 'Status: ongoing',  value: 860 },
-      { label: 'Audience: public', value: 640 },
-      { label: 'Guild only',       value: 410 },
-      { label: 'Date range',       value: 280 },
-    ];
-
-    var eventSorts = [
-      { label: 'Start date', value: 2140 },
-      { label: 'Newest',     value: 980 },
-      { label: 'Name',       value: 310 },
-    ];
-
-    var eventSearches = [
-      { label: 'raid',     value: 84 },
-      { label: 'treasure', value: 62 },
-      { label: 'aspect',   value: 48 },
-      { label: 'contest',  value: 31 },
-      { label: 'practice', value: 19 },
-    ];
-
-    // Who pinned and unpinned what.
-    var pinActors = [
-      { actor: '190Q',      pinned: 18, unpinned: 12 },
-      { actor: 'Sindria',   pinned: 11, unpinned: 9 },
-      { actor: 'Valaendor', pinned: 7,  unpinned: 6 },
-      { actor: 'Meridia',   pinned: 5,  unpinned: 6 },
-    ];
-
-    var adminActions = [
-      { label: 'Event edited',  value: 68 },
-      { label: 'Event created', value: 26 },
-      { label: 'Event deleted', value: 7 },
-    ];
-
-    var prizes = {
-      prizeExpands: 1840,
-      leaderboardViews: 960,
-      signups: 412,
-      signupRate: 22.4,
-    };
-
-    var bannerToView = {
-      median: 96,
-      within1m: 412,
-      oneTo5m: 186,
-      over5m: 74,
-    };
-
-    var eventViews = sumOf(eventList.map(function (e) { return e.views; }));
-    var eventPinsTotal = sumOf(eventList.map(function (e) { return e.pins; }));
-    var eventSearchesTotal = sumOf(eventSearches.map(function (s) { return s.value; }));
-    var avgPanelSeconds = Math.round(avgOf(panels.map(function (p) { return p.avgSeconds; })));
-
-    return {
-      demo: true,
-      range: range,
-      generatedAt: new Date().toISOString(),
-      labels: labels,
-
-      kpis: {
-        panelViews:       { value: totalPanelViews, prev: Math.round(totalPanelViews * 0.9), series: panelSeries, format: fmtInt, invert: false },
-        panelSwitches:    { value: panelSwitches, prev: Math.round(panelSwitches * 0.92), series: trendSeries(panelSwitches, n, 0.2, rand), format: fmtInt, invert: false },
-        deepLinks:        { value: 1180, prev: 1020, series: trendSeries(1180, n, 0.3, rand), format: fmtInt, invert: false },
-        avgPanelTime:     { value: avgPanelSeconds, prev: 148, series: trendSeries(avgPanelSeconds, n, 0.12, rand), format: fmtDuration, invert: false },
-        impressions:      { value: bannerImpressions, prev: Math.round(bannerImpressions * 0.88), series: trendSeries(bannerImpressions, n, 0.25, rand), format: fmtInt, invert: false },
-        bannerCtr:        { value: (bannerClicks / bannerImpressions) * 100, prev: 6.1, series: trendSeries((bannerClicks / bannerImpressions) * 100, n, 0.2, rand), format: function (v) { return fmtPct(v, 1); }, invert: false },
-        collapseRate:     { value: (bannerCollapses / bannerImpressions) * 100, prev: 41.2, series: trendSeries((bannerCollapses / bannerImpressions) * 100, n, 0.15, rand), format: function (v) { return fmtPct(v, 1); }, invert: true },
-        bannerClicks:     { value: bannerClicks, prev: Math.round(bannerClicks * 0.83), series: trendSeries(bannerClicks, n, 0.3, rand), format: fmtInt, invert: false },
-        listViews:        { value: listViews, prev: Math.round(listViews * 0.91), series: trendSeries(listViews, n, 0.2, rand), format: fmtInt, invert: false },
-        eventViews:       { value: eventViews, prev: 4820, series: eventSeries, format: fmtInt, invert: false },
-        eventPins:        { value: eventPinsTotal, prev: 31, series: trendSeries(eventPinsTotal, n, 0.35, rand), format: fmtInt, invert: false },
-        eventSearches:    { value: eventSearchesTotal, prev: Math.round(eventSearchesTotal * 0.87), series: trendSeries(eventSearchesTotal, n, 0.35, rand), format: fmtInt, invert: false },
-      },
-
-      panels: panels,
-      panelSeries: panelSeries,
-      flow: flow,
-      entryTypes: entryTypes,
-      navClicks: navClicks,
-      footerClicks: footerClicks,
-      themes: themes,
-      fonts: fonts,
-      appearance: appearance,
-      depth: depth,
-
-      banner: {
-        impressions: bannerImpressions,
-        visible: bannerVisible,
-        clicks: bannerClicks,
-        collapses: bannerCollapses,
-        reexpands: sumOf(pinned.map(function (p) { return p.reexpands; })),
-        visibleRate: (bannerVisible / bannerImpressions) * 100,
-      },
-      pinned: pinned,
-      bannerByPanel: bannerByPanel,
-      bannerSlots: bannerSlots,
-      bannerByDevice: bannerByDevice,
-      bannerByAudience: bannerByAudience,
-      bannerStatusRate: bannerStatusRate,
-      bannerToggle: bannerToggle,
-      pinActivity: pinActivity,
-      descriptionLinks: descriptionLinks,
-      bannerFetch: bannerFetch,
-
-      listViews: listViews,
-      eventSeries: eventSeries,
-      eventReferrers: eventReferrers,
-      eventList: eventList,
-      eventFilters: eventFilters,
-      eventSorts: eventSorts,
-      eventSearches: eventSearches,
-      pinActors: pinActors,
-      adminActions: adminActions,
-      prizes: prizes,
-      bannerToView: bannerToView,
-    };
   }
 
   var ENGAGEMENT_TABS = [
@@ -382,7 +59,7 @@
   function buildEngagement(container) {
     return analyticsPanel({
       container: container,
-      label: 'Engagement',
+      label: 'Engagement',
       tabKey: 'engagement',
       tabs: ENGAGEMENT_TABS,
       load: loadEngagement,
@@ -416,8 +93,8 @@
       });
       return e;
     }
-    var p = [['panel', 'views', 'avg_seconds']];
-    d.panels.forEach(function (x) { p.push([x.label, x.views, x.avgSeconds]); });
+    var p = [['panel', 'views', 'sessions']];
+    d.panels.forEach(function (x) { p.push([x.label, x.views, x.sessions]); });
     return p;
   }
 
@@ -429,7 +106,7 @@
       { id: 'panelViews',    label: 'Panel views',       cls: 'an-c1', hint: 'Every panel open in range' },
       { id: 'panelSwitches', label: 'Panel switches',    cls: 'an-c2', hint: 'Panel to panel moves' },
       { id: 'deepLinks',     label: 'Deep-link entries', cls: 'an-c4', hint: 'Sessions that started on a panel URL' },
-      { id: 'avgPanelTime',  label: 'Avg time in panel', cls: 'an-c3', hint: 'Mean time spent per panel' },
+      { id: 'avgPanelTime',  label: 'Avg time in panel', cls: 'an-c3', hint: 'Active page time per panel view' },
     ]));
 
     var row = el('div', 'an-grid');
@@ -463,18 +140,18 @@
       title: 'Panels',
       span: 12,
       exportRows: function () {
-        var rows = [['panel', 'views', 'avg_seconds']];
-        d.panels.forEach(function (p) { rows.push([p.label, p.views, p.avgSeconds]); });
+        var rows = [['panel', 'views', 'sessions']];
+        d.panels.forEach(function (p) { rows.push([p.label, p.views, p.sessions]); });
         return rows;
       },
       exportName: csvName('engagement', 'panels'),
     });
     table.body.appendChild(dataTable({
       columns: [
-        { key: 'label',      label: 'Panel' },
-        { key: 'views',      label: 'Views',    num: true, format: fmtInt },
-        { key: 'avgSeconds', label: 'Avg time', num: true, format: fmtDuration },
-        { key: 'share',      label: 'Share',    num: true, bar: true, format: function (v) { return fmtPct(v, 1); } },
+        { key: 'label',    label: 'Panel' },
+        { key: 'views',    label: 'Views',    num: true, format: fmtInt },
+        { key: 'sessions', label: 'Sessions', num: true, format: fmtInt },
+        { key: 'share',    label: 'Share',    num: true, bar: true, format: function (v) { return fmtPct(v, 1); } },
       ],
       rows: d.panels.map(function (p) {
         return Object.assign({}, p, { share: (p.views / (d.kpis.panelViews.value || 1)) * 100 });
@@ -703,13 +380,11 @@
   /* Events tab */
   function engagementEventsTab(ctx) {
     var d = ctx.data;
-    var p = d.prizes;
     var b = d.bannerToView;
     ctx.content.appendChild(panelKpiStrip(d, [
-      { id: 'listViews',     label: 'Event list views', cls: 'an-c1', hint: 'Views of the events list' },
-      { id: 'eventViews',    label: 'Event views',      cls: 'an-c2', hint: 'Individual event detail views' },
-      { id: 'eventPins',     label: 'Pin actions',      cls: 'an-c4', hint: 'Pin and unpin actions' },
-      { id: 'eventSearches', label: 'Event searches',   cls: 'an-c3', hint: 'Searches on the events page' },
+      { id: 'listViews',  label: 'Event list views', cls: 'an-c1', hint: 'Views of the events list' },
+      { id: 'eventViews', label: 'Event views',      cls: 'an-c2', hint: 'Individual event detail views' },
+      { id: 'eventPins',  label: 'Pin actions',      cls: 'an-c4', hint: 'Pin and unpin actions' },
     ]));
 
     var row = el('div', 'an-grid');
@@ -767,16 +442,9 @@
 
     var row3 = el('div', 'an-grid');
     row3.appendChild(rankedCard({
-      title: 'Filters applied', span: 4, items: d.eventFilters, cls: 'an-c2', unit: 'filter',
+      title: 'Filters applied', span: 12, items: d.eventFilters, cls: 'an-c2', unit: 'filter',
+      foot: 'Status tabs chosen on the events list.',
       exportName: csvName('engagement', 'event-filters'),
-    }).root);
-    row3.appendChild(rankedCard({
-      title: 'Sort order', span: 4, items: d.eventSorts, cls: 'an-c1', unit: 'sort',
-      exportName: csvName('engagement', 'event-sorts'),
-    }).root);
-    row3.appendChild(rankedCard({
-      title: 'Event searches', span: 4, items: d.eventSearches, cls: 'an-c3', unit: 'query',
-      exportName: csvName('engagement', 'event-searches'),
     }).root);
     ctx.content.appendChild(row3);
 
@@ -834,36 +502,6 @@
     ], { cls: 'an-c2' }));
     row4.appendChild(toView.root);
     ctx.content.appendChild(row4);
-
-    var row5 = el('div', 'an-grid');
-    var prize = card({
-      title: 'Prizes and signups',
-      span: 6,
-      exportRows: function () {
-        return [
-          ['metric', 'value'],
-          ['prize_section_expands', p.prizeExpands],
-          ['leaderboard_views', p.leaderboardViews],
-          ['signups', p.signups],
-          ['signup_rate_pct', p.signupRate],
-        ];
-      },
-      exportName: csvName('engagement', 'prizes'),
-    });
-    prize.body.appendChild(miniStrip([
-      { label: 'Prize expands', value: fmtInt(p.prizeExpands) },
-      { label: 'Leaderboard',   value: fmtInt(p.leaderboardViews) },
-      { label: 'Signups',       value: fmtInt(p.signups) },
-    ]));
-    prize.body.appendChild(rankedRows([
-      { label: 'Viewed the prizes', value: p.prizeExpands },
-      { label: 'Opened the board',  value: p.leaderboardViews },
-      { label: 'Signed up',         value: p.signups },
-    ], { cls: 'an-c2' }));
-    prize.body.appendChild(el('div', 'an-card-note',
-      fmtPct(p.signupRate, 1) + ' of prize viewers signed up.'));
-    row5.appendChild(prize.root);
-    ctx.content.appendChild(row5);
   }
 
   A.registerPanel('analytics-engagement', { build: buildEngagement });

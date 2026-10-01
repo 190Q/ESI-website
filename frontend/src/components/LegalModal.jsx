@@ -58,7 +58,7 @@ export default function LegalModal() {
             role="tabpanel"
           >
             <h3 className="legal-heading">Privacy Policy</h3>
-            <p className="legal-meta">Last updated: June 2026</p>
+            <p className="legal-meta">Last updated: October 2026</p>
 
             <h4 className="legal-subheading">1. Overview</h4>
             <p>
@@ -108,6 +108,20 @@ export default function LegalModal() {
                 bits of IPv6 addresses) is zeroed before storage, anonymizing it.
               </li>
               <li>
+                <strong>Usage analytics</strong> - we keep our own,
+                first-party analytics so we can see which parts of the
+                dashboard are used and keep it working: pages and panels
+                opened, events and shop items viewed, request paths,
+                response status and timing, and a coarse device, browser
+                and locale classification. No IP address is stored for
+                this. A one-way hash salted with a value that changes every
+                day is used instead, so unique visitors can be counted
+                within a day but cannot be followed across days. The
+                browser beacon that reports interaction is only accepted
+                from our own pages and is disabled when your browser sends
+                a Do Not Track signal.
+              </li>
+              <li>
                 <strong>Abuse-prevention ban list</strong> - to enforce
                 temporary and permanent IP bans against automated abuse, a
                 separate security database records the untruncated IP
@@ -138,10 +152,14 @@ export default function LegalModal() {
               </li>
               <li>
                 <strong>Legitimate interest (Art. 6(1)(f))</strong> - keeping
-                short-lived, anonymised access logs to detect abuse, prevent
-                fraud, and maintain the security and availability of the
-                ESI Service. Our legitimate interest is balanced against your
-                rights through IP truncation and a short retention period.
+                short-lived, anonymised access logs and first-party usage
+                analytics to detect abuse, prevent fraud, maintain the
+                security and availability of the ESI Service, and understand
+                which parts of it are used. Our legitimate interest is
+                balanced against your rights through IP truncation for logs,
+                salted daily hashing instead of stored IPs for analytics, a
+                short retention period for raw data, and aggregation beyond
+                it.
               </li>
               <li>
                 <strong>Consent (Art. 6(1)(a))</strong> - where you voluntarily
@@ -195,7 +213,9 @@ export default function LegalModal() {
             </ul>
             <p>
               We do not use third-party advertising, analytics, or tracking
-              services. Fonts are served from ESI Service's server.
+              services. The only analytics are our own, first-party and
+              self-hosted, as described in section 3. Fonts are served from
+              ESI Service's server.
             </p>
 
             <h4 className="legal-subheading">7. International Transfers</h4>
@@ -214,6 +234,16 @@ export default function LegalModal() {
                 <strong>Access logs</strong> - truncated-IP request logs are
                 retained for a maximum of 14 days and then permanently
                 deleted.
+              </li>
+              <li>
+                <strong>Usage analytics (raw)</strong> - individual request
+                and event rows, including the daily visitor hash, are kept
+                for a maximum of 30 days and then permanently deleted.
+              </li>
+              <li>
+                <strong>Usage analytics (aggregated)</strong> - daily
+                roll-ups and per-route statistics carry no identifier of any
+                kind and are kept indefinitely.
               </li>
               <li>
                 <strong>Temporary IP bans</strong> - entries in the
@@ -295,8 +325,9 @@ export default function LegalModal() {
               We apply appropriate technical and organisational measures to
               protect your data, including HTTPS transport, HttpOnly /
               Secure / SameSite session cookies, a strict Content Security
-              Policy, limited IP-based abuse controls, and IP truncation for
-              logs.
+              Policy, limited IP-based abuse controls, IP truncation for
+              logs, and salted daily hashing instead of stored IPs in
+              analytics.
             </p>
 
             <h4 className="legal-subheading">11. Changes</h4>
@@ -391,13 +422,15 @@ export default function LegalModal() {
             hidden
           >
             <h3 className="legal-heading">Cookie Policy</h3>
-            <p className="legal-meta">Last updated: May 2026</p>
+            <p className="legal-meta">Last updated: October 2026</p>
 
             <h4 className="legal-subheading">1. What We Use</h4>
             <p>
               The ESI Service uses a small number of cookies and browser storage
-              items. All of them are strictly necessary for the dashboard to
-              function; we do not set advertising or analytics cookies.
+              items. Most are strictly necessary for the dashboard to function.
+              We also set one first-party analytics cookie, described below. We
+              do not set advertising cookies, and we do not use any third-party
+              analytics or tracking cookies.
             </p>
 
             <h4 className="legal-subheading">2. Categories</h4>
@@ -427,6 +460,15 @@ export default function LegalModal() {
                 use; cleared on logout or if your guild membership ends.
               </li>
               <li>
+                <strong>Analytics session cookie (<code>esi_sid</code>)</strong>
+                {' '}- a first-party, opaque identifier that groups the
+                requests of one visit so we can count sessions and unique
+                visitors and bind the browser beacon to the page that sent
+                it. It carries no personal data, is HttpOnly, Secure and
+                SameSite=Lax, and is stored server-side only as a one-way
+                daily hash. It expires after 30 minutes of inactivity.
+              </li>
+              <li>
                 <strong>CSRF / security tokens</strong> - used to protect
                 authenticated requests against cross-site request forgery.
               </li>
@@ -440,8 +482,11 @@ export default function LegalModal() {
 
             <h4 className="legal-subheading">3. Third-Party Cookies</h4>
             <p>
-              We do not use advertising or analytics cookies. Logging in via
-              Discord may involve cookies set by Discord on their own domain;
+              We do not use advertising cookies, and we do not use any
+              third-party analytics or tracking cookies. The only analytics
+              cookie is our own first-party <code>esi_sid</code>, described
+              above. Logging in via Discord may involve cookies set by Discord
+              on their own domain;
               those are governed by Discord's privacy policy. Images loaded
               from Minecraft avatar providers (<code>cdn.discordapp.com</code>,
               <code> visage.surgeplay.com</code>, <code>crafatar.com</code>,

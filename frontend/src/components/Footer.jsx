@@ -1,12 +1,28 @@
 import { DiscordIcon, GitHubIcon } from './Icons'
 import { resolveThemeImagePath } from '../themeImages'
 
+function trackFooterClick(event) {
+  const link = event.target && event.target.closest
+    ? event.target.closest('.site-footer-link')
+    : null
+  if (!link) return
+  const label = (link.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40) || 'unknown'
+  try {
+    if (window.ESITrack) window.ESITrack.event('nav_click', { target: label, area: 'footer' })
+  } catch (_err) { /* analytics must never break the page */ }
+}
+
 export default function Footer() {
   const year = new Date().getFullYear()
   const emblemSrc = resolveThemeImagePath('/images/guild_emblem.avif')
 
   return (
-    <footer className="site-footer" id="siteFooter" role="contentinfo">
+    <footer
+      className="site-footer"
+      id="siteFooter"
+      role="contentinfo"
+      onClick={trackFooterClick}
+    >
       <div className="site-footer-ornament" />
 
       <div className="site-footer-inner">

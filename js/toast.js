@@ -239,10 +239,20 @@
     return v !== false;
   }
 
+  function _trackToast(message, type) {
+    try {
+      if (!window.ESITrack) return;
+      var text = String(message == null ? '' : message).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!text) return;
+      window.ESITrack.event('toast', { level: type || 'info', label: text.slice(0, 80) });
+    } catch (e) { /* never let analytics break a toast */ }
+  }
+
   function showToast(message, type) {
     if (!_toastsEnabled()) return;
     if (typeof type === 'undefined') type = 'info';
     if (_isDuplicateToast(message)) return;
+    _trackToast(message, type);
     if (_visibleToastCount() < _maxToasts()) {
       _renderToast(message, type);
     } else {

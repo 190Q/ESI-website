@@ -39,6 +39,10 @@
   border-bottom-color: var(--gold);
 }
 
+/* Each tab's content is built once and toggled, never rebuilt on switch. */
+.an-tab-pane { display: none; }
+.an-tab-pane.active { display: block; }
+
 /* Series palette - the only place a series colour is named. */
 .an-c1 { --an-color: var(--gold); }
 .an-c2 { --an-color: var(--online); }
@@ -563,6 +567,8 @@
 .an-table td.is-ident {
   color: var(--text-main);
 }
+.an-table--wrap th,
+.an-table--wrap td { white-space: normal; }
 .an-row-track--inline {
   display: inline-block;
   vertical-align: middle;

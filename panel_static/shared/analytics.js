@@ -19,56 +19,6 @@
 
   var SVG_NS = 'http://www.w3.org/2000/svg';
 
-  // Flip to false once /panel/api/analytics/overview exists. While true every
-  // panel renders from the demo dataset below and the toolbar shows a
-  // "Demo data" badge so it can never be mistaken for real traffic.
-  var USE_DEMO_DATA = true;
-
-  // Demo scaffolding shared by Overview, Traffic and Audience so the three
-  // panels agree on the bucket labels and the request series. Delete along with
-  // USE_DEMO_DATA once the analytics API exists.
-  function demoBase(range) {
-    var spec = RANGE_SPEC[range] || RANGE_SPEC['7d'];
-    var rand = rng(9137 + range.length * 977);
-    var n = spec.points;
-    var labels = [];
-    var now = Date.now();
-    for (var i = n - 1; i >= 0; i--) {
-      labels.push(spec.label(new Date(now - i * spec.stepMs)));
-    }
-
-    function series(base, spread, trend) {
-      var out = [];
-      for (var i = 0; i < n; i++) {
-        var t = n > 1 ? i / (n - 1) : 0;
-        var v = base * (1 + trend * t) + (rand() - 0.5) * spread;
-        out.push(Math.max(0, Math.round(v)));
-      }
-      return out;
-    }
-
-    return {
-      labels: labels,
-      traffic: {
-        requests: series(2400, 900, 0.35),
-        visitors: series(520, 160, 0.22),
-        errors: series(14, 12, -0.2),
-        p95: series(310, 120, 0.08),
-        blocked: series(38, 40, 0.1),
-      },
-    };
-  }
-
-  function trendSeries(value, n, spread, rand) {
-    var out = [];
-    for (var i = 0; i < n; i++) {
-      var t = n > 1 ? i / (n - 1) : 0;
-      var drift = 1 + (t - 0.5) * 0.12;
-      out.push(Math.max(0, value * drift * (1 + (rand() - 0.5) * spread)));
-    }
-    return out;
-  }
-
   var RANGES = [
     { id: '24h', label: '24h' },
     { id: '7d',  label: '7d'  },
@@ -93,6 +43,13 @@
     { id: 'latency',  label: 'Latency',  key: 'p95',      cls: 'an-c3', format: fmtMs,      invert: true  },
     { id: 'blocked',  label: 'Blocked',  key: 'blocked',  cls: 'an-c6', format: fmtCompact, invert: false },
   ];
+
+  function bucketLabels(buckets, range) {
+    var spec = RANGE_SPEC[range] || RANGE_SPEC['7d'];
+    return (buckets || []).map(function (seconds) {
+      return spec.label(new Date(Number(seconds) * 1000));
+    });
+  }
 
   var STATE_KEY = 'esi.analytics.state';
   var DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -206,15 +163,6 @@
       day: 'numeric', month: 'short', year: 'numeric',
       hour: '2-digit', minute: '2-digit',
     });
-  }
-
-  // Deterministic PRNG so demo figures stay stable between re-renders.
-  function rng(seed) {
-    var s = seed >>> 0;
-    return function () {
-      s = (s * 1664525 + 1013904223) >>> 0;
-      return s / 4294967296;
-    };
   }
 
   function deltaPct(value, prev) {
@@ -632,7 +580,7 @@
 
   function dataTable(opts) {
     var wrap = el('div', 'an-table-wrap');
-    var table = el('table', 'an-table');
+    var table = el('table', 'an-table' + (opts.tableClass ? ' ' + opts.tableClass : ''));
 
     var thead = document.createElement('thead');
     var hrow = document.createElement('tr');
@@ -728,6 +676,7 @@
     var data = null;
     var requestId = 0;
     var tab = null;
+    var panes = {};
     if (cfg.tabs) {
       tab = readTabState(cfg.tabKey, cfg.tabs[0].id);
       if (!cfg.tabs.some(function (t) { return t.id === tab; })) tab = cfg.tabs[0].id;
@@ -737,6 +686,8 @@
       intervals.forEach(function (id) { clearInterval(id); });
       intervals = [];
     }
+
+    function every(ms, fn) { intervals.push(setInterval(fn, ms)); }
 
     function renderToolbar() {
       toolbar.textContent = '';
@@ -760,6 +711,7 @@
       var refresh = el('button', 'an-btn', '\u27f3 Refresh');
       refresh.type = 'button';
       refresh.addEventListener('click', function () {
+        data = null;
         render();
         toast(cfg.label + ' refreshed', 'info');
       });
@@ -777,12 +729,6 @@
         end.appendChild(exportBtn);
       }
 
-      if (USE_DEMO_DATA) {
-        var badge = el('span', 'an-badge', 'Demo data');
-        badge.title = 'Placeholder figures - no analytics API is connected yet';
-        end.appendChild(badge);
-      }
-
       toolbar.appendChild(end);
     }
 
@@ -792,42 +738,104 @@
       cfg.tabs.forEach(function (t) {
         var btn = el('button', 'an-tab' + (t.id === tab ? ' active' : ''), t.label);
         btn.type = 'button';
+        btn.dataset.tab = t.id;
         btn.setAttribute('role', 'tab');
         btn.setAttribute('aria-selected', t.id === tab ? 'true' : 'false');
         btn.addEventListener('click', function () {
           if (tab === t.id) return;
           tab = t.id;
           writeTabState(cfg.tabKey, tab);
-          render();
+          showTab();
         });
         tabsHost.appendChild(btn);
       });
+    }
+
+    function paneFor(tabId) {
+      if (!panes[tabId]) {
+        var pane = el('div', 'an-tab-pane');
+        pane.dataset.tab = tabId;
+        panes[tabId] = pane;
+        content.appendChild(pane);
+      }
+      return panes[tabId];
+    }
+
+    function observeCharts(scope) {
+      if (!ro) return;
+      (scope || content).querySelectorAll('.an-chart-wrap').forEach(function (w) { ro.observe(w); });
+    }
+
+    function drawInto(container, tabId, d) {
+      container.textContent = '';
+      cfg.render({
+        content: container,
+        data: d,
+        tab: tabId,
+        compare: _state.compare,
+        rerender: repaintActive,
+        every: every,
+      });
+    }
+
+    function showTab() {
+      if (!cfg.tabs) return;
+      cfg.tabs.forEach(function (t) {
+        var pane = panes[t.id];
+        if (pane) pane.classList.toggle('active', t.id === tab);
+      });
+      if (tabsHost) {
+        tabsHost.querySelectorAll('.an-tab').forEach(function (btn) {
+          var on = btn.dataset.tab === tab;
+          btn.classList.toggle('active', on);
+          btn.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+      }
+      var pane = panes[tab];
+      if (pane) {
+        pane.querySelectorAll('.an-chart-wrap').forEach(function (w) {
+          if (typeof w._anRender === 'function') w._anRender();
+        });
+      }
+    }
+
+    function buildPanes(d) {
+      if (!cfg.tabs) {
+        drawInto(content, tab, d);
+        return;
+      }
+      cfg.tabs.forEach(function (t) { drawInto(paneFor(t.id), t.id, d); });
+      showTab();
+    }
+
+    function repaintActive() {
+      if (!data) return;
+      if (!cfg.tabs) { drawInto(content, tab, data); return; }
+      var pane = panes[tab];
+      if (!pane) return;
+      drawInto(pane, tab, data);
+      observeCharts(pane);
     }
 
     function render() {
       clearIntervals();
       renderToolbar();
       renderTabs();
-      content.textContent = '';
       if (ro) ro.disconnect();
       var token = ++requestId;
 
-      cfg.load(_state.range).then(function (d) {
+      var source = (data && data.range === _state.range)
+        ? Promise.resolve(data)
+        : cfg.load(_state.range);
+
+      source.then(function (d) {
         if (token !== requestId) return;
         data = d;
-        cfg.render({
-          content: content,
-          data: d,
-          tab: tab,
-          compare: _state.compare,
-          rerender: render,
-          every: function (ms, fn) { intervals.push(setInterval(fn, ms)); },
-        });
-        if (ro) {
-          content.querySelectorAll('.an-chart-wrap').forEach(function (w) { ro.observe(w); });
-        }
+        buildPanes(d);
+        observeCharts();
       }).catch(function (err) {
         if (token !== requestId) return;
+        content.textContent = '';
         var box = el('div', 'an-empty');
         box.appendChild(el('div', 'an-empty-title', 'Could not load analytics'));
         box.appendChild(el('div', 'an-empty-text', String(err && err.message ? err.message : err)));
@@ -849,10 +857,6 @@
   function analyticsFoot(d) {
     var foot = el('div', 'an-footnote');
     foot.appendChild(el('span', null, 'Data as of ' + fmtDateTime(d.generatedAt)));
-    if (d.demo) {
-      foot.appendChild(el('span', 'an-footnote-warn',
-        'Demo figures \u2014 the analytics API is not connected yet.'));
-    }
     return foot;
   }
 
@@ -972,7 +976,7 @@
     // shared state
     state: _state,
     writeState: writeState,
-    USE_DEMO_DATA: USE_DEMO_DATA,
+    bucketLabels: bucketLabels,
     DAY_LABELS: DAY_LABELS,
     RANGES: RANGES,
     RANGE_SPEC: RANGE_SPEC,
@@ -989,7 +993,6 @@
     deltaPct: deltaPct,
     sumOf: sumOf,
     avgOf: avgOf,
-    rng: rng,
 
     // dom and csv
     el: el,
@@ -997,10 +1000,6 @@
     toast: toast,
     downloadCsv: downloadCsv,
     stamp: stamp,
-
-    // shared demo scaffolding
-    demoBase: demoBase,
-    trendSeries: trendSeries,
 
     // primitives
     sparkline: sparkline,

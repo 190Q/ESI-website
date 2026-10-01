@@ -14,6 +14,78 @@
   var _fetched  = false;
   var _loading  = false;
 
+  /* analytics */
+  var _meta = typeof Map === 'function' ? new Map() : null;
+  var _io   = null;
+
+  function metaFor(el) {
+    if (!_meta) return { at: Date.now(), impression: false, visible: false };
+    var m = _meta.get(el);
+    if (!m) {
+      m = { at: Date.now(), impression: false, visible: false };
+      _meta.set(el, m);
+    }
+    return m;
+  }
+
+
+  var BANNER_STATUSES = ['upcoming', 'ongoing', 'completed', 'cancelled'];
+  var BANNER_AUDIENCES = ['public', 'guild_only'];
+
+  function activeGeneralPanel() {
+    for (var i = 0; i < GENERAL_PANELS.length; i++) {
+      var panel = document.getElementById(GENERAL_PANELS[i]);
+      if (panel && panel.classList.contains('active')) {
+        return GENERAL_PANELS[i].replace('panel-', '');
+      }
+    }
+    return '';
+  }
+
+  function bannerSlot(el) {
+    var parent = el && el.parentNode;
+    if (!parent || !parent.children) return 0;
+    var index = Array.prototype.indexOf.call(parent.children, el);
+    return index >= 0 ? Math.min(10, index + 1) : 0;
+  }
+
+  function bannerContext(el) {
+    var ctx = {};
+    if (!el) return ctx;
+    var status = el.dataset ? el.dataset.status : '';
+    if (BANNER_STATUSES.indexOf(status) !== -1) ctx.status = status;
+    var audience = el.dataset ? el.dataset.audience : '';
+    if (BANNER_AUDIENCES.indexOf(audience) !== -1) ctx.audience = audience;
+    var slot = bannerSlot(el);
+    if (slot) ctx.slot = slot;
+    var panel = activeGeneralPanel();
+    if (panel) ctx.panel = panel;
+    return ctx;
+  }
+
+  function trackBanner(action, eventId, ms, el) {
+    try {
+      if (!window.ESITrack) return;
+      var props = { action: action, banner: String(eventId || '').slice(0, 40) };
+      if (typeof ms === 'number' && isFinite(ms) && ms >= 0) {
+        props.ms = Math.round(ms);
+      }
+      var ctx = bannerContext(el);
+      Object.keys(ctx).forEach(function (key) { props[key] = ctx[key]; });
+      window.ESITrack.event('banner', props);
+    } catch (e) { /* analytics must never break the banner */ }
+  }
+
+  function trackLink(target, external) {
+    try {
+      if (!window.ESITrack) return;
+      window.ESITrack.event('link', {
+        target: String(target || '').slice(0, 120),
+        external: !!external,
+      });
+    } catch (e) { /* analytics must never break the banner */ }
+  }
+
   /* helpers */
 
   function esc(s) {
@@ -214,6 +286,8 @@
   }
 
   function clearBanners() {
+    if (_io) { _io.disconnect(); _io = null; }
+    if (_meta) _meta.clear();
     // Remove the stack container
     var stacks = document.querySelectorAll('.' + STACK_CLASS);
     for (var i = 0; i < stacks.length; i++) {
@@ -238,7 +312,35 @@
     var stack = document.querySelector('.' + STACK_CLASS);
     if (!stack) return;
     if (!_bannerEnabled()) { stack.style.display = 'none'; return; }
-    stack.style.display = isGeneralPanelActive() ? 'flex' : 'none';
+    var shown = isGeneralPanelActive();
+    stack.style.display = shown ? 'flex' : 'none';
+    if (shown) reportImpressions(stack);
+  }
+
+  function reportImpressions(stack) {
+    var banners = stack.querySelectorAll('.' + BANNER_CLASS);
+    for (var i = 0; i < banners.length; i++) {
+      var meta = metaFor(banners[i]);
+      if (meta.impression) continue;
+      meta.impression = true;
+      trackBanner('impression', banners[i].dataset.eventId, Date.now() - meta.at, banners[i]);
+    }
+  }
+
+  function observeVisibility() {
+    if (typeof IntersectionObserver === 'undefined') return null;
+    if (_io) return _io;
+    _io = new IntersectionObserver(function (entries) {
+      for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i];
+        if (!entry.isIntersecting) continue;
+        var meta = metaFor(entry.target);
+        if (meta.visible) continue;
+        meta.visible = true;
+        trackBanner('visible', entry.target.dataset.eventId, Date.now() - meta.at, entry.target);
+      }
+    }, { threshold: 0.5 });
+    return _io;
   }
 
   // Watch the panels' class attribute
@@ -277,6 +379,8 @@
       banner.innerHTML = renderBannerHtml(ev, collapsed);
       bindToggle(banner, ev);
       stack.appendChild(banner);
+      var io = observeVisibility();
+      if (io) io.observe(banner);
     });
 
     document.body.appendChild(stack);
@@ -288,11 +392,24 @@
     var titleBtn = banner.querySelector('.pinned-banner-title-link');
     if (titleBtn) {
       titleBtn.addEventListener('click', function () {
+        trackBanner('click', ev.id, Date.now() - metaFor(banner).at, banner);
         if (typeof window.evpFocusEvent === 'function') {
           window.evpFocusEvent(ev.id);
         } else if (typeof window.switchToPanel === 'function') {
           window.switchToPanel('events');
         }
+      });
+    }
+
+    var desc = banner.querySelector('.pinned-banner-desc');
+    if (desc) {
+      desc.addEventListener('click', function (event) {
+        var anchor = event.target && event.target.closest
+          ? event.target.closest('a')
+          : null;
+        if (!anchor) return;
+        var href = anchor.getAttribute('href') || anchor.textContent || '';
+        trackLink(href, /^https?:/i.test(href));
       });
     }
 
@@ -302,6 +419,7 @@
       var nextCollapsed = !banner.classList.contains(COLLAPSED_MOD);
       setCollapsed(ev.id, nextCollapsed);
       banner.classList.toggle(COLLAPSED_MOD, nextCollapsed);
+      trackBanner(nextCollapsed ? 'collapse' : 'expand', ev.id, Date.now() - metaFor(banner).at, banner);
       var label = nextCollapsed ? 'Expand banner' : 'Collapse banner';
       toggleBtn.setAttribute('aria-label', label);
       toggleBtn.setAttribute('title', label);
