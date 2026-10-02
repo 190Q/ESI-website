@@ -865,10 +865,20 @@
     root.appendChild(content);
     render();
 
-    return function dispose() {
+    function dispose() {
       clearIntervals();
       if (ro) ro.disconnect();
+    }
+
+    dispose.selectTab = function (tabId) {
+      if (!cfg.tabs || !cfg.tabs.some(function (t) { return t.id === tabId; })) return;
+      if (tab === tabId) return;
+      tab = tabId;
+      writeTabState(cfg.tabKey, tab);
+      showTab();
     };
+
+    return dispose;
   }
 
   function analyticsFoot(d) {
@@ -983,11 +993,19 @@
     delete _mounted[panelId];
   }
 
+  function selectTab(panelId, tabId) {
+    var entry = _mounted[panelId];
+    if (entry && entry.dispose && typeof entry.dispose.selectTab === 'function') {
+      entry.dispose.selectTab(tabId);
+    }
+  }
+
   window.ESIAnalytics = {
     // registry
     registerPanel: registerPanel,
     mount: mount,
     unmount: unmount,
+    selectTab: selectTab,
     isPanel: function (id) { return Object.prototype.hasOwnProperty.call(_panels, id); },
 
     // shared state

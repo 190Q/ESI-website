@@ -1111,6 +1111,7 @@
     el: el,
     showConfirm: showConfirm,
     showAlert: showAlert,
+    showPanel: function (id) { setActivePanel(id); },
     session: function () {
       return { user: currentUser, accessLevel: accessLevel, csrfToken: csrfToken };
     },

@@ -7,7 +7,6 @@
   var DAY_LABELS = A.DAY_LABELS;
   var METRICS = A.METRICS;
   var el = A.el;
-  var toast = A.toast;
   var fmtInt = A.fmtInt;
   var fmtMs = A.fmtMs;
   var fmtPct = A.fmtPct;
@@ -106,14 +105,14 @@
     function buildKpiStrip(d) {
       var strip = el('div', 'an-kpi-strip');
       [
-        { id: 'requests',  label: 'Requests',        cls: 'an-c1', goto: 'analytics-traffic' },
-        { id: 'visitors',  label: 'Unique visitors', cls: 'an-c2', goto: 'analytics-audience' },
-        { id: 'activeNow', label: 'Active now',      cls: 'an-c2', goto: 'analytics-audience' },
-        { id: 'logins',    label: 'Logins',          cls: 'an-c3', goto: 'analytics-audience' },
-        { id: 'errorRate', label: 'Error rate',      cls: 'an-c5', goto: 'analytics-health' },
-        { id: 'p95',       label: 'p95 latency',     cls: 'an-c3', goto: 'analytics-traffic' },
-        { id: 'bannerCtr', label: 'Banner CTR',      cls: 'an-c4', goto: 'analytics-engagement' },
-        { id: 'blocked',   label: 'Blocked',         cls: 'an-c6', goto: 'analytics-health' },
+        { id: 'requests',  label: 'Requests',        cls: 'an-c1', goto: 'analytics-traffic',    tab: 'paths' },
+        { id: 'visitors',  label: 'Unique visitors', cls: 'an-c2', goto: 'analytics-audience',   tab: 'visitors' },
+        { id: 'activeNow', label: 'Active now',      cls: 'an-c2', goto: 'analytics-audience',   tab: 'sessions' },
+        { id: 'logins',    label: 'Logins',          cls: 'an-c3', goto: 'analytics-audience',   tab: 'auth' },
+        { id: 'errorRate', label: 'Error rate',      cls: 'an-c5', goto: 'analytics-health',     tab: 'frontend' },
+        { id: 'p95',       label: 'p95 latency',     cls: 'an-c3', goto: 'analytics-traffic',    tab: 'latency' },
+        { id: 'bannerCtr', label: 'Banner CTR',      cls: 'an-c4', goto: 'analytics-engagement', tab: 'banner' },
+        { id: 'blocked',   label: 'Blocked',         cls: 'an-c6', goto: 'analytics-health',     tab: 'security' },
       ].forEach(function (def) {
         var kpi = d.kpis[def.id];
         if (!kpi) return;
@@ -121,7 +120,10 @@
           label: def.label, cls: def.cls,
         });
         tile.addEventListener('click', function () {
-          toast('Detailed breakdown lives on the ' + def.goto.replace('analytics-', '') + ' panel', 'info');
+          if (window.ESIPanel && window.ESIPanel.showPanel) window.ESIPanel.showPanel(def.goto);
+          if (def.tab && window.ESIAnalytics && window.ESIAnalytics.selectTab) {
+            window.ESIAnalytics.selectTab(def.goto, def.tab);
+          }
         });
         strip.appendChild(tile);
       });
