@@ -740,7 +740,7 @@ CLIENT_FIELDS = {
     "timezone": ("str", 48),
 }
 
-ERROR_KINDS = ("error", "rejection", "failed_request", "broken_asset")
+ERROR_KINDS = ("error", "rejection", "failed_request", "broken_asset", "csp")
 
 
 def _apply_spec(spec, raw):

@@ -435,6 +435,25 @@
     });
   });
 
+  document.addEventListener("securitypolicyviolation", function (event) {
+    if (!event) {
+      return;
+    }
+    var detail = event.violatedDirective || event.effectiveDirective || "unknown";
+    if (event.blockedURI) {
+      detail += " " + event.blockedURI;
+    }
+    if (event.sample) {
+      detail += " :: " + event.sample;
+    }
+    queueError("csp", {
+      message: detail,
+      source: event.sourceFile || event.documentURI || "",
+      line: event.lineNumber,
+      build: buildId()
+    });
+  });
+
   ["mousemove", "keydown", "click", "touchstart"].forEach(function (name) {
     window.addEventListener(name, function () {
       safe(noteActivity, null);

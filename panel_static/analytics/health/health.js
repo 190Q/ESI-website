@@ -23,6 +23,7 @@
     failedRequests: { format: fmtInt, invert: true },
     notFoundViews:  { format: fmtInt, invert: true },
     brokenAssets:   { format: fmtInt, invert: true },
+    cspViolations:  { format: fmtInt, invert: true },
     retries:        { format: fmtInt, invert: true },
     gaveUp:         { format: fmtInt, invert: true },
     blocked:        { format: fmtInt, invert: true },
@@ -90,6 +91,7 @@
     }
     var e = [['message', 'file', 'line', 'build', 'count']];
     d.jsErrorList.forEach(function (x) { e.push([x.message, x.file, x.line, x.build, x.count]); });
+    d.cspList.forEach(function (x) { e.push(['csp: ' + x.label, '', '', '', x.value]); });
     return e;
   }
 
@@ -100,6 +102,7 @@
       { id: 'rejections',     label: 'Unhandled rejections', cls: 'an-c5', hint: 'Promises that rejected with no handler' },
       { id: 'failedRequests', label: 'Failed requests',      cls: 'an-c6', hint: 'fetch and XHR calls that failed' },
       { id: 'notFoundViews',  label: '404 views',            cls: 'an-c3', hint: 'Not-found pages served' },
+      { id: 'cspViolations',  label: 'CSP violations',       cls: 'an-c6', hint: 'Scripts or styles the browser blocked' },
     ]));
 
     var row = el('div', 'an-grid');
@@ -199,6 +202,11 @@
       title: '404 paths', span: 6, items: d.notFoundPaths, cls: 'an-c3', unit: 'path',
       foot: 'Paths behind the not-found responses.',
       exportName: csvName('health', '404-paths'),
+    }).root);
+    row4.appendChild(rankedCard({
+      title: 'CSP violations', span: 6, items: d.cspList, cls: 'an-c6', unit: 'directive',
+      foot: 'Blocked by Content-Security-Policy. Text after the dash is the start of the blocked script.',
+      exportName: csvName('health', 'csp-violations'),
     }).root);
     ctx.content.appendChild(row4);
   }

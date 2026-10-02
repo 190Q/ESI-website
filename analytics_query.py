@@ -743,6 +743,34 @@ def _banned_count(start):
         conn.close()
 
 
+_ERROR_LABELS = {
+    "error": "Script error",
+    "rejection": "Unhandled rejection",
+    "failed_request": "Failed request",
+    "broken_asset": "Broken asset",
+    "csp": "CSP violation",
+}
+
+
+def _csp_label(message):
+    """A readable label for one CSP violation.
+
+    The beacon sends "<directive> <blocked-uri> :: <sample>", where the sample
+    is the opening of the blocked inline script.
+    """
+    text = str(message or "").strip()
+    if not text:
+        return "(unreported)"
+    directive, _, rest = text.partition(" ")
+    target, _, sample = rest.partition(" :: ")
+    label = directive
+    if target:
+        label += " " + target
+    if sample:
+        label += " \u2014 " + sample.strip()[:40]
+    return label[:140]
+
+
 def _error_rows(conn, start, limit=6):
     """Server failures and client errors, ranked together."""
     rows = []
@@ -757,7 +785,8 @@ def _error_rows(conn, start, limit=6):
         " WHERE ts >= ? GROUP BY kind, message ORDER BY n DESC LIMIT ?",
         (start, limit),
     ):
-        label = (row["kind"] or "error").replace("_", " ").title()
+        kind = row["kind"] or "error"
+        label = _ERROR_LABELS.get(kind) or kind.replace("_", " ").title()
         message = (row["message"] or "").strip()
         if message:
             label += ": " + (message[:60] + "\u2026" if len(message) > 60 else message)
@@ -2625,6 +2654,11 @@ def health(range_id):
             "SELECT source, COUNT(*) AS n FROM client_errors"
             " WHERE ts >= ? AND kind = 'broken_asset' GROUP BY source ORDER BY n DESC LIMIT 8",
             (start,))]
+        csp_list = [{"label": _csp_label(row["message"]), "value": row["n"]}
+                    for row in conn.execute(
+            "SELECT message, COUNT(*) AS n FROM client_errors"
+            " WHERE ts >= ? AND kind = 'csp' GROUP BY message ORDER BY n DESC LIMIT 8",
+            (start,))]
         net = {row["k"]: row["n"] for row in conn.execute(
             "SELECT json_extract(props, '$.action') AS k, COUNT(*) AS n FROM events"
             " WHERE kind = 'net' AND ts >= ? GROUP BY k", (start,))}
@@ -2738,6 +2772,8 @@ def health(range_id):
             "notFoundViews":  {"value": not_found, "prev": 0, "series": [0] * points},
             "brokenAssets":   {"value": client_counts.get("broken_asset", 0), "prev": 0,
                                "series": [0] * points},
+            "cspViolations":  {"value": client_counts.get("csp", 0), "prev": 0,
+                               "series": [0] * points},
             "retries":        {"value": net.get("retry", 0), "prev": 0, "series": [0] * points},
             "gaveUp":         {"value": net.get("gave_up", 0), "prev": 0, "series": [0] * points},
             "blocked":        {"value": sum(row["value"] for row in blocked_reasons), "prev": 0,
@@ -2757,6 +2793,7 @@ def health(range_id):
         },
         "notFoundPaths": not_found_paths,
         "brokenAssets": broken_assets,
+        "cspList": csp_list,
         "gaveUp": gave_up,
         "retries": net.get("retry", 0),
         "builds": [{"label": str(row["k"]), "value": row["n"]} for row in builds],
