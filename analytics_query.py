@@ -2876,6 +2876,7 @@ def rollups(range_id):
         panel_sessions = {row["k"]: row["n"] for row in conn.execute(
             "SELECT json_extract(props, '$.panel') AS k, COUNT(DISTINCT session_hash) AS n"
             " FROM events WHERE kind = 'panel_view' AND ts >= ?"
+            " AND user_id IS NOT NULL"
             " AND json_extract(props, '$.panel') IS NOT NULL GROUP BY k", (start,))}
 
         visits = conn.execute(
