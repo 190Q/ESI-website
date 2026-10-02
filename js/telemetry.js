@@ -225,12 +225,24 @@
     else depth.idleMs += elapsed;
   }
 
-  function noteScroll() {
+  function noteScroll(target) {
     var doc = document.documentElement;
-    var height = Math.max(doc.scrollHeight, document.body ? document.body.scrollHeight : 0);
+    var body = document.body;
+    var scroller = (target && target.scrollHeight) ? target : null;
+    var height = Math.max(
+      scroller ? scroller.scrollHeight || 0 : 0,
+      doc ? doc.scrollHeight || 0 : 0,
+      body ? body.scrollHeight || 0 : 0
+    );
     if (height <= 0) return;
-    var seen = ((window.pageYOffset || doc.scrollTop || 0) + window.innerHeight) / height * 100;
-    var pct = Math.max(0, Math.min(100, Math.round(seen)));
+    var top = Math.max(
+      scroller ? scroller.scrollTop || 0 : 0,
+      window.pageYOffset || 0,
+      doc ? doc.scrollTop || 0 : 0,
+      body ? body.scrollTop || 0 : 0
+    );
+    var viewport = window.innerHeight || (doc ? doc.clientHeight : 0) || 0;
+    var pct = Math.max(0, Math.min(100, Math.round((top + viewport) / height * 100)));
     if (pct > depth.scroll) depth.scroll = pct;
   }
 
@@ -240,6 +252,7 @@
       depth.hiddenSince = null;
     }
     tickDepth();
+    noteScroll();
     if (!depth.activeMs && !depth.idleMs && !depth.hiddenMs && !depth.scroll) return;
     queue("depth", {
       scroll: depth.scroll,
@@ -422,14 +435,16 @@
     });
   });
 
-  ["mousemove", "keydown", "click", "touchstart", "scroll"].forEach(function (name) {
-    window.addEventListener(name, name === "scroll" ? function () {
-      safe(noteScroll, null);
-      safe(noteActivity, null);
-    } : function () {
+  ["mousemove", "keydown", "click", "touchstart"].forEach(function (name) {
+    window.addEventListener(name, function () {
       safe(noteActivity, null);
     }, { passive: true });
   });
+
+  window.addEventListener("scroll", function (event) {
+    safe(function () { noteScroll(event.target); }, null);
+    safe(noteActivity, null);
+  }, { passive: true, capture: true });
   window.setInterval(function () { safe(tickDepth, null); }, DEPTH_TICK);
 
   window.addEventListener("pagehide", function () {

@@ -583,13 +583,17 @@
     row3.appendChild(health.root);
     ctx.content.appendChild(row3);
 
+    var acc = d.accounts;
     var row4 = el('div', 'an-grid');
     var accounts = card({
       title: 'Most active accounts',
       span: 8,
+      foot: 'From the site user store, ranked by activity in range.',
       exportRows: function () {
         var rows = [['account', 'rank', 'logins', 'sessions', 'last_seen']];
-        a.activeAccounts.forEach(function (x) { rows.push([x.account, x.rank, x.logins, x.sessions, x.lastSeen]); });
+        acc.list.slice(0, 8).forEach(function (x) {
+          rows.push([x.account, x.rank, x.logins, x.sessions, x.lastSeen || '']);
+        });
         return rows;
       },
       exportName: csvName('audience', 'active-accounts'),
@@ -597,36 +601,36 @@
     accounts.body.appendChild(dataTable({
       columns: [
         { key: 'account',  label: 'Account' },
-        { key: 'rank',     label: 'Rank' },
+        { key: 'rank',     label: 'Guild rank' },
         { key: 'logins',   label: 'Logins',   num: true, format: fmtInt },
         { key: 'sessions', label: 'Sessions', num: true, format: fmtInt },
-        { key: 'lastSeen', label: 'Last seen', format: fmtDateTime },
+        { key: 'lastSeen', label: 'Last active', format: function (v) { return v ? fmtDateTime(v) : '\u2014'; } },
       ],
-      rows: a.activeAccounts,
+      rows: acc.list.slice(0, 8),
     }));
     row4.appendChild(accounts.root);
 
     var never = card({
       title: 'Never logged in',
       span: 4,
-      foot: 'Guild members with no recorded activity in range.',
+      foot: 'Guild members with no row in the site user store.',
       exportRows: function () {
-        return [['metric', 'value'], ['never_logged_in', a.neverLoggedIn.count], ['guild_members', a.neverLoggedIn.total]];
+        return [['metric', 'value'], ['never_logged_in', acc.members.never], ['guild_members', acc.members.total]];
       },
       exportName: csvName('audience', 'never-logged-in'),
     });
-    if (!a.neverLoggedIn.available) {
+    if (!acc.members.available) {
       never.body.appendChild(el('div', 'an-card-note',
         'Unavailable: the Discord bot token or guild is not configured, so the member list cannot be read.'));
     } else {
       never.body.appendChild(miniStrip([
-        { label: 'Never logged in', value: fmtInt(a.neverLoggedIn.count) },
-        { label: 'Guild members',   value: fmtInt(a.neverLoggedIn.total) },
-        { label: 'Coverage',        value: fmtPct(((a.neverLoggedIn.total - a.neverLoggedIn.count) / Math.max(1, a.neverLoggedIn.total)) * 100, 1) },
+        { label: 'Never logged in', value: fmtInt(acc.members.never) },
+        { label: 'Guild members',   value: fmtInt(acc.members.total) },
+        { label: 'Logged in',       value: fmtInt(acc.members.loggedIn) },
       ]));
       never.body.appendChild(rankedRows([
-        { label: 'Has logged in',   value: a.neverLoggedIn.total - a.neverLoggedIn.count },
-        { label: 'Never logged in', value: a.neverLoggedIn.count },
+        { label: 'Has logged in',   value: acc.members.loggedIn },
+        { label: 'Never logged in', value: acc.members.never },
       ], { cls: 'an-c6' }));
     }
     row4.appendChild(never.root);
@@ -704,7 +708,7 @@
     });
     row.appendChild(rankedCard({
       title: 'Least active', span: 6,
-      items: least.slice(0, 8).map(function (a) {
+      items: least.slice(0, 8).reverse().map(function (a) {
         return { label: a.account, value: a.events + a.logins };
       }),
       cls: 'an-c6', unit: 'actions',

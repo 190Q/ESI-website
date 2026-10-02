@@ -1124,7 +1124,6 @@ def _auth_block(conn, start, end, points, step, sessions, roster, started):
         (start,))}
     active_ids |= {str(r[1]) for r in logins if r[1]}
     ranks = []
-    never = {"count": 0, "total": 0, "available": False}
     if roster:
         counts = {}
         for uid in active_ids:
@@ -1133,35 +1132,6 @@ def _auth_block(conn, start, end, points, step, sessions, roster, started):
                 counts[name] = counts.get(name, 0) + 1
         ranks = [{"label": k, "value": v}
                  for k, v in sorted(counts.items(), key=lambda kv: -kv[1])]
-        never = {
-            "count": sum(1 for uid in roster["ranks"] if uid not in active_ids),
-            "total": roster["total"],
-            "available": True,
-        }
-
-    # Most active accounts, from the audit log's actor and the event stream.
-    per_account = {}
-    for row in logins:
-        uid = str(row[1] or "")
-        if not uid:
-            continue
-        entry = per_account.setdefault(uid, {"account": row[2] or uid, "logins": 0, "last": row[0]})
-        entry["logins"] += 1
-        entry["last"] = max(entry["last"], row[0])
-    sessions_by_user = {str(r[0]): r[1] for r in conn.execute(
-        "SELECT user_id, COUNT(DISTINCT session_hash) FROM events"
-        " WHERE ts >= ? AND user_id IS NOT NULL GROUP BY user_id",
-        (start,))}
-    accounts = []
-    for uid, entry in per_account.items():
-        accounts.append({
-            "account": entry["account"],
-            "rank": (roster or {}).get("ranks", {}).get(uid, "\u2014") if roster else "\u2014",
-            "logins": entry["logins"],
-            "sessions": sessions_by_user.get(uid, 0),
-            "lastSeen": _iso(entry["last"]),
-        })
-    accounts.sort(key=lambda a: -a["logins"])
 
     ui = _event_group(conn, start, "ui", "json_extract(props, '$.action')", 8)
     theme_changes = conn.execute(
@@ -1212,8 +1182,6 @@ def _auth_block(conn, start, end, points, step, sessions, roster, started):
             {"label": "Sessions", "value": str(len(sessions))},
         ],
         "ranks": ranks,
-        "neverLoggedIn": never,
-        "activeAccounts": accounts[:8],
         "panelActivity": panel_activity,
         "devLogin": dev_login,
     }
@@ -1394,6 +1362,19 @@ def _accounts_block(conn, start, end, roster):
                               row["activeSeconds"]), reverse=True)
     for index, row in enumerate(out):
         row["pos"] = index + 1
+
+    # Guild members with no row in the user store have never logged in.
+    members = {"total": 0, "loggedIn": 0, "never": 0, "available": False}
+    if roster:
+        roster_ids = set(roster.get("ranks", {}).keys())
+        seen = set(accounts.keys())
+        members = {
+            "total": roster.get("total") or len(roster_ids),
+            "loggedIn": len(roster_ids & seen),
+            "never": len(roster_ids - seen),
+            "available": True,
+        }
+
     return {
         "total": len(out),
         "activeInRange": sum(1 for row in out if row["inRange"]),
@@ -1402,6 +1383,7 @@ def _accounts_block(conn, start, end, roster):
         "linked": sum(1 for row in out if row["linked"]),
         "restricted": sum(1 for row in out if row["restricted"]),
         "totalLogins": sum(row["logins"] for row in out),
+        "members": members,
         "list": out,
     }
 
@@ -1694,8 +1676,10 @@ def _depth_block(conn, start, sessions_seen):
         (start,),
     ).fetchall()
     reaches = [row["reach"] or 0 for row in scroll_rows]
-    scroll = [{"label": "%d%%" % mark,
-               "value": sum(1 for r in reaches if r >= mark)} for mark in _SCROLL_MARKS]
+    reported_scroll = len(reaches) or 1
+    scroll = [{"label": "Reached %d%%" % mark,
+               "value": round(sum(1 for r in reaches if r >= mark) / reported_scroll * 100.0, 1)}
+              for mark in _SCROLL_MARKS]
 
     totals = conn.execute(
         "SELECT SUM(CASE WHEN CAST(json_extract(props, '$.hidden_ms') AS INTEGER) > 0"
@@ -2092,6 +2076,20 @@ def _as_epoch(value):
     return parsed.timestamp()
 
 
+_SHOP_UNPAID_STATUSES = ("rejected", "refunded")
+
+
+def _adjustment_reason(reason):
+    """Trim the purchase id off a creator commission so labels group."""
+    text = str(reason or "").strip()
+    if not text:
+        return "Unspecified"
+    cut = text.find(" (")
+    if cut > 0:
+        text = text[:cut]
+    return text[:60]
+
+
 def _shop_rows(table, columns, time_column, start, end=None):
     """Rows from shop.db inside the window.
 
@@ -2284,12 +2282,30 @@ def content(range_id):
         conn.close()
 
     purchases = _shop_rows("bin_purchases",
-                           ("purchase_id", "item_id", "uuid", "ep_spent", "purchased_at"),
+                           ("purchase_id", "item_id", "uuid", "ep_spent", "status",
+                            "quantity", "purchased_at", "resolved_at"),
                            "purchased_at", start)
     purchases.sort(key=lambda row: -row["_ts"])
     bids = _shop_rows("bids", ("bid_id", "uuid", "amount", "placed_at"), "placed_at", start)
     admin_rows = _shop_rows("shop_admin_log", ("action", "actor", "timestamp"),
                             "timestamp", start)
+    auction_rows = _shop_rows("auctions", ("auction_id", "status", "extended", "created_at"),
+                              "created_at", 0)
+    cart_rows = _shop_rows("cart_items", ("mc_uuid", "item_id", "quantity", "updated_at"),
+                           "updated_at", 0)
+    adjustments = _shop_rows("ep_adjustments", ("amount", "ep_type", "reason", "created_at"),
+                             "created_at", start)
+    donations = _shop_rows("donation_tickets",
+                           ("le_amount", "dirty_ep_to_grant", "status", "submitted_at"),
+                           "submitted_at", start)
+    creator_apps = _shop_rows("creator_applications", ("status", "submitted_at"),
+                              "submitted_at", start)
+    creator_items = _shop_rows("creator_item_requests", ("status", "submitted_at"),
+                               "submitted_at", start)
+    creator_flags = _shop_rows("creator_flags", ("discord_id", "granted_at"),
+                               "granted_at", start)
+    auction_notices = _shop_rows("auction_dm_notifications", ("notification_type", "sent_at"),
+                                 "sent_at", start)
     admin_counts = {}
     for row in admin_rows:
         key = row["action"] or "other"
@@ -2299,10 +2315,50 @@ def content(range_id):
 
     per_item_purchases = {}
     purchase_value = 0
+    purchase_status = {}
+    fulfil_seconds = []
     for row in purchases:
+        status = str(row["status"] or "unknown").strip().lower()
+        purchase_status[status] = purchase_status.get(status, 0) + 1
+        if status in _SHOP_UNPAID_STATUSES:
+            continue
         item_id = row["item_id"] or ""
         per_item_purchases[item_id] = per_item_purchases.get(item_id, 0) + 1
         purchase_value += int(row["ep_spent"] or 0)
+        resolved = _as_epoch(row["resolved_at"])
+        if resolved and row["_ts"] and resolved >= row["_ts"]:
+            fulfil_seconds.append(resolved - row["_ts"])
+    fulfil_seconds.sort()
+    counted_purchases = sum(
+        count for status, count in purchase_status.items()
+        if status not in _SHOP_UNPAID_STATUSES)
+    fulfil_minutes = (round(fulfil_seconds[len(fulfil_seconds) // 2] / 60.0, 1)
+                      if fulfil_seconds else 0.0)
+
+    auctions_active = sum(1 for row in auction_rows if (row["status"] or "") == "active")
+    auctions_started = sum(1 for row in auction_rows if row["_ts"] >= start)
+    auctions_extended = sum(1 for row in auction_rows if row["extended"])
+    bid_value = sum(int(row["amount"] or 0) for row in bids)
+
+    open_carts = len({row["mc_uuid"] for row in cart_rows if row["mc_uuid"]})
+    items_in_carts = sum(int(row["quantity"] or 0) for row in cart_rows)
+
+    adj_granted = sum(int(row["amount"] or 0) for row in adjustments if (row["amount"] or 0) > 0)
+    adj_removed = -sum(int(row["amount"] or 0) for row in adjustments if (row["amount"] or 0) < 0)
+    adj_reasons = {}
+    for row in adjustments:
+        label = _adjustment_reason(row["reason"])
+        adj_reasons[label] = adj_reasons.get(label, 0) + 1
+    adj_top = sorted(adj_reasons.items(), key=lambda kv: -kv[1])[:6]
+
+    donation_confirmed = sum(1 for row in donations if (row["status"] or "") == "confirmed")
+    donation_rejected = sum(1 for row in donations if (row["status"] or "") == "rejected")
+    donation_le = sum(int(row["le_amount"] or 0) for row in donations)
+    donation_dirty = sum(int(row["dirty_ep_to_grant"] or 0) for row in donations)
+
+    creator_apps_approved = sum(1 for row in creator_apps if (row["status"] or "") == "approved")
+    creator_items_approved = sum(1 for row in creator_items
+                                 if (row["status"] or "") == "approved")
 
     item_ids = sorted(set(list(per_item_views) + list(per_item_purchases)),
                       key=lambda k: -(per_item_views.get(k, 0)))[:10]
@@ -2335,7 +2391,7 @@ def content(range_id):
         "kpis": {
             "shopViews":     {"value": shop_views, "prev": 0, "series": shop_series},
             "productViews":  {"value": product_views, "prev": 0, "series": [0] * points},
-            "purchases":     {"value": len(purchases), "prev": 0, "series": [0] * points},
+            "purchases":     {"value": counted_purchases, "prev": 0, "series": [0] * points},
             "purchaseValue": {"value": purchase_value, "prev": 0, "series": [0] * points},
             "playerLookups": {"value": lookups["total"], "prev": 0, "series": lookups["series"]},
             "uniquePlayers": {"value": lookups["unique"], "prev": 0, "series": [0] * points},
@@ -2359,7 +2415,13 @@ def content(range_id):
             "qtyChanges": cart_counts.get("qty_change", 0),
             "abandoned": abandoned,
             "abandonmentRate": round(abandoned / checkout_total * 100.0, 1) if checkout_total else 0.0,
+            "openCarts": open_carts,
+            "itemsInCarts": items_in_carts,
         },
+        "purchaseStatus": [{"label": label.title(), "value": count}
+                           for label, count in sorted(purchase_status.items(),
+                                                      key=lambda kv: -kv[1])],
+        "purchaseFulfilMinutes": fulfil_minutes,
         "checkout": [
             {"label": "Checkout started", "value": checkout_start},
             {"label": "Checkout completed", "value": checkout_done},
@@ -2373,11 +2435,40 @@ def content(range_id):
             "item": names.get(row["item_id"] or "", row["item_id"] or ""),
             "buyer": row["uuid"] or "",
             "value": int(row["ep_spent"] or 0),
+            "quantity": int(row["quantity"] or 1),
+            "status": str(row["status"] or "").title(),
             "at": _iso(row["_ts"]),
         } for row in purchases[:8]],
         "balanceLookups": balance_lookups,
-        "auctions": {"views": auction_views, "bids": len(bids)},
-        "dmCards": {"generated": dm_cards},
+        "auctions": {
+            "views": auction_views,
+            "bids": len(bids),
+            "bidValue": bid_value,
+            "active": auctions_active,
+            "started": auctions_started,
+            "extended": auctions_extended,
+        },
+        "epAdjustments": {
+            "count": len(adjustments),
+            "granted": adj_granted,
+            "removed": adj_removed,
+            "reasons": [{"label": label, "value": count} for label, count in adj_top],
+        },
+        "donations": {
+            "tickets": len(donations),
+            "le": donation_le,
+            "dirtyEp": donation_dirty,
+            "confirmed": donation_confirmed,
+            "rejected": donation_rejected,
+        },
+        "creator": {
+            "applications": len(creator_apps),
+            "applicationsApproved": creator_apps_approved,
+            "itemRequests": len(creator_items),
+            "itemRequestsApproved": creator_items_approved,
+            "flags": len(creator_flags),
+        },
+        "dmCards": {"generated": dm_cards, "auctionNotices": len(auction_notices)},
         "shopAdmin": [{
             "label": _SHOP_ADMIN_LABELS.get(key, key.replace("_", " ").title()),
             "value": value,

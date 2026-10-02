@@ -191,8 +191,7 @@
         rows.push(['tab_hidden_events', d.depth.tabHidden]);
         rows.push(['active_seconds', d.depth.activeSeconds]);
         rows.push(['idle_seconds', d.depth.idleSeconds]);
-        d.depth.scroll.forEach(function (s) { rows.push(['scroll_' + s.label, s.value]); });
-        d.depth.firstUse.forEach(function (f) { rows.push(['first_use:' + f.label, f.value]); });
+        d.depth.scroll.forEach(function (s) { rows.push([s.label, s.value]); });
         return rows;
       },
       exportName: csvName('engagement', 'session-depth'),
@@ -202,11 +201,20 @@
       { label: 'Idle / session',   value: fmtDuration(d.depth.idleSeconds) },
       { label: 'Tabbed away',      value: fmtInt(d.depth.tabHidden) },
     ]));
-    depth.body.appendChild(rankedRows(d.depth.scroll, { cls: 'an-c3' }));
-    depth.body.appendChild(el('div', 'an-card-note', 'First-ever use of a panel, by feature.'));
-    depth.body.appendChild(rankedRows(d.depth.firstUse, { cls: 'an-c2' }));
+    depth.body.appendChild(rankedRows(d.depth.scroll, {
+      cls: 'an-c3',
+      format: function (v) { return fmtPct(v, 1); },
+    }));
     row3.appendChild(depth.root);
     ctx.content.appendChild(row3);
+
+    var row3b = el('div', 'an-grid');
+    row3b.appendChild(rankedCard({
+      title: 'First panel used', span: 12, items: d.depth.firstUse, cls: 'an-c2', unit: 'session',
+      foot: 'The panel a session opens first.',
+      exportName: csvName('engagement', 'first-panel'),
+    }).root);
+    ctx.content.appendChild(row3b);
 
     var row4 = el('div', 'an-grid');
     row4.appendChild(rankedCard({
