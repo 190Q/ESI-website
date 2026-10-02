@@ -524,7 +524,7 @@
     return wrap;
   }
 
-  function heatmap(grid) {
+  function heatmap(grid, unit) {
     var max = 0;
     grid.forEach(function (row) { row.forEach(function (v) { if (v > max) max = v; }); });
     if (!max) max = 1;
@@ -544,7 +544,7 @@
         var cell = el('span', 'an-heat-cell');
         // Opacity carries the intensity so no colour value is ever hardcoded.
         cell.style.opacity = (0.08 + (v / max) * 0.92).toFixed(3);
-        hover(cell, (DAY_LABELS[d] || '') + ' ' + h + ':00 \u2014 ' + fmtInt(v) + ' requests');
+        hover(cell, (DAY_LABELS[d] || '') + ' ' + h + ':00 \u2014 ' + fmtInt(v) + ' ' + (unit || 'requests'));
         line.appendChild(cell);
       });
       root.appendChild(line);

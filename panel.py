@@ -46,6 +46,7 @@ from config import (
 )
 from security_gate import register_security_gate, real_client_ip, BanningWSGIRequestHandler
 import analytics_query
+import bot_analytics
 
 _STATIC_DIR = os.path.join(_BASE_DIR, "panel_static")
 _LOG_DIR = os.path.join(_BASE_DIR, "logs")
@@ -1454,6 +1455,21 @@ def panel_analytics_live():
     except sqlite3.Error as exc:
         print(f"[PANEL-ANALYTICS] live query failed: {exc}", file=sys.stderr)
         return jsonify({"error": "Analytics database is unavailable"}), 503
+
+
+@app.route("/panel/api/bot-analytics")
+@require_access("owner")
+@rate_limit(120, 60)
+def panel_bot_analytics():
+    """The ESI-Bot panel. Reads the bot's own databases and state files."""
+    try:
+        return jsonify(bot_analytics.overview(
+            _analytics_range(),
+            uptime_seconds=_uptime_seconds(BOT_SCREEN_SESSION),
+        ))
+    except sqlite3.Error as exc:
+        print(f"[PANEL-ANALYTICS] bot analytics query failed: {exc}", file=sys.stderr)
+        return jsonify({"error": "Bot analytics is unavailable"}), 503
 
 
 if __name__ == "__main__":
