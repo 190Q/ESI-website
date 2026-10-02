@@ -111,6 +111,61 @@
     if (typeof window.showToast === 'function') window.showToast(message, type || 'info');
   }
 
+  var _hoverEl = null;
+  var _hoverTarget = null;
+
+  function getHoverEl(mode) {
+    var cls = 'an-hover' + (mode ? ' ' + mode : '');
+    if (_hoverEl && document.body.contains(_hoverEl)) {
+      _hoverEl.className = cls;
+      return _hoverEl;
+    }
+    _hoverEl = el('div', cls);
+    _hoverEl.setAttribute('role', 'tooltip');
+    document.body.appendChild(_hoverEl);
+    return _hoverEl;
+  }
+
+  function hideHover() {
+    _hoverTarget = null;
+    if (_hoverEl) _hoverEl.style.display = 'none';
+  }
+
+  function placeHover(event) {
+    var tip = _hoverEl;
+    if (!tip) return;
+    var margin = 8;
+    var left = event.clientX + 14;
+    var top = event.clientY + 14;
+    if (left + tip.offsetWidth + margin > window.innerWidth) {
+      left = event.clientX - tip.offsetWidth - 14;
+    }
+    if (top + tip.offsetHeight + margin > window.innerHeight) {
+      top = event.clientY - tip.offsetHeight - 14;
+    }
+    tip.style.left = Math.max(margin, left) + 'px';
+    tip.style.top = Math.max(margin, top) + 'px';
+  }
+
+  function hover(target, text) {
+    if (!target || !text) return target;
+    target.removeAttribute('title');
+    target.addEventListener('mouseenter', function (event) {
+      _hoverTarget = target;
+      var tip = getHoverEl();
+      tip.textContent = text;
+      tip.style.display = 'block';
+      placeHover(event);
+    });
+    target.addEventListener('mousemove', function (event) {
+      if (_hoverTarget === target) placeHover(event);
+    });
+    target.addEventListener('mouseleave', function () {
+      if (_hoverTarget === target) hideHover();
+    });
+    return target;
+  }
+
   function fmtInt(v) {
     if (v == null || isNaN(v)) return '\u2014';
     return Math.round(Number(v)).toLocaleString('en-GB');
@@ -250,8 +305,6 @@
     wrap.appendChild(vline);
     var xbadge = el('div', 'an-chart-xbadge');
     wrap.appendChild(xbadge);
-    var tip = el('div', 'an-chart-tooltip');
-    wrap.appendChild(tip);
 
     var labels = opts.labels || [];
     var series = opts.series || [];
@@ -259,10 +312,10 @@
     var height = opts.height || 268;
     var geom = null;
 
-    function hideHover() {
+    function hideChartHover() {
       vline.style.display = 'none';
       xbadge.style.display = 'none';
-      tip.style.display = 'none';
+      hideHover();
     }
 
     function render() {
@@ -361,14 +414,14 @@
     }
 
     wrap.addEventListener('mousemove', function (ev) {
-      if (!geom) { hideHover(); return; }
+      if (!geom) { hideChartHover(); return; }
       var box = wrap.getBoundingClientRect();
       var mx = ev.clientX - box.left;
       var my = ev.clientY - box.top;
 
       var inPlot = mx >= geom.padLeft && mx <= geom.padLeft + geom.plotW &&
                    my >= CHART_PAD.top && my <= CHART_PAD.top + geom.plotH;
-      if (!inPlot) { hideHover(); return; }
+      if (!inPlot) { hideChartHover(); return; }
 
       var idx = geom.n > 1
         ? Math.max(0, Math.min(geom.n - 1, Math.round(((mx - geom.padLeft) / geom.plotW) * (geom.n - 1))))
@@ -385,6 +438,7 @@
       xbadge.style.left = x + 'px';
       xbadge.style.top = (CHART_PAD.top + geom.plotH + 8) + 'px';
 
+      var tip = getHoverEl('an-hover--data');
       tip.textContent = '';
       series.forEach(function (s) {
         var row = el('div', 'an-tip-row');
@@ -394,25 +448,13 @@
         tip.appendChild(row);
       });
       tip.style.display = 'block';
-      positionChartTooltip(tip, wrap, mx, my);
+      placeHover(ev);
     });
-    wrap.addEventListener('mouseleave', hideHover);
+    wrap.addEventListener('mouseleave', hideChartHover);
 
     wrap._anRender = render;
     requestAnimationFrame(render);
     return wrap;
-  }
-
-  function positionChartTooltip(tip, wrap, x, y) {
-    var margin = 8, offset = 14;
-    var left = x + offset;
-    var top = y + offset;
-    if (left > wrap.clientWidth - tip.offsetWidth - margin) left = x - tip.offsetWidth - offset;
-    if (top > wrap.clientHeight - tip.offsetHeight - margin) top = y - tip.offsetHeight - offset;
-    if (left < margin) left = margin;
-    if (top < margin) top = margin;
-    tip.style.left = left + 'px';
-    tip.style.top = top + 'px';
   }
 
   // Horizontal ranked bars, for rankings that read better as a list than a chart.
@@ -504,7 +546,7 @@
         var cell = el('span', 'an-heat-cell');
         // Opacity carries the intensity so no colour value is ever hardcoded.
         cell.style.opacity = (0.08 + (v / max) * 0.92).toFixed(3);
-        cell.title = (DAY_LABELS[d] || '') + ' ' + h + ':00 \u2014 ' + fmtInt(v) + ' requests';
+        hover(cell, (DAY_LABELS[d] || '') + ' ' + h + ':00 \u2014 ' + fmtInt(v) + ' requests');
         line.appendChild(cell);
       });
       root.appendChild(line);
@@ -533,7 +575,7 @@
     if (typeof opts.exportRows === 'function') {
       var btn = el('button', 'an-icon-btn', '\u2b07');
       btn.type = 'button';
-      btn.title = 'Download this card as CSV';
+      hover(btn, 'Download this card as CSV');
       btn.setAttribute('aria-label', 'Download ' + opts.title + ' as CSV');
       btn.addEventListener('click', function () {
         downloadCsv(opts.exportName || ('analytics-' + stamp() + '.csv'), opts.exportRows());
@@ -625,7 +667,7 @@
     var tile = el('button', 'an-kpi');
     tile.type = 'button';
     tile.dataset.kpi = id;
-    tile.title = opts.hint || '';
+    if (opts.hint) hover(tile, opts.hint);
     if (opts.cls) tile.classList.add(opts.cls);
 
     tile.appendChild(el('div', 'an-kpi-label', opts.label || id));
@@ -720,7 +762,7 @@
       if (typeof cfg.exportRows === 'function') {
         var exportBtn = el('button', 'an-btn', '\u2b07 Export');
         exportBtn.type = 'button';
-        exportBtn.title = 'Download the current view as CSV';
+        hover(exportBtn, 'Download the current view as CSV');
         exportBtn.addEventListener('click', function () {
           if (!data) return;
           downloadCsv(cfg.exportName(data, tab), cfg.exportRows(data, tab));
@@ -998,6 +1040,7 @@
     el: el,
     svgEl: svgEl,
     toast: toast,
+    hover: hover,
     downloadCsv: downloadCsv,
     stamp: stamp,
 

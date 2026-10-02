@@ -43,6 +43,23 @@
 .an-tab-pane { display: none; }
 .an-tab-pane.active { display: block; }
 
+.an-hover {
+  position: fixed;
+  display: none;
+  z-index: 999;
+  max-width: 280px;
+  padding: 8px 10px;
+  background: rgba(var(--tooltip-bg-rgb), 0.96);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(var(--black-rgb), 0.45);
+  font-family: var(--font-heading);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--text-main);
+  pointer-events: none;
+}
+
 /* Series palette - the only place a series colour is named. */
 .an-c1 { --an-color: var(--gold); }
 .an-c2 { --an-color: var(--online); }
@@ -382,19 +399,9 @@
   display: none;
   z-index: 4;
 }
-.an-chart-tooltip {
-  position: absolute;
-  display: none;
+.an-hover--data {
   min-width: 180px;
   max-width: 320px;
-  padding: 8px 10px;
-  border: 1px solid var(--border-mid);
-  border-radius: var(--radius);
-  background: rgba(var(--tooltip-bg-rgb), 0.96);
-  box-shadow: 0 10px 24px rgba(var(--black-rgb), 0.5);
-  backdrop-filter: blur(3px);
-  z-index: 25;
-  pointer-events: none;
 }
 .an-tip-row {
   display: flex;
