@@ -58,7 +58,7 @@
   var _mounted = {};   // panelId -> { container, dispose }
 
   function readState() {
-    var def = { range: '7d', metric: 'requests', latencyMetric: 'p95', visitorMetric: 'total', compare: true };
+    var def = { range: '7d', metric: 'requests', latencyMetric: 'p95', visitorMetric: 'total' };
     try {
       var raw = JSON.parse(localStorage.getItem(STATE_KEY));
       if (raw && typeof raw === 'object') {
@@ -66,7 +66,6 @@
         if (METRICS.some(function (m) { return m.id === raw.metric; })) def.metric = raw.metric;
         if (['p50', 'p95', 'p99'].indexOf(raw.latencyMetric) !== -1) def.latencyMetric = raw.latencyMetric;
         if (['total', 'new', 'returning'].indexOf(raw.visitorMetric) !== -1) def.visitorMetric = raw.visitorMetric;
-        if (typeof raw.compare === 'boolean') def.compare = raw.compare;
       }
     } catch (e) { /* storage disabled - fall back to defaults */ }
     return def;
@@ -79,7 +78,6 @@
         metric: _state.metric,
         latencyMetric: _state.latencyMetric,
         visitorMetric: _state.visitorMetric,
-        compare: _state.compare,
       }));
     } catch (e) { /* non-fatal */ }
   }
@@ -605,21 +603,6 @@
     return root;
   }
 
-  function switchToggle(label, checked, onChange) {
-    var wrap = el('label', 'an-switch settings-toggle');
-    var input = document.createElement('input');
-    input.type = 'checkbox';
-    input.checked = !!checked;
-    input.addEventListener('change', function () { onChange(input.checked); });
-    var track = el('span', 'settings-toggle-track');
-    track.setAttribute('aria-hidden', 'true');
-    track.appendChild(el('span', 'settings-toggle-thumb'));
-    wrap.appendChild(input);
-    wrap.appendChild(track);
-    wrap.appendChild(el('span', 'an-switch-label', label));
-    return wrap;
-  }
-
   function dataTable(opts) {
     var wrap = el('div', 'an-table-wrap');
     var table = el('table', 'an-table' + (opts.tableClass ? ' ' + opts.tableClass : ''));
@@ -675,17 +658,15 @@
     value.appendChild(el('span', 'an-kpi-number', kpi.format(kpi.value)));
     tile.appendChild(value);
 
-    if (opts.compare && kpi.prev != null) {
-      var d = deltaPct(kpi.value, kpi.prev);
-      if (d != null) {
-        var good = kpi.invert ? d < 0 : d > 0;
-        var dir = Math.abs(d) < 0.05 ? 'flat' : (good ? 'up' : 'down');
-        var row = el('div', 'an-kpi-delta is-' + dir);
-        row.appendChild(el('span', 'an-kpi-arrow', Math.abs(d) < 0.05 ? '\u2014' : (d > 0 ? '\u25b2' : '\u25bc')));
-        row.appendChild(el('span', null, Math.abs(d).toFixed(1) + '%'));
-        row.appendChild(el('span', 'an-kpi-delta-note', 'vs prev'));
-        tile.appendChild(row);
-      }
+    var delta = deltaPct(kpi.value, kpi.prev);
+    if (delta != null) {
+      var good = kpi.invert ? delta < 0 : delta > 0;
+      var dir = Math.abs(delta) < 0.05 ? 'flat' : (good ? 'up' : 'down');
+      var row = el('div', 'an-kpi-delta is-' + dir);
+      row.appendChild(el('span', 'an-kpi-arrow', Math.abs(delta) < 0.05 ? '\u2014' : (delta > 0 ? '\u25b2' : '\u25bc')));
+      row.appendChild(el('span', null, Math.abs(delta).toFixed(1) + '%'));
+      row.appendChild(el('span', 'an-kpi-delta-note', 'vs prev'));
+      tile.appendChild(row);
     } else {
       tile.appendChild(el('div', 'an-kpi-delta is-none', '\u2014'));
     }
@@ -744,11 +725,6 @@
       toolbar.appendChild(rangeGroup);
 
       var end = el('div', 'an-toolbar-group an-toolbar-group--end');
-      end.appendChild(switchToggle('Compare', _state.compare, function (on) {
-        _state.compare = on;
-        writeState();
-        render();
-      }));
 
       var refresh = el('button', 'an-btn', '\u27f3 Refresh');
       refresh.type = 'button';
@@ -814,7 +790,6 @@
         content: container,
         data: d,
         tab: tabId,
-        compare: _state.compare,
         rerender: repaintActive,
         every: every,
       });
@@ -952,7 +927,7 @@
       var kpi = d.kpis[def.id];
       if (!kpi) return;
       strip.appendChild(kpiTile(def.id, kpi, {
-        label: def.label, cls: def.cls || 'an-c1', hint: def.hint, compare: _state.compare,
+        label: def.label, cls: def.cls || 'an-c1', hint: def.hint,
       }));
     });
     return strip;
@@ -1054,7 +1029,6 @@
     // components
     card: card,
     segmented: segmented,
-    switchToggle: switchToggle,
     dataTable: dataTable,
     kpiTile: kpiTile,
     analyticsPanel: analyticsPanel,

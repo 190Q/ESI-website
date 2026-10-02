@@ -118,7 +118,7 @@
         var kpi = d.kpis[def.id];
         if (!kpi) return;
         var tile = kpiTile(def.id, kpi, {
-          label: def.label, cls: def.cls, compare: _state.compare,
+          label: def.label, cls: def.cls,
         });
         tile.addEventListener('click', function () {
           toast('Detailed breakdown lives on the ' + def.goto.replace('analytics-', '') + ' panel', 'info');
