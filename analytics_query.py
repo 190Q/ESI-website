@@ -44,6 +44,11 @@ _IMAGE_EXT = ("png", "jpg", "jpeg", "gif", "webp", "avif", "svg", "ico")
 _FONT_EXT = ("woff", "woff2", "ttf", "otf", "eot")
 _ARCHIVE_EXT = ("zip", "gz", "tar")
 
+_PAGE_ROUTE_PREFIXES = (
+    "/player", "/guild", "/bot", "/inactivity", "/promotions", "/events",
+    "/shop", "/panel/", "/uploads/", "/wynnpiece",
+)
+
 _UPSTREAM_LABELS = {502: "502 Bad gateway", 503: "503 Unavailable", 504: "504 Timeout"}
 
 
@@ -185,16 +190,54 @@ def _count_by(conn, start, column):
     ).fetchall()
 
 
+def _chosen_clause(conn, column="route", method_column="method"):
+    """SQL fragment plus params keeping only paths a visitor chose to load.
+
+    A row counts when it is one of two things:
+
+      - a page navigation, i.e. a GET landing on one of the site's own page
+        routes, or
+      - a write to a route the site actually declares with that method, which
+        is what a click sends - adding to the cart, buying an item, pinning an
+        event, saving settings.
+
+    Everything else is either automatic or fake. Automatic is the CSS, JS and
+    images the browser pulls in on its own, the /api and /auth calls made just
+    to render a page, and the shell at /. Fake is a scanner sending POST /,
+    /wp-login.php, /xmlrpc.php and the like, which no route here answers.
+    """
+    nav_parts = [column + " LIKE ?" for _ in _PAGE_ROUTE_PREFIXES]
+    nav_params = [prefix + "%" for prefix in _PAGE_ROUTE_PREFIXES]
+    is_get = "UPPER(COALESCE(" + method_column + ", 'GET')) = 'GET'"
+    is_write = "UPPER(COALESCE(" + method_column + ", 'GET')) <> 'GET'"
+
+    registered = (
+        "EXISTS (SELECT 1 FROM route_registry rr WHERE rr.route = " + column +
+        " AND (',' || rr.methods || ',') LIKE '%,' || UPPER(" + method_column + ") || ',%')"
+    )
+    try:
+        published = conn.execute("SELECT COUNT(*) FROM route_registry").fetchone()[0] > 0
+    except sqlite3.Error:
+        published = False
+    write_cond = registered if published else (
+        "(" + column + " LIKE '/api/%' OR " + column + " LIKE '/auth/%')")
+
+    sql = (" AND ((" + is_get + " AND (" + " OR ".join(nav_parts) + "))"
+           " OR (" + is_write + " AND " + write_cond + "))")
+    return sql, nav_params
+
+
 def _top_paths(conn, start, limit=25):
+    clause, clause_params = _chosen_clause(conn, "requests.route", "requests.method")
     counts = conn.execute(
         "SELECT route, method, status, COUNT(*) AS requests,"
         " COUNT(DISTINCT ip_hash) AS uniques,"
         " COUNT(DISTINCT session_hash) AS sessions,"
         " AVG(duration_ms) AS avg_ms,"
         " COALESCE(SUM(bytes), 0) AS total_bytes"
-        " FROM requests WHERE ts >= ? AND route IS NOT NULL"
+        " FROM requests WHERE ts >= ? AND route IS NOT NULL" + clause +
         " GROUP BY route, method, status ORDER BY requests DESC LIMIT ?",
-        (start, limit),
+        tuple([start] + clause_params + [limit]),
     ).fetchall()
     if not counts:
         return []
@@ -339,6 +382,8 @@ def _group_by_route(conn, start, classifier):
 
 
 def _entry_exit_pages(conn, start, limit=10):
+    clause, clause_params = _chosen_clause(conn, "r.route", "r.method")
+
     def edge(column):
         rows = conn.execute(
             "WITH s AS (SELECT session_hash, " + column + " AS edge_ts"
@@ -346,8 +391,9 @@ def _entry_exit_pages(conn, start, limit=10):
             " GROUP BY session_hash)"
             " SELECT r.route, COUNT(*) AS n FROM requests r"
             " JOIN s ON s.session_hash = r.session_hash AND r.ts = s.edge_ts"
-            " WHERE r.route IS NOT NULL GROUP BY r.route ORDER BY n DESC LIMIT ?",
-            (start, limit),
+            " WHERE r.route IS NOT NULL" + clause +
+            " GROUP BY r.route ORDER BY n DESC LIMIT ?",
+            tuple([start] + clause_params + [limit]),
         ).fetchall()
         return [{"label": row["route"], "value": row["n"]} for row in rows]
 
@@ -876,19 +922,21 @@ def _active_window(conn, now):
 
 
 def _bounce_by_entry(conn, start, limit=8):
+    clause, clause_params = _chosen_clause(conn, "e.route", "e.method")
     rows = conn.execute(
         "WITH s AS (SELECT session_hash, MIN(ts) AS first_ts, COUNT(*) AS requests"
         " FROM requests WHERE ts >= ? AND session_hash IS NOT NULL"
         " GROUP BY session_hash),"
-        " e AS (SELECT r.session_hash AS sh, r.route AS route FROM requests r"
+        " e AS (SELECT r.session_hash AS sh, r.route AS route, r.method AS method"
+        " FROM requests r"
         " JOIN s ON s.session_hash = r.session_hash AND r.ts = s.first_ts)"
         " SELECT e.route AS route, COUNT(*) AS sessions,"
         " SUM(CASE WHEN s.requests = 1 THEN 1 ELSE 0 END) AS bounces"
         " FROM e JOIN s ON s.session_hash = e.sh"
-        " WHERE e.route IS NOT NULL"
+        " WHERE e.route IS NOT NULL" + clause +
         " GROUP BY e.route HAVING COUNT(*) >= 3"
         " ORDER BY sessions DESC LIMIT ?",
-        (start, limit),
+        tuple([start] + clause_params + [limit]),
     ).fetchall()
     return [{
         "label": row["route"],
