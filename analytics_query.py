@@ -2271,11 +2271,15 @@ def content(range_id):
             "SELECT COUNT(*) FROM requests WHERE ts >= ? AND status = 404", (start,)).fetchone()[0] or 0
         blocked_default = conn.execute(
             "SELECT COUNT(*) FROM requests WHERE ts >= ? AND status = 403", (start,)).fetchone()[0] or 0
-        bot_panel_views = _request_count(conn, start, "/bot")
-        inactivity_views = _request_count(conn, start, "/inactivity")
-        promotion_views = _request_count(conn, start, "/promotions")
-        creator_studio = _request_count(conn, start, "/shop/studio")
-        guild_info = _request_count(conn, start, "/guild/info")
+        panel_views = {row["k"]: row["n"] for row in conn.execute(
+            "SELECT json_extract(props, '$.panel') AS k, COUNT(*) AS n FROM events"
+            " WHERE kind = 'panel_view' AND ts >= ?"
+            " AND json_extract(props, '$.panel') IS NOT NULL GROUP BY k", (start,))}
+        bot_panel_views = panel_views.get("bot", 0)
+        inactivity_views = panel_views.get("inactivity", 0)
+        promotion_views = panel_views.get("promotions", 0)
+        creator_studio = panel_views.get("creator-studio", 0)
+        guild_info = panel_views.get("guild-info", 0)
         wynnpiece_views = _request_count(conn, start, "/wynnpiece")
         auction_views = _request_count(conn, start, "/api/shop/auctions")
     finally:

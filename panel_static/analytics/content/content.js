@@ -477,10 +477,10 @@
   function contentToolsTab(ctx) {
     var d = ctx.data;
     ctx.content.appendChild(panelKpiStrip(d, [
-      { id: 'botViews',        label: 'Bot panel views', cls: 'an-c1', hint: 'Views of the Bot panel' },
-      { id: 'inactivityViews', label: 'Inactivity views', cls: 'an-c2', hint: 'Views of the inactivity exemptions' },
-      { id: 'promotionViews',  label: 'Promotions views', cls: 'an-c4', hint: 'Views of the promotions page' },
-      { id: 'guildInfoViews',  label: 'Guild info views', cls: 'an-c3', hint: 'Forum thread views' },
+      { id: 'botViews',        label: 'Bot panel views', cls: 'an-c1', hint: 'Times the Bot panel was opened' },
+      { id: 'inactivityViews', label: 'Inactivity views', cls: 'an-c2', hint: 'Times the Inactivity panel was opened' },
+      { id: 'promotionViews',  label: 'Promotions views', cls: 'an-c4', hint: 'Times the Promotions panel was opened' },
+      { id: 'guildInfoViews',  label: 'Guild info views', cls: 'an-c3', hint: 'Times the Guild Info panel was opened' },
     ]));
 
     var row = el('div', 'an-grid');
@@ -533,15 +533,15 @@
       title: 'Inactivity',
       span: 6,
       exportRows: function () {
-        return [['metric', 'value'], ['exemption_page_views', d.inactivity.views]];
+        return [['metric', 'value'], ['panel_views', d.inactivity.views]];
       },
       exportName: csvName('content', 'inactivity'),
     });
     inact.body.appendChild(miniStrip([
-      { label: 'Page views', value: fmtInt(d.inactivity.views) },
+      { label: 'Panel views', value: fmtInt(d.inactivity.views) },
     ]));
     inact.body.appendChild(el('div', 'an-card-note',
-      'Views of the exemptions page. Individual exemptions are not tracked.'));
+      'Times the Inactivity panel was opened. Individual exemptions are not tracked.'));
     row2.appendChild(inact.root);
 
     var promos = card({
@@ -598,14 +598,14 @@
     var info = card({
       title: 'Guild info',
       span: 6,
-      foot: 'Views of the guild info forum thread.',
+      foot: 'Times the Guild Info panel was opened.',
       exportRows: function () {
-        return [['metric', 'value'], ['forum_thread_views', d.guildInfo.threadViews]];
+        return [['metric', 'value'], ['panel_views', d.guildInfo.threadViews]];
       },
       exportName: csvName('content', 'guild-info'),
     });
     info.body.appendChild(miniStrip([
-      { label: 'Thread views', value: fmtInt(d.guildInfo.threadViews) },
+      { label: 'Panel views', value: fmtInt(d.guildInfo.threadViews) },
     ]));
     row3.appendChild(info.root);
     ctx.content.appendChild(row3);
