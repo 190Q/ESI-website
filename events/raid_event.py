@@ -10,6 +10,10 @@ HIGH_RANK_BONUS = 10
 _POINTS_HR_RANKS = {"strategist", "chief", "owner"}
 
 
+# 67676767676767676767676767676767676767676767676767676767676767676767676767676767676767676767
+# SIX SEVEN SIX SEVEN SIX SEVEN SIX SEVEN SIX SEVEN SIX SEVEN SIX SEVEN SIX SEVEN SIX SEVEN 
+
+
 def _is_event_active(now: datetime | None = None) -> bool:
     if now is None:
         now = datetime.now(timezone.utc)
