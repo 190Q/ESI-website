@@ -8,6 +8,7 @@
   var dataTable = A.dataTable;
   var rankedRows = A.rankedRows;
   var rankedCard = A.rankedCard;
+  var donut = A.donut;
   var donutCard = A.donutCard;
   var heatmap = A.heatmap;
   var miniStrip = A.miniStrip;
@@ -63,19 +64,6 @@
     });
   }
 
-  function agoLabel(minutes) {
-    if (minutes == null) return '\u2014';
-    if (minutes < 60) return minutes + 'm ago';
-    var hours = Math.floor(minutes / 60);
-    if (hours < 48) {
-      var m = minutes % 60;
-      return m ? hours + 'h ' + m + 'm ago' : hours + 'h ago';
-    }
-    var days = Math.floor(hours / 24);
-    var rest = hours % 24;
-    return rest ? days + 'd ' + rest + 'h ago' : days + 'd ago';
-  }
-
   function kvRows(pairs) {
     var host = el('div', 'an-kv');
     pairs.forEach(function (pair) {
@@ -89,6 +77,65 @@
 
   function note(text) {
     return el('div', 'an-card-note', text);
+  }
+
+  var _trackerRows = [];
+
+  function formatCountdown(seconds) {
+    if (seconds >= 60) return Math.floor(seconds / 60) + 'm ' + (seconds % 60) + 's';
+    return seconds + 's';
+  }
+
+  function renderBotLive(host, bot) {
+    host.textContent = '';
+    host.appendChild(miniStrip([
+      { label: 'Uptime',   value: fmtDuration(bot.uptimeSeconds) },
+      { label: 'Restarts', value: fmtInt(bot.restarts) },
+      { label: 'Errors',   value: fmtInt(bot.errors) },
+    ]));
+
+    _trackerRows = [];
+    var list = el('div', 'an-kv');
+    bot.trackers.forEach(function (t) {
+      var row = el('div', 'an-kv-row');
+      row.appendChild(el('span', 'an-kv-key', t.name));
+      var value = el('span', 'an-kv-val' + (t.stale ? ' an-esibot-stale' : ''));
+      value.textContent = t.stale ? 'Offline' : formatCountdown(t.remainingSeconds);
+      row.appendChild(value);
+      list.appendChild(row);
+      _trackerRows.push({
+        el: value, interval: t.interval, remaining: t.remainingSeconds, stale: t.stale,
+      });
+    });
+    var apiRow = el('div', 'an-kv-row');
+    apiRow.appendChild(el('span', 'an-kv-key', 'API errors'));
+    apiRow.appendChild(el('span', 'an-kv-val', fmtInt(bot.apiErrors)));
+    list.appendChild(apiRow);
+    host.appendChild(list);
+  }
+
+  function tickTrackers() {
+    _trackerRows.forEach(function (entry) {
+      if (entry.stale || entry.remaining == null) return;
+      entry.remaining -= 1;
+      if (entry.remaining <= 0) entry.remaining = entry.interval;
+      entry.el.textContent = formatCountdown(entry.remaining);
+    });
+  }
+
+  function pollBotLive(ctx) {
+    ctx.every(1000, tickTrackers);
+    ctx.every(15000, function () {
+      var host = ctx.content.querySelector('[data-live]');
+      if (!host || !host.parentNode) return;
+      fetch('/panel/api/bot-analytics/live', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (live) {
+          if (!live || !host.parentNode) return;
+          renderBotLive(host, live);
+        })
+        .catch(function () { /* a dropped poll is not worth interrupting for */ });
+    });
   }
 
   function buildGrowthRow(d, ctx) {
@@ -126,7 +173,7 @@
     var bot = card({
       title: 'Bot & trackers',
       span: 4,
-      foot: 'Error counts come from the retained tail of the bot log.',
+      foot: 'Countdowns are the time to each tracker\u2019s next run; error counts come from the bot log tail.',
       exportRows: function () {
         var rows = [['metric', 'value']];
         rows.push(['uptime_seconds', d.bot.uptimeSeconds]);
@@ -135,23 +182,20 @@
         rows.push(['api_errors', d.bot.apiErrors]);
         rows.push(['storage_bytes', d.bot.storageBytes]);
         d.bot.trackers.forEach(function (t) {
-          rows.push(['tracker:' + t.name, t.minutesAgo + ' minutes ago']);
+          rows.push(['tracker:' + t.name, t.remainingSeconds == null
+            ? 'offline' : t.remainingSeconds + 's until next run']);
         });
         return rows;
       },
       exportName: csvName('esi-bot', 'bot-health'),
     });
-    bot.body.appendChild(miniStrip([
-      { label: 'Uptime',      value: fmtDuration(d.bot.uptimeSeconds) },
-      { label: 'Restarts',    value: fmtInt(d.bot.restarts) },
-      { label: 'Errors',      value: fmtInt(d.bot.errors) },
+    var liveHost = el('div');
+    liveHost.dataset.live = '1';
+    renderBotLive(liveHost, d.bot);
+    bot.body.appendChild(liveHost);
+    bot.body.appendChild(kvRows([
+      { label: 'Storage used', value: fmtBytes(d.bot.storageBytes) },
     ]));
-    var trackerPairs = d.bot.trackers.map(function (t) {
-      return { label: t.name, value: agoLabel(t.minutesAgo), cls: t.stale ? 'an-esibot-stale' : null };
-    });
-    trackerPairs.push({ label: 'API errors',     value: fmtInt(d.bot.apiErrors) });
-    trackerPairs.push({ label: 'Storage used',   value: fmtBytes(d.bot.storageBytes) });
-    bot.body.appendChild(kvRows(trackerPairs));
     row.appendChild(bot.root);
 
     return row;
@@ -214,6 +258,103 @@
     queue.body.appendChild(note(
       fmtInt(d.queue.expiringSoon) + ' exemptions expire within the week.'));
     row.appendChild(queue.root);
+
+    return row;
+  }
+
+  function buildVotingRow(d) {
+    var row = el('div', 'an-grid');
+    var v = d.voting;
+
+    var split = card({
+      title: 'Vote split',
+      span: 4,
+      foot: 'Approve and deny votes cast on applications in range.',
+      exportRows: function () {
+        return [
+          ['metric', 'value'],
+          ['approve_votes', v.approve],
+          ['deny_votes', v.deny],
+          ['voters', v.voters],
+          ['applications', v.applications],
+          ['votes_per_application', v.votesPerApplication],
+          ['reached_threshold', v.reachedThreshold],
+          ['below_threshold', v.belowThreshold],
+        ];
+      },
+      exportName: csvName('esi-bot', 'vote-split'),
+    });
+    split.body.appendChild(miniStrip([
+      { label: 'Voters',  value: fmtInt(v.voters) },
+      { label: 'Per app', value: v.votesPerApplication.toFixed(1) },
+      { label: 'Reached', value: fmtInt(v.reachedThreshold) },
+    ]));
+    split.body.appendChild(donut([
+      { label: 'Approve', value: v.approve },
+      { label: 'Deny',    value: v.deny },
+    ]));
+    if (!v.applications) {
+      split.body.appendChild(note('No applications were voted on in this range.'));
+    }
+    row.appendChild(split.root);
+
+    var most = rankedCard({
+      title: 'Most active voters',
+      span: 4,
+      items: v.mostActive,
+      cls: 'an-c1',
+      unit: 'voter',
+      foot: 'Votes cast in range.',
+      exportName: csvName('esi-bot', 'most-active-voters'),
+    });
+    if (!v.mostActive.length) {
+      most.body.appendChild(note('No votes cast in this range.'));
+    }
+    row.appendChild(most.root);
+
+    var least = rankedCard({
+      title: 'Least active voters',
+      span: 4,
+      items: v.leastActive,
+      cls: 'an-c5',
+      unit: 'voter',
+      foot: 'The quiet end of everyone who has ever voted.',
+      exportName: csvName('esi-bot', 'least-active-voters'),
+    });
+    if (!v.leastActive.length) {
+      least.body.appendChild(note('Nobody has voted on an application yet.'));
+    }
+    row.appendChild(least.root);
+
+    var decisions = card({
+      title: 'Voter decisions',
+      span: 12,
+      foot: 'Everyone with votes in range, and how they leaned.',
+      exportRows: function () {
+        var rows = [['voter', 'approve', 'deny', 'total', 'deny_rate_pct']];
+        v.table.forEach(function (r) {
+          rows.push([r.voter, r.approve, r.deny, r.total, r.denyRate.toFixed(1)]);
+        });
+        return rows;
+      },
+      exportName: csvName('esi-bot', 'voter-decisions'),
+    });
+    if (v.table.length) {
+      decisions.body.appendChild(dataTable({
+        columns: [
+          { key: 'voter',    label: 'Voter',   ident: true },
+          { key: 'approve',  label: 'Approve', num: true, format: fmtInt },
+          { key: 'deny',     label: 'Deny',    num: true, format: fmtInt },
+          { key: 'total',    label: 'Total',   num: true, format: fmtInt },
+          { key: 'denyRate', label: 'Deny rate', num: true, bar: true,
+            format: function (value) { return fmtPct(value, 1); } },
+        ],
+        rows: v.table,
+      }));
+    } else {
+      decisions.body.appendChild(note('No votes cast in this range.'));
+    }
+    row.appendChild(decisions.root);
 
     return row;
   }
@@ -394,6 +535,9 @@
     });
     d.applications.forEach(function (a) { push('applications', a.type, a.received); });
     d.inactivity.forEach(function (i) { push('inactivity', i.label, i.value); });
+    push('voting', 'approve_votes', d.voting.approve);
+    push('voting', 'deny_votes', d.voting.deny);
+    d.voting.table.forEach(function (r) { push('voter_total', r.voter, r.total); });
     d.ep.byReason.forEach(function (r) { push('ep_reason', r.label, r.value); });
     d.ep.topEarners.forEach(function (e) { push('ep_earner', e.label, e.value); });
     d.activity.topPlaytime.forEach(function (p) { push('playtime', p.label, p.value); });
@@ -416,10 +560,12 @@
     ]));
     ctx.content.appendChild(buildGrowthRow(d, ctx));
     ctx.content.appendChild(buildRecruitmentRow(d));
+    ctx.content.appendChild(buildVotingRow(d));
     ctx.content.appendChild(buildEconomyRow(d));
     ctx.content.appendChild(buildOpsRow(d));
     ctx.content.appendChild(buildUsageRow(d));
     ctx.content.appendChild(analyticsFoot(d));
+    pollBotLive(ctx);
   }
 
   A.registerPanel(PANEL_ID, { build: buildBotAnalytics });

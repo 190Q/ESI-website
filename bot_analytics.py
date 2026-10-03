@@ -21,7 +21,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from analytics_query import DEFAULT_RANGE, range_spec
-from config import _BASE_DIR, _ESI_BOT_DIR, _SHOP_DB
+from config import _BASE_DIR, _ESI_BOT_DIR, _SHOP_DB, _USER_DB_PATH
 
 BOT_DIR = _ESI_BOT_DIR
 _DATA_DIR = os.path.join(BOT_DIR, "data")
@@ -35,6 +35,7 @@ _RANK_DB = os.path.join(_DB_DIR, "rank_changes.db")
 _EXEMPTIONS_DB = os.path.join(_DB_DIR, "inactivity_exemptions.db")
 _BLACKLIST_DB = os.path.join(_DB_DIR, "blacklist.db")
 _USAGE_DB = os.path.join(_DB_DIR, "usage.db")
+_APPLICATION_DB = os.path.join(_DB_DIR, "application_history.db")
 _LOG_DIR = os.path.join(_BASE_DIR, "logs")
 
 _SUPPORT_TICKETS_JSON = os.path.join(_DATA_DIR, "support_tickets.json")
@@ -45,8 +46,8 @@ _QUEUE_JSON = os.path.join(_DATA_DIR, "guild_member_queue.json")
 _USER_BANS_JSON = os.path.join(_DATA_DIR, "user_bans.json")
 _TRACKED_GUILD_JSON = os.path.join(_DATA_DIR, "tracked_guild.json")
 _TERRITORIES_JSON = os.path.join(_DATA_DIR, "guild_territories.json")
+_USERNAME_MATCHES_JSON = os.path.join(_DATA_DIR, "username_matches.json")
 
-_TRACKER_STALE_MINUTES = 20
 _LOG_TAIL_BYTES = 200_000
 
 # ESI points cycle: anchored to cycle 1, two weeks each (see utils/esi_points.py).
@@ -128,6 +129,12 @@ def _query(conn, sql, params=()):
         return []
 
 
+def _history_ready(conn):
+    """True once the bot has mirrored at least one application."""
+    rows = _query(conn, "SELECT COUNT(*) FROM applications")
+    return bool(rows and rows[0][0])
+
+
 def _fill_counts(rows, points):
     """Spread (bucket, n) rows into a dense series."""
     series = [0] * points
@@ -142,9 +149,10 @@ def _fill_counts(rows, points):
     return series
 
 
-def _file_age_minutes(path):
+def _mtime(path):
+    """A file's modification time, or None when it is not there."""
     try:
-        return max(0, int((time.time() - os.path.getmtime(path)) / 60))
+        return os.path.getmtime(path)
     except OSError:
         return None
 
@@ -309,7 +317,76 @@ def _snapshot_playtime_ranking(files, limit=10):
 
 
 # Applications and recruitment
-def _application_block(start, end, previous_start):
+def _application_rows(counts):
+    """Per-type totals, busiest type first."""
+    rows = []
+    for kind in sorted(counts, key=lambda name: -counts[name]["received"]):
+        bucket = counts[kind]
+        decided = bucket["approved"] + bucket["denied"]
+        rows.append({
+            "type": kind,
+            "received": bucket["received"],
+            "approved": bucket["approved"],
+            "denied": bucket["denied"],
+            "pending": bucket["pending"],
+            "rate": round(bucket["approved"] / decided * 100.0, 1) if decided else 0.0,
+        })
+    return rows
+
+
+def _abandoned_count(start, end):
+    """Applications opened but never submitted, from the pending-apps JSON."""
+    pending = _read_json(_PENDING_APPS_JSON, {})
+    count = 0
+    for entry in pending.values():
+        if not isinstance(entry, dict):
+            continue
+        stamp = _as_epoch(entry.get("timestamp"))
+        if stamp is not None and start <= stamp < end:
+            count += 1
+    return count
+
+
+def _applications_from_history(conn, start, end, previous_start):
+    """Totals from the durable history, which keeps closed tickets too."""
+    counts = {name: {"received": 0, "approved": 0, "denied": 0, "pending": 0}
+              for name in _APPLICATION_TYPES}
+    stamps = []
+    for row in _query(
+        conn,
+        "SELECT app_type, status, submitted_at FROM applications"
+        " WHERE submitted_at IS NOT NULL AND submitted_at >= ? AND submitted_at < ?",
+        (start, end),
+    ):
+        kind = str(row[0] or "Unknown")
+        bucket = counts.setdefault(kind, {"received": 0, "approved": 0,
+                                          "denied": 0, "pending": 0})
+        bucket["received"] += 1
+        status = str(row[1] or "pending").lower()
+        if status == "accepted":
+            bucket["approved"] += 1
+        elif status == "denied":
+            bucket["denied"] += 1
+        else:
+            bucket["pending"] += 1
+        stamps.append((float(row[2]), 1))
+
+    previous = _query(
+        conn,
+        "SELECT COUNT(*) FROM applications"
+        " WHERE submitted_at IS NOT NULL AND submitted_at >= ? AND submitted_at < ?",
+        (previous_start, start),
+    )
+    return {
+        "rows": _application_rows(counts),
+        "total": len(stamps),
+        "previous": int(previous[0][0] or 0) if previous else 0,
+        "stamps": stamps,
+    }
+
+
+def _applications_from_json(start, end, previous_start):
+    """Totals from the live JSON, which only holds open tickets."""
     forwarded = _read_json(_FORWARDED_APPS_JSON, {})
 
     def is_accepted(entry):
@@ -320,14 +397,11 @@ def _application_block(start, end, previous_start):
         approves = entry.get("approve_count") or 0
         return bool(threshold) and approves >= threshold
 
-    def is_denied(entry):
-        return str(entry.get("status") or "").lower() == "denied"
-
     counts = {name: {"received": 0, "approved": 0, "denied": 0, "pending": 0}
               for name in _APPLICATION_TYPES}
     total = 0
     previous_total = 0
-    series_rows = []
+    stamps = []
     for entry in forwarded.values():
         if not isinstance(entry, dict):
             continue
@@ -346,42 +420,34 @@ def _application_block(start, end, previous_start):
         bucket["received"] += 1
         if is_accepted(entry):
             bucket["approved"] += 1
-        elif is_denied(entry):
+        elif str(entry.get("status") or "").lower() == "denied":
             bucket["denied"] += 1
         else:
             bucket["pending"] += 1
-        series_rows.append((stamp, 1))
-
-    rows = []
-    for kind in sorted(counts, key=lambda name: -counts[name]["received"]):
-        bucket = counts[kind]
-        decided = bucket["approved"] + bucket["denied"]
-        rows.append({
-            "type": kind,
-            "received": bucket["received"],
-            "approved": bucket["approved"],
-            "denied": bucket["denied"],
-            "pending": bucket["pending"],
-            "rate": round(bucket["approved"] / decided * 100.0, 1) if decided else 0.0,
-        })
-
-    # Applications opened but never submitted.
-    pending = _read_json(_PENDING_APPS_JSON, {})
-    abandoned = 0
-    for entry in pending.values():
-        if not isinstance(entry, dict):
-            continue
-        stamp = _as_epoch(entry.get("timestamp"))
-        if stamp is not None and start <= stamp < end:
-            abandoned += 1
+        stamps.append((stamp, 1))
 
     return {
-        "rows": rows,
+        "rows": _application_rows(counts),
         "total": total,
         "previous": previous_total,
-        "abandoned": abandoned,
-        "stamps": series_rows,
+        "stamps": stamps,
     }
+
+
+def _application_block(start, end, previous_start):
+    """Per-type application totals, preferring the durable history."""
+    result = None
+    conn = _open_readonly(_APPLICATION_DB)
+    if conn is not None:
+        try:
+            if _history_ready(conn):
+                result = _applications_from_history(conn, start, end, previous_start)
+        finally:
+            conn.close()
+    if result is None:
+        result = _applications_from_json(start, end, previous_start)
+    result["abandoned"] = _abandoned_count(start, end)
+    return result
 
 
 def _recruit_stamps():
@@ -401,6 +467,173 @@ def _recruit_stamps():
         if stamp is not None:
             out.append((str(row[0] or ""), stamp))
     return out
+
+
+def _discord_names():
+    """discord id -> a readable name, from the bot's link table then the site."""
+    names = {}
+    matches = _read_json(_USERNAME_MATCHES_JSON, {})
+    for did, entry in matches.items():
+        if isinstance(entry, dict):
+            name = entry.get("username")
+        elif isinstance(entry, str):
+            name = entry
+        else:
+            name = None
+        if name:
+            names[str(did)] = str(name)
+
+    conn = _open_readonly(_USER_DB_PATH)
+    if conn is not None:
+        try:
+            rows = _query(conn, "SELECT discord_id, user_data FROM remember_tokens")
+        finally:
+            conn.close()
+        for row in rows:
+            uid = str(row[0] or "")
+            if not uid or uid in names:
+                continue
+            try:
+                data = json.loads(row[1] or "{}")
+            except (TypeError, ValueError):
+                continue
+            name = data.get("nick") or data.get("username")
+            if name:
+                names[uid] = str(name)
+    return names
+
+
+def _voting_payload(approve, deny, ever, applications, reached, names):
+    """The voting cards' shape, built the same way from either source."""
+    def label(voter):
+        return names.get(voter, voter)
+
+    def total_for(voter):
+        return approve.get(voter, 0) + deny.get(voter, 0)
+
+    def row_for(voter):
+        approved = approve.get(voter, 0)
+        denied = deny.get(voter, 0)
+        total = approved + denied
+        return {
+            "voter": label(voter),
+            "approve": approved,
+            "deny": denied,
+            "total": total,
+            "denyRate": round(denied / total * 100.0, 1) if total else 0.0,
+        }
+
+    approve_total = sum(approve.values())
+    deny_total = sum(deny.values())
+    ranking = sorted(ever, key=lambda v: (-total_for(v), label(v)))
+    active = [v for v in ranking if total_for(v) > 0]
+
+    return {
+        "approve": approve_total,
+        "deny": deny_total,
+        "voters": len(active),
+        "applications": applications,
+        "votesPerApplication": (round((approve_total + deny_total) / applications, 1)
+                                if applications else 0.0),
+        "reachedThreshold": reached,
+        "belowThreshold": max(0, applications - reached),
+        "mostActive": [{"label": label(v), "value": total_for(v)} for v in active[:6]],
+        "leastActive": [{"label": label(v), "value": total_for(v)}
+                        for v in reversed(ranking)][:6],
+        "table": [row_for(v) for v in active][:25],
+    }
+
+
+def _voting_from_history(conn, start, end, names):
+    """Votes from the durable history, which survives ticket closures."""
+    approve = {}
+    deny = {}
+    for row in _query(
+        conn,
+        "SELECT voter_id, vote, COUNT(*) FROM votes"
+        " WHERE voted_at >= ? AND voted_at < ? GROUP BY voter_id, vote",
+        (start, end),
+    ):
+        voter = str(row[0])
+        if str(row[1]) == "approve":
+            approve[voter] = int(row[2] or 0)
+        else:
+            deny[voter] = int(row[2] or 0)
+
+    ever = {str(row[0]) for row in _query(conn, "SELECT DISTINCT voter_id FROM votes")}
+
+    applications = _query(
+        conn,
+        "SELECT COUNT(*) FROM applications"
+        " WHERE submitted_at IS NOT NULL AND submitted_at >= ? AND submitted_at < ?",
+        (start, end),
+    )
+    applications = int(applications[0][0] or 0) if applications else 0
+
+    reached = _query(
+        conn,
+        "SELECT COUNT(*) FROM applications WHERE submitted_at IS NOT NULL"
+        " AND submitted_at >= ? AND submitted_at < ?"
+        " AND threshold IS NOT NULL AND approve_count >= threshold",
+        (start, end),
+    )
+    reached = int(reached[0][0] or 0) if reached else 0
+
+    return _voting_payload(approve, deny, ever, applications, reached, names)
+
+
+def _voting_from_json(start, end, names):
+    """Votes from the live JSON, which only holds open tickets."""
+    forwarded = _read_json(_FORWARDED_APPS_JSON, {})
+    approve = {}
+    deny = {}
+    ever = set()
+    applications = 0
+    reached = 0
+
+    for entry in forwarded.values():
+        if not isinstance(entry, dict):
+            continue
+        approvers = [str(v) for v in (entry.get("approve_voters") or [])]
+        deniers = [str(v) for v in (entry.get("deny_voters") or [])]
+        ever.update(approvers)
+        ever.update(deniers)
+
+        stamp = _as_epoch(entry.get("timestamp"))
+        if stamp is None or not (start <= stamp < end):
+            continue
+        applications += 1
+        threshold = entry.get("threshold")
+        approves = entry.get("approve_count")
+        if approves is None:
+            approves = len(approvers)
+        if threshold and approves >= threshold:
+            reached += 1
+        for voter in approvers:
+            approve[voter] = approve.get(voter, 0) + 1
+        for voter in deniers:
+            deny[voter] = deny.get(voter, 0) + 1
+
+    return _voting_payload(approve, deny, ever, applications, reached, names)
+
+
+def _voting_block(start, end):
+    """Who votes on applications, how much, and how they lean.
+
+    Prefers the bot's application history: the JSON it mirrors only holds
+    tickets that are still open, so a closed application would otherwise take
+    its votes with it. Falls back to the JSON until the bot writes its first
+    row, so the cards keep working across the changeover.
+    """
+    names = _discord_names()
+    conn = _open_readonly(_APPLICATION_DB)
+    if conn is not None:
+        try:
+            if _history_ready(conn):
+                return _voting_from_history(conn, start, end, names)
+        finally:
+            conn.close()
+    return _voting_from_json(start, end, names)
 
 
 # Queue, inactivity and exemptions
@@ -746,30 +979,29 @@ def _log_stats():
     return stats
 
 
-def _tracker_status(files, now):
-    tracked = _read_json(_TRACKED_GUILD_JSON, {})
-    guild_stamp = _as_epoch(tracked.get("last_update")) if isinstance(tracked, dict) else None
-
-    def minutes(stamp):
-        if stamp is None:
-            return None
-        return max(0, int((now - stamp) / 60))
-
-    entries = [
-        ("API snapshots", _file_age_minutes(files[-1][1]) if files else None),
-        ("Playtime", _playtime_age_minutes()),
-        ("Guild", minutes(guild_stamp)),
-        ("Claims", _file_age_minutes(_TERRITORIES_JSON)),
-        ("ESI points", _file_age_minutes(_POINTS_DB)),
-    ]
-    return [
-        {"name": name, "minutesAgo": age, "stale": age is None or age > _TRACKER_STALE_MINUTES}
-        for name, age in entries
-    ]
+_TRACKERS = (
+    ("API Tracker", 300),
+    ("Playtime Tracker", 300),
+    ("Guild Tracker", 30),
+    ("Claim Tracker", 3),
+)
 
 
-def _playtime_age_minutes():
-    """Minutes since the playtime tracker last wrote, from its own metadata."""
+def _remaining_seconds(last_seen, interval, now):
+    """Seconds until this tracker's next run, or None once it has gone quiet."""
+    if last_seen is None:
+        return None
+    elapsed = max(0.0, now - last_seen)
+    if elapsed > max(interval * 20, interval + 120):
+        return None
+    remaining = int(interval - (elapsed % interval))
+    if remaining <= 0 or remaining > interval:
+        remaining = interval
+    return remaining
+
+
+def _playtime_last_fetch():
+    """When the playtime tracker last wrote, from its own metadata."""
     conn = _open_readonly(_PLAYTIME_DB)
     if conn is not None:
         try:
@@ -782,8 +1014,32 @@ def _playtime_age_minutes():
         if rows:
             stamp = _as_epoch(rows[0][0])
             if stamp is not None:
-                return max(0, int((time.time() - stamp) / 60))
-    return _file_age_minutes(_PLAYTIME_DB)
+                return stamp
+    return _mtime(_PLAYTIME_DB)
+
+
+def _tracker_status(files, now):
+    """Each tracker's last run and the seconds left until its next one."""
+    tracked = _read_json(_TRACKED_GUILD_JSON, {})
+    last_seen = {
+        "API Tracker": files[-1][0] if files else None,
+        "Playtime Tracker": _playtime_last_fetch(),
+        "Guild Tracker": (_as_epoch(tracked.get("last_update"))
+                          if isinstance(tracked, dict) else None),
+        "Claim Tracker": _mtime(_TERRITORIES_JSON),
+    }
+    out = []
+    for name, interval in _TRACKERS:
+        seen = last_seen.get(name)
+        remaining = _remaining_seconds(seen, interval, now)
+        out.append({
+            "name": name,
+            "interval": interval,
+            "remainingSeconds": remaining,
+            "lastSeenAt": seen,
+            "stale": remaining is None,
+        })
+    return out
 
 
 # Command and feature usage
@@ -911,6 +1167,7 @@ def overview(range_id, uptime_seconds=None):
             "started": applications["total"] + applications["abandoned"],
             "abandoned": applications["abandoned"],
         },
+        "voting": _voting_block(start, now),
         "queue": queue,
         "inactivity": _inactivity_outcomes(start, now),
         "ep": {
@@ -930,4 +1187,22 @@ def overview(range_id, uptime_seconds=None):
         "tickets": tickets,
         "commands": commands,
         "features": features,
+    }
+
+
+def live(uptime_seconds=None):
+    """The moving parts of the bot card, for the panel's 15-second poll.
+
+    Deliberately narrower than overview(): it skips the snapshot reads and the
+    directory walks, so polling stays cheap.
+    """
+    now = time.time()
+    logs = _log_stats()
+    return {
+        "generatedAt": _iso(now),
+        "uptimeSeconds": uptime_seconds,
+        "restarts": logs["restarts"],
+        "errors": logs["errors"],
+        "apiErrors": logs["apiErrors"],
+        "trackers": _tracker_status(_snapshot_files(), now),
     }

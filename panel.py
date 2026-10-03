@@ -1457,6 +1457,20 @@ def panel_analytics_live():
         return jsonify({"error": "Analytics database is unavailable"}), 503
 
 
+@app.route("/panel/api/bot-analytics/live")
+@require_access("owner")
+@rate_limit(240, 60)
+def panel_bot_analytics_live():
+    """The Bot & trackers card polls this every 15 seconds."""
+    try:
+        return jsonify(bot_analytics.live(
+            uptime_seconds=_uptime_seconds(BOT_SCREEN_SESSION),
+        ))
+    except sqlite3.Error as exc:
+        print(f"[PANEL-ANALYTICS] bot live query failed: {exc}", file=sys.stderr)
+        return jsonify({"error": "Bot analytics is unavailable"}), 503
+
+
 @app.route("/panel/api/bot-analytics")
 @require_access("owner")
 @rate_limit(120, 60)
