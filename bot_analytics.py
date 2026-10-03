@@ -56,6 +56,8 @@ _CYCLE_DURATION = timedelta(weeks=2)
 
 _APPLICATION_TYPES = ("Guild Member", "Envoy", "Ex-Citizen")
 
+_WELCOME_FEATURE = "Welcome messages"
+
 # player_stats columns that may be missing on older snapshots.
 _TOTAL_COLUMNS = {
     "members": (None, "COUNT(*)"),
@@ -1042,6 +1044,27 @@ def _tracker_status(files, now):
     return out
 
 
+def _welcome_count(start, end):
+    """Welcome messages the bot sent, from its own usage counters.
+
+    The welcome system records one feature event per join it welcomes, so this
+    doubles as the count of people who arrived on the Discord server.
+    """
+    conn = _open_readonly(_USAGE_DB)
+    if conn is None:
+        return 0
+    try:
+        rows = _query(
+            conn,
+            "SELECT COUNT(*) FROM usage WHERE kind = 'feature' AND name = ?"
+            " AND ts >= ? AND ts < ?",
+            (_WELCOME_FEATURE, int(start), int(end)),
+        )
+    finally:
+        conn.close()
+    return int(rows[0][0] or 0) if rows else 0
+
+
 # Command and feature usage
 def _usage_block(start, end):
     """Counts from the bot's own usage counters.
@@ -1102,6 +1125,8 @@ def overview(range_id, uptime_seconds=None):
     tickets = _ticket_block(start, now, now)
     moderation = _moderation_block(start, now)
     commands, features = _usage_block(start, now)
+    welcomes = _welcome_count(start, now)
+    welcomes_previous = _welcome_count(previous_start, start)
     logs = _log_stats()
     trackers = _tracker_status(files, now)
 
@@ -1166,6 +1191,15 @@ def overview(range_id, uptime_seconds=None):
         "applicationNote": {
             "started": applications["total"] + applications["abandoned"],
             "abandoned": applications["abandoned"],
+        },
+        "welcomes": {
+            "issued": welcomes,
+            "previous": welcomes_previous,
+            "applications": applications["total"],
+            "noApplicationRate": (
+                round(max(0, welcomes - applications["total"]) / welcomes * 100.0, 1)
+                if welcomes else 0.0
+            ),
         },
         "voting": _voting_block(start, now),
         "queue": queue,

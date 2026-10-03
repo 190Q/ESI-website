@@ -208,7 +208,7 @@
     var apps = card({
       title: 'Applications',
       span: 6,
-      foot: 'Approval rate is approvals over decided applications.',
+      foot: 'Welcomed counts the welcome messages the bot sent; approval rate is approvals over decided applications.',
       exportRows: function () {
         var rows = [['type', 'received', 'approved', 'denied', 'pending', 'approval_rate_pct']];
         d.applications.forEach(function (a) {
@@ -228,6 +228,12 @@
       ],
       rows: d.applications,
     }));
+    var welcomes = d.welcomes || { issued: 0, applications: 0, noApplicationRate: 0 };
+    apps.body.appendChild(kvRows([
+      { label: 'Welcomed',      value: fmtInt(welcomes.issued) },
+      { label: 'Applied',       value: fmtInt(welcomes.applications) },
+      { label: 'Never applied', value: fmtPct(welcomes.noApplicationRate, 1) },
+    ]));
     apps.body.appendChild(note(
       fmtInt(d.applicationNote.abandoned) + ' of ' + fmtInt(d.applicationNote.started) +
       ' started applications were never submitted.'));
@@ -536,6 +542,9 @@
     });
     d.applications.forEach(function (a) { push('applications', a.type, a.received); });
     d.inactivity.forEach(function (i) { push('inactivity', i.label, i.value); });
+    push('applications', 'welcomed', d.welcomes ? d.welcomes.issued : 0);
+    push('applications', 'never_applied_pct',
+      d.welcomes ? d.welcomes.noApplicationRate : 0);
     push('voting', 'approve_votes', d.voting.approve);
     push('voting', 'deny_votes', d.voting.deny);
     d.voting.table.forEach(function (r) { push('voter_total', r.voter, r.total); });
