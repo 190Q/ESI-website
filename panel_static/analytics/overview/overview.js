@@ -38,6 +38,7 @@
   function loadOverview(range) {
     return fetch('/panel/api/analytics/overview?range=' + encodeURIComponent(range), {
       credentials: 'same-origin',
+      cache: 'no-store',
     }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
@@ -398,7 +399,7 @@
       ctx.every(15000, function () {
         var host = content.querySelector('[data-live]');
         if (!host || !host.parentNode) return;
-        fetch('/panel/api/analytics/live', { credentials: 'same-origin' })
+        fetch('/panel/api/analytics/live', { credentials: 'same-origin', cache: 'no-store' })
           .then(function (r) { return r.ok ? r.json() : null; })
           .then(function (live) {
             if (!live || !host.parentNode) return;

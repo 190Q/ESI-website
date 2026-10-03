@@ -27,6 +27,7 @@
   function loadData(range) {
     return fetch('/panel/api/analytics/rollups?range=' + encodeURIComponent(range), {
       credentials: 'same-origin',
+      cache: 'no-store',
     }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
@@ -50,7 +51,8 @@
   function buildData(container) {
     return analyticsPanel({
       container: container,
-      label: 'Data',
+      label: 'Data',
+
       tabKey: 'data',
       tabs: DATA_TABS,
       load: loadData,

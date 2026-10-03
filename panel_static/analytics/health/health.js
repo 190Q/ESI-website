@@ -35,6 +35,7 @@
   function loadHealth(range) {
     return fetch('/panel/api/analytics/health?range=' + encodeURIComponent(range), {
       credentials: 'same-origin',
+      cache: 'no-store',
     }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
@@ -59,7 +60,8 @@
   function buildHealth(container) {
     return analyticsPanel({
       container: container,
-      label: 'Health & Security',
+      label: 'Health & Security',
+
       tabKey: 'health',
       tabs: HEALTH_TABS,
       load: loadHealth,

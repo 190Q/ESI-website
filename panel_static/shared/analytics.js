@@ -697,6 +697,7 @@
     var content = el('div', 'an-content');
     var intervals = [];
     var data = null;
+    var refreshing = false;
     var requestId = 0;
     var tab = null;
     var panes = {};
@@ -726,12 +727,14 @@
 
       var end = el('div', 'an-toolbar-group an-toolbar-group--end');
 
-      var refresh = el('button', 'an-btn', '\u27f3 Refresh');
+      var refresh = el('button', 'an-btn', refreshing ? '\u27f3 Refreshing\u2026' : '\u27f3 Refresh');
       refresh.type = 'button';
+      refresh.disabled = refreshing;
       refresh.addEventListener('click', function () {
+        if (refreshing) return;
+        refreshing = true;
         data = null;
         render();
-        toast(cfg.label + ' refreshed', 'info');
       });
       end.appendChild(refresh);
 
@@ -845,13 +848,22 @@
         ? Promise.resolve(data)
         : cfg.load(_state.range);
 
+      function settled(ok) {
+        if (!refreshing) return;
+        refreshing = false;
+        renderToolbar();
+        if (ok) toast(cfg.label + ' refreshed', 'success');
+      }
+
       source.then(function (d) {
         if (token !== requestId) return;
         data = d;
+        settled(true);
         buildPanes(d);
         observeCharts();
       }).catch(function (err) {
         if (token !== requestId) return;
+        settled(false);
         content.textContent = '';
         var box = el('div', 'an-empty');
         box.appendChild(el('div', 'an-empty-title', 'Could not load analytics'));

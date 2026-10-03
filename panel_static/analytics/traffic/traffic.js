@@ -37,6 +37,7 @@
   function loadTraffic(range) {
     return fetch('/panel/api/analytics/traffic?range=' + encodeURIComponent(range), {
       credentials: 'same-origin',
+      cache: 'no-store',
     }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();

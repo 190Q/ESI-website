@@ -35,6 +35,7 @@
   function loadEngagement(range) {
     return fetch('/panel/api/analytics/engagement?range=' + encodeURIComponent(range), {
       credentials: 'same-origin',
+      cache: 'no-store',
     }).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
@@ -59,7 +60,8 @@
   function buildEngagement(container) {
     return analyticsPanel({
       container: container,
-      label: 'Engagement',
+      label: 'Engagement',
+
       tabKey: 'engagement',
       tabs: ENGAGEMENT_TABS,
       load: loadEngagement,
