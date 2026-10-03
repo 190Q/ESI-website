@@ -338,6 +338,25 @@
     }
     row.appendChild(commands.root);
 
+    var errors = card({
+      title: 'Most recurring errors',
+      span: 6,
+      foot: 'From the retained tail of the bot log, which carries no timestamps.',
+      exportRows: function () {
+        var rows = [['error', 'count']];
+        d.bot.topErrors.forEach(function (e) { rows.push([e.label, e.value]); });
+        return rows;
+      },
+      exportName: csvName('esi-bot', 'errors'),
+    });
+    if (d.bot.topErrors.length) {
+      errors.body.appendChild(rankedRows(d.bot.topErrors, { cls: 'an-c5' }));
+    } else {
+      errors.body.appendChild(note('No errors in the retained log tail.'));
+    }
+    errors.root.classList.add('an-esibot-errors');
+    row.appendChild(errors.root);
+
     var features = rankedCard({
       title: 'Feature usage',
       span: 6,
@@ -379,6 +398,7 @@
     d.ep.topEarners.forEach(function (e) { push('ep_earner', e.label, e.value); });
     d.activity.topPlaytime.forEach(function (p) { push('playtime', p.label, p.value); });
     d.moderation.rankChanges.forEach(function (r) { push('rank_change_executor', r.label, r.value); });
+    d.bot.topErrors.forEach(function (e) { push('error', e.label, e.value); });
     d.commands.forEach(function (c) { push('command', c.label, c.value); });
     d.features.forEach(function (f) { push('feature', f.label, f.value); });
     return rows;

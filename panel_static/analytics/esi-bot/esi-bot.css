@@ -1,3 +1,8 @@
 .an-esibot-stale {
   color: var(--warn);
 }
+@media (min-width: 1001px) {
+  .an-esibot-errors {
+    grid-row: span 2;
+  }
+}

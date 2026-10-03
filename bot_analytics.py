@@ -688,13 +688,23 @@ def _ticket_block(start, end, now):
 
 
 # Bot health
+def _error_label(text):
+    """One log line, flattened and shortened, so repeats group together."""
+    flat = " ".join(str(text).split())
+    if not flat:
+        return "Unspecified error"
+    return flat[:110] + ("\u2026" if len(flat) > 110 else "")
+
+
 def _log_stats():
     """Error, restart and API-failure counts from the tail of the bot log.
 
     The bot's own log lines carry no timestamps, so these are counts over the
     retained tail rather than over the selected range, and the panel says so.
+    The recurring-error ranking is built from the same lines the error count
+    comes from, so the two always agree.
     """
-    stats = {"errors": 0, "restarts": 0, "apiErrors": 0}
+    stats = {"errors": 0, "restarts": 0, "apiErrors": 0, "topErrors": []}
     path = os.path.join(_LOG_DIR, "esi-bot.log")
     try:
         size = os.path.getsize(path)
@@ -705,13 +715,34 @@ def _log_stats():
             text = handle.read().decode("utf-8", errors="ignore")
     except OSError:
         return stats
-    for line in text.splitlines():
+
+    errors = {}
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
         if line.startswith("[ERROR]"):
             stats["errors"] += 1
+            label = line[len("[ERROR]"):].strip()
+            # Most errors print their exception detail on the next indented line.
+            if index + 1 < len(lines):
+                following = lines[index + 1]
+                detail = following.strip()
+                if following[:1].isspace() and detail.startswith("Error:"):
+                    label += " \u2014 " + detail[len("Error:"):].strip()
+                    index += 1
+            label = _error_label(label)
+            errors[label] = errors.get(label, 0) + 1
         elif line.startswith("[RESTART]"):
             stats["restarts"] += 1
         if "API returned status" in line or "Rate Limited" in line:
             stats["apiErrors"] += 1
+        index += 1
+
+    stats["topErrors"] = [
+        {"label": label, "value": count}
+        for label, count in sorted(errors.items(), key=lambda kv: -kv[1])[:8]
+    ]
     return stats
 
 
@@ -871,6 +902,7 @@ def overview(range_id, uptime_seconds=None):
             "restarts": logs["restarts"],
             "errors": logs["errors"],
             "apiErrors": logs["apiErrors"],
+            "topErrors": logs["topErrors"],
             "storageBytes": _dir_size(_API_TRACKING_DIR) + _dir_size(_PLAYTIME_TRACKING_DIR),
             "trackers": trackers,
         },
