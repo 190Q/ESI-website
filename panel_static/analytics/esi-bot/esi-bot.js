@@ -325,7 +325,9 @@
       items: v.leastActive,
       cls: 'an-c5',
       unit: 'voter',
-      foot: 'The quiet end of everyone who has ever voted.',
+      foot: v.eligibleKnown
+        ? 'Everyone who can vote, quietest first.'
+        : 'The quiet end of everyone who has ever voted.',
       exportName: csvName('esi-bot', 'least-active-voters'),
     });
     if (!v.leastActive.length) {
@@ -336,7 +338,9 @@
     var decisions = card({
       title: 'Voter decisions',
       span: 12,
-      foot: 'Everyone with votes in range, and how they leaned.',
+      foot: v.eligibleKnown
+        ? 'Everyone who can vote, with their votes in range.'
+        : 'Everyone with votes in range, and how they leaned.',
       exportRows: function () {
         var rows = [['voter', 'approve', 'deny', 'total', 'deny_rate_pct']];
         v.table.forEach(function (r) {

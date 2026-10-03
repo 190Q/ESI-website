@@ -1310,11 +1310,16 @@ def _rank_for_roles(role_ids):
 
 
 def _guild_roster():
-    """{user_id: rank} plus the member count, cached for ten minutes.
+    """Ranks, display names, raw role ids and the count, cached ten minutes.
 
     Used by the Audience panel's rank breakdown and its "never logged in"
-    figure. Returns None when the bot token or guild is not configured, so the
-    panel can say the figures are unavailable rather than show a zero.
+    figure, and by the bot panel to tell which members can vote on an
+    application. The raw role ids are included because a member's rank is only
+    their *highest* one - most jurors also hold a senior role, so their rank
+    reads Archduke or Congress and a rank check would miss them.
+
+    Returns None when the bot token or guild is not configured, so the panel
+    can say the figures are unavailable rather than show a zero.
     """
     if not DISCORD_TOKEN or not DISCORD_GUILD_ID:
         return None
@@ -1324,6 +1329,8 @@ def _guild_roster():
         if cached is not None and now - _roster_cache["ts"] < _ROSTER_TTL:
             return cached
     ranks = {}
+    names = {}
+    roles = {}
     after = "0"
     try:
         while True:
@@ -1343,6 +1350,10 @@ def _guild_roster():
                 uid = str(user.get("id") or "")
                 if uid:
                     ranks[uid] = _rank_for_roles(member.get("roles"))
+                    names[uid] = str(member.get("nick")
+                                     or user.get("global_name")
+                                     or user.get("username") or uid)
+                    roles[uid] = [str(r) for r in (member.get("roles") or ())]
             if len(batch) < 1000:
                 break
             after = str((batch[-1].get("user") or {}).get("id") or "")
@@ -1350,7 +1361,7 @@ def _guild_roster():
                 break
     except requests.RequestException:
         return None
-    result = {"total": len(ranks), "ranks": ranks}
+    result = {"total": len(ranks), "ranks": ranks, "names": names, "roles": roles}
     with _roster_lock:
         _roster_cache["data"] = result
         _roster_cache["ts"] = now
@@ -1480,6 +1491,7 @@ def panel_bot_analytics():
         return jsonify(bot_analytics.overview(
             _analytics_range(),
             uptime_seconds=_uptime_seconds(BOT_SCREEN_SESSION),
+            roster=_guild_roster(),
         ))
     except sqlite3.Error as exc:
         print(f"[PANEL-ANALYTICS] bot analytics query failed: {exc}", file=sys.stderr)

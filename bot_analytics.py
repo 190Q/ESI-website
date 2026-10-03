@@ -21,7 +21,9 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from analytics_query import DEFAULT_RANGE, range_spec
-from config import _BASE_DIR, _ESI_BOT_DIR, _SHOP_DB, _USER_DB_PATH
+from config import (
+    _BASE_DIR, _ESI_BOT_DIR, _ROLE_JUROR, _ROLE_PARLIAMENT, _SHOP_DB, _USER_DB_PATH,
+)
 
 BOT_DIR = _ESI_BOT_DIR
 _DATA_DIR = os.path.join(BOT_DIR, "data")
@@ -57,6 +59,8 @@ _CYCLE_DURATION = timedelta(weeks=2)
 _APPLICATION_TYPES = ("Guild Member", "Envoy", "Ex-Citizen")
 
 _WELCOME_FEATURE = "Welcome messages"
+
+_VOTING_ROLES = frozenset(r for r in (_ROLE_JUROR, _ROLE_PARLIAMENT) if r)
 
 # player_stats columns that may be missing on older snapshots.
 _TOTAL_COLUMNS = {
@@ -471,7 +475,23 @@ def _recruit_stamps():
     return out
 
 
-def _discord_names():
+def _eligible_voters(roster):
+    """Discord ids of everyone who can vote, from the cached guild roster.
+
+    The vote records only name the people who actually voted, so without this
+    a juror who never voted is invisible. Returns an empty set when the roster
+    is unavailable, and the caller falls back to historical voters.
+    """
+    if not roster:
+        return set()
+    eligible = set()
+    for uid, held in (roster.get("roles") or {}).items():
+        if _VOTING_ROLES & {str(role) for role in (held or ())}:
+            eligible.add(str(uid))
+    return eligible
+
+
+def _discord_names(roster=None):
     """discord id -> a readable name, from the bot's link table then the site."""
     names = {}
     matches = _read_json(_USERNAME_MATCHES_JSON, {})
@@ -502,10 +522,14 @@ def _discord_names():
             name = data.get("nick") or data.get("username")
             if name:
                 names[uid] = str(name)
+
+    for uid, name in ((roster or {}).get("names") or {}).items():
+        if str(uid) not in names and name:
+            names[str(uid)] = str(name)
     return names
 
 
-def _voting_payload(approve, deny, ever, applications, reached, names):
+def _voting_payload(approve, deny, ever, applications, reached, names, eligible_known):
     """The voting cards' shape, built the same way from either source."""
     def label(voter):
         return names.get(voter, voter)
@@ -539,14 +563,15 @@ def _voting_payload(approve, deny, ever, applications, reached, names):
                                 if applications else 0.0),
         "reachedThreshold": reached,
         "belowThreshold": max(0, applications - reached),
+        "eligibleKnown": eligible_known,
         "mostActive": [{"label": label(v), "value": total_for(v)} for v in active[:6]],
         "leastActive": [{"label": label(v), "value": total_for(v)}
                         for v in reversed(ranking)][:6],
-        "table": [row_for(v) for v in active][:25],
+        "table": [row_for(v) for v in ranking][:40],
     }
 
 
-def _voting_from_history(conn, start, end, names):
+def _voting_from_history(conn, start, end, names, eligible):
     """Votes from the durable history, which survives ticket closures."""
     approve = {}
     deny = {}
@@ -563,6 +588,7 @@ def _voting_from_history(conn, start, end, names):
             deny[voter] = int(row[2] or 0)
 
     ever = {str(row[0]) for row in _query(conn, "SELECT DISTINCT voter_id FROM votes")}
+    ever |= eligible
 
     applications = _query(
         conn,
@@ -581,15 +607,16 @@ def _voting_from_history(conn, start, end, names):
     )
     reached = int(reached[0][0] or 0) if reached else 0
 
-    return _voting_payload(approve, deny, ever, applications, reached, names)
+    return _voting_payload(approve, deny, ever, applications, reached, names,
+                           bool(eligible))
 
 
-def _voting_from_json(start, end, names):
+def _voting_from_json(start, end, names, eligible):
     """Votes from the live JSON, which only holds open tickets."""
     forwarded = _read_json(_FORWARDED_APPS_JSON, {})
     approve = {}
     deny = {}
-    ever = set()
+    ever = set(eligible)
     applications = 0
     reached = 0
 
@@ -616,10 +643,11 @@ def _voting_from_json(start, end, names):
         for voter in deniers:
             deny[voter] = deny.get(voter, 0) + 1
 
-    return _voting_payload(approve, deny, ever, applications, reached, names)
+    return _voting_payload(approve, deny, ever, applications, reached, names,
+                           bool(eligible))
 
 
-def _voting_block(start, end):
+def _voting_block(start, end, roster=None):
     """Who votes on applications, how much, and how they lean.
 
     Prefers the bot's application history: the JSON it mirrors only holds
@@ -627,15 +655,16 @@ def _voting_block(start, end):
     its votes with it. Falls back to the JSON until the bot writes its first
     row, so the cards keep working across the changeover.
     """
-    names = _discord_names()
+    names = _discord_names(roster)
+    eligible = _eligible_voters(roster)
     conn = _open_readonly(_APPLICATION_DB)
     if conn is not None:
         try:
             if _history_ready(conn):
-                return _voting_from_history(conn, start, end, names)
+                return _voting_from_history(conn, start, end, names, eligible)
         finally:
             conn.close()
-    return _voting_from_json(start, end, names)
+    return _voting_from_json(start, end, names, eligible)
 
 
 # Queue, inactivity and exemptions
@@ -1093,7 +1122,7 @@ def _usage_block(start, end):
 
 
 # Panel payload
-def overview(range_id, uptime_seconds=None):
+def overview(range_id, uptime_seconds=None, roster=None):
     """Everything the ESI-Bot panel renders, for one range."""
     points, step = range_spec(range_id)
     now = time.time()
@@ -1102,7 +1131,7 @@ def overview(range_id, uptime_seconds=None):
 
     files = _snapshot_files()
     growth, latest = _growth_series(files, start, step, points)
-    roster = _roster_from_snapshot(files)
+    guild_members = _roster_from_snapshot(files)
 
     applications = _application_block(start, now, previous_start)
     application_series = _fill_counts(
@@ -1201,7 +1230,7 @@ def overview(range_id, uptime_seconds=None):
                 if welcomes else 0.0
             ),
         },
-        "voting": _voting_block(start, now),
+        "voting": _voting_block(start, now, roster),
         "queue": queue,
         "inactivity": _inactivity_outcomes(start, now),
         "ep": {
@@ -1214,7 +1243,7 @@ def overview(range_id, uptime_seconds=None):
             "topEarners": points_block["topEarners"],
         },
         "activity": {
-            "peakHours": _peak_hours(roster),
+            "peakHours": _peak_hours(guild_members),
             "topPlaytime": _snapshot_playtime_ranking(files),
         },
         "moderation": moderation,
