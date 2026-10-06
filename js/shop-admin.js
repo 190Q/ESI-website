@@ -4696,6 +4696,9 @@
 
   /* Users Tab */
   var _users         = null;
+  var _usersLoaded   = false;
+  var _usersLastSync = 0;
+  var _USERS_SILENT_SYNC_MS = 60000;
   var _usersPage     = 1;
   var _usersPerPage  = 10;
   var _usersFilters  = { search: '', activity: '', sort: 'az' };
@@ -4765,6 +4768,7 @@
       .then(function (d) {
         if (d && d.users) {
           _users = d.users;
+          _usersLastSync = Date.now();
           _actorRankLevel = d.actor_rank_level || 0;
           _canManagePermissions = !!(d.can_manage_permissions || _actorRankLevel >= 2);
           if (d.max_assignable_level != null) {
@@ -4775,6 +4779,7 @@
           }
         } else if (Array.isArray(d)) {
           _users = d;
+          _usersLastSync = Date.now();
         }
         if (cb) cb(d);
       })
@@ -4820,12 +4825,40 @@
     return u.last_activity >= new Date(Date.now() - 30 * 24 * 3600000).toISOString();
   }
 
+  function _usersSignature(list) {
+    try { return JSON.stringify(list); } catch (e) { return null; }
+  }
+
+  function _renderUsersQuietly(c) {
+    var targets = [document.scrollingElement, document.documentElement, document.body];
+    var saved = targets.map(function (el) { return el ? el.scrollTop : 0; });
+    _renderUsersContent(c);
+    targets.forEach(function (el, i) { if (el) el.scrollTop = saved[i]; });
+  }
+
   function renderUsers(c, forceRefresh) {
-    c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading users\u2026</div>';
-    fetchUsers(function () {
-      if (_activeTab !== 'users') return; // user switched away while loading
-      _renderUsersContent(c);
-    }, forceRefresh);
+    if (forceRefresh || !_usersLoaded || !_users) {
+      c.innerHTML = '<div class="shop-loading"><span class="loading-spinner"></span> Loading users\u2026</div>';
+      fetchUsers(function (d) {
+        if (d) _usersLoaded = true;
+        if (_activeTab !== 'users') return;
+        _renderUsersContent(c);
+      }, forceRefresh);
+      return;
+    }
+    _renderUsersContent(c);
+    _syncUsersInBackground(c);
+  }
+
+  function _syncUsersInBackground(c) {
+    if (Date.now() - _usersLastSync < _USERS_SILENT_SYNC_MS) return;
+    var signature = _usersSignature(_users);
+    fetchUsers(function (d) {
+      if (!d || !_users) return;
+      if (_activeTab !== 'users') return;
+      if (_usersSignature(_users) === signature) return;
+      _renderUsersQuietly(c);
+    });
   }
 
   function _renderUsersContent(c) {
