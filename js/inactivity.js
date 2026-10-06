@@ -703,6 +703,19 @@
     document.body.removeChild(ta);
   }
 
+  /* Second-check deadline for the selected first-check week: the Tuesday
+     23:59 UTC after that week's Sunday (the end of the Mon-Tue second-check window). */
+  function checkerDeadlineUnix() {
+    if (!_checkerWeek) return null;
+    var parts = _checkerWeek.split('_');
+    if (parts.length !== 2) return null;
+    var weekEnd  = parseLocalDate(parts[1]);                              // Sunday 00:00 UTC
+    var deadline = new Date(weekEnd.getTime() + 2 * 24 * 60 * 60 * 1000); // following Tuesday
+    return Math.floor(Date.UTC(
+      deadline.getUTCFullYear(), deadline.getUTCMonth(), deadline.getUTCDate(), 23, 59, 0
+    ) / 1000);
+  }
+
   function copyWarningMessage(inactiveRows) {
     var mentions = [];
     inactiveRows.forEach(function (p) {
@@ -713,11 +726,15 @@
       return;
     }
     var hoursDisplay = _checkerHours % 1 === 0 ? Math.floor(_checkerHours) : _checkerHours;
+    var deadlineTs   = checkerDeadlineUnix();
+    var deadlineText = deadlineTs != null
+      ? 'you have until <t:' + deadlineTs + ':f> (<t:' + deadlineTs + ':R>) to either reach the required playtime or '
+      : 'you have 48 hours to either reach the required playtime or ';
     var warningText = mentions.join(' ') +
       ' you have been warned because you haven\'t reached the playtime requirement of ' +
       '**' + hoursDisplay + ' hours** this week, without giving notice.\n\n' +
-      'If you wish to stay in the guild or you think this is an error, you have 48 hours to either reach the required playtime or ' +
-      'state the reason of your inactivity in <#629912948948598825>' +
+      'If you wish to stay in the guild or you think this is an error, ' + deadlineText +
+      'state the reason of your inactivity in <#1546940487548665987>\n' +
       '-# if you think this is a mistake, you can contact support using `/contact_support`.';
     copyToClipboard(warningText);
     window.showToast('Warning message copied to clipboard!', 'success');
