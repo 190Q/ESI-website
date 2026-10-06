@@ -1,50 +1,83 @@
 # ESI Dashboard
 
-A guild management dashboard for **Empire of Sindria**, a guild on the MMORPG [Wynncraft](https://wynncraft.com/). It pulls live and historical data from the Wynncraft API, tracks player and guild activity over time, and gives higher-ranked members the tools they need to manage the guild without having to dig through spreadsheets.
+A guild management dashboard for **Empire of Sindria**, a guild on the MMORPG [Wynncraft](https://wynncraft.com/). It pulls live and historical data from the Wynncraft API, tracks player and guild activity over time, runs the guild's EP shop, and gives higher-ranked members the tools they need to manage the guild without digging through spreadsheets.
+
+The dashboard is **designed to be used in combination with [ESI-Bot](https://github.com/190Q/ESI-Bot)**, the separate Discord bot that collects the guild's historical snapshots, EP, and roster data that the site reads from. That said, it **can also run entirely on its own**: live Wynncraft API lookups, Discord login, events, and the public panels all work without the bot, and only the history, points, and shop features go empty when it isn't present.
 
 ---
 
 ## What it does
 
-The dashboard is split into a few main sections, accessible from a collapsible sidebar:
+The dashboard is split into panels, reachable from a collapsible sidebar:
 
-- **Player Stats**: look up any player's rank history, playtime, and in-game metrics (wars, dungeons, raids, mobs killed, etc.) with interactive graphs. Supports comparing two players side-by-side.
-- **Guild Stats**: guild-wide graphs for active player count, wars, guild raids, and member growth. Also shows territory and level data.
-- **Shop**: guild members spend EP (Experience Points) earned from gameplay cycles to buy items or bid in auctions. Features a cart system, server-side EP balance with clean/dirty split, LE-to-EP donations, per-item cooldowns, and an admin panel for catalogue management and order fulfillment. All Discord DM notifications use branded image cards.
-- **Bot Panel**: shows the status and health of the four background trackers (API, Playtime, Guild, Claim), along with their last-run times and database info.
-- **Inactivity** *(Parliament and above)*: track which members have declared inactivity, with start/end dates and reasons. Add, edit, or remove entries.
-- **Promotions** *(Juror and above)*: promotion tracking tools.
-- **Settings**: persistent preferences for graph defaults, player lookup, and toast notifications... Stored in `localStorage` and accessible from the sidebar. Users can also upload custom colour themes and fonts from the settings modal.
+- **Player Stats**: look up any player's rank history, playtime, medals, decorations, and in-game metrics (wars, dungeons, raids, mobs killed, quests, etc.) with interactive graphs. Supports comparing two players side-by-side.
+- **Guild Stats**: guild-wide graphs for active player count, wars, guild raids, member growth, territory history, aspect debt, and the ESI points leaderboards.
+- **Bot Panel**: status and health of the ESI-Bot and its four trackers (API, Playtime, Guild, Claim), plus Discord stats, database sizes, and IP-ban info.
+- **Events** *(public)*: the guild's event calendar, with sign-ups, pinned events, and Discord scheduled-event / voice-channel integration.
+- **Shop**: guild members spend EP (Experience Points) earned from gameplay cycles to buy items or bid in auctions. Includes a cart, server-side EP balance with clean/dirty split, LE-to-EP donations, per-item cooldowns, refunds, and rank/top-N visibility gating. All Discord DMs use branded image cards.
+- **Creator Studio** *(approved Creators)*: members apply to become Creators, then submit item create/edit requests for review and self-fulfil orders for their own items (earning a commission).
+- **Manage Shop** *(Chief+ / Parliament+)*: full catalogue CRUD, stock/active overrides, auction management, the fulfilment queue, refunds, user bans/notes/EP adjustments, the death-tax graveyard, per-user shop-admin permissions, and an audit log.
+- **Guild Info** *(Parliament / Emperor)*: a queue-based editor for the guild's Discord forum posts. Requests are staged, reviewed, and applied to Discord by the bot token, with before/after snapshots in an audit log.
+- **Inactivity** *(Parliament+)*: track members who have declared inactivity, with start/end dates and reasons.
+- **Promotions** *(Juror+)*: promotion tracking tools.
+- **Settings**: persistent preferences for graph defaults, player lookup, and toast notifications, stored in `localStorage`. Users can also upload custom colour themes and fonts.
+- **Control Panel** (separate service): a staff-only ops dashboard for starting/stopping/reloading the services and bots, running maintenance scripts, and viewing web + bot analytics.
 
-Authentication is done through Discord OAuth2. The management sections are gated by guild role, regular members only see the public stats panels.
+Authentication is Discord OAuth2. Public stats and events are open to everyone; management panels are gated by guild role (and the shop has an additional per-user privilege layer).
 
-### Custom Themes & Fonts
+### Custom themes & fonts
 
-Users can upload their own `.css` files via Settings to override the default colour theme or font. Example files are included in `public/examples/` to use as a starting point:
+Users can upload their own `.css` files via Settings to override the default colour theme or font. Example files live in `public/examples/`:
 
-- **`public/examples/themes/dark.css`** - a dark colour theme. Override any of the CSS custom properties defined in `css/themes.css` inside a `[data-theme="your-name"]` selector. You only need to include the variables you want to change; the rest fall through to the defaults.
-  - Includes pattern controls powered by `js/theme-patterns.js` (`--theme-pattern-*`). Set `--theme-pattern-enabled: 1`, choose `--theme-pattern-type`, and adjust size/density/opacity/seed to add generated backgrounds without writing JS.
-- **`public/examples/fonts/cormorant-font/`** - a custom font. Include `@font-face` declarations for your font files, then map the three font variables (`--font-display`, `--font-heading`, `--font-body`) inside a `[data-font="your-name"]` selector.
+- **`public/examples/themes/dark.css`** — a dark colour theme. Override any of the CSS custom properties from `css/themes.css` inside a `[data-theme="your-name"]` selector. Only include the variables you want to change; the rest fall through to the defaults. Includes pattern controls powered by `js/theme-patterns.js` (`--theme-pattern-*`).
+- **`public/examples/fonts/cormorant-font/`** — a custom font. Include `@font-face` declarations for your font files, then map the three font variables (`--font-display`, `--font-heading`, `--font-body`) inside a `[data-font="your-name"]` selector.
 
-The `data-theme` / `data-font` attribute value in the CSS is used as the display name in the settings dropdown. If the file doesn't contain one, the filename is used instead.
+The `data-theme` / `data-font` attribute value is used as the display name in the settings dropdown; if absent, the filename is used.
+
+---
+
+## Architecture
+
+The site runs as **four independent Flask processes**. Splitting them means the public gateway can stay up while the API or cache restarts, and the control panel keeps working even when everything else is down.
+
+| Process | Port | Role |
+|---|---|---|
+| `main.py` — **Gateway** | 5000 | Public entry point. Serves static files and the SPA shell, reverse-proxies `/api/*` and `/auth/*` to the routes service, and applies the security gate (IP bans, scanner/WordPress-probe blocking, injection detection, CSP headers). Also records every served request into analytics. |
+| `routes.py` — **Routes** | 5001 | All `/api/*` and `/auth/*` endpoints: Wynncraft API proxying + caching, Discord OAuth, guild/player data, shop, events, guild info, inactivity, promotions, settings, tracking. |
+| `cache.py` — **Cache** | 5002 | Periodically crunches bulk playtime / stat deltas for every guild member and exposes them over HTTP, so routes never has to hammer the Wynncraft API or the snapshot databases. |
+| `panel.py` — **Control Panel** | 5003 | Standalone staff ops dashboard. Own Discord OAuth + staff/OWNER access checks. Starts, stops, and reloads the other services and bots (via `screen`), runs maintenance scripts, and serves the analytics views. Never imports the other services, so it works while they're down. |
+
+```
+Browser ──▶ Gateway :5000 ──▶ Routes :5001 ──▶ Cache :5002
+                │                  │
+                └─ static/SPA      └─ Wynncraft API, Discord API,
+                   + security         ESI-Bot databases, SQLite
+                   + analytics
+Staff ────▶ Panel :5003 (independent; controls the processes above, and more)
+```
+
+Shared configuration and constants live in `config.py`; the security gate is shared via `security_gate.py`.
 
 ---
 
 ## Stack
 
 **Frontend**
-- Plain HTML/CSS/JS, no framework
-- Custom CSS across multiple files (`base.css`, `player.css`, `guild.css`, etc.)
-- Canvas-based graphs via a shared `GraphShared` module
-- Google Fonts (Cinzel, Crimson Pro)
+- React 19 + Vite 6 shell (`frontend/`) for the navbar, sidebar, and the player / guild / bot panels
+- The remaining panels are plain HTML/CSS/JS modules under `js/`, mounted into the React shell by `useScriptLoader`
+- Custom CSS across multiple files (`base.css`, `player.css`, `guild.css`, `shop.css`, …)
+- Canvas-based graphs via a shared `graph-shared.js` module
+- Local fonts (Cinzel, Crimson Pro, Inter, Monocraft) under `public/fonts/`
 
 **Backend**
 - Python + Flask
-- SQLite databases for historical data (+ `shop.db` for shop transactions)
-- In-memory caching with TTLs and threading locks to avoid hammering the Wynncraft API
+- SQLite (WAL mode) for user data, shop, analytics, guild info, and the ESI-Bot's historical data
+- In-memory caching with TTLs and threading locks; `cache.py` precomputes bulk data
 - Discord OAuth2 for login/session management
+- Discord bot API for DMs, role/badge sync, and Guild Info forum posts
 - Rate limiting on activity endpoints (per-IP, 30s window)
 - Playwright for rendering branded DM notification card images
+- Fail2ban-style IP banning, request/security logging, and a first-party analytics pipeline
 
 ---
 
@@ -54,17 +87,32 @@ The `data-theme` / `data-font` attribute value in the CSS is used as the display
 
 - Python 3.10+
 - Node.js 18+ and npm
+- Linux is assumed for the production scripts (`screen`, `python3`, `bash`). The app also runs on Windows for local development; `config.py` handles Windows paths and there's a PowerShell test wrapper.
 
-### Installation
+### 1. Check out the sibling projects
 
-1. **Install Python dependencies**
+The dashboard reads its historical data from a local **[ESI-Bot](https://github.com/190Q/ESI-Bot)** checkout and the control panel can manage a local **Q-bot** checkout. Both are resolved as siblings of this repo (or via env vars):
 
-```bash
-pip install flask requests playwright
-playwright install chromium
+```
+coding/
+├── ESI-website/     ← this repo
+└── Q-bot/
 ```
 
-2. **Install and build the frontend**
+Set `ESI_BOT_DIR` / `ESI_QBOT_DIR` if your layout differs. Without an ESI-Bot checkout, live player lookups still work but history, points, and shop data will be empty.
+
+### 2. Python environment
+
+```bash
+python3 -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+playwright install chromium       # needed for shop DM cards
+```
+
+`requirements.txt` is a full environment freeze (it includes the ESI-Bot's dependencies too), so installing it is the easiest way to get everything at once. Playwright is used lazily — DM cards fall back to plain text if Chromium isn't installed.
+
+### 3. Build the frontend
 
 ```bash
 cd frontend
@@ -73,11 +121,13 @@ npm run build
 cd ..
 ```
 
-This compiles the React app and outputs the bundled assets (`index.html`, `assets/`) into the project root, where `server.py` serves them.
+`vite build` writes to `dist/`, then `scripts/sync-build-output.mjs` copies `dist/index.html` → `index.html` and `dist/assets/` → `assets/` in the project root, where the gateway serves them. `assets/` is gitignored, so run a build after every checkout.
 
-3. **Configure environment variables**
+For frontend development, `npm run dev` serves the app with HMR (proxying API calls to the running backend).
 
-Create a `.env` file at the project root. You need a Discord application set up at [discord.com/developers](https://discord.com/developers/applications):
+### 4. Configure environment variables
+
+Create a `.env` at the project root. At minimum you need a Discord application set up at [discord.com/developers](https://discord.com/developers/applications):
 
 ```env
 DISCORD_TOKEN=your_bot_token
@@ -85,26 +135,46 @@ DISCORD_CLIENT_ID=your_client_id
 DISCORD_CLIENT_SECRET=your_client_secret
 DISCORD_GUILD_ID=your_guild_id
 DISCORD_REDIRECT_URI=https://your-domain.com/auth/callback
+
+# Discord user ID (or @mention) of the site owner — unlocks the control panel
+# and the highest shop-admin tier.
+OWNER=123456789012345678
 ```
 
-4. **Run the server**
+Common optional variables:
+
+| Variable | Purpose |
+|---|---|
+| `ESI_BOT_DIR` / `ESI_QBOT_DIR` | Absolute paths to the ESI-Bot / Q-bot checkouts (default: sibling folders). |
+| `PANEL_PORT` | Control panel port (default `5003`). |
+| `PANEL_REDIRECT_URI` | Separate OAuth callback for the control panel (defaults to a `/panel/auth/callback` path). |
+| `PANEL_ALLOWED_IPS` | Optional comma-separated source-IP allowlist for the panel, on top of Discord auth. |
+| `PANEL_SECRET_KEY` / `FLASK_SECRET_KEY` | Session keys; auto-generated and persisted to `.panel_secret` / `.flask_secret` if unset. |
+| `ESI_GATEWAY_SECRET` | Internal secret shared between the gateway and routes (auto-generated if unset). |
+| `ESI_INTERNAL_BULK_TOKEN` | Shared token guarding the internal bulk-cache endpoint. |
+| `ESI_RUN_AUCTION_WORKER` | Force the auction-close worker on/off (default: on except in dev mode). |
+| `ESI_BOT_SCREEN_NAME` / `ESI_TRACKERS_SCREEN_NAME` | `screen` session names the panel controls (defaults `esi-bot`, `esi-bot-trackers`). |
+| `ESI_SERVER_TIMEZONE` / `TZ` | Timezone used when displaying dates (defaults to the system zone). |
+| `DEV_MODE` | Enables dev-only routes such as `/auth/dev-login`. Auto-enabled when the redirect URI points at localhost. **Never enable in production.** |
+| `GITHUB_TOKEN` / `GITHUB_REPO` | Used for optional GitHub-backed features (default repo `190Q/ESI-website`). |
+| `ESI_MAX_GRAIDS_PER_DAY`, `ESI_GRAID_*` | Tuning for the guild-raid delta sanity checks in `cache.py`. |
+
+### 5. Run it
+
+Start each service (in its own terminal, or use the scripts below):
 
 ```bash
-python server.py
+python3 cache.py      # :5002
+python3 routes.py     # :5001
+python3 main.py       # :5000  ← open this one
+python3 panel.py      # :5003  (optional, staff only)
 ```
 
 Then open [http://localhost:5000](http://localhost:5000).
 
-### Switching between production and localhost
+### Local testing
 
-`.env` holds the production values and lives only on the server. To run the
-same code locally without editing `.env`, drop a `.env.local` file next to it —
-`config.py` loads `.env.local` after `.env` and lets it override any variable.
-
-```bash
-cp .env.local.example .env.local
-# edit .env.local if you want a separate dev Discord app
-```
+`.env` holds the production values and lives only on the server. To run the same code locally without editing `.env`, drop a `.env.local` file next to it — `config.py` loads `.env.local` after `.env` and lets it override any variable. `.env.local` is gitignored.
 
 A minimal `.env.local` only needs to redirect OAuth at localhost:
 
@@ -112,10 +182,50 @@ A minimal `.env.local` only needs to redirect OAuth at localhost:
 DISCORD_REDIRECT_URI=http://localhost:5000/auth/callback
 ```
 
-Make sure `http://localhost:5000/auth/callback` is registered as an OAuth2
-redirect on your Discord application. `.env.local` is gitignored so it never
-reaches the production server — delete it (or just don't create it there) and
-the app automatically falls back to the production values in `.env`.
+Register `http://localhost:5000/auth/callback` as an OAuth2 redirect on your Discord application. With a localhost redirect, `DEV_MODE` auto-enables and `/auth/dev-login` lets you impersonate any Discord user locally.
+
+Two test runners are available:
+
+```bash
+# HTTP/API smoke + contract tests (needs a running gateway)
+python3 scripts/test_local.py --base http://localhost:5000 --verbose
+#   Windows wrapper:  .\scripts\test-local.ps1 -Start -Stop
+
+# Full UI interaction tests via Playwright
+pip install playwright && playwright install chromium
+python3 scripts/test_ui.py --headed --slowmo 250
+```
+
+---
+
+## Running the services
+
+The `scripts/` folder has bash helpers for the production server:
+
+| Script | What it does |
+|---|---|
+| `start.sh` | Start cache → routes → gateway in the foreground; Ctrl+C stops all. |
+| `stop.sh` | Kill the three website processes. |
+| `reload.sh` | Restart one or all of `cache` / `routes` / `gateway` (`./reload.sh routes`). |
+| `screen-start.sh` | Start each service (and the panel) in its own named `screen` session, with logs teed to `logs/`. |
+| `screen-reload.sh` | Restart one or all screen sessions (`./screen-reload.sh routes cache`). |
+| `screen-stop.sh` | Stop all `esi-website-*` screen sessions. |
+| `screen-logs.sh` | Live, filtered, colourised log monitor (attach with `screen -r esi-website-logs`). |
+
+Attach to a service with `screen -r esi-website-routes`, detach with `Ctrl+A D`.
+
+---
+
+## Control panel
+
+`panel.py` is a self-contained ops dashboard for the bot owner and staff (Discord roles *Bot Owner*, *Developer*, *User Support*, plus the `OWNER` env var). It is fully independent of the website processes, so it can restart them even when they're down.
+
+- **Website**: start/stop/reload the gateway, routes, and cache, with live logs and event feeds.
+- **Bots**: start/stop/reload ESI-Bot, Q-Bot, and the ESI-Bot trackers.
+- **Analytics**: traffic, audience, engagement, content, health, and data views over `analytics.db`, plus ESI-Bot analytics read directly from the bot's databases and logs.
+- **Tools**: run and stop the maintenance scripts in `scripts/` and stream their output.
+
+The panel uses its own session cookie, a 30-minute idle timeout, and (optionally) an IP allowlist on top of Discord auth.
 
 ---
 
@@ -123,180 +233,125 @@ the app automatically falls back to the production values in `.env`.
 
 ```
 ESI-website/
-├── server.py                # Flask backend
-├── index.html               # generated by Vite build
-├── assets/                  # generated by Vite build (JS/CSS bundles)
-├── images/
-│   ├── guild_emblem.avif
-│   ├── aspect_icon.avif
-│   ├── point_icon.png
-│   ├── territory_icon.png
-│   └── favicon.ico
-├── frontend/                # React source (Vite)
-│   ├── vite.config.js
-│   ├── package.json
-│   └── src/
-│       ├── main.jsx
-│       ├── App.jsx
-│       ├── useScriptLoader.js
-│       └── components/
-│           ├── AccountModal.jsx
-│           ├── BotPanel.jsx
-│           ├── CollapsibleCard.jsx
-│           ├── GuildPanel.jsx
-│           ├── Icons.jsx
-│           ├── LoadingState.jsx
-│           ├── Navbar.jsx
-│           ├── PlayerPanel.jsx
-│           ├── SettingsModal.jsx
-│           ├── Sidebar.jsx
-│           └── SupportModal.jsx
-├── shop/                    # guild shop backend package
+├── main.py                  # Gateway (:5000) — static + SPA + security + analytics
+├── routes.py                # Routes (:5001) — all /api/* and /auth/* endpoints
+├── cache.py                 # Cache (:5002) — precomputed bulk playtime/metrics
+├── panel.py                 # Control panel (:5003) — ops dashboard
+├── config.py                # Shared config, role IDs, badge/medal definitions, helpers
+├── security_gate.py         # Shared request-gating security for public services
+├── ip_ban.py                # Fail2ban-style IP strikes / bans / blacklist
+├── access_logger.py         # Blocked-request logging (anonymised IPs)
+├── analytics.py             # Analytics write path (batched, privacy-preserving)
+├── analytics_query.py       # Analytics read path (panel queries)
+├── bot_analytics.py         # ESI-Bot analytics reader
+├── frontend/                # React 19 + Vite shell (source)
+├── index.html               # generated by the frontend build
+├── assets/                  # generated by the frontend build (gitignored)
+├── js/                      # vanilla JS panel modules (player, guild, shop, events, …)
+├── css/                     # stylesheets, incl. css/themes/ and css/fonts/
+├── images/                  # emblems, icons, medal images
+├── public/                  # fonts + example custom themes/fonts
+├── shop/                    # guild shop package
 │   ├── README.md            # shop architecture docs
 │   ├── items.py             # item catalogue loader
 │   ├── ep_balance.py        # EP balance computation
 │   ├── bin.py               # fixed-price purchases + cart checkout
-│   ├── auction.py           # auction bidding, settlement, DMs
+│   ├── auction.py           # auctions, bidding, settlement, DMs
 │   ├── cart.py              # server-side cart persistence
 │   ├── donate.py            # LE-to-EP donation tickets
 │   ├── orders.py            # order history
 │   ├── admin.py             # admin operations
+│   ├── creator.py           # Creator applications + item requests
+│   ├── leaderboard.py       # per-cycle leaderboard cache
+│   ├── death_tax.py         # wipe EP 14 days after leaving
+│   ├── knight_bonus.py      # one-time Knight promotion bonus
+│   ├── cycle_announcement.py# end-of-cycle Discord announcements
+│   ├── state.py             # shop on/off + maintenance settings
 │   └── dm_cards.py          # branded DM card renderer (HTML → PNG)
-├── js/                      # shared vanilla JS modules
-│   ├── app.js
-│   ├── bot.js
-│   ├── data-cache.js
-│   ├── graph-shared.js
-│   ├── guild.js
-│   ├── inactivity.js
-│   ├── player.js
-│   ├── promotions.js
-│   ├── shop.js              # shop frontend (bin + auctions + cart)
-│   ├── shop-admin.js        # shop admin panel
-│   ├── toast.js
-│   └── activity_prefetch.js
-├── css/
-│   ├── shop.css
-│   ├── shop-admin.css
-└── css/
-    ├── base.css
-    ├── bot.css
-    ├── graph-shared.css
-    ├── guild.css
-    ├── inactivity.css
-    ├── player.css
-    └── promotions.css
+├── guild_info/              # Discord forum post management (db / forum / admin)
+├── events/                  # auto-discovered temporary event hook modules
+├── wynnpiece/               # standalone Wynn Piece special-event mini-site
+├── panel_static/            # control panel frontend (shell + per-panel modules)
+├── scripts/                 # start/stop/reload helpers, CLI tools, test runners
+├── data/                    # runtime data (JSON + databases/, gitignored)
+├── logs/                    # service logs, access.db, ip_bans.db (gitignored)
+└── uploads/                 # user uploads (gitignored)
 ```
+
+### Notable packages
+
+- **`shop/`** — the EP economy: catalogue, purchases, auctions, donations, carts, refunds, the Creator Studio, the death tax, and Knight bonuses. See `shop/README.md` for the full architecture and EP-balance model.
+- **`guild_info/`** — manages the guild's Discord forum posts through an approval queue. `forum.py` splits long bodies across multiple Discord messages and rewrites mention tokens; `admin.py` orchestrates create/edit/delete requests; `db.py` stores pending requests and the audit log.
+- **`events/`** — any `*.py` file dropped here is auto-imported at startup and may register `leaderboard_row_hooks` / `ep_balance_hooks` to add temporary bonuses (see `events/raid_event.py`).
+- **`wynnpiece/`** — a self-contained, obfuscated puzzle/lore mini-site for a limited-time guild event, with its own Flask blueprint, progression state, and build tooling.
 
 ---
 
-## API routes
+## Data stores
 
-Routes marked 🔒 require a valid Discord login session. Routes marked 👑 additionally require a specific guild role.
+The dashboard keeps its own state locally and reads the bot's historical data read-only.
 
-### Auth
+**Owned by this app**
+- `user_data.db` — sessions, remember-me tokens, GDPR restriction records.
+- `data/databases/shop.db` — shop state (purchases, auctions, bids, EP reservations, carts, donations, overrides, creator data, death-tax queue, settings, audit log).
+- `data/databases/cemetery.db` — players whose EP was wiped by the death tax.
+- `data/databases/analytics.db` — request/event/error analytics.
+- `data/databases/guild_info.db` — forum edit requests + audit log.
+- `data/*.json` — `shop_items.json`, `events.json`, `applications.json`, `medals.json`, `frontend_metric_masks.json`.
+- `logs/access.db`, `logs/ip_bans.db` — blocked requests and ban state.
+- `wynnpiece/wynnpiece.db`, `wynnpiece/event_state.json`, `wynnpiece/managers.json`.
 
-| Method | Route | Description |
-|--------|-------|-------------|
-| GET | `/auth/login` | Redirect to Discord OAuth2 |
-| GET | `/auth/callback` | OAuth2 callback, sets session |
-| GET | `/auth/session` | Returns current session state |
-| GET | `/auth/refresh` | Re-fetches roles/profile from Discord |
-| GET | `/auth/logout` | Clears session |
-| POST | `/auth/mock-login` | Dev-only mock login (skips OAuth) |
+**Read from the ESI-Bot checkout** (`ESI_BOT_DIR`)
+- `databases/api_tracking/` — daily player/guild snapshots.
+- `databases/playtime_tracking/` — daily playtime snapshots.
+- `databases/esi_points.db` — earned EP per cycle.
+- `databases/claim_snipes.db`, `rank_changes.db`, `recruited_data.db`, and more.
+- `data/*.json` — `username_matches.json`, `tracked_guild.json`, `guild_territories.json`, `guild_levels.json`, `inactivity_exemptions.json`, `aspects.json`.
 
-### Player
+Databases are created automatically on first use (WAL mode). They are **not** included in this repo.
 
-| Method | Route | Description |
-|--------|-------|-------------|
-| GET | `/api/player/<username>` | Live player data from Wynncraft API 🔒 |
-| GET | `/api/player/<username>/rank-history` | Rank changes from tracked guild data 🔒 |
-| GET | `/api/player/<username>/playtime-history` | Playtime over time (last 60 days) 🔒 |
-| GET | `/api/player/<username>/metrics-history` | Stat deltas over time (wars, dungeons, etc.) 🔒 |
-| GET | `/api/player/<username>/points` | ESI points breakdown (current / previous / both cycles) with LE + history |
-| GET | `/api/player/rank-history/<username>` | Public rank history (no auth required) |
-| GET | `/api/player/playtime/<username>` | Public playtime history (no auth required) |
-| GET | `/api/player/metrics/<username>` | Public metrics snapshot (no auth required) |
+---
 
-### Guild
+## API surface
 
-| Method | Route | Description |
-|--------|-------|-------------|
-| GET | `/api/guild/stats` | Summed stats across all members from latest snapshot 🔒 |
-| GET | `/api/guild/activity` | Bulk playtime + metric deltas for all members (rate-limited, public) |
-| GET | `/api/guild/member-history` | Member join/leave event history 🔒 |
-| GET | `/api/guild/levels` | Guild level data 🔒 |
-| GET | `/api/guild/territories` | Territory holdings and history (public) |
-| GET | `/api/guild/aspects` | Aspect debt data 🔒 |
-| POST | `/api/guild/aspects/clear` | Clear a member's aspect debt 👑 Parliament+ |
-| GET | `/api/guild/points` | ESI points leaderboards for current / previous / both cycles (with LE totals) |
-| GET | `/api/guild/prefix/<prefix>` | Live guild data by tag from Wynncraft API 🔒 |
-| GET | `/api/guild/name/<name>` | Live guild data by full name from Wynncraft API 🔒 |
-| GET | `/api/guild/prefix/<prefix>/metrics-history` | Guild-wide metric deltas over time 🔒 |
+`routes.py` is the source of truth for the full route list; the table below summarises it by area. Routes marked 🔒 require a Discord login, and 👑 require a specific guild role.
 
-### Inactivity
+| Area | Representative routes |
+|---|---|
+| Auth | `/auth/login`, `/auth/callback`, `/auth/session`, `/auth/refresh`, `/auth/logout`, `/auth/dev-login` (dev only) |
+| Config | `/api/config`, `/api/appearance-catalog`, `/api/settings`, `/api/settings/default-player` |
+| Player | `/api/player/<username>` and `/rank-history`, `/playtime-history`, `/metrics-history`, `/points`, `/medals`, `/decorations`, `/snipes`; public aliases under `/api/player/rank-history|playtime|metrics/<username>` |
+| Guild | `/api/guild/stats`, `/statistics`, `/activity`, `/member-history`, `/levels`, `/territories`, `/snipes`, `/aspects` (+`/clear`), `/points`, `/metrics-since-join[/<metric>]`, `/prefix/<prefix>[/metrics-history]`, `/name/<name>` |
+| Inactivity | `/api/inactivity` (GET/POST), `/api/inactivity/<discord_id>` (PATCH/DELETE), `/api/inactivity/players` |
+| Events | `/api/events` (GET/POST), `/api/events/<id>` (GET/PATCH/DELETE), `/status`, `/pin`, `/api/events/public`, `/api/events/pinned`, `/api/discord/voice-channels`, `/api/discord/scheduled-event` |
+| Applications / misc | `/api/applications`, `/api/ticket`, `/api/upload`, `/api/proxy/avatar/<uuid>` |
+| Shop (user) | `/api/shop/state`, `/bin`, `/bin/purchase`, `/bin/cart/checkout`, `/cart`, `/auctions`, `/auctions/bid`, `/donate`, `/donations`, `/orders`, `/orders/refund`, `/api/me/ep-balance`, `/api/me/shop-stats`, `/api/me/badge-progress` |
+| Creator Studio | `/api/shop/creator-apply[/status]`, `/creator/my-items`, `/creator/my-requests`, `/creator/my-orders`, `/creator/orders/<id>/fulfill\|reject`, `/creator/upload-image`, `/creator/request-item`, `/creator/items/<id>/stock\|active` |
+| Shop admin 👑 | `/api/admin/shop/*` — items CRUD/reorder/override/upload-image, auctions start/extend/close/detail, bids remove, queue fulfil/reject/refund, reservations, logs, changes, cemetery, death-tax, users (ban/unban/notes/limits/ep-adjust/permissions), config, state, maintenance-settings, privilege approvals, creators & creator requests |
+| Bot | `/api/bot/status`, `/trackers`, `/info`, `/discord`, `/databases`, `/ip-bans` |
+| Guild Info 👑 | `/api/admin/guild-info/*` — state, posts CRUD, queue approve/deny, privilege requests, logs |
+| Wynn Piece | `/api/wynnpiece/*` — event progression, attachments, feedback, manager tools |
+| Tracking | `/api/track/token`, `/api/track` (client analytics beacon) |
 
-| Method | Route | Description |
-|--------|-------|-------------|
-| GET | `/api/inactivity` | List inactivity entries 👑 Parliament+ |
-| POST | `/api/inactivity` | Add inactivity entry 👑 Parliament+ |
-| PATCH | `/api/inactivity/<discord_id>` | Edit inactivity entry 👑 Parliament+ |
-| DELETE | `/api/inactivity/<discord_id>` | Remove inactivity entry 👑 Parliament+ |
-| GET | `/api/inactivity/players` | List all guild members from DB 👑 Juror+ |
+The control panel exposes its own routes under `/panel/*` (auth, service control, scripts, and analytics) on port 5003.
 
-### Bot
+---
 
-| Method | Route | Description |
-|--------|-------|-------------|
-| GET | `/api/bot/status` | Online/offline status and latency (public) |
-| GET | `/api/bot/trackers` | Tracker countdowns parsed from tracker screen output (public) |
-| GET | `/api/bot/info` | Bot Discord profile 🔒 |
-| GET | `/api/bot/discord` | Discord guild member/channel counts 🔒 |
-| GET | `/api/bot/databases` | Database folder sizes and date ranges 🔒 |
+## Security & privacy
 
-### Shop
-
-| Method | Route | Description |
-|--------|-------|-------------|
-| GET | `/api/shop/bin` | Item listing with balance and cooldowns 🔒 |
-| POST | `/api/shop/bin/purchase` | Single item purchase 🔒 |
-| POST | `/api/shop/bin/cart/checkout` | Multi-item cart checkout 🔒 |
-| GET/PUT | `/api/shop/cart` | Cart persistence 🔒 |
-| GET | `/api/shop/auctions` | Active + recent auctions 🔒 |
-| POST | `/api/shop/auctions/bid` | Place a bid 🔒 |
-| POST | `/api/shop/donate` | Submit LE donation 🔒 |
-| GET | `/api/shop/donations` | Donation history 🔒 |
-| GET | `/api/shop/orders` | Full order history 🔒 |
-| GET | `/api/me/ep-balance` | EP balance breakdown 🔒 |
-
-### Shop Admin
-
-| Method | Route | Description |
-|--------|-------|-------------|
-| GET | `/api/admin/shop/items` | Full catalogue 👑 Chief+ |
-| POST | `/api/admin/shop/items` | Create item 👑 Parliament+ |
-| PUT | `/api/admin/shop/items/<id>` | Edit item 👑 Parliament+ |
-| DELETE | `/api/admin/shop/items/<id>` | Delete item 👑 Parliament+ |
-| POST | `/api/admin/shop/items/<id>/override` | Toggle active / set stock 👑 Chief+ |
-| POST | `/api/admin/shop/items/upload-image` | Upload item image 👑 Parliament+ |
-| POST | `/api/admin/shop/auctions/start` | Start an auction 👑 Chief+ |
-| POST | `/api/admin/shop/auctions/<id>/extend` | Adjust end time 👑 Parliament+ |
-| POST | `/api/admin/shop/auctions/<id>/close` | Cancel auction 👑 Parliament+ |
-| POST | `/api/admin/shop/bids/<id>/remove` | Remove a bid 👑 Parliament+ |
-| GET | `/api/admin/shop/queue` | Pending purchases + donations 👑 Chief+ |
-| POST | `/api/admin/shop/queue/fulfill` | Fulfill a ticket 👑 Chief+ |
-| POST | `/api/admin/shop/queue/reject` | Reject a ticket 👑 Chief+ |
-
-### Settings
-
-| Method | Route | Description |
-|--------|-------|-------------|
-| GET | `/api/settings/default-player` | Returns the logged-in user's Minecraft username from `username_matches.json` 🔒 |
+- **IP banning** (`ip_ban.py`): fail2ban-style strikes per jail (10 × 403 in 5 min, 20 × 429 in 5 min), escalating ban durations, and an automatic permanent blacklist after repeated offences. Whitelist entries can be added in `ip_whitelist.txt`.
+- **Request gate** (`main.py` / `security_gate.py`): blocks banned methods, malformed HTTP, request smuggling, injection/traversal payloads, WordPress and exploit-scanner probes, and debugger triggers; only trusts `X-Forwarded-For` / `CF-Connecting-IP` from nginx or Cloudflare peers.
+- **Security headers**: a strict Content-Security-Policy (with hashes computed from the built `index.html`), `X-Frame-Options: DENY`, `nosniff`, and a strict referrer policy.
+- **Analytics privacy** (`analytics.py`): raw IPs are never stored — only a salted hash with a daily-rotating salt, so unique visitors can be counted per day but not tracked across days. `DNT`/`GPC` signals are recorded.
+- **Logging**: blocked requests are logged with anonymised IPs (last octet / last 80 bits zeroed) and retained for a limited window.
+- **GDPR scripts**: `scripts/gdpr_export.py`, `gdpr_delete.py`, `gdpr_list.py`, `gdpr_rectify.py`, `gdpr_restrict.py` (and `_export_bans.py`) operate directly on `user_data.db` and write to `gdpr_exports/`.
 
 ---
 
 ## Notes
 
-- The dashboard is built specifically for ESI, the guild prefix is hardcoded in a few places (`'ESI'` in `guild.js`). If you want to adapt this for another guild, search for that string and update accordingly.
-- Historical data is stored in SQLite `.db` files that are expected to exist on the server. The paths to these are configured internally in `server.py`. The databases are not included in this repo.
-- The bot trackers (API, Playtime, Guild, Claim) are separate processes not included here, this repo is just the web dashboard that reads from the data they collect.
+- This site is meant to be paired with **[ESI-Bot](https://github.com/190Q/ESI-Bot)**, which supplies the historical data it displays — but the bot is not required. Run standalone and the live/public features keep working; only history, points, and shop data will be empty.
+- The dashboard is built specifically for ESI. The guild prefix `'ESI'` is hardcoded in a few places (for example `cache.py` and `js/guild.js`); search for it if adapting this for another guild.
+- Historical data lives in the ESI-Bot checkout, not this repo. Without it, the site runs but history/points/shop data will be empty.
+- The bot trackers (API, Playtime, Guild, Claim) and the ESI-Bot itself are separate processes not included here — this repo is the web dashboard plus the control panel that supervises them.
+- `requirements.txt` is a full environment freeze rather than a minimal dependency list; if you want a lean install, the app itself needs Flask, requests, python-dotenv, discord.py, and Playwright.
