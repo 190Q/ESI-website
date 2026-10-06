@@ -30,7 +30,27 @@ Authentication is Discord OAuth2. Public stats and events are open to everyone; 
 Users can upload their own `.css` files via Settings to override the default colour theme or font. Example files live in `public/examples/`:
 
 - **`public/examples/themes/dark.css`** — a dark colour theme. Override any of the CSS custom properties from `css/themes.css` inside a `[data-theme="your-name"]` selector. Only include the variables you want to change; the rest fall through to the defaults. Includes pattern controls powered by `js/theme-patterns.js` (`--theme-pattern-*`).
-- **`public/examples/fonts/cormorant-font/`** — a custom font. Include `@font-face` declarations for your font files, then map the three font variables (`--font-display`, `--font-heading`, `--font-body`) inside a `[data-font="your-name"]` selector.
+- **`public/examples/fonts/cormorant-font.zip`** — a custom font, bundled the way the dashboard expects. Include `@font-face` declarations, then map the three font variables (`--font-display`, `--font-heading`, `--font-body`) inside a `[data-font="your-name"]` selector.
+
+#### Custom fonts
+
+Custom fonts are uploaded as a **`.zip`** holding the `.css` plus the font files (`.woff2`, `.woff`, `.ttf`, `.otf` or `.eot`). Inside the CSS, reference each font by **name only** — the extension and the `format()` are read from the file itself, so neither is needed:
+
+```css
+@font-face {
+  font-family: 'My Font';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(my-font-bold);
+}
+```
+
+`url(my-font-bold)` resolves to `my-font-bold.woff2` (or `.woff`/`.ttf`/…) inside the zip. The dashboard inlines each font as a base64 `data:` URI and stores the finished CSS in `localStorage` (`esi_custom_font_css`), so the font is **never uploaded to or served from the server**. This is why `main.py` and `routes.py` allow `data:` in their `font-src` CSP directive. A self-contained `.css` with no local `url()` references can still be uploaded on its own.
+
+Uploads are rejected with a specific message when the CSS names font files but the upload isn't a `.zip`, when the `.zip` has no `.css` inside, when the `.zip` doesn't contain the named font files, or when the fonts exceed the browser's `localStorage` quota (~5 MB per origin).
+
+`public/examples/fonts/cormorant-font.zip` is built from the `public/examples/fonts/cormorant-font/` folder — re-zip it whenever that folder changes.
 
 The `data-theme` / `data-font` attribute value is used as the display name in the settings dropdown; if absent, the filename is used.
 

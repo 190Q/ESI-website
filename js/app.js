@@ -3074,8 +3074,63 @@ fetch('/auth/session', { credentials: 'same-origin' })
     }
   }
 
+  var _FONT_FORMATS = {
+    woff2: { mime: 'font/woff2', format: 'woff2' },
+    woff:  { mime: 'font/woff',  format: 'woff' },
+    ttf:   { mime: 'font/ttf',   format: 'truetype' },
+    otf:   { mime: 'font/otf',   format: 'opentype' },
+    eot:   { mime: 'application/vnd.ms-fontobject', format: 'embedded-opentype' },
+  };
+  var _FONT_EXT_PRIORITY = ['woff2', 'woff', 'otf', 'ttf', 'eot'];
+  var _SRC_REF_RE = /url\(\s*(['"]?)([^)'"]+)\1\s*\)(?:\s*format\(\s*(['"]?)([^)'"]+)\3\s*\))?/gi;
+
+  function _fontExt(name) {
+    var match = /\.([a-z0-9]+)$/i.exec(String(name || '').trim());
+    return match ? match[1].toLowerCase() : '';
+  }
+  function _isFontFile(name) {
+    return !!_FONT_FORMATS[_fontExt(name)];
+  }
+  function _assetKey(name) {
+    var value = String(name || '').trim().replace(/[?#].*$/, '').replace(/\\/g, '/');
+    if (!value) return '';
+    return value.split('/').pop().toLowerCase();
+  }
+  function _assetStem(name) {
+    return _assetKey(name).replace(/\.[a-z0-9]+$/i, '');
+  }
+  function _formatHintForRef(cssText, refName) {
+    var key = _assetKey(refName);
+    var re = /url\(\s*(['"]?)([^)'"]+)\1\s*\)\s*format\(\s*(['"]?)([^)'"]+)\3\s*\)/gi;
+    var match;
+    while ((match = re.exec(cssText)) !== null) {
+      if (_assetKey(match[2]) === key) return String(match[4] || '').trim().toLowerCase();
+    }
+    return '';
+  }
+  function _resolveCompanionAsset(refName, assetsByKey, assetsByStem, formatHint) {
+    var key = _assetKey(refName);
+    if (!key) return null;
+    if (assetsByKey[key]) return assetsByKey[key];
+    var candidates = assetsByStem[key.replace(/\.[a-z0-9]+$/i, '')];
+    if (!candidates || !candidates.length) return null;
+    var i, j;
+    if (formatHint) {
+      for (i = 0; i < candidates.length; i++) {
+        var hinted = _FONT_FORMATS[_fontExt(candidates[i].name)];
+        if (hinted && hinted.format === formatHint) return candidates[i];
+      }
+    }
+    for (i = 0; i < _FONT_EXT_PRIORITY.length; i++) {
+      for (j = 0; j < candidates.length; j++) {
+        if (_fontExt(candidates[j].name) === _FONT_EXT_PRIORITY[i]) return candidates[j];
+      }
+    }
+    return candidates[0];
+  }
+
   // Handle file upload for custom theme/font
-  function _handleCustomFile(type, file, companionAssets) {
+  function _handleCustomFile(type, file, companionAssets, sourceIsZip) {
     if (!file) return;
     if (!file.name.endsWith('.css')) {
       showToast('\u26a0 Please select a .css file.', 'warn');
@@ -3124,8 +3179,15 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
       // Inline companion assets: replace relative url() refs with data-URIs
       function _applyAndFinish(finalCss) {
-        localStorage.setItem('esi_custom_' + type + '_css', finalCss);
-        localStorage.setItem('esi_custom_' + type + '_name', displayName);
+        try {
+          localStorage.setItem('esi_custom_' + type + '_css', finalCss);
+          localStorage.setItem('esi_custom_' + type + '_name', displayName);
+        } catch (_err) {
+          showToast(type === 'font'
+            ? '\u26a0 Custom font is too large to store locally. Try fewer or smaller font files.'
+            : '\u26a0 Custom theme is too large to store locally. Try fewer or smaller images.', 'warn');
+          return;
+        }
         _syncCustomOption(type);
         var select = type === 'theme' ? _sTheme : _sFont;
         select.value = 'custom';
@@ -3137,43 +3199,109 @@ fetch('/auth/session', { credentials: 'same-origin' })
         }
       }
 
-      // Find all relative url() references (not http/https/data/absolute)
-      var _relUrlRe = /url\(\s*(['"]?)(?!(?:https?:|data:|\/))([^)'"]+)\1\s*\)/g;
-      var _allRelRefs = [];
+      // Find all local url() references (not http/https/data/absolute)
+      var _relUrlRe = /url\(\s*(['"]?)([^)'"]+)\1\s*\)/gi;
+      var _localRefs = [];
+      var _seenRefs = Object.create(null);
       var _m;
       while ((_m = _relUrlRe.exec(cssText)) !== null) {
-        _allRelRefs.push(_m[2].replace(/^\.\//, '').toLowerCase());
+        var _refRaw = String(_m[2] || '').trim();
+        if (!_refRaw || /^(?:https?:|data:|\/)/i.test(_refRaw)) continue;
+        var _refClean = _refRaw.replace(/^\.\//, '');
+        var _refKey = _assetKey(_refClean);
+        if (!_refKey || _seenRefs[_refKey]) continue;
+        _seenRefs[_refKey] = true;
+        _localRefs.push(_refClean);
       }
 
-      if (!companionAssets || !companionAssets.length) {
-        if (_allRelRefs.length) {
-          // CSS references local files but none were uploaded alongside it
-          var _assetType = type === 'font' ? 'font files' : 'images';
-          var _extraHint = type === 'font' ? ', or upload a .zip.' : '.';
-          showToast('\u26a0 Your custom CSS references local files (e.g. ' + _allRelRefs[0] + '). Please select the CSS and its ' + _assetType + ' together' + _extraHint, 'warn');
-          if (type === 'font') _customFontFile.click();
-          else _customThemeFile.click();
-          return;
-        }
+      if (!_localRefs.length) {
         _applyAndFinish(cssText);
         return;
       }
 
-      // Build a filename
-      var assetByName = {};
-      companionAssets.forEach(function (f) { assetByName[f.name.toLowerCase()] = f; });
+      if (!companionAssets || !companionAssets.length) {
+        if (type === 'font') {
+          showToast(sourceIsZip
+            ? '\u26a0 Couldn\u2019t find these font files in the zip: ' + _localRefs.join(', ') + '. Check the names in your CSS.'
+            : '\u26a0 Custom fonts must be uploaded as a .zip that contains the .css and its font files.', 'warn');
+          return;
+        }
+        showToast('\u26a0 Your custom CSS references local files (e.g. ' + _localRefs[0] + '). Please select the CSS and its images together.', 'warn');
+        _customThemeFile.click();
+        return;
+      }
 
-      // Match relative refs to uploaded files
-      var urlRe = /url\(\s*(['"]?)(?!(?:https?:|data:|\/))([^)'"]+)\1\s*\)/g;
+      // Index the uploaded companion files by full name and by stem
+      var assetByName = {};
+      var assetsByKey = {};
+      var assetsByStem = {};
+      companionAssets.forEach(function (f) {
+        var key = _assetKey(f.name);
+        if (!key) return;
+        assetByName[key] = f;
+        assetsByKey[key] = f;
+        var stem = _assetStem(f.name);
+        if (!assetsByStem[stem]) assetsByStem[stem] = [];
+        assetsByStem[stem].push(f);
+      });
+
+      if (type === 'font') {
+        var _resolved = [];
+        var _missing = [];
+        _localRefs.forEach(function (ref) {
+          var hint = _formatHintForRef(cssText, ref);
+          var asset = _resolveCompanionAsset(ref, assetsByKey, assetsByStem, hint);
+          var fmt = asset ? _FONT_FORMATS[_fontExt(asset.name)] : null;
+          if (!asset || !fmt) { _missing.push(ref); return; }
+          _resolved.push({ ref: ref, asset: asset, fmt: fmt });
+        });
+        if (_missing.length) {
+          showToast('\u26a0 Couldn\u2019t find these font files in the zip: ' + _missing.join(', ') + '. Check the names in your CSS.', 'warn');
+          return;
+        }
+
+        var fontPending = _resolved.length;
+        var fontReplacements = {};
+        var _finishFonts = function () {
+          var finalCss = cssText.replace(_SRC_REF_RE, function (full, _quote, ref) {
+            var raw = String(ref || '').trim();
+            if (!raw || /^(?:https?:|data:|\/)/i.test(raw)) return full;
+            var replacement = fontReplacements[_assetKey(raw.replace(/^\.\//, ''))];
+            return replacement || full;
+          });
+          _applyAndFinish(finalCss);
+        };
+        _resolved.forEach(function (entry) {
+          var fontReader = new FileReader();
+          fontReader.onload = function (ev) {
+            var result = String(ev.target.result || '');
+            var comma = result.indexOf(',');
+            var base64 = comma >= 0 ? result.slice(comma + 1) : '';
+            fontReplacements[_assetKey(entry.ref)] =
+              'url("data:' + entry.fmt.mime + ';base64,' + base64 + '") format("' + entry.fmt.format + '")';
+            if (--fontPending === 0) _finishFonts();
+          };
+          fontReader.onerror = function () {
+            if (--fontPending === 0) _finishFonts();
+          };
+          fontReader.readAsDataURL(entry.asset);
+        });
+        return;
+      }
+
+      // Theme: match relative refs to uploaded files
+      var urlRe = /url\(\s*(['"]?)([^)'"]+)\1\s*\)/gi;
       var matches = [];
       var m;
       while ((m = urlRe.exec(cssText)) !== null) {
-        var refName = m[2].replace(/^\.\//, '').toLowerCase();
-        if (assetByName[refName]) matches.push({ full: m[0], quote: m[1], ref: m[2], name: refName });
+        var refRaw = String(m[2] || '').trim();
+        if (!refRaw || /^(?:https?:|data:|\/)/i.test(refRaw)) continue;
+        var refName = _assetKey(refRaw.replace(/^\.\//, ''));
+        if (assetByName[refName]) matches.push({ full: m[0], ref: m[2], name: refName });
       }
 
       // Warn about refs that didn't match any uploaded file
-      var unresolved = _allRelRefs.filter(function (r) { return !assetByName[r]; });
+      var unresolved = _localRefs.filter(function (r) { return !assetByName[_assetKey(r)]; });
       if (unresolved.length) {
         showToast('\u26a0 Could not find: ' + unresolved.join(', ') + '. Those files won\u2019t be replaced.', 'warn');
       }
@@ -3271,21 +3399,28 @@ fetch('/auth/session', { credentials: 'same-origin' })
     reader.readAsArrayBuffer(zipFile);
   }
 
-  // Extract CSS + font assets from a .zip and pass them to _handleCustomFile
+  // Extract the CSS + font files from a .zip and pass them to _handleCustomFile
   function _handleZipFont(zipFile) {
     var reader = new FileReader();
     reader.onload = function (e) {
       JSZip.loadAsync(e.target.result).then(function (zip) {
         var cssEntry = null;
-        var assetEntries = [];
+        var fontEntries = [];
+        var entries = [];
         zip.forEach(function (path, entry) {
           if (entry.dir) return;
-          var name = path.split('/').pop().toLowerCase();
+          entries.push({ path: path, entry: entry });
+        });
+        entries.sort(function (a, b) {
+          return a.path < b.path ? -1 : (a.path > b.path ? 1 : 0);
+        });
+        entries.forEach(function (item) {
+          var name = item.path.split('/').pop().toLowerCase();
           if (name.endsWith('.css')) {
-            if (!cssEntry) cssEntry = entry;
+            if (!cssEntry) cssEntry = item.entry;
             return;
           }
-          assetEntries.push(entry);
+          if (_isFontFile(name)) fontEntries.push(item.entry);
         });
         if (!cssEntry) {
           showToast('\u26a0 No .css file found inside the zip.', 'warn');
@@ -3293,28 +3428,24 @@ fetch('/auth/session', { credentials: 'same-origin' })
         }
         // Read the CSS as text
         cssEntry.async('string').then(function (cssText) {
-          if (!assetEntries.length) {
-            // Synthesize a File for the CSS so _handleCustomFile can use file.name
+          function _finish(fontFiles) {
             var cssBlob = new File([cssText], cssEntry.name.split('/').pop(), { type: 'text/css' });
-            _handleCustomFile('font', cssBlob, []);
+            _handleCustomFile('font', cssBlob, fontFiles, true);
+          }
+          if (!fontEntries.length) {
+            _finish([]);
             return;
           }
-          // Read all assets as blobs, convert to Files
-          var pending = assetEntries.length;
-          var assetFiles = [];
-          assetEntries.forEach(function (asset) {
-            asset.async('blob').then(function (blob) {
-              var assetName = asset.name.split('/').pop();
-              assetFiles.push(new File([blob], assetName, { type: blob.type || 'application/octet-stream' }));
-              if (--pending === 0) {
-                var cssBlob = new File([cssText], cssEntry.name.split('/').pop(), { type: 'text/css' });
-                _handleCustomFile('font', cssBlob, assetFiles);
-              }
+          // Read every font as a blob and convert it to a File
+          var pending = fontEntries.length;
+          var fontFiles = [];
+          fontEntries.forEach(function (font) {
+            font.async('blob').then(function (blob) {
+              var fontName = font.name.split('/').pop();
+              fontFiles.push(new File([blob], fontName, { type: 'application/octet-stream' }));
+              if (--pending === 0) _finish(fontFiles);
             }).catch(function () {
-              if (--pending === 0) {
-                var cssBlob = new File([cssText], cssEntry.name.split('/').pop(), { type: 'text/css' });
-                _handleCustomFile('font', cssBlob, assetFiles);
-              }
+              if (--pending === 0) _finish(fontFiles);
             });
           });
         });

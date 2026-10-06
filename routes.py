@@ -665,7 +665,7 @@ def _after(response):
         "default-src 'self'; "
         f"script-src 'self' {_get_inline_script_hashes()}; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src https://fonts.gstatic.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
         "img-src 'self' https://cdn.discordapp.com https://visage.surgeplay.com https://crafatar.com https://mc-heads.net data:; "
         "connect-src 'self';"
     )

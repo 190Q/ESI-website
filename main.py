@@ -804,7 +804,7 @@ def _after_request(response):
         "default-src 'self'; "
         f"script-src 'self' {_get_inline_script_hashes()}; "
         "style-src 'self' 'unsafe-inline'; "
-        "font-src 'self'; "
+        "font-src 'self' data:; "
         "img-src 'self' https://cdn.discordapp.com https://visage.surgeplay.com https://crafatar.com https://mc-heads.net data:; "
         "connect-src 'self';"
     )
