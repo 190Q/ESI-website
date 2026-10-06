@@ -96,7 +96,7 @@ The dashboard reads its historical data from a local **[ESI-Bot](https://github.
 ```
 coding/
 ├── ESI-website/     ← this repo
-└── Q-bot/
+└── ESI-Bot/         ← provides data/ and databases/
 ```
 
 Set `ESI_BOT_DIR` / `ESI_QBOT_DIR` if your layout differs. Without an ESI-Bot checkout, live player lookups still work but history, points, and shop data will be empty.
