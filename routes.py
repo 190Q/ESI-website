@@ -594,6 +594,22 @@ def _require_role(allowed_roles: set):
     return user, None
 
 
+def _safe_next_path(value):
+    """A same-origin relative path we are willing to redirect to after login.
+
+    Only a path on this site (".../foo") is accepted - never an absolute URL,
+    a protocol-relative "//host", or anything containing a backslash - so the
+    `next` parameter (used by the control panel to come back to /panel/) can
+    never be turned into an open redirect.
+    """
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value.startswith("/") or value.startswith("//") or "\\" in value:
+        return None
+    return value
+
+
 def _is_internal_bulk_request() -> bool:
     expected = (os.environ.get("ESI_INTERNAL_BULK_TOKEN") or "").strip()
     provided = (request.headers.get("X-ESI-Internal-Token") or "").strip()
@@ -851,6 +867,9 @@ def auth_login():
     from urllib.parse import urlencode as _urlencode
     state = secrets.token_urlsafe(16)
     session["oauth_state"] = state
+    next_path = _safe_next_path(request.args.get("next"))
+    if next_path:
+        session["oauth_next"] = next_path
     params = _urlencode({
         "client_id":     DISCORD_CLIENT_ID,
         "redirect_uri":  DISCORD_REDIRECT_URI,
@@ -876,6 +895,7 @@ def auth_callback():
         print(f"[AUTH]   session keys: {list(session.keys())}", file=sys.stderr)
         print(f"[AUTH]   cookies present: {list(request.cookies.keys())}", file=sys.stderr)
         return redirect("/?auth=error")
+    next_path = _safe_next_path(session.pop("oauth_next", None))
     try:
         token_resp = requests.post(
             f"{DISCORD_API}/oauth2/token",
@@ -946,7 +966,7 @@ def auth_callback():
     session["_last_active"] = time()
     token = _remember_create(user_data)
     _track_server("feature", {"action": "run", "name": "site-login"}, user_id=user["id"])
-    resp = redirect("/?auth=success")
+    resp = redirect(next_path or "/?auth=success")
     _set_remember_cookie(resp, token)
     return resp
 

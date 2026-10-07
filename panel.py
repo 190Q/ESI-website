@@ -27,21 +27,21 @@ import threading
 from collections import deque
 from datetime import datetime, timedelta
 from time import sleep, time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
-from flask import Flask, abort, jsonify, redirect, request, send_from_directory, session
+from flask import Flask, abort, g, jsonify, redirect, request, send_from_directory, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import (
-    _BASE_DIR, _ESI_BOT_DIR, _QBOT_DIR,
-    DISCORD_API, DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_GUILD_ID,
-    DISCORD_TOKEN, PANEL_PORT, PANEL_REDIRECT_URI, PANEL_ALLOWED_IPS,
+    _BASE_DIR, _ESI_BOT_DIR, _QBOT_DIR, _USER_DB_PATH,
+    DISCORD_API, DISCORD_GUILD_ID, DISCORD_REDIRECT_URI, DISCORD_TOKEN,
+    PANEL_PORT, PANEL_ALLOWED_IPS,
     BOT_SCREEN_SESSION, TRACKER_SCREEN_SESSION,
     GATEWAY_PORT, ROUTES_PORT, CACHE_PORT,
     _ROLE_EMPEROR, _ROLE_GRAND_DUKE, _ROLE_ARCHDUKE, _ROLE_CONGRESS,
     _ROLE_PARLIAMENT, _ROLE_JUROR, _ROLE_CITIZEN,
-    DEV_MODE,
+    DEV_MODE, _get_secret_key,
 )
 from security_gate import register_security_gate, real_client_ip, BanningWSGIRequestHandler
 import analytics_query
@@ -90,35 +90,20 @@ def _get_inline_script_hashes():
     return _inline_script_cache["hashes"]
 
 
-def _get_panel_secret_key():
-    key = os.environ.get("PANEL_SECRET_KEY")
-    if key:
-        return key
-    key_path = os.path.join(_BASE_DIR, ".panel_secret")
-    if os.path.exists(key_path):
-        with open(key_path) as f:
-            return f.read().strip()
-    key = secrets.token_hex(32)
-    fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write(key)
-    return key
-
-
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
-app.secret_key = _get_panel_secret_key()
+app.secret_key = _get_secret_key()
 app.config.update(
-    SESSION_COOKIE_NAME="esi_panel_session",
+    SESSION_COOKIE_NAME="session",
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=not DEV_MODE,
-    PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),
+    PERMANENT_SESSION_LIFETIME=timedelta(days=7),  # match routes.py
 )
 
 register_security_gate(app, service_name="panel")
 
-_SESSION_IDLE_TIMEOUT = 30 * 60  # 30 min - tighter than the main site's 3h
+_SESSION_IDLE_TIMEOUT = 30 * 60
 
 
 SERVICES = {
@@ -860,6 +845,81 @@ def require_owner_shell(redirect_anonymous=True):
     return deco
 
 
+_REMEMBER_COOKIE = "esi_remember"
+_REMEMBER_MAX_AGE = 30 * 24 * 3600
+
+_remember_local = threading.local()
+
+
+def _remember_db():
+    conn = getattr(_remember_local, "conn", None)
+    if conn is None:
+        conn = sqlite3.connect(_USER_DB_PATH, timeout=10, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        _remember_local.conn = conn
+    return conn
+
+
+def _remember_restore(token):
+    """Return the stored user dict for a remember token, sliding its expiry.
+
+    Returns None (and drops the row) for a missing or expired token, and None
+    if the table does not exist yet - the panel must never fail just because
+    the website has not written a token on this host.
+    """
+    if not token:
+        return None
+    now = time()
+    try:
+        conn = _remember_db()
+        row = conn.execute(
+            "SELECT user_data, expires_at FROM remember_tokens WHERE token = ?",
+            (token,),
+        ).fetchone()
+        if not row or now > row[1]:
+            conn.execute("DELETE FROM remember_tokens WHERE token = ?", (token,))
+            conn.commit()
+            return None
+        conn.execute(
+            "UPDATE remember_tokens SET expires_at = ? WHERE token = ?",
+            (now + _REMEMBER_MAX_AGE, token),
+        )
+        conn.commit()
+    except sqlite3.Error:
+        return None
+    try:
+        return json.loads(row[0])
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _remember_delete(token):
+    if not token:
+        return
+    try:
+        conn = _remember_db()
+        conn.execute("DELETE FROM remember_tokens WHERE token = ?", (token,))
+        conn.commit()
+    except sqlite3.Error:
+        pass
+
+
+def _set_remember_cookie(response, token):
+    response.set_cookie(
+        _REMEMBER_COOKIE, token,
+        max_age=_REMEMBER_MAX_AGE,
+        httponly=True,
+        samesite="Lax",
+        secure=not DEV_MODE,
+    )
+    return response
+
+
+def _clear_remember_cookie(response):
+    response.delete_cookie(_REMEMBER_COOKIE, samesite="Lax")
+    return response
+
+
 def require_csrf(fn):
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
@@ -910,15 +970,34 @@ def _panel_ip_allowlist():
 
 
 @app.before_request
-def _panel_session_idle_timeout():
+def _panel_ensure_session():
+    """Keep the panel signed in with the website's own session and token.
+
+    The panel shares the website's session cookie, so when the cookie is
+    present this is a no-op. When it has expired (or was never sent) but a
+    valid 'remember me' token is present, the session is rebuilt from that
+    token instead of bouncing the owner back to Discord - which is what makes
+    the panel stay logged in for the same 30 days the website does.
+    """
     session.permanent = True
-    last = session.get("_last_active")
     now = time()
+    last = session.get("_last_active")
     if last and now - last > _SESSION_IDLE_TIMEOUT and session.get("user"):
         _audit("logout", user=session.get("user"), result="idle_timeout",
                detail="idle timeout")
         session.clear()
+    restored_token = None
+    if not session.get("user"):
+        token = request.cookies.get(_REMEMBER_COOKIE)
+        user = _remember_restore(token)
+        if user:
+            session["user"] = user
+            restored_token = token
+    if session.get("user") and not session.get("csrf_token"):
+        session["csrf_token"] = secrets.token_urlsafe(32)
     session["_last_active"] = now
+    if restored_token:
+        g._panel_remember_token = restored_token
 
 
 @app.after_request
@@ -934,92 +1013,33 @@ def _panel_security_headers(response):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     if not DEV_MODE:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    token = getattr(g, "_panel_remember_token", None)
+    if token:
+        _set_remember_cookie(response, token)
     return response
+
+
+def _main_site_origin():
+    """Scheme + host of the main website, taken from its OAuth callback URL."""
+    try:
+        parsed = urlparse(DISCORD_REDIRECT_URI)
+    except ValueError:
+        return ""
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return ""
 
 
 @app.route("/panel/auth/login")
 @rate_limit(20, 60)
 def panel_login():
-    if not PANEL_REDIRECT_URI:
-        return jsonify({"error": "PANEL_REDIRECT_URI is not configured"}), 500
-    state = secrets.token_urlsafe(16)
-    session["oauth_state"] = state
-    params = urlencode({
-        "client_id":     DISCORD_CLIENT_ID,
-        "redirect_uri":  PANEL_REDIRECT_URI,
-        "response_type": "code",
-        "scope":         "identify",
-        "state":         state,
-    })
-    return redirect(f"https://discord.com/oauth2/authorize?{params}")
+    """Hand off to the website's own login, then return to the panel.
 
-
-@app.route("/panel/auth/callback")
-def panel_callback():
-    error = request.args.get("error")
-    if error:
-        _audit("login_failed", result="error", detail=f"provider: {error}")
-        return redirect("/panel/?auth=error")
-    code = request.args.get("code")
-    state = request.args.get("state")
-    saved_state = session.pop("oauth_state", None)
-    if not state or state != saved_state:
-        _audit("login_failed", result="error", detail="OAuth state mismatch")
-        return redirect("/panel/?auth=error")
-    try:
-        token_resp = requests.post(
-            f"{DISCORD_API}/oauth2/token",
-            data={
-                "client_id":     DISCORD_CLIENT_ID,
-                "client_secret": DISCORD_CLIENT_SECRET,
-                "grant_type":    "authorization_code",
-                "code":          code,
-                "redirect_uri":  PANEL_REDIRECT_URI,
-            },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=10,
-        )
-        token_resp.raise_for_status()
-        access_token = token_resp.json()["access_token"]
-        user_resp = requests.get(
-            f"{DISCORD_API}/users/@me",
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=10,
-        )
-        user_resp.raise_for_status()
-        discord_user = user_resp.json()
-    except (requests.RequestException, KeyError) as exc:
-        print(f"[PANEL-AUTH] OAuth callback error: {exc}", file=sys.stderr)
-        _audit("login_failed", result="error", detail=f"token exchange: {exc}"[:200])
-        return redirect("/panel/?auth=error")
-
-    nick = None
-    if DISCORD_GUILD_ID and DISCORD_TOKEN:
-        try:
-            member_resp = requests.get(
-                f"{DISCORD_API}/guilds/{DISCORD_GUILD_ID}/members/{discord_user['id']}",
-                headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
-                timeout=10,
-            )
-            if member_resp.ok:
-                nick = member_resp.json().get("nick")
-        except requests.RequestException:
-            pass
-
-    session.clear()
-    session.permanent = True
-    user_data = {
-        "id":            discord_user["id"],
-        "username":      discord_user["username"],
-        "nick":          nick,
-        "discriminator": discord_user.get("discriminator", "0"),
-        "avatar":        discord_user.get("avatar"),
-    }
-    session["user"] = user_data
-    session["_last_active"] = time()
-    session["csrf_token"] = secrets.token_urlsafe(32)
-    _audit("login", user=user_data, result=_access_level(user_data) or "denied")
-    return redirect("/panel/")
+    The panel shares the website's session and remember token, so there is a
+    single OAuth flow for both: signing in here also signs you in on the site.
+    """
+    origin = _main_site_origin()
+    return redirect(f"{origin}/auth/login?{urlencode({'next': '/panel/'})}")
 
 
 @app.route("/panel/auth/logout", methods=["POST"])
@@ -1027,8 +1047,9 @@ def panel_logout():
     user = session.get("user")
     if user:
         _audit("logout", user=user)
+    _remember_delete(request.cookies.get(_REMEMBER_COOKIE))
     session.clear()
-    return jsonify({"ok": True})
+    return _clear_remember_cookie(jsonify({"ok": True}))
 
 
 @app.route("/panel/auth/session")
@@ -1487,8 +1508,9 @@ def panel_bot_analytics():
 if __name__ == "__main__":
     if not str(os.environ.get("OWNER") or "").strip():
         print("  WARNING: OWNER is not set - nobody will pass the owner check.", file=sys.stderr)
-    if not PANEL_REDIRECT_URI:
-        print("  WARNING: PANEL_REDIRECT_URI is not set - login will fail.", file=sys.stderr)
+    if not DISCORD_REDIRECT_URI:
+        print("  WARNING: DISCORD_REDIRECT_URI is not set - login will use a "
+              "relative URL.", file=sys.stderr)
     print()
     print("  ESI Control Panel")
     print("  " + "\u2500" * 40)

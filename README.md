@@ -167,9 +167,8 @@ Common optional variables:
 |---|---|
 | `ESI_BOT_DIR` / `ESI_QBOT_DIR` | Absolute paths to the ESI-Bot / Q-bot checkouts (default: sibling folders). |
 | `PANEL_PORT` | Control panel port (default `5003`). |
-| `PANEL_REDIRECT_URI` | Separate OAuth callback for the control panel (defaults to a `/panel/auth/callback` path). |
 | `PANEL_ALLOWED_IPS` | Optional comma-separated source-IP allowlist for the panel, on top of Discord auth. |
-| `PANEL_SECRET_KEY` / `FLASK_SECRET_KEY` | Session keys; auto-generated and persisted to `.panel_secret` / `.flask_secret` if unset. |
+| `FLASK_SECRET_KEY` | Session key, shared by the website and the control panel (they use one login); auto-generated and persisted to `.flask_secret` if unset. |
 | `ESI_GATEWAY_SECRET` | Internal secret shared between the gateway and routes (auto-generated if unset). |
 | `ESI_INTERNAL_BULK_TOKEN` | Shared token guarding the internal bulk-cache endpoint. |
 | `ESI_RUN_AUCTION_WORKER` | Force the auction-close worker on/off (default: on except in dev mode). |
@@ -245,7 +244,7 @@ Attach to a service with `screen -r esi-website-routes`, detach with `Ctrl+A D`.
 - **Analytics**: traffic, audience, engagement, content, health, and data views over `analytics.db`, plus ESI-Bot analytics read directly from the bot's databases and logs.
 - **Tools**: run and stop the maintenance scripts in `scripts/` and stream their output.
 
-The panel uses its own session cookie, a 30-minute idle timeout, and (optionally) an IP allowlist on top of Discord auth.
+The panel shares the website's login. It uses the same session cookie and the same `esi_remember` token (a 30-day sliding window stored in `user_data.db`), so signing in on either surface signs you in on both, and when the session lapses the panel silently rebuilds it from that token instead of asking you to log in again. Logging out of the panel also logs you out of the website, since the token is common to both. There is also an optional IP allowlist on top of Discord auth.
 
 ---
 
