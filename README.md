@@ -21,7 +21,7 @@ The dashboard is split into panels, reachable from a collapsible sidebar:
 - **Inactivity** *(Parliament+)*: track members who have declared inactivity, with start/end dates and reasons.
 - **Promotions** *(Juror+)*: promotion tracking tools.
 - **Settings**: persistent preferences for graph defaults, player lookup, and toast notifications, stored in `localStorage`. Users can also upload custom colour themes and fonts.
-- **Control Panel** (separate service): a staff-only ops dashboard for starting/stopping/reloading the services and bots, running maintenance scripts, and viewing web + bot analytics.
+- **Control Panel** (separate service, owner-only): an ops dashboard for starting/stopping/reloading the services and bots, running maintenance scripts, and viewing web + bot analytics. Only the `OWNER` Discord account can load or use it — everyone else gets a 404.
 
 Authentication is Discord OAuth2. Public stats and events are open to everyone; management panels are gated by guild role (and the shop has an additional per-user privilege layer).
 
@@ -65,7 +65,7 @@ The site runs as **four independent Flask processes**. Splitting them means the 
 | `main.py` — **Gateway** | 5000 | Public entry point. Serves static files and the SPA shell, reverse-proxies `/api/*` and `/auth/*` to the routes service, and applies the security gate (IP bans, scanner/WordPress-probe blocking, injection detection, CSP headers). Also records every served request into analytics. |
 | `routes.py` — **Routes** | 5001 | All `/api/*` and `/auth/*` endpoints: Wynncraft API proxying + caching, Discord OAuth, guild/player data, shop, events, guild info, inactivity, promotions, settings, tracking. |
 | `cache.py` — **Cache** | 5002 | Periodically crunches bulk playtime / stat deltas for every guild member and exposes them over HTTP, so routes never has to hammer the Wynncraft API or the snapshot databases. |
-| `panel.py` — **Control Panel** | 5003 | Standalone staff ops dashboard. Own Discord OAuth + staff/OWNER access checks. Starts, stops, and reloads the other services and bots (via `screen`), runs maintenance scripts, and serves the analytics views. Never imports the other services, so it works while they're down. |
+| `panel.py` — **Control Panel** | 5003 | Standalone owner-only ops dashboard. Own Discord OAuth + `OWNER` access check; the shell and its assets are not served to non-owners. Starts, stops, and reloads the other services and bots (via `screen`), runs maintenance scripts, and serves the analytics views. Never imports the other services, so it works while they're down. |
 
 ```
 Browser ──▶ Gateway :5000 ──▶ Routes :5001 ──▶ Cache :5002
@@ -73,7 +73,7 @@ Browser ──▶ Gateway :5000 ──▶ Routes :5001 ──▶ Cache :5002
                 └─ static/SPA      └─ Wynncraft API, Discord API,
                    + security         ESI-Bot databases, SQLite
                    + analytics
-Staff ────▶ Panel :5003 (independent; controls the processes above, and more)
+Owner ────▶ Panel :5003 (independent; controls the processes above, and more)
 ```
 
 Shared configuration and constants live in `config.py`; the security gate is shared via `security_gate.py`.
@@ -187,7 +187,7 @@ Start each service (in its own terminal, or use the scripts below):
 python3 cache.py      # :5002
 python3 routes.py     # :5001
 python3 main.py       # :5000  ← open this one
-python3 panel.py      # :5003  (optional, staff only)
+python3 panel.py      # :5003  (optional, owner only)
 ```
 
 Then open [http://localhost:5000](http://localhost:5000).
@@ -238,7 +238,7 @@ Attach to a service with `screen -r esi-website-routes`, detach with `Ctrl+A D`.
 
 ## Control panel
 
-`panel.py` is a self-contained ops dashboard for the bot owner and staff (Discord roles *Bot Owner*, *Developer*, *User Support*, plus the `OWNER` env var). It is fully independent of the website processes, so it can restart them even when they're down.
+`panel.py` is a self-contained ops dashboard for the site owner only. It is fully independent of the website processes, so it can restart them even when they're down.
 
 - **Website**: start/stop/reload the gateway, routes, and cache, with live logs and event feeds.
 - **Bots**: start/stop/reload ESI-Bot, Q-Bot, and the ESI-Bot trackers.

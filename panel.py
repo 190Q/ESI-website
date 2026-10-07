@@ -39,7 +39,6 @@ from config import (
     DISCORD_TOKEN, PANEL_PORT, PANEL_REDIRECT_URI, PANEL_ALLOWED_IPS,
     BOT_SCREEN_SESSION, TRACKER_SCREEN_SESSION,
     GATEWAY_PORT, ROUTES_PORT, CACHE_PORT,
-    _TICKET_GUILD_ID, _STAFF_ROLE_DEFS,
     _ROLE_EMPEROR, _ROLE_GRAND_DUKE, _ROLE_ARCHDUKE, _ROLE_CONGRESS,
     _ROLE_PARLIAMENT, _ROLE_JUROR, _ROLE_CITIZEN,
     DEV_MODE,
@@ -805,60 +804,18 @@ def _is_owner(user) -> bool:
     return owner_l in {username, tag}
 
 
-_staff_cache: dict = {}
-_STAFF_TTL = 300
-
-
-def _staff_role_name(user) -> str | None:
-    """Look up the user's highest matching role on the ticket server
-    (Bot Owner / Developer / User Support). Cached per-user for _STAFF_TTL
-    seconds - _access_level() (and therefore this) runs on every
-    require_access-gated request, including the /panel/api/services poll
-    that fires every 15s. Without caching, if _is_owner() ever fails to
-    match (env drift, wrong ID, etc.) this would hit Discord's live API
-    with the bot's own token every 15s indefinitely for as long as the
-    panel tab stays open - exactly the kind of pattern Discord's abuse
-    detection flags a token for."""
-    if not isinstance(user, dict) or not DISCORD_TOKEN or not _TICKET_GUILD_ID:
-        return None
-    user_id = str(user.get("id") or "")
-    if not user_id:
-        return None
-    now = time()
-    cached = _staff_cache.get(user_id)
-    if cached and now - cached["ts"] < _STAFF_TTL:
-        return cached["role"]
-    role = None
-    try:
-        resp = requests.get(
-            f"{DISCORD_API}/guilds/{_TICKET_GUILD_ID}/members/{user_id}",
-            headers={"Authorization": f"Bot {DISCORD_TOKEN}"},
-            timeout=8,
-        )
-        if resp.ok:
-            member_roles = set(resp.json().get("roles", []))
-            for rd in _STAFF_ROLE_DEFS:
-                if rd["role_id"] in member_roles:
-                    role = rd["name"]
-                    break
-    except requests.RequestException:
-        pass
-    _staff_cache[user_id] = {"role": role, "ts": now}
-    return role
-
-
 def _access_level(user) -> str | None:
+    """The control panel is owner-only: either the OWNER account, or nothing.
+
+    There is deliberately no staff/developer tier any more - a logged-in
+    non-owner is treated exactly like an anonymous visitor, so the panel (and
+    its existence) is not exposed to anyone but the owner."""
     if _is_owner(user):
         return "owner"
-    role = _staff_role_name(user)
-    if role == "Developer":
-        return "developer"
-    if role == "User Support":
-        return "support"
     return None
 
 
-_ACCESS_RANK = {"support": 1, "developer": 2, "owner": 3}
+_ACCESS_RANK = {"owner": 3}
 
 
 def require_access(min_level="owner"):
@@ -872,6 +829,32 @@ def require_access(min_level="owner"):
             if not level or _ACCESS_RANK.get(level, 0) < _ACCESS_RANK.get(min_level, 999):
                 _audit("access_denied", user=user, result="forbidden", detail=request.path)
                 return jsonify({"error": "Insufficient permissions"}), 403
+            return fn(*args, **kwargs)
+        return wrapper
+    return deco
+
+
+def require_owner_shell(redirect_anonymous=True):
+    """Gate the panel's own HTML and asset routes.
+
+    require_access already locks down every /panel/api/* endpoint; this closes
+    the remaining gap by refusing to hand the panel shell (or its assets) to
+    anyone but the owner. An anonymous visitor is redirected to Discord login
+    so the owner can authenticate; a logged-in non-owner gets a 404, so the
+    panel is invisible to them rather than showing a login/denied gate.
+    """
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            user = session.get("user")
+            if not user:
+                if redirect_anonymous:
+                    return redirect("/panel/auth/login")
+                abort(404)
+            if _access_level(user) != "owner":
+                _audit("access_denied", user=user, result="forbidden",
+                       detail=request.path)
+                abort(404)
             return fn(*args, **kwargs)
         return wrapper
     return deco
@@ -1067,16 +1050,19 @@ def panel_auth_session():
 
 @app.route("/panel/")
 @app.route("/panel")
+@require_owner_shell()
 def panel_index():
     return send_from_directory(_STATIC_DIR, "index.html")
 
 
 @app.route("/panel/static/<path:filename>")
+@require_owner_shell(redirect_anonymous=False)
 def panel_static(filename):
     return send_from_directory(_STATIC_DIR, filename)
 
 
 @app.route("/panel/<section>/<page>")
+@require_owner_shell()
 def panel_spa_route(section, page):
     """Serve the same SPA shell for the sidebar's own client-rendered routes
     (/panel/website/gateway, /panel/bots/q-bot, /panel/tools/scripts, ...)
