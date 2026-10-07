@@ -53,10 +53,11 @@ Covered interactions:
     - Reset button
     - Save -> toast notification
 
-  Support modal + Ticket form
+  Support modal + Ticket form + Q&A
     - Open ticket view, fill, switch Write/Preview tab, back button
     - Label pill toggles
     - Submit while logged out -> 401 / friendly error
+    - Open Q&A view, expand an item, return to the links view
 
   Cross-cutting
     - Mobile viewport (375x667) - sidebar collapses, navbar wraps
@@ -441,6 +442,23 @@ def define_tests(base: str, opts: argparse.Namespace
         visible(page, "#supportLinksView")
 
     tests.append(("ticket form: write/preview, label, back", t_ticket_form_flow))
+
+    def t_support_qna_flow(page: Page, m: PageMonitor) -> None:
+        open_app(page, base)
+        click(page, "#helpBtn")
+        click(page, "#openQnaBtn")
+        visible(page, "#supportQnaView")
+        # a section heading and its first question are present
+        visible(page, ".qna-section-title")
+        assert_displayed(page, ".qna-item")
+        # expanding an item reveals its answer
+        page.locator(".qna-item").first.locator(".qna-question").click()
+        visible(page, ".qna-item.open .qna-answer")
+        # back returns to the links view
+        click(page, "#qnaBack")
+        visible(page, "#supportLinksView")
+
+    tests.append(("support modal: Q&A view, expand, back", t_support_qna_flow))
 
     # ===== Settings modal ===================================================
     def t_settings_modal_open(page: Page, m: PageMonitor) -> None:

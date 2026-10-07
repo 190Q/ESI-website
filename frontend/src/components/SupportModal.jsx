@@ -1,5 +1,6 @@
-import { DiscordIcon, TicketIcon, GitHubIcon } from './Icons'
+import { DiscordIcon, TicketIcon, GitHubIcon, HelpIcon } from './Icons'
 import { resolveThemeImagePath } from '../themeImages'
+import SupportQna from './SupportQna'
 
 export default function SupportModal() {
   const emblemSrc = resolveThemeImagePath('/images/guild_emblem.avif')
@@ -19,7 +20,13 @@ export default function SupportModal() {
           </p>
           <ul className="support-links">
             <li>
-              <a href="https://discord.gg/sindria" target="_blank" rel="noopener" className="support-link discord">
+              <a href="#" className="support-link qna" id="openQnaBtn">
+                <HelpIcon width={20} height={20} />
+                Questions &amp; Answers
+              </a>
+            </li>
+            <li>
+              <a href="https://discord.gg/YwnAyzefdV" target="_blank" rel="noopener" className="support-link discord">
                 <DiscordIcon />
                 Join our Discord
               </a>
@@ -37,6 +44,20 @@ export default function SupportModal() {
               </a>
             </li>
           </ul>
+        </div>
+
+        {/* Q&A view */}
+        <div id="supportQnaView" style={{ display: 'none' }}>
+          <h2 className="modal-title" style={{ textAlign: 'left' }}>Questions &amp; Answers</h2>
+          <p className="modal-sub" style={{ textAlign: 'left', fontWeight: 500 }}>
+            Answers to the things members ask most
+          </p>
+          <div className="support-qna-body">
+            <SupportQna />
+          </div>
+          <div className="support-qna-actions">
+            <button type="button" className="support-qna-back" id="qnaBack">{'\u2190'} Back</button>
+          </div>
         </div>
 
         {/* Ticket form view */}

@@ -1932,16 +1932,37 @@ fetch('/auth/session', { credentials: 'same-origin' })
   /* support modal */
   var linksView    = document.getElementById('supportLinksView');
   var ticketView   = document.getElementById('ticketFormView');
+  var qnaView      = document.getElementById('supportQnaView');
   var supportModal = document.getElementById('supportModal');
+
+  function trackSupportQna(action, detail) {
+    try {
+      if (window.ESITrack) {
+        window.ESITrack.event('feature', {
+          name: 'support_qna', action: action, detail: detail || '',
+        });
+      }
+    } catch (_err) { /* ignore */ }
+  }
+
+  function showSupportLinksView() {
+    ticketView.style.display = 'none';
+    if (qnaView) qnaView.style.display = 'none';
+    linksView.style.display = 'block';
+    supportModal.classList.remove('modal--ticket');
+    supportModal.classList.remove('modal--qna');
+  }
+  function isSupportSubView() {
+    return supportModal.classList.contains('modal--ticket') ||
+           supportModal.classList.contains('modal--qna');
+  }
 
   window.Popup.register(modalBackdrop, {
     closeBtn: modalClose,
-    /* if the ticket form is showing, go back to links view instead of closing */
+    onOpen: showSupportLinksView,
     onRequestClose: function () {
-      if (supportModal.classList.contains('modal--ticket')) {
-        ticketView.style.display = 'none';
-        linksView.style.display  = 'block';
-        supportModal.classList.remove('modal--ticket');
+      if (isSupportSubView()) {
+        showSupportLinksView();
         return true; // intercept the close
       }
       return false;
@@ -1952,13 +1973,39 @@ fetch('/auth/session', { credentials: 'same-origin' })
 
   function openModal()  { window.Popup.open(modalBackdrop); }
   function closeModal() {
-    if (supportModal.classList.contains('modal--ticket')) {
-      ticketView.style.display = 'none';
-      linksView.style.display  = 'block';
-      supportModal.classList.remove('modal--ticket');
+    if (isSupportSubView()) {
+      showSupportLinksView();
       return;
     }
     window.Popup.close(modalBackdrop);
+  }
+
+  /* Q&A view */
+  var openQnaBtn = document.getElementById('openQnaBtn');
+  if (openQnaBtn) {
+    openQnaBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      if (!qnaView) return;
+      linksView.style.display = 'none';
+      supportModal.classList.add('modal--qna');
+      qnaView.style.display = '';
+      trackSupportQna('open');
+    });
+  }
+  var qnaBackBtn = document.getElementById('qnaBack');
+  if (qnaBackBtn) {
+    qnaBackBtn.addEventListener('click', function () { showSupportLinksView(); });
+  }
+  if (qnaView) {
+    qnaView.addEventListener('click', function (e) {
+      var btn = e.target && e.target.closest ? e.target.closest('.qna-question') : null;
+      if (!btn) return;
+      var item = btn.closest('.qna-item');
+      if (!item) return;
+      var isOpen = item.classList.toggle('open');
+      btn.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      if (isOpen) trackSupportQna('expand', btn.textContent.trim().slice(0, 80));
+    });
   }
 
   /* ticket form */

@@ -899,6 +899,7 @@ html.mobile-sidebar-open body {
   border-color: var(--github-border);
 }
 .support-link.ticket  { border-left: 3px solid var(--online); }
+.support-link.qna     { border-left: 3px solid var(--gold); }
 
 /* Wider modal for ticket form */
 .modal--ticket {
@@ -928,6 +929,167 @@ html.mobile-sidebar-open body {
 }
 .modal--ticket {
   overflow: auto;
+}
+
+/* Wider modal for the Q&A view */
+.modal--qna {
+  max-width: 760px;
+  width: 94%;
+  text-align: left;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  padding: 32px 0 0;
+}
+.modal--qna .modal-title,
+.modal--qna .modal-sub {
+  padding: 0 32px;
+  flex-shrink: 0;
+}
+.modal--qna .modal-sub { margin-bottom: 18px; }
+.modal--qna .modal-close { top: 12px; right: 14px; }
+.modal--qna #supportQnaView {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.support-qna-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 32px 24px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--popup-scrollbar-thumb) var(--popup-scrollbar-track);
+}
+.support-qna-body::-webkit-scrollbar { width: var(--popup-scrollbar-width); }
+.support-qna-body::-webkit-scrollbar-track { background: var(--popup-scrollbar-track); }
+.support-qna-body::-webkit-scrollbar-thumb {
+  background: var(--popup-scrollbar-thumb);
+  border-radius: 3px;
+}
+.support-qna-body::-webkit-scrollbar-thumb:hover {
+  background: var(--popup-scrollbar-thumb-hover);
+}
+
+.qna-section { margin-bottom: 22px; }
+.qna-section:last-child { margin-bottom: 0; }
+.qna-section-title {
+  font-family: var(--font-heading);
+  font-size: 0.68rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+
+.qna-item {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+  overflow: hidden;
+  transition: border-color var(--transition);
+}
+.qna-item:hover { border-color: var(--border-mid); }
+.qna-question {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-size: 0.84rem;
+  color: var(--text-main);
+  transition: color var(--transition), background var(--transition);
+}
+.qna-question:hover {
+  color: var(--gold-light);
+  background: rgba(var(--gold-rgb), 0.05);
+}
+.qna-question::after {
+  content: '+';
+  flex-shrink: 0;
+  font-family: var(--font-body);
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--gold-dim);
+  transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.qna-item.open .qna-question {
+  color: var(--gold-light);
+  border-bottom: 1px solid var(--border);
+}
+.qna-item.open .qna-question::after { transform: rotate(45deg); }
+
+.qna-answer-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows 260ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    visibility 0s linear 260ms;
+}
+.qna-item.open .qna-answer-wrap {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition:
+    grid-template-rows 260ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    visibility 0s;
+}
+.qna-answer {
+  overflow: hidden;
+  min-height: 0;
+}
+.qna-answer-inner {
+  padding: 12px 16px 14px;
+  color: var(--text-dim);
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+.qna-answer p { margin: 0 0 8px; }
+.qna-answer p:last-child { margin-bottom: 0; }
+.qna-answer strong { color: var(--text-main); font-weight: 600; }
+.qna-answer code {
+  font-family: monospace;
+  font-size: 0.85em;
+  color: var(--gold-light);
+}
+.qna-list {
+  list-style: disc;
+  padding-left: 20px;
+  margin: 8px 0;
+}
+.qna-list li { margin-bottom: 4px; }
+.qna-list li:last-child { margin-bottom: 0; }
+
+.support-qna-actions {
+  flex-shrink: 0;
+  padding: 12px 32px 18px;
+  border-top: 1px solid var(--border);
+}
+.support-qna-back {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  font-family: var(--font-heading);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  transition: all var(--transition);
+  cursor: pointer;
+}
+.support-qna-back:hover {
+  border-color: var(--border-mid);
+  color: var(--gold-light);
+  background: var(--gold-glow);
 }
 
 /* Ticket form */
@@ -3091,5 +3253,15 @@ html.mobile-sidebar-open body {
   }
   .legal-body {
     padding: 18px 20px 24px;
+  }
+  .modal--qna .modal-title,
+  .modal--qna .modal-sub {
+    padding: 0 20px;
+  }
+  .support-qna-body {
+    padding: 0 20px 20px;
+  }
+  .support-qna-actions {
+    padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
   }
 }
