@@ -485,19 +485,35 @@ _init_user_db()
 
 _REMEMBER_COOKIE  = "esi_remember"
 _REMEMBER_MAX_AGE = 30 * 24 * 3600
+_REMEMBER_MAX_PER_USER = 10
 
 
 def _remember_create(user_data):
+    """Mint a new 'remember me' token for the device that just logged in.
+
+    Multiple devices may stay signed in to the same account at once, so every
+    login gets its own row and does NOT delete the user's other tokens. Expired
+    rows are pruned and the per-user count is capped (keeping the newest) so an
+    account cannot accumulate rows without bound.
+    """
     token = secrets.token_urlsafe(64)
     now = time()
     conn = _get_db()
-    conn.execute("DELETE FROM remember_tokens WHERE discord_id = ?", (user_data["id"],))
     conn.execute(
         "INSERT INTO remember_tokens (token, discord_id, user_data, created_at, expires_at)"
         " VALUES (?, ?, ?, ?, ?)",
         (token, user_data["id"], json.dumps(user_data), now, now + _REMEMBER_MAX_AGE),
     )
+    # Drop tokens that have already expired, for everyone.
     conn.execute("DELETE FROM remember_tokens WHERE expires_at < ?", (now,))
+    # Keep only the most recent tokens for this account.
+    conn.execute(
+        "DELETE FROM remember_tokens WHERE discord_id = ? AND token NOT IN ("
+        "    SELECT token FROM remember_tokens WHERE discord_id = ?"
+        "    ORDER BY created_at DESC LIMIT ?"
+        ")",
+        (user_data["id"], user_data["id"], _REMEMBER_MAX_PER_USER),
+    )
     conn.commit()
     return token
 
