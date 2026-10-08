@@ -435,6 +435,8 @@ _SCRIPTS = {
     "gdpr-rectify": {"path": os.path.join(_SCRIPTS_DIR, "gdpr_rectify.py"), "label": "GDPR: Rectify User Data"},
     "gdpr-restrict": {"path": os.path.join(_SCRIPTS_DIR, "gdpr_restrict.py"), "label": "GDPR: Restrict User Processing"},
     "grant-knight-bonus": {"path": os.path.join(_SCRIPTS_DIR, "grant_knight_bonus.py"), "label": "Grant Knight EP Bonus"},
+    "raid-event-bonus-report": {"path": os.path.join(_SCRIPTS_DIR, "raid_event_bonus_report.py"), "label": "Raid Event: Bonus EP Report"},
+    "raid-event-tickets": {"path": os.path.join(_SCRIPTS_DIR, "raid_event_tickets.py"), "label": "Raid Event: Calculate Tickets"},
     "send-cycle-announcement": {"path": os.path.join(_SCRIPTS_DIR, "send_cycle_announcement.py"), "label": "Send Cycle Announcement"},
     "test-local": {"path": os.path.join(_SCRIPTS_DIR, "test_local.py"), "label": "Run Local Test Suite"},
     "set-esi-bot-token": {
