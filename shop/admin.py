@@ -1574,7 +1574,7 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
     old_item = None
 
     with _json_write_lock:
-        from shop.items import _load_json
+        from shop.items import _load_json, _load_overrides
         items = _load_json()
 
         if is_new:
@@ -1599,8 +1599,21 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
             if "creator_discord_id" not in fields and items[idx].get("creator_discord_id"):
                 fields["creator_discord_id"] = items[idx]["creator_discord_id"]
             fields["id"] = item_id
+            _requested_active = _coerce_bool(fields.get("active"), True)
             item = _build_item(fields)
-            if _items_semantically_equal(old_item, item):
+            if _requested_active and not item.get("active") and item.get("activate_at"):
+                return {
+                    "error": (
+                        "This item is scheduled to auto-activate at "
+                        f"{item['activate_at']}. Clear the 'Auto-activate at' "
+                        "field to activate it now."
+                    )
+                }
+            _override = _load_overrides().get(item_id) or {}
+            _old_for_compare = dict(old_item)
+            if "active" in _override:
+                _old_for_compare["active"] = _override["active"]
+            if _items_semantically_equal(_old_for_compare, item):
                 return {"error": "No changes to save"}
             items[idx] = item
 
@@ -1611,25 +1624,38 @@ def admin_write_item(item_id: str | None, fields: dict, is_new: bool,
 
     _reload_items()
 
-    # Sync the DB stock override so it doesn't shadow the JSON value
+    # Sync the DB overrides so they don't shadow the JSON values.
     if not is_new and os.path.isfile(_SHOP_DB):
         _sync_conn = None
         try:
             _sync_conn = sqlite3.connect(_SHOP_DB, timeout=5)
             _sync_conn.execute("PRAGMA journal_mode=WAL")
             _ov_row = _sync_conn.execute(
-                "SELECT stock FROM item_overrides WHERE item_id = ?",
+                "SELECT stock, active FROM item_overrides WHERE item_id = ?",
                 (item["id"],),
             ).fetchone()
             if _ov_row is not None:
+                _ov_stock, _ov_active = _ov_row[0], _ov_row[1]
                 _new_stock = item.get("stock")
-                _ov_stock = _ov_row[0]
+                _new_active = bool(item.get("active", True))
+                _sets: list = []
+                _params: list = []
                 if _ov_stock != _new_stock:
+                    _sets.append("stock = ?")
+                    _params.append(_new_stock)
+                if _ov_active is not None and bool(_ov_active) != _new_active:
+                    _sets.append("active = ?")
+                    _params.append(1 if _new_active else 0)
+                if _sets:
+                    _sets.append("updated_by = ?")
+                    _params.append(actor)
+                    _sets.append("updated_at = ?")
+                    _params.append(_now_iso())
+                    _params.append(item["id"])
                     _sync_conn.execute(
-                        "UPDATE item_overrides SET stock = ?, "
-                        "updated_by = ?, updated_at = ? "
+                        f"UPDATE item_overrides SET {', '.join(_sets)} "
                         "WHERE item_id = ?",
-                        (_new_stock, actor, _now_iso(), item["id"]),
+                        _params,
                     )
                     _sync_conn.commit()
         except sqlite3.Error:
