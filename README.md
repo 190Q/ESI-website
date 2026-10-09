@@ -25,6 +25,19 @@ The dashboard is split into panels, reachable from a collapsible sidebar:
 
 Authentication is Discord OAuth2. Public stats and events are open to everyone; management panels are gated by guild role (and the shop has an additional per-user privilege layer).
 
+### Link previews
+
+Pasting a player or guild link into Discord (or any chat that unfurls links) shows a generated preview card instead of the generic site logo:
+
+- **`/player/<username>`** — the player's head, name, guild rank, and key stats.
+- **`/guild`** — the guild's emblem, level, member count, and wars.
+
+Only those two routes get personalised tags; every other route keeps the stock metadata. Unfurlers read the raw HTML without running JavaScript, so the gateway injects the Open Graph `<meta>` tags into the SPA shell at serve time (`_serve_spa` in `main.py`). The card images themselves are rendered by `og_cards.py` (Playwright, 1200×630) and served by `routes.py` from `/api/og/player/<username>.png` and `/api/og/guild.png`, with metadata from `/api/og/meta`.
+
+Rendered cards are cached on disk under `data/og_cache/` (player ~3 h, guild ~30 min) so a crawler hit never triggers a fresh headless-browser render. Unlike the shop's DM cards, the browser is launched per render and closed again rather than kept resident.
+
+If Playwright isn't installed, or the player/guild data can't be fetched, the tags degrade to title and description only — no `og:image` — and nothing errors.
+
 ### Custom themes & fonts
 
 Users can upload their own `.css` files via Settings to override the default colour theme or font. Example files live in `public/examples/`:

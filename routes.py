@@ -8298,6 +8298,215 @@ def guild_by_name(name: str):
         abort(502, description=f"Could not reach Wynncraft API: {e}")
 
 
+_OG_USERNAME_RE = _re.compile(r"^[A-Za-z0-9_]{1,16}$")
+_OG_GUILD_PREFIX = "ESI"
+_OG_GUILD_FALLBACK_NAME = "Empire of Sindria"
+
+
+def _og_cards_module():
+    """Import the card renderer lazily so a missing dependency is survivable."""
+    try:
+        import og_cards
+        return og_cards
+    except Exception:
+        return None
+
+
+def _og_playwright_available() -> bool:
+    module = _og_cards_module()
+    if module is None:
+        return False
+    try:
+        return bool(module.is_available())
+    except Exception:
+        return False
+
+
+def _og_int(value):
+    try:
+        return int(round(float(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _og_player_payload(username: str):
+    """Normalised card data for one player, or None when they can't be found."""
+    try:
+        player = cached_get(f"{WYNN_BASE}/player/{username}?fullResult")
+    except Exception:
+        player = None
+    if not isinstance(player, dict) or not player.get("username"):
+        return None
+    guild = player.get("guild") if isinstance(player.get("guild"), dict) else {}
+    global_data = player.get("globalData") if isinstance(player.get("globalData"), dict) else {}
+    graids = global_data.get("guildRaids") if isinstance(global_data.get("guildRaids"), dict) else {}
+    return {
+        "username": player.get("username") or username,
+        "uuid": player.get("uuid") or "",
+        "guild_name": guild.get("name") or "",
+        "guild_prefix": guild.get("prefix") or "",
+        "guild_rank": guild.get("rank") or "",
+        "guild_rank_stars": guild.get("rankStars") or "",
+        "online": bool(player.get("online")),
+        "total_level": global_data.get("totalLevel"),
+        "playtime_hours": player.get("playtime"),
+        "wars": global_data.get("wars"),
+        "guild_raids": graids.get("total"),
+    }
+
+
+def _og_guild_payload():
+    """Normalised card data for the tracked guild, or None when unavailable."""
+    try:
+        guild = cached_get(f"{WYNN_BASE}/guild/prefix/{_OG_GUILD_PREFIX}")
+    except Exception:
+        guild = None
+    if not isinstance(guild, dict) or not guild.get("name"):
+        return None
+    members = guild.get("members") if isinstance(guild.get("members"), dict) else {}
+    total = _og_int(members.get("total"))
+    if total is None:
+        total = 0
+        for rank, group in members.items():
+            if rank in ("total", "totalMembers"):
+                continue
+            if isinstance(group, dict):
+                total += len(group)
+    territories = guild.get("territories")
+    if isinstance(territories, dict):
+        territories = len(territories)
+    else:
+        territories = _og_int(territories)
+    return {
+        "name": guild.get("name") or _OG_GUILD_FALLBACK_NAME,
+        "prefix": guild.get("prefix") or _OG_GUILD_PREFIX,
+        "level": guild.get("level"),
+        "xp_percent": guild.get("xpPercent"),
+        "members": total,
+        "online": guild.get("online"),
+        "wars": guild.get("wars"),
+        "territories": territories,
+    }
+
+
+@app.route("/api/og/meta")
+@rate_limit(120)
+def og_meta():
+    """Preview metadata for the gateway to inject into the SPA shell."""
+    card_type = (request.args.get("type") or "").strip().lower()
+    name = (request.args.get("name") or "").strip()
+    image_available = _og_playwright_available()
+
+    if card_type == "guild":
+        payload = _og_guild_payload()
+        if payload:
+            parts = []
+            level = _og_int(payload.get("level"))
+            if level is not None:
+                parts.append(f"Level {level}")
+            members = _og_int(payload.get("members"))
+            if members is not None:
+                parts.append(f"{members:,} members")
+            wars = _og_int(payload.get("wars"))
+            if wars is not None:
+                parts.append(f"{wars:,} wars")
+            return jsonify({
+                "title": f"{payload['name']} [{payload['prefix']}]",
+                "description": " \u00b7 ".join(parts) or "Wynncraft guild dashboard",
+                "found": True,
+                "image_available": image_available,
+            })
+        return jsonify({
+            "title": _OG_GUILD_FALLBACK_NAME,
+            "description": "Wynncraft guild dashboard",
+            "found": False,
+            "image_available": False,
+        })
+
+    if card_type == "player":
+        if not _OG_USERNAME_RE.match(name):
+            return jsonify({
+                "title": _OG_GUILD_FALLBACK_NAME,
+                "description": "Wynncraft player dashboard",
+                "found": False,
+                "image_available": False,
+            })
+        payload = _og_player_payload(name)
+        if not payload:
+            return jsonify({
+                "title": f"{name} \u2014 {_OG_GUILD_FALLBACK_NAME}",
+                "description": "Wynncraft player dashboard",
+                "found": False,
+                "image_available": image_available,
+            })
+        parts = []
+        level = _og_int(payload.get("total_level"))
+        if level is not None:
+            parts.append(f"Total Level {level}")
+        try:
+            if payload.get("playtime_hours") is not None:
+                parts.append(f"{float(payload['playtime_hours']):,.0f}h playtime")
+        except (TypeError, ValueError):
+            pass
+        wars = _og_int(payload.get("wars"))
+        if wars is not None:
+            parts.append(f"{wars:,} wars")
+        rank = (payload.get("guild_rank") or "").strip()
+        if rank:
+            parts.append(f"Rank: {rank}")
+        return jsonify({
+            "title": f"{payload['username']} \u2014 {_OG_GUILD_FALLBACK_NAME}",
+            "description": " \u00b7 ".join(parts) or "Wynncraft player dashboard",
+            "found": True,
+            "image_available": image_available,
+        })
+
+    return jsonify({
+        "title": _OG_GUILD_FALLBACK_NAME,
+        "description": "Wynncraft guild dashboard",
+        "found": False,
+        "image_available": False,
+    })
+
+
+def _og_png_response(png: bytes, ttl: int):
+    resp = _Response(png, status=200, mimetype="image/png")
+    resp.headers["Cache-Control"] = f"public, max-age={int(ttl)}"
+    return resp
+
+
+@app.route("/api/og/player/<username>.png")
+@rate_limit(30)
+def og_player_image(username: str):
+    if not _OG_USERNAME_RE.match(username or ""):
+        abort(404)
+    payload = _og_player_payload(username)
+    if not payload:
+        abort(404)
+    module = _og_cards_module()
+    if module is None:
+        abort(503)
+    png = module.render_player_card(payload)
+    if not png:
+        abort(503)
+    return _og_png_response(png, module.PLAYER_TTL)
+
+
+@app.route("/api/og/guild.png")
+@rate_limit(30)
+def og_guild_image():
+    payload = _og_guild_payload()
+    if not payload:
+        abort(404)
+    module = _og_cards_module()
+    if module is None:
+        abort(503)
+    png = module.render_guild_card(payload)
+    if not png:
+        abort(503)
+    return _og_png_response(png, module.GUILD_TTL)
+
+
 # bot info / status
 
 @app.route("/api/bot/info")

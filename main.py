@@ -17,10 +17,13 @@ mimetypes.add_type("image/x-icon", ".ico")
 
 import base64
 import hashlib
+import html as _html
 import os
 import re
 import sys
 import time
+from urllib.parse import quote as _urlquote, unquote as _urlunquote
+
 import requests
 from flask import Flask, request, Response, jsonify, send_from_directory, abort, g
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -28,6 +31,7 @@ from werkzeug.serving import WSGIRequestHandler
 
 from config import (
     _BASE_DIR, _UPLOAD_DIR, GATEWAY_PORT, ROUTES_URL, _GATEWAY_SECRET, DEV_MODE,
+    _PUBLIC_ORIGIN,
 )
 
 
@@ -822,9 +826,126 @@ def index():
     return send_from_directory(_BASE_DIR, "index.html")
 
 
+_OG_PLAYER_PATH_RE = re.compile(r"^/player/([^/]+)$")
+_OG_USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{1,16}$")
+
+
+def _og_scope(path):
+    """Return (card_type, name) for preview-enabled paths, else (None, None)."""
+    match = _OG_PLAYER_PATH_RE.match(path)
+    if match:
+        name = _urlunquote(match.group(1))
+        if _OG_USERNAME_RE.match(name):
+            return "player", name
+        return None, None
+    if path.rstrip("/") == "/guild":
+        return "guild", None
+    return None, None
+
+
+def _og_meta_for(card_type, name):
+    """Ask the routes service for preview metadata. Never raises."""
+    params = {"type": card_type}
+    if name:
+        params["name"] = name
+    try:
+        resp = requests.get(
+            f"{ROUTES_URL}/api/og/meta",
+            params=params,
+            headers={
+                "X-Gateway-Secret": _GATEWAY_SECRET,
+                "X-Real-Client-IP": _real_client_ip() or "",
+                "User-Agent": "ESI-Dashboard-Gateway/1.0",
+            },
+            timeout=6,
+        )
+        if resp.ok:
+            data = resp.json()
+            if isinstance(data, dict):
+                return data
+    except (requests.RequestException, ValueError):
+        pass
+    return None
+
+
+def _og_origin():
+    """Absolute origin for preview URLs (configured domain wins over Host)."""
+    if _PUBLIC_ORIGIN:
+        return _PUBLIC_ORIGIN
+    return request.host_url.rstrip("/")
+
+
+def _inject_og_meta(html, card_type, name, meta):
+    """Add title/description/Open Graph tags to the SPA shell."""
+    esc = _html.escape
+    origin = _og_origin()
+
+    title = str(meta.get("title") or "Empire of Sindria dashboard")
+    description = str(meta.get("description") or "")
+    found = bool(meta.get("found"))
+    image_available = bool(meta.get("image_available"))
+
+    if card_type == "player":
+        canonical = "/player/" + _urlquote(name or "")
+        og_type = "profile"
+        image_url = f"{origin}/api/og/player/{_urlquote(name or '')}.png"
+    else:
+        canonical = "/guild"
+        og_type = "website"
+        image_url = f"{origin}/api/og/guild.png"
+
+    tags = [
+        f'<meta name="description" content="{esc(description, quote=True)}">',
+        f'<meta property="og:type" content="{esc(og_type, quote=True)}">',
+        '<meta property="og:site_name" content="Empire of Sindria">',
+        f'<meta property="og:title" content="{esc(title, quote=True)}">',
+        f'<meta property="og:description" content="{esc(description, quote=True)}">',
+        f'<meta property="og:url" content="{esc(origin + canonical, quote=True)}">',
+        '<meta name="twitter:card" content="summary_large_image">',
+        f'<meta name="twitter:title" content="{esc(title, quote=True)}">',
+        f'<meta name="twitter:description" content="{esc(description, quote=True)}">',
+    ]
+    if found and image_available:
+        tags.append(f'<meta property="og:image" content="{esc(image_url, quote=True)}">')
+        tags.append('<meta property="og:image:width" content="1200">')
+        tags.append('<meta property="og:image:height" content="630">')
+        tags.append(f'<meta name="twitter:image" content="{esc(image_url, quote=True)}">')
+
+    block = "\n  " + "\n  ".join(tags) + "\n"
+
+    html = re.sub(
+        r"<title>.*?</title>",
+        lambda _m: f"<title>{esc(title)}</title>",
+        html,
+        count=1,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+    if "</head>" in html:
+        html = html.replace("</head>", block + "</head>", 1)
+    return html
+
+
 def _serve_spa(_path=None):
-    """Serve the SPA shell for panel deep-links."""
-    return send_from_directory(_BASE_DIR, "index.html")
+    """Serve the SPA shell for panel deep-links, with preview tags where relevant."""
+    card_type, name = _og_scope(request.path)
+    if card_type is None:
+        return send_from_directory(_BASE_DIR, "index.html")
+
+    meta = _og_meta_for(card_type, name)
+    if not meta:
+        return send_from_directory(_BASE_DIR, "index.html")
+
+    try:
+        with open(os.path.join(_BASE_DIR, "index.html"), "r", encoding="utf-8") as fh:
+            html = fh.read()
+    except OSError:
+        return send_from_directory(_BASE_DIR, "index.html")
+
+    return Response(
+        _inject_og_meta(html, card_type, name, meta),
+        status=200,
+        mimetype="text/html",
+    )
 
 
 _SPA_ROUTE_DEFS = (

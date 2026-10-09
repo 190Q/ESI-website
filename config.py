@@ -7,6 +7,7 @@ import os
 import sys
 import json
 import secrets
+from urllib.parse import urlparse as _urlparse
 
 from dotenv import load_dotenv
 
@@ -82,6 +83,7 @@ _ANALYTICS_DB           = os.path.join(_WEBSITE_DATA_DIR, "databases", "analytic
 _GUILD_INFO_DB          = os.path.join(_WEBSITE_DATA_DIR, "databases", "guild_info.db")
 _FRONTEND_METRIC_MASKS_JSON = os.path.join(_WEBSITE_DATA_DIR, "frontend_metric_masks.json")
 _MEDALS_JSON              = os.path.join(_WEBSITE_DATA_DIR, "medals.json")
+_OG_CACHE_DIR             = os.path.join(_WEBSITE_DATA_DIR, "og_cache")
 
 
 def _detect_server_tz_name():
@@ -143,6 +145,27 @@ DISCORD_REDIRECT_URI  = os.environ.get("DISCORD_REDIRECT_URI", "")
 GITHUB_TOKEN          = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO           = os.environ.get("GITHUB_REPO", "190Q/ESI-website")
 HEADERS               = {"User-Agent": "ESI-Dashboard/1.0"}
+
+
+def _derive_public_origin(redirect_uri: str) -> str:
+    """Canonical site origin (scheme://host) taken from the OAuth redirect URI.
+
+    Link-preview (Open Graph) URLs must be absolute, and building them from a
+    client-supplied Host header would let a caller point them at their own
+    domain. Deriving the origin from configuration keeps them on our domain.
+    Returns "" when the redirect URI is unset or unparseable, in which case
+    callers fall back to the request's own host.
+    """
+    try:
+        parsed = _urlparse(redirect_uri or "")
+    except ValueError:
+        return ""
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+_PUBLIC_ORIGIN = _derive_public_origin(DISCORD_REDIRECT_URI)
 
 # cache TTLs
 

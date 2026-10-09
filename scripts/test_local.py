@@ -555,6 +555,62 @@ def build_tests(base: str, sess: requests.Session, opts: argparse.Namespace
 
     tests.append(("homepage contains no Python tracebacks", t_no_traceback))
 
+    # ---- link preview (Open Graph) cards -------------------------------------
+    def og_backend_up() -> bool:
+        return sess.get(base + "/api/og/meta?type=guild").status_code == 200
+
+    def t_og_guild_html() -> None:
+        if not og_backend_up():
+            skip("routes service (and therefore OG metadata) unavailable")
+            return
+        r = sess.get(base + "/guild")
+        assert_status(r, 200)
+        assert "text/html" in r.headers.get("Content-Type", "")
+        assert_in('property="og:title"', r.text, "og:title tag")
+        assert_in('property="og:description"', r.text, "og:description tag")
+        assert_in("summary_large_image", r.text, "twitter:card tag")
+        assert_in("Empire of Sindria", r.text, "guild name in preview tags")
+
+    tests.append(("GET /guild carries Open Graph tags", t_og_guild_html))
+
+    def t_og_player_html() -> None:
+        if not og_backend_up():
+            skip("routes service (and therefore OG metadata) unavailable")
+            return
+        r = sess.get(base + "/player/Salted")
+        assert_status(r, 200)
+        assert "text/html" in r.headers.get("Content-Type", "")
+        assert_in('property="og:title"', r.text, "og:title tag")
+        assert_in("/player/Salted", r.text, "canonical player url")
+
+    tests.append(("GET /player/<name> carries Open Graph tags", t_og_player_html))
+
+    def t_og_unscoped_unchanged() -> None:
+        r = sess.get(base + "/")
+        assert_status(r, 200)
+        assert 'property="og:image"' not in r.text, \
+            "homepage should not carry a preview card image"
+
+    tests.append(("GET / keeps the stock metadata", t_og_unscoped_unchanged))
+
+    def t_og_guild_image() -> None:
+        r = sess.get(base + "/api/og/guild.png")
+        if r.status_code in (404, 503):
+            skip(f"guild card unavailable (status {r.status_code}: "
+                 "no guild data or Playwright not installed)")
+            return
+        assert_status(r, 200)
+        assert_in("image/png", r.headers.get("Content-Type", ""), "content type")
+        assert_eq(r.content[:8], b"\x89PNG\r\n\x1a\n", "PNG magic bytes")
+
+    tests.append(("GET /api/og/guild.png renders a PNG", t_og_guild_image))
+
+    def t_og_bad_username() -> None:
+        r = sess.get(base + "/api/og/player/this-name-is-far-too-long-to-be-valid.png")
+        assert_status(r, 403, 404)
+
+    tests.append(("GET /api/og/player/<invalid>.png is rejected", t_og_bad_username))
+
     return tests
 
 
