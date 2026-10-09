@@ -1622,6 +1622,7 @@ if (savedUser) {
                 if (_nav.inactivity)      { var _e = document.querySelector('[data-panel="inactivity"]');    if (_e) _e.parentElement.style.display = ''; }
                 if (_nav.promotions)      { var _e = document.querySelector('[data-panel="promotions"]');    if (_e) _e.parentElement.style.display = ''; }
                 if (_nav.eventsManage)    { var _e = document.querySelector('[data-panel="events-manage"]'); if (_e) _e.parentElement.style.display = ''; }
+                if (_nav.guildHealth)     { var _e = document.querySelector('[data-panel="guild-health"]'); if (_e) _e.parentElement.style.display = ''; }
                 if (_nav.guildInfo)       { var _e = document.getElementById('guildInfoNavItem');       if (_e) _e.style.display = ''; }
             } catch (e) { /*nav cache parse error*/ }
         }
@@ -1860,6 +1861,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
     const canInactivity = hasParliamentPlus();
     const canPromotions = hasJurorPlus();
     const canEvents     = hasEventsAccess();
+    const canGuildHealth = hasParliamentPlus();
 
     const canShop = !isShopBanned();
     const shopNavItem = document.getElementById('shopNavItem');
@@ -1878,15 +1880,17 @@ fetch('/auth/session', { credentials: 'same-origin' })
     if (guildInfoNav) guildInfoNav.style.display = canGuildInfo ? '' : 'none';
     // show management section if any sub-item is visible
     if (manageSection) {
-      manageSection.style.display = (canInactivity || canPromotions || canEvents || canShopAdmin || canGuildInfo) ? 'block' : 'none';
+      manageSection.style.display = (canInactivity || canPromotions || canGuildHealth || canEvents || canShopAdmin || canGuildInfo) ? 'block' : 'none';
     }
 
     const inactivityNav   = document.querySelector('[data-panel="inactivity"]');
     const promotionsNav   = document.querySelector('[data-panel="promotions"]');
+    const guildHealthNav  = document.querySelector('[data-panel="guild-health"]');
     const eventsManageNav = document.querySelector('[data-panel="events-manage"]');
-    if (inactivityNav)   inactivityNav.parentElement.style.display   = canInactivity ? '' : 'none';
-    if (promotionsNav)   promotionsNav.parentElement.style.display   = canPromotions ? '' : 'none';
-    if (eventsManageNav) eventsManageNav.parentElement.style.display = canEvents     ? '' : 'none';
+    if (inactivityNav)   inactivityNav.parentElement.style.display   = canInactivity   ? '' : 'none';
+    if (promotionsNav)   promotionsNav.parentElement.style.display   = canPromotions   ? '' : 'none';
+    if (guildHealthNav)  guildHealthNav.parentElement.style.display  = canGuildHealth  ? '' : 'none';
+    if (eventsManageNav) eventsManageNav.parentElement.style.display = canEvents       ? '' : 'none';
 
     // if they're on a panel they can't access anymore, show auth gate or bounce
     if (activePanel) {
@@ -1897,6 +1901,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
         (activePanel.id === 'panel-shop-admin'    && !canShopAdmin) ||
         (activePanel.id === 'panel-inactivity'    && !canInactivity) ||
         (activePanel.id === 'panel-promotions'    && !canPromotions) ||
+        (activePanel.id === 'panel-guild-health'  && !canGuildHealth) ||
         (activePanel.id === 'panel-events-manage' && !canEvents) ||
         (activePanel.id === 'panel-guild-info'    && !canGuildInfo);
       if (blocked) {
@@ -1920,9 +1925,9 @@ fetch('/auth/session', { credentials: 'same-origin' })
     if (state.loggedIn) {
       localStorage.setItem('esi_nav_cache', JSON.stringify({
         shop: canShop, creatorStudio: canCreatorStudio, shopAdmin: canShopAdmin,
-        manage: !!(canInactivity || canPromotions || canEvents || canShopAdmin || canGuildInfo),
+        manage: !!(canInactivity || canPromotions || canGuildHealth || canEvents || canShopAdmin || canGuildInfo),
         inactivity: canInactivity, promotions: canPromotions, eventsManage: canEvents,
-        guildInfo: canGuildInfo,
+        guildInfo: canGuildInfo, guildHealth: canGuildHealth,
       }));
     } else {
       localStorage.removeItem('esi_nav_cache');
@@ -2530,10 +2535,10 @@ fetch('/auth/session', { credentials: 'same-origin' })
   var showToast = window.showToast;
 
   /* panel switching */
-  var _LOGIN_REQUIRED_PANELS = ['creator-studio', 'shop-admin', 'inactivity', 'promotions', 'events-manage', 'guild-info'];
+  var _LOGIN_REQUIRED_PANELS = ['creator-studio', 'shop-admin', 'inactivity', 'promotions', 'guild-health', 'events-manage', 'guild-info'];
 
   function switchToPanel(panel) {
-    const validPanels = ['player', 'guild', 'bot', 'events', 'shop', 'creator-studio', 'shop-admin', 'profile', 'inactivity', 'promotions', 'events-manage', 'guild-info'];
+    const validPanels = ['player', 'guild', 'bot', 'events', 'shop', 'creator-studio', 'shop-admin', 'profile', 'inactivity', 'promotions', 'guild-health', 'events-manage', 'guild-info'];
     let target = validPanels.includes(panel) ? panel : 'player';
 
     // If the panel requires login and user isn't logged in, show auth gate
@@ -2558,6 +2563,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
       if (target === 'promotions'      && !hasJurorPlus())       target = 'player';
       if (target === 'events-manage'   && !hasEventsAccess())    target = 'player';
       if (target === 'guild-info'      && !hasGuildInfoAccess()) target = 'player';
+      if (target === 'guild-health'    && !hasParliamentPlus())  target = 'player';
       if (_before !== target);
     }
     navItems.forEach(n => n.classList.remove('active'));

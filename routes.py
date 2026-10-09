@@ -8230,6 +8230,234 @@ def guild_statistics():
     return resp
 
 
+# guild health
+
+def _gh_median(values):
+    vals = sorted(v for v in values if v is not None)
+    if not vals:
+        return None
+    mid = len(vals) // 2
+    if len(vals) % 2:
+        return float(vals[mid])
+    return (float(vals[mid - 1]) + float(vals[mid])) / 2.0
+
+
+def _gh_newest_tracking_day(root, prefix):
+    """Newest dated folder under a tracker directory that actually holds a db.
+
+    The cache pads days with no snapshot with zeroes, so the series' own last
+    date says nothing about whether the tracker is alive. This looks at the
+    tracker's own output instead.
+    """
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return None
+    best = None
+    for name in names:
+        if not name.startswith(prefix):
+            continue
+        day_dir = os.path.join(root, name)
+        if not os.path.isdir(day_dir):
+            continue
+        try:
+            has_db = any(f.endswith(".db") for f in os.listdir(day_dir))
+        except OSError:
+            has_db = False
+        if not has_db:
+            continue
+        try:
+            d = _dt.strptime(name[len(prefix):], "%d-%m-%Y").date()
+        except ValueError:
+            continue
+        if best is None or d > best:
+            best = d
+    return best
+
+
+def _guild_health_inputs():
+    """Assemble everything the guild-health model needs from existing data."""
+    activity = _fetch_cache("/cache/activity") or {}
+    guild = activity.get("guild") or {}
+    members = activity.get("members") or {}
+
+    tracked = _load_json_file(_TRACKED_GUILD_JSON) or {}
+    member_history = tracked.get("member_history") or {}
+
+    # Join dates: the live snapshot first, member_history as the fallback.
+    joined_by_uuid = {}
+    joined_by_username = {}
+    prev_members = ((tracked.get("previous_data") or {}).get("members") or {})
+    if isinstance(prev_members, dict):
+        for group in prev_members.values():
+            if not isinstance(group, list):
+                continue
+            for entry in group:
+                if not isinstance(entry, dict) or not entry.get("joined"):
+                    continue
+                if entry.get("uuid"):
+                    joined_by_uuid[entry["uuid"]] = entry["joined"]
+                if entry.get("username"):
+                    joined_by_username[entry["username"].lower()] = entry["joined"]
+    for entry in member_history.values():
+        if not isinstance(entry, dict) or entry.get("left") or not entry.get("joined"):
+            continue
+        if entry.get("uuid") and entry["uuid"] not in joined_by_uuid:
+            joined_by_uuid[entry["uuid"]] = entry["joined"]
+        if entry.get("username"):
+            joined_by_username.setdefault(entry["username"].lower(), entry["joined"])
+
+    rollups = []
+    latest_db = _get_latest_api_db()
+    if latest_db:
+        try:
+            conn = _sqlite3.connect(latest_db, check_same_thread=False)
+            rows = conn.execute(
+                "SELECT username, uuid, guild_rank FROM player_stats"
+                " WHERE UPPER(COALESCE(guild_prefix, '')) = 'ESI'"
+            ).fetchall()
+            conn.close()
+        except _sqlite3.Error:
+            rows = []
+        for username, uuid, rank in rows:
+            uname = (username or "").strip()
+            if not uname:
+                continue
+            rollups.append({
+                "username": uname,
+                "uuid": uuid,
+                "rank": (rank or "").lower() or None,
+                "joined": joined_by_uuid.get(uuid) or joined_by_username.get(uname.lower()),
+            })
+
+    # Declared inactivity, resolved to usernames so the model can exclude them.
+    matches = _load_json_file(_USERNAME_MATCHES_JSON)
+    inactive = set()
+    for key, entry in (_load_json_file(_INACTIVITY_JSON) or {}).items():
+        if not isinstance(entry, dict) or not (entry.get("weeks") or []):
+            continue
+        if str(key).startswith("mc_"):
+            name = entry.get("username") or str(key)[3:]
+        else:
+            name = _mc_username(str(key), matches)
+        if name:
+            inactive.add(name.lower())
+
+    # ESI points, completed cycles only.
+    now = _dt.now(_tz.utc)
+    latest_points = {}
+    prior_points = {}
+    completed_medians = []
+    if os.path.exists(_POINTS_DB):
+        try:
+            conn = _sqlite3.connect(_POINTS_DB)
+            rows = conn.execute(
+                "SELECT cycle_id, LOWER(username), points FROM esi_points"
+            ).fetchall()
+            conn.close()
+            by_cycle = {}
+            for cid, uname, pts in rows:
+                if cid is None or not uname:
+                    continue
+                by_cycle.setdefault(int(cid), {})[uname] = int(_safe_number(pts))
+
+            def _cycle_finished(cycle_id):
+                try:
+                    _start, end = _points_get_cycle_bounds(cycle_id)
+                except Exception:
+                    return False
+                return end <= now
+
+            completed = [cid for cid in sorted(by_cycle) if _cycle_finished(cid)]
+            completed_medians = [_gh_median(by_cycle[cid].values()) for cid in completed]
+            if completed:
+                latest_points = by_cycle[completed[-1]]
+            if len(completed) > 1:
+                prior_points = by_cycle[completed[-2]]
+
+        except (_sqlite3.Error, TypeError, ValueError):
+            pass
+
+    aspects = _load_json_file(_ASPECTS_JSON) or {}
+
+    joins = []
+    leaves = []
+    for ev in (tracked.get("event_history") or []):
+        if not isinstance(ev, dict):
+            continue
+        etype = ev.get("type")
+        if etype == "member_joined":
+            joins.append({
+                "username": ev.get("username"),
+                "uuid": ev.get("uuid"),
+                "timestamp": ev.get("timestamp"),
+            })
+        elif etype == "member_left":
+            uuid = ev.get("uuid")
+            mh = member_history.get(uuid) if uuid else None
+            ts_left = _parse_iso_datetime(ev.get("timestamp"))
+            ts_joined = _parse_iso_datetime(mh.get("joined") if isinstance(mh, dict) else None)
+            tenure = None
+            if ts_left and ts_joined:
+                try:
+                    tenure = max(0, int((ts_left - ts_joined).total_seconds()))
+                except (TypeError, ValueError):
+                    tenure = None
+            leaves.append({
+                "username": ev.get("username"),
+                "uuid": uuid,
+                "timestamp": ev.get("timestamp"),
+                "tenure_seconds": tenure,
+            })
+
+    metric_data_end = _gh_newest_tracking_day(_API_TRACKING_DIR, "api_")
+    playtime_data_end = _gh_newest_tracking_day(
+        os.path.join(_ESI_BOT_DIR, "databases", "playtime_tracking"), "playtime_"
+    )
+
+    return {
+        "now": _dt.now(_tz.utc),
+        "guild": guild,
+        "members": members,
+        "rollups": rollups,
+        "metric_data_end": metric_data_end.isoformat() if metric_data_end else None,
+        "playtime_data_end": playtime_data_end.isoformat() if playtime_data_end else None,
+        "inactive": inactive,
+        "points_latest_by_user": latest_points,
+        "points_prior_by_user": prior_points,
+        "points_completed_medians": completed_medians,
+        "points_latest_median": _gh_median(latest_points.values()),
+        "points_prior_median": _gh_median(prior_points.values()),
+        "aspects": {"total": aspects.get("total_aspects")},
+        "territories": _load_json_file(_GUILD_TERRITORIES_JSON) or {},
+        "queue_history": _statistics_queue_history(180),
+        "joins": joins,
+        "leaves": leaves,
+    }
+
+
+@app.route("/api/guild/health")
+@rate_limit(20)
+def guild_health():
+    """Guild health index, dimension breakdown and member churn watchlist."""
+    user, err = _require_role(_PARLIAMENT_PLUS)
+    if err:
+        return err
+    try:
+        import guild_health as _guild_health
+    except Exception as exc:
+        return jsonify({"available": False, "reason": f"model unavailable: {exc}"}), 503
+    try:
+        report = _guild_health.build_report(_guild_health_inputs())
+    except Exception as exc:
+        return jsonify({"available": False, "reason": str(exc)}), 500
+    resp = jsonify(report)
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return resp
+
+
 @app.route("/api/player/<username>")
 @rate_limit(10)
 def player(username: str):

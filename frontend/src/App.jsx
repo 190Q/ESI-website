@@ -36,6 +36,7 @@ export default function App() {
           <section className="panel" id="panel-guild-info" />
           <section className="panel" id="panel-inactivity" />
           <section className="panel" id="panel-promotions" />
+          <section className="panel" id="panel-guild-health" />
           <section className="panel" id="panel-events-manage" />
 
           {/* Site-wide footer with legal info and community links */}

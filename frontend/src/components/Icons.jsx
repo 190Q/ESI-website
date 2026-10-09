@@ -104,6 +104,14 @@ export function TrendIcon() {
   )
 }
 
+export function PulseIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 12h4l3-7 4 14 3-7h6" />
+    </svg>
+  )
+}
+
 export function EventIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

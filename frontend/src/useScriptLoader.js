@@ -41,6 +41,7 @@ export default function useScriptLoader() {
       await loadScript('/js/bot.js')
       await loadScript('/js/inactivity.js')
       await loadScript('/js/promotions.js')
+      await loadScript('/js/guild-health.js')
       await loadScript('/js/events.js')
       await loadScript('/js/events-public.js')
       await loadScript('/js/shop.js')
