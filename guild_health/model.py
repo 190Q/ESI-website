@@ -4,6 +4,7 @@ import statistics
 from datetime import datetime, timedelta, timezone
 
 MIN_SAMPLES = 8
+TERRITORY_MAX_WINDOW_DAYS = 30
 
 MIN_WINDOW_COVERAGE = 0.6
 
@@ -37,7 +38,10 @@ INDEX_BANDS = (
 WATCHLIST_MIN_RISK = 40
 WATCHLIST_MAX = 25
 NEW_MEMBER_GRACE_DAYS = 14
-DORMANT_DAYS = 14
+WATCHLIST_WINDOW_DAYS = 14
+WATCHLIST_BASELINE_WINDOWS = 2
+WATCHLIST_RECENCY_GRACE_DAYS = 7
+WATCHLIST_RECENCY_RAMP_DAYS = 28
 
 RISK_WEIGHTS = {
     "recency": 0.30,
@@ -212,6 +216,77 @@ def _event_windows(dmap, end, days, steps=180):
     return current, (_mean(samples[:4]) if samples else None), samples
 
 
+def _baseline_windows(dmap, end, days, windows=WATCHLIST_BASELINE_WINDOWS):
+    """Mean of the *non-overlapping* windows immediately before the current one.
+
+    ``_windowed`` steps back a single day at a time, so its baseline is really
+    four near-identical copies of the current window - which is why a member's
+    decline ratio could sit at 0 for six days and jump to 1 on the seventh.
+    Stepping back by a whole window instead gives a genuine earlier reference.
+    """
+    if dmap is None or end is None:
+        return None
+    values = []
+    for index in range(1, windows + 1):
+        window_end = end - timedelta(days=days * index)
+        value = _window_value(dmap, window_end, days, "sum")
+        if value is not None:
+            values.append(value)
+    return _mean(values) if values else None
+
+
+def _recency_risk(days_since):
+    """Risk from how long a member has been idle.
+
+    Ramps after a grace period rather than starting immediately, so someone who
+    plays roughly weekly is not penalised the moment their last session ages
+    out of the comparison window.
+    """
+    if days_since is None:
+        return 100.0
+    if days_since <= WATCHLIST_RECENCY_GRACE_DAYS:
+        return 0.0
+    span = max(1.0, WATCHLIST_RECENCY_RAMP_DAYS - WATCHLIST_RECENCY_GRACE_DAYS)
+    return min(100.0, (days_since - WATCHLIST_RECENCY_GRACE_DAYS) / span * 100.0)
+
+
+def _guild_activity_factor(member_maps, end, days):
+    """How the guild as a whole moved between the baseline and current windows.
+
+    Without this, a guild-wide lull - a holiday, exam season, a quiet fortnight
+    - drops every member's ratio at once and the entire roster lands on the
+    watchlist. Dividing each member's change by the guild's own change over the
+    same period separates individual drift from collective drift.
+    """
+    if end is None or not member_maps:
+        return 1.0
+    current = sum(_window_value(mm, end, days) or 0.0 for mm in member_maps)
+    baselines = []
+    for index in range(1, WATCHLIST_BASELINE_WINDOWS + 1):
+        window_end = end - timedelta(days=days * index)
+        baselines.append(
+            sum(_window_value(mm, window_end, days) or 0.0 for mm in member_maps)
+        )
+    base = _mean(baselines) if baselines else None
+    if not base:
+        return 1.0
+    return current / base
+
+
+def _relative_decline(cur, base, guild_factor):
+    """How far a member fell behind, relative to the guild's own movement.
+
+    Returns None when there is not enough of a baseline to judge. A member who
+    declined exactly as much as the guild scores 0; one who declined twice as
+    fast scores 50.
+    """
+    if cur is None or base is None or base <= 0.2:
+        return None
+    factor = guild_factor if guild_factor and guild_factor > 0.05 else 1.0
+    ratio = (cur / base) / factor
+    return max(0.0, min(1.0, 1.0 - ratio))
+
+
 def _windowed(dmap, end, days, agg="sum", min_coverage=MIN_WINDOW_COVERAGE,
               steps=60):
     """Current window, trailing baseline, and the sample distribution.
@@ -240,7 +315,10 @@ def _source(key, label, dmap, today):
     if not dmap:
         return {"key": key, "label": label, "available": False, "end": None,
                 "lag_days": None, "usable": False}
-    end = max(dmap)
+    end = _as_date(max(dmap))
+    if end is None:
+        return {"key": key, "label": label, "available": False, "end": None,
+                "lag_days": None, "usable": False}
     lag = max(0, (today - end).days)
     return {
         "key": key,
@@ -424,8 +502,15 @@ def build_report(inputs):
     metric_dates = list(guild.get("metricDates") or [])
     playtime_dates = list(guild.get("dates") or [])
 
-    metric_len = _truncate(metric_dates, _as_date(inputs.get("metric_data_end")))
-    playtime_len = _truncate(playtime_dates, _as_date(inputs.get("playtime_data_end")))
+    complete_through = today - timedelta(days=1)
+    metric_len = min(
+        _truncate(metric_dates, _as_date(inputs.get("metric_data_end"))),
+        _truncate(metric_dates, complete_through),
+    )
+    playtime_len = min(
+        _truncate(playtime_dates, _as_date(inputs.get("playtime_data_end"))),
+        _truncate(playtime_dates, complete_through),
+    )
     metric_dates = metric_dates[:metric_len]
     playtime_dates = playtime_dates[:playtime_len]
 
@@ -442,7 +527,7 @@ def build_report(inputs):
     graid_maps = _member_maps(active_pool, metric_dates, "guildRaids", metric_len)
     war_maps = _member_maps(active_pool, metric_dates, "wars", metric_len)
 
-    territory_map = _territory_series(inputs.get("territories") or {}, today)
+    territory_map = _territory_level_series(inputs.get("territories") or {}, today)
     join_map = _count_map(inputs.get("joins") or [])
     leave_map = _count_map(inputs.get("leaves") or [])
 
@@ -598,11 +683,28 @@ def build_report(inputs):
     ))
 
     terr_end = max(territory_map) if territory_map else None
-    cur, base, samples = _event_windows(territory_map, terr_end, 30)
+    terr_days = _territory_window(territory_map)
+    terr_cur, terr_base, terr_samples, terr_span = _level_windows(
+        territory_map, terr_end, terr_days
+    )
+    terr_span_label = _fmt_span(terr_span if terr_span is not None else terr_days)
+    terr_detail = (
+        "Territories held at the end of the window minus territories held at its "
+        "start, read from the recorded held total. A territory taken and lost again "
+        "inside the window cancels out instead of counting twice."
+    )
+    if terr_span is not None and terr_days is not None and terr_span < terr_days:
+        terr_detail += (
+            f" The record only reaches back {_fmt_span(terr_span)}, so that is the "
+            "span being compared."
+        )
     contribution_signals.append(_make_signal(
-        "territory_net_30d", "Territory net (30d)", cur, samples, 0.10,
-        display=f"{cur:+.0f}" if cur is not None else "\u2014",
-        detail="Territories captured minus territories lost over the last 30 days.",
+        "territory_net_30d", f"Territory net ({terr_span_label})",
+        terr_cur, terr_samples, 0.10,
+        baseline=terr_base,
+        display=f"{terr_cur:+.0f}" if terr_cur is not None else "\u2014",
+        baseline_display=f"{terr_base:+.0f}" if terr_base is not None else "\u2014",
+        detail=terr_detail,
         blocked_reason=_blocked("territories"),
     ))
 
@@ -879,24 +981,119 @@ def _merge_maps(*maps):
     return out
 
 
-def _territory_series(territories, today):
-    """{date: +1/-1} from the territory capture/loss log."""
-    history = territories.get("history") if isinstance(territories, dict) else None
-    if not isinstance(history, list):
+def _as_datetime(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _territory_level_series(territories, today):
+    """{datetime: territories held} from our own recorded history.
+
+    The series comes from territory_history.db, which stores the held total
+    every time it changes, so the span available grows over time instead of
+    being capped by the bot's rolling 100-event log. This is a held *total*
+    comparison: counting capture and loss events would drift whenever a
+    territory changes hands more than once.
+    """
+    if not isinstance(territories, dict):
         return {}
+
     out = {}
-    for ev in history:
-        if not isinstance(ev, dict):
+    for item in (territories.get("series") or []):
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
             continue
-        d = _as_date(ev.get("timestamp"))
-        if d is None:
+        moment = _as_datetime(item[0])
+        if moment is None:
             continue
-        kind = str(ev.get("type") or "").lower()
-        if "captur" in kind:
-            out[d] = out.get(d, 0) + 1
-        elif "lost" in kind:
-            out[d] = out.get(d, 0) - 1
+        try:
+            out[moment] = int(item[1])
+        except (TypeError, ValueError):
+            continue
+
+    if not out:
+        held = territories.get("held")
+        if held is not None:
+            try:
+                out[datetime(today.year, today.month, today.day,
+                             tzinfo=timezone.utc)] = int(held)
+            except (TypeError, ValueError):
+                pass
+
     return out
+
+
+def _territory_window(level_map):
+    """Window length derived from the history we actually have.
+
+    Capped at a month, but it shrinks when the record is shorter so the
+    comparison always covers a real span rather than a hardcoded one, and
+    leaves history behind it to rank the change against.
+    """
+    if not level_map:
+        return None
+    span = (max(level_map) - min(level_map)).total_seconds() / 86400.0
+    if span <= 0:
+        return None
+    return max(1.0, min(float(TERRITORY_MAX_WINDOW_DAYS), span / 3.0))
+
+
+def _fmt_span(days):
+    if days is None:
+        return "?"
+    if days >= 2:
+        return f"{days:.0f}d"
+    hours = days * 24.0
+    if hours >= 1:
+        return f"{hours:.0f}h"
+    return f"{max(1.0, hours * 60.0):.0f}m"
+
+
+def _level_windows(level_map, end, days, steps=180):
+    """Change in a running total across trailing windows.
+
+    Compares the *level* at the end of a window with the level at its start, so
+    a territory captured and lost again inside the window cancels out instead
+    of counting as two separate events.
+
+    The recorded history only reaches back so far, so when it does not span the
+    full *days* the change is measured from the earliest reading available and
+    the span actually used is returned alongside it (in days).
+    """
+    if not level_map or end is None or not days:
+        return None, None, [], None
+
+    readings = sorted(level_map.items())
+
+    def change_at(when):
+        ended = [item for item in readings if item[0] <= when]
+        if not ended:
+            return None, None
+        end_date, end_level = ended[-1]
+        started = [item for item in readings if item[0] <= when - timedelta(days=days)]
+        if started:
+            start_date, start_level = started[-1]
+        else:
+            start_date, start_level = readings[0]
+        if end_date <= start_date:
+            return None, None
+        span_days = (end_date - start_date).total_seconds() / 86400.0
+        return float(end_level - start_level), span_days
+
+    current, span = change_at(end)
+    samples = []
+    for offset in range(1, steps + 1):
+        value, _span = change_at(end - timedelta(days=offset))
+        if value is not None:
+            samples.append(value)
+    baseline = _mean(samples[:4]) if samples else None
+    return current, baseline, samples, span
 
 
 
@@ -921,6 +1118,29 @@ def _watchlist(active_pool, rollups, inactive, playtime_maps, playtime_dates,
 
     current_points = inputs.get("points_latest_by_user") or {}
     previous_points = inputs.get("points_prior_by_user") or {}
+
+    pt_end_all = max((max(mm) for mm in playtime_maps if mm), default=None)
+    guild_pt_factor = _guild_activity_factor(
+        playtime_maps, pt_end_all, WATCHLIST_WINDOW_DAYS
+    )
+
+    content_maps_by_user = {}
+    for ulow, member in active_pool.items():
+        merged = {}
+        for key in ("guildRaids", "wars"):
+            values = member.get(key)
+            if isinstance(values, list):
+                if metric_len is not None:
+                    values = values[:metric_len]
+                for d, v in _series_map(metric_dates or [], values).items():
+                    merged[d] = (merged.get(d) or 0) + (v or 0)
+        content_maps_by_user[ulow] = merged
+    content_end_all = max(
+        (max(m) for m in content_maps_by_user.values() if m), default=None
+    )
+    guild_content_factor = _guild_activity_factor(
+        list(content_maps_by_user.values()), content_end_all, WATCHLIST_WINDOW_DAYS
+    )
 
     results = []
     excluded_new = 0
@@ -947,36 +1167,35 @@ def _watchlist(active_pool, rollups, inactive, playtime_maps, playtime_dates,
             scores["recency"] = 100.0
             notes.append("no recorded playtime in the tracked window")
         else:
-            scores["recency"] = min(100.0, days_since / DORMANT_DAYS * 100.0)
-            if days_since >= 7:
+            scores["recency"] = _recency_risk(days_since)
+            if days_since > WATCHLIST_RECENCY_GRACE_DAYS:
                 notes.append(f"last played {days_since}d ago")
 
         pt_end = max(pt_map) if pt_map else None
-        cur, base, _ = _windowed(pt_map, pt_end, 7) if pt_end else (None, None, [])
-        if cur is not None and base and base > 0.2:
-            decline = max(0.0, 1.0 - (cur / base))
+        cur = _window_value(pt_map, pt_end, WATCHLIST_WINDOW_DAYS) if pt_end else None
+        base = _baseline_windows(pt_map, pt_end, WATCHLIST_WINDOW_DAYS) if pt_end else None
+        decline = _relative_decline(cur, base, guild_pt_factor)
+        if decline is not None:
             scores["playtime"] = min(100.0, decline * 100.0)
             if decline >= 0.5:
-                notes.append(f"playtime {cur:.1f}h this week vs {base:.1f}h/wk before")
+                notes.append(
+                    f"playtime {cur:.1f}h in the last {WATCHLIST_WINDOW_DAYS}d "
+                    f"vs {base:.1f}h before"
+                )
         else:
             scores["playtime"] = 0.0
 
-        content = {}
-        for key in ("guildRaids", "wars"):
-            values = member.get(key)
-            if isinstance(values, list):
-                if metric_len is not None:
-                    values = values[:metric_len]
-                for d, v in _series_map(metric_dates or [], values).items():
-                    content[d] = (content.get(d) or 0) + (v or 0)
+        content = content_maps_by_user.get(ulow) or {}
         c_end = max(content) if content else None
-        c_cur, c_base, _ = _windowed(content, c_end, 7) if c_end else (None, None, [])
-        if c_cur is not None and c_base and c_base > 0.2:
-            decline = max(0.0, 1.0 - (c_cur / c_base))
+        c_cur = _window_value(content, c_end, WATCHLIST_WINDOW_DAYS) if c_end else None
+        c_base = _baseline_windows(content, c_end, WATCHLIST_WINDOW_DAYS) if c_end else None
+        decline = _relative_decline(c_cur, c_base, guild_content_factor)
+        if decline is not None:
             scores["content"] = min(100.0, decline * 100.0)
             if decline >= 0.5:
                 notes.append(
-                    f"{c_cur:.0f} raids and wars this week vs {c_base:.0f}/wk before"
+                    f"{c_cur:.0f} raids and wars in the last {WATCHLIST_WINDOW_DAYS}d "
+                    f"vs {c_base:.0f} before"
                 )
         else:
             scores["content"] = 0.0
@@ -987,7 +1206,10 @@ def _watchlist(active_pool, rollups, inactive, playtime_maps, playtime_dates,
             decline = max(0.0, 1.0 - (float(cp) / float(pp)))
             scores["points"] = min(100.0, decline * 100.0)
             if decline >= 0.5:
-                notes.append(f"{int(cp)} EP this cycle vs {int(pp)} last cycle")
+                notes.append(
+                    f"{int(cp)} EP in the last completed cycle vs {int(pp)} in the "
+                    "previous one"
+                )
         else:
             scores["points"] = 0.0
 

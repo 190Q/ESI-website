@@ -47,6 +47,7 @@ from config import (
     _TICKET_GUILD_ID, _STAFF_ROLE_DEFS,
     PLAYER_BULK_METRIC_KEYS, GUILD_BULK_METRIC_KEYS,
     BOT_SCREEN_SESSION, TRACKER_SCREEN_SESSION, TRACKER_SCREEN_SPECS,
+    TERRITORY_POLL_SECONDS,
     DEV_MODE,
     _safe_number, _parse_bool, _load_json_file, _save_json_file,
     _mc_username, _get_secret_key, _get_latest_api_db,
@@ -8229,8 +8230,58 @@ def guild_statistics():
     resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     return resp
 
+def _territory_ingest():
+    """Record any held-total changes from the bot's territory file."""
+    try:
+        from guild_health import territory_history
+    except Exception:
+        return {"inserted": 0, "total": None, "rows": 0}
+    try:
+        raw = _load_json_file(_GUILD_TERRITORIES_JSON) or {}
+        return territory_history.ingest(raw)
+    except Exception:
+        return {"inserted": 0, "total": None, "rows": 0}
+
+
+def _territory_inputs():
+    """Held total plus our recorded history, for the health model."""
+    summary = _territory_ingest()
+    try:
+        from guild_health import territory_history
+        rows = territory_history.series()
+    except Exception:
+        rows = []
+    return {"held": summary.get("total"), "series": rows}
+
+
+def _territory_history_loop():
+    while True:
+        _threading.Event().wait(TERRITORY_POLL_SECONDS)
+        try:
+            _territory_ingest()
+        except Exception:
+            pass
+
+
+def _start_territory_history_worker():
+    import sys as _sys
+    try:
+        from guild_health import territory_history
+        territory_history.ensure_schema()
+    except Exception as exc:
+        print(f"[TERRITORY] history unavailable: {exc}", file=_sys.stderr, flush=True)
+        return
+    _territory_ingest()
+    _threading.Thread(target=_territory_history_loop, daemon=True).start()
+
+
+_start_territory_history_worker()
+
 
 # guild health
+
+POINTS_HISTORY_CYCLES = 12
+
 
 def _gh_median(values):
     vals = sorted(v for v in values if v is not None)
@@ -8351,15 +8402,13 @@ def _guild_health_inputs():
     if os.path.exists(_POINTS_DB):
         try:
             conn = _sqlite3.connect(_POINTS_DB)
-            rows = conn.execute(
-                "SELECT cycle_id, LOWER(username), points FROM esi_points"
-            ).fetchall()
+            cycle_ids = [
+                int(row[0])
+                for row in conn.execute(
+                    "SELECT DISTINCT cycle_id FROM esi_points WHERE cycle_id IS NOT NULL"
+                ).fetchall()
+            ]
             conn.close()
-            by_cycle = {}
-            for cid, uname, pts in rows:
-                if cid is None or not uname:
-                    continue
-                by_cycle.setdefault(int(cid), {})[uname] = int(_safe_number(pts))
 
             def _cycle_finished(cycle_id):
                 try:
@@ -8368,14 +8417,37 @@ def _guild_health_inputs():
                     return False
                 return end <= now
 
-            completed = [cid for cid in sorted(by_cycle) if _cycle_finished(cid)]
-            completed_medians = [_gh_median(by_cycle[cid].values()) for cid in completed]
-            if completed:
-                latest_points = by_cycle[completed[-1]]
-            if len(completed) > 1:
-                prior_points = by_cycle[completed[-2]]
+            completed = [cid for cid in sorted(cycle_ids) if _cycle_finished(cid)]
+            completed = completed[-POINTS_HISTORY_CYCLES:]
 
-        except (_sqlite3.Error, TypeError, ValueError):
+            if completed:
+                guild_ranks, guild_members, guild_uuids = _points_guild_ranks_and_members()
+                cycle_graid_ep_by_user = {
+                    cid: _points_graph_graid_ep_by_username(cid) for cid in completed
+                }
+                history_cache = {}
+                per_cycle = {}
+                for cid in completed:
+                    board = _points_build_leaderboard(
+                        [cid],
+                        guild_ranks,
+                        guild_members,
+                        history_cache,
+                        guild_uuids=guild_uuids,
+                        cycle_graid_ep_by_user=cycle_graid_ep_by_user,
+                    )
+                    per_cycle[cid] = {
+                        (p.get("username") or "").lower(): int(p.get("points") or 0)
+                        for p in (board.get("players") or [])
+                        if p.get("username")
+                    }
+                completed_medians = [
+                    _gh_median(per_cycle[cid].values()) for cid in completed
+                ]
+                latest_points = per_cycle.get(completed[-1]) or {}
+                if len(completed) > 1:
+                    prior_points = per_cycle.get(completed[-2]) or {}
+        except Exception:
             pass
 
     aspects = _load_json_file(_ASPECTS_JSON) or {}
@@ -8429,7 +8501,7 @@ def _guild_health_inputs():
         "points_latest_median": _gh_median(latest_points.values()),
         "points_prior_median": _gh_median(prior_points.values()),
         "aspects": {"total": aspects.get("total_aspects")},
-        "territories": _load_json_file(_GUILD_TERRITORIES_JSON) or {},
+        "territories": _territory_inputs(),
         "queue_history": _statistics_queue_history(180),
         "joins": joins,
         "leaves": leaves,

@@ -57,6 +57,7 @@
       if (f === 'shop' && p[1] === 'admin') panel = 'shop-admin';
       if (f === 'shop' && p[1] === 'studio') panel = 'creator-studio';
       if (f === 'guild' && p[1] === 'info') panel = 'guild-info';
+      if (f === 'guild' && p[1] === 'health') panel = 'guild-health';
       if (panel !== 'player') {
         css += '#panel-player.panel.active{display:none!important}';
         css += '#panel-' + panel + '.panel{display:block!important;flex:1!important}';

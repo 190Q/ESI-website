@@ -1568,6 +1568,7 @@ function applyLogin(user) {
       if (_first === 'shop'   && _parts[1] === 'admin')  wantedPanel = 'shop-admin';
       if (_first === 'shop'   && _parts[1] === 'studio') wantedPanel = 'creator-studio';
       if (_first === 'guild'  && _parts[1] === 'info')   wantedPanel = 'guild-info';
+      if (_first === 'guild'  && _parts[1] === 'health') wantedPanel = 'guild-health';
       var activePanel = document.querySelector('.panel.active');
       if (wantedPanel && activePanel && activePanel.id !== 'panel-' + wantedPanel) {
         switchToPanel(wantedPanel);
@@ -1635,6 +1636,7 @@ if (savedUser) {
         if (_urlFirst === 'shop'   && _urlParts[1] === 'admin')  _wantPanel = 'shop-admin';
         if (_urlFirst === 'shop'   && _urlParts[1] === 'studio') _wantPanel = 'creator-studio';
         if (_urlFirst === 'guild'  && _urlParts[1] === 'info')   _wantPanel = 'guild-info';
+        if (_urlFirst === 'guild'  && _urlParts[1] === 'health') _wantPanel = 'guild-health';
         var _wantPanelEl = document.getElementById('panel-' + _wantPanel);
         if (_wantPanelEl && _wantPanel !== 'player') {
             document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
@@ -2606,6 +2608,7 @@ fetch('/auth/session', { credentials: 'same-origin' })
     if (_urlF === 'shop'   && _urlP[1] === 'admin')  _wp = 'shop-admin';
     if (_urlF === 'shop'   && _urlP[1] === 'studio') _wp = 'creator-studio';
     if (_urlF === 'guild'  && _urlP[1] === 'info')   _wp = 'guild-info';
+    if (_urlF === 'guild'  && _urlP[1] === 'health') _wp = 'guild-health';
     var _wpEl = document.getElementById('panel-' + _wp);
     if (_wpEl && _wp !== 'player') {
       document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });

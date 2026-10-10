@@ -3098,6 +3098,7 @@
     if (panel === 'shop-admin')     return '/shop/admin';
     if (panel === 'creator-studio') return '/shop/studio';
     if (panel === 'guild-info')     return '/guild/info';
+    if (panel === 'guild-health')   return '/guild/health';
     return '/' + panel;
   }
 
@@ -3108,6 +3109,7 @@
     if (panel === 'shop'   && parts[1] === 'admin')  return 'shop-admin';
     if (panel === 'shop'   && parts[1] === 'studio') return 'creator-studio';
     if (panel === 'guild'  && parts[1] === 'info')   return 'guild-info';
+    if (panel === 'guild'  && parts[1] === 'health') return 'guild-health';
     return panel;
   }
 

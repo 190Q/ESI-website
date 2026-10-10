@@ -81,6 +81,7 @@ _SHOP_DB                = os.path.join(_WEBSITE_DATA_DIR, "databases", "shop.db"
 _CEMETERY_DB            = os.path.join(_WEBSITE_DATA_DIR, "databases", "cemetery.db")
 _ANALYTICS_DB           = os.path.join(_WEBSITE_DATA_DIR, "databases", "analytics.db")
 _GUILD_INFO_DB          = os.path.join(_WEBSITE_DATA_DIR, "databases", "guild_info.db")
+_TERRITORY_DB           = os.path.join(_WEBSITE_DATA_DIR, "databases", "territory_history.db")
 _FRONTEND_METRIC_MASKS_JSON = os.path.join(_WEBSITE_DATA_DIR, "frontend_metric_masks.json")
 _MEDALS_JSON              = os.path.join(_WEBSITE_DATA_DIR, "medals.json")
 _OG_CACHE_DIR             = os.path.join(_WEBSITE_DATA_DIR, "og_cache")
@@ -846,6 +847,7 @@ GUILD_BULK_METRIC_KEYS = [
 
 # bot / tracker screen session config
 
+TERRITORY_POLL_SECONDS = int(os.environ.get("ESI_TERRITORY_POLL_SECONDS") or 300)
 BOT_SCREEN_SESSION = (os.environ.get("ESI_BOT_SCREEN_NAME") or "esi-bot").strip()
 TRACKER_SCREEN_SESSION = (os.environ.get("ESI_TRACKERS_SCREEN_NAME") or "esi-bot-trackers").strip()
 
