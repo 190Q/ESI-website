@@ -913,13 +913,6 @@ def _inject_og_meta(html, card_type, name, meta):
 
     block = "\n  " + "\n  ".join(tags) + "\n"
 
-    html = re.sub(
-        r"<title>.*?</title>",
-        lambda _m: f"<title>{esc(title)}</title>",
-        html,
-        count=1,
-        flags=re.DOTALL | re.IGNORECASE,
-    )
     if "</head>" in html:
         html = html.replace("</head>", block + "</head>", 1)
     return html
