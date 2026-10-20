@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 # The event ran Sep 3 -> Oct 3 2026; the dates below were a month late when it
 # went live, so the bonus never applied to the real window (backfilled by
 # scripts/raid_event_backfill.py).
-EVENT_START = datetime(2026, 9, 3, 1, 0, 0, tzinfo=timezone.utc)
-EVENT_END = datetime(2026, 10, 3, 1, 0, 0, tzinfo=timezone.utc)
+EVENT_START = datetime(2026, 10, 3, 1, 0, 0, tzinfo=timezone.utc)
+EVENT_END = datetime(2026, 11, 3, 1, 0, 0, tzinfo=timezone.utc)
 
 LOW_RANK_BONUS = 10
 HIGH_RANK_BONUS = 10
