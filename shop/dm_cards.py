@@ -1,10 +1,7 @@
 import html as _html
 import sys
-import threading
 
-_pw_instance = None
-_pw_browser = None
-_pw_lock = threading.Lock()
+import browser_render
 
 CARD_WIDTH = 400
 
@@ -431,38 +428,14 @@ def _build_html(
     return html
 
 def _screenshot_html(html: str) -> bytes | None:
-    """Render HTML to PNG bytes using a headless Chromium page."""
-    global _pw_instance, _pw_browser
-    try:
-        with _pw_lock:
-            if _pw_instance is None:
-                from playwright.sync_api import sync_playwright  # noqa: lazy
-                _pw_instance = sync_playwright().start()
-                _pw_browser = _pw_instance.chromium.launch(headless=True)
-            try:
-                page = _pw_browser.new_page(viewport={"width": CARD_WIDTH, "height": 1})
-                page.set_content(html, wait_until="load")
-                card = page.query_selector(".card")
-                png = card.screenshot(type="png", omit_background=True) if card else None
-                page.close()
-                return png
-            except Exception:
-                # Browser may have crashed; tear down so the next call
-                # re-launches a fresh instance instead of reusing a dead one.
-                try:
-                    _pw_browser.close()
-                except Exception:
-                    pass
-                try:
-                    _pw_instance.stop()
-                except Exception:
-                    pass
-                _pw_browser = None
-                _pw_instance = None
-                raise
-    except Exception as exc:
-        print(f"[DM_CARDS] Render failed: {exc}", file=sys.stderr)
-        return None
+    """Render HTML to PNG bytes using the shared headless Chromium page."""
+    return browser_render.screenshot_html(
+        html,
+        width=CARD_WIDTH,
+        height=1,
+        selector=".card",
+        omit_background=True,
+    )
 
 def render_card(
     card_type: str,

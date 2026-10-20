@@ -26,6 +26,12 @@ app = Flask(__name__)
 _bulk_playtime_cache = {"data": None, "debug": None, "ts": 0}
 _bulk_playtime_lock  = threading.Lock()
 
+# Parsed playtime snapshots, keyed by (path, mtime, size). Snapshots from past
+# days never change, so re-reading all of them on every refresh was pure waste.
+_hours_cache = {}
+_hours_cache_lock = threading.Lock()
+_HOURS_CACHE_MAX = 6000
+
 # TTL cache for non-guild player playtime lookups
 _nonguild_pt_cache = {}
 _nonguild_pt_lock  = threading.Lock()
@@ -163,6 +169,16 @@ def _compute_bulk_playtime():
 
         def read_all_hours(db_path):
             try:
+                stat = os.stat(db_path)
+                key = (db_path, stat.st_mtime_ns, stat.st_size)
+            except OSError:
+                key = None
+            if key is not None:
+                with _hours_cache_lock:
+                    cached = _hours_cache.get(key)
+                if cached is not None:
+                    return cached
+            try:
                 c = _sqlite3.connect(db_path, check_same_thread=False)
                 rows = c.execute(
                     "SELECT username, playtime_seconds FROM playtime"
@@ -179,6 +195,11 @@ def _compute_bulk_playtime():
                         if uid:
                             res[uid] = max(res.get(uid, 0.0), pts)
                         res[r_low] = max(res.get(r_low, 0.0), pts)
+                if key is not None:
+                    with _hours_cache_lock:
+                        if len(_hours_cache) >= _HOURS_CACHE_MAX:
+                            _hours_cache.clear()
+                        _hours_cache[key] = res
                 return res
             except Exception:
                 return {}
@@ -1196,11 +1217,20 @@ def _bulk_playtime_loop():
     """Re-crunches bulk playtime every BULK_PLAYTIME_REFRESH seconds."""
     while True:
         threading.Event().wait(BULK_PLAYTIME_REFRESH)
+        started = time()
         try:
             _compute_bulk_playtime()
-            print("Bulk playtime cache refreshed")
+            # The duration matters: a pass longer than the refresh interval
+            # means the service never idles.
+            print(
+                f"Bulk playtime cache refreshed in {time() - started:.1f}s",
+                flush=True,
+            )
         except Exception as e:
-            print(f"Bulk playtime refresh failed: {e}")
+            print(
+                f"Bulk playtime refresh failed after {time() - started:.1f}s: {e}",
+                flush=True,
+            )
 
 
 _UPLOAD_MAX_AGE = 3600  # orphaned uploads deleted after 1 hour
@@ -1375,29 +1405,36 @@ def cache_activity_guild():
 
 # startup
 
+def _warm_cache():
+    """Crunch the first pass in the background so the service can listen.
+
+    Computing before app.run() kept the activity endpoints refusing
+    connections for minutes after every restart.
+    """
+    print("  Computing initial activity cache\u2026", end="", flush=True)
+    try:
+        diag_db = _get_latest_api_db()
+        if not diag_db:
+            print(f" skipped \u2014 no api_tracking snapshots found in {_API_TRACKING_DIR}")
+            return
+        _compute_bulk_playtime()
+        data = _bulk_playtime_cache.get("data") or {}
+        members = len(data.get("members") or {})
+        days = len((data.get("guild") or {}).get("dates") or [])
+        if members == 0:
+            print(f" done \u2014 0 members (player_stats empty in {os.path.basename(diag_db)})")
+        else:
+            print(f" done ({members} members, {days} playtime days)")
+    except Exception as exc:
+        print(f" failed: {exc}")
+    print(flush=True)
+
+
 if __name__ == "__main__":
     print()
     print("  ESI Cache Service")
     print("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500")
-    print("  Computing initial activity cache\u2026", end="", flush=True)
-    try:
-        _diag_db = _get_latest_api_db()
-        if not _diag_db:
-            print(f" skipped \u2014 no api_tracking snapshots found in {_API_TRACKING_DIR}")
-        else:
-            _compute_bulk_playtime()
-            _cd  = _bulk_playtime_cache.get("data") or {}
-            _nm  = len(_cd.get("members") or {})
-            _nd  = len((_cd.get("guild") or {}).get("dates") or [])
-            _dbf = os.path.basename(_diag_db)
-            if _nm == 0:
-                print(f" done \u2014 0 members (player_stats empty in {_dbf})")
-                print("  \u26a0  Activity data unavailable until player_stats is populated.")
-            else:
-                print(f" done ({_nm} members, {_nd} playtime days)")
-    except Exception as _e:
-        print(f" failed: {_e}")
-
+    threading.Thread(target=_warm_cache, daemon=True).start()
     threading.Thread(target=_bulk_playtime_loop, daemon=True).start()
     threading.Thread(target=_upload_cleanup_loop, daemon=True).start()
 

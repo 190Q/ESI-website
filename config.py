@@ -172,6 +172,9 @@ _PUBLIC_ORIGIN = _derive_public_origin(DISCORD_REDIRECT_URI)
 
 CACHE_TTL              = 120
 PLAYTIME_CACHE_TTL     = 300
+# The bulk playtime crunched in cache.py is day-granular, so this only bounds
+# how stale today's numbers can be. Passes are memoised per snapshot, so a
+# 10 minute refresh costs seconds of CPU rather than minutes.
 BULK_PLAYTIME_REFRESH  = 600
 
 # service ports

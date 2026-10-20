@@ -20,6 +20,8 @@ import time
 
 import requests
 
+import browser_render
+
 try:
     from config import _BASE_DIR, _OG_CACHE_DIR
 except Exception:
@@ -541,27 +543,14 @@ def is_available() -> bool:
 
 def _screenshot_html(html: str) -> bytes | None:
     """Render one HTML document to PNG bytes. Returns None on any failure."""
-    try:
-        with _render_lock:
-            from playwright.sync_api import sync_playwright
-            with sync_playwright() as pw:
-                browser = pw.chromium.launch(headless=True)
-                try:
-                    page = browser.new_page(
-                        viewport={"width": CARD_WIDTH, "height": CARD_HEIGHT}
-                    )
-                    page.set_content(html, wait_until="load")
-                    try:
-                        page.evaluate("() => document.fonts.ready")
-                    except Exception:
-                        pass
-                    card = page.query_selector(".og-card")
-                    return card.screenshot(type="png") if card else None
-                finally:
-                    browser.close()
-    except Exception as exc:
-        print(f"[OG_CARDS] Render failed: {exc}", file=sys.stderr)
-        return None
+    with _render_lock:
+        return browser_render.screenshot_html(
+            html,
+            width=CARD_WIDTH,
+            height=CARD_HEIGHT,
+            selector=".og-card",
+            wait_expression="() => document.fonts.ready",
+        )
 
 
 def _cache_path(kind: str, key: str) -> str:

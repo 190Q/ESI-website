@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 EVENT_START = datetime(2026, 10, 3, 1, 0, 0, tzinfo=timezone.utc)
-EVENT_END = datetime(2026, 11, 3, 1, 0, 0, tzinfo=timezone.utc)
+EVENT_END = datetime(2027, 11, 3, 1, 0, 0, tzinfo=timezone.utc)
 
 LOW_RANK_BONUS = 10
 HIGH_RANK_BONUS = 10
