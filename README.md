@@ -314,7 +314,7 @@ ESI-website/
 
 - **`shop/`** — the EP economy: catalogue, purchases, auctions, donations, carts, refunds, the Creator Studio, the death tax, and Knight bonuses. See `shop/README.md` for the full architecture and EP-balance model.
 - **`guild_info/`** — manages the guild's Discord forum posts through an approval queue. `forum.py` splits long bodies across multiple Discord messages and rewrites mention tokens; `admin.py` orchestrates create/edit/delete requests; `db.py` stores pending requests and the audit log.
-- **`events/`** — any `*.py` file dropped here is auto-imported at startup and may register `leaderboard_row_hooks` / `ep_balance_hooks` to add temporary bonuses (see `events/raid_event.py`).
+- **`events/`** — any `*.py` file dropped here is auto-imported at startup and may register `leaderboard_row_hooks` / `ep_balance_hooks` to add temporary bonuses (see `events/raid_event.py`). Each module can be switched off from `data/event_toggles.json` (`{"raid_event": {"enabled": false}}`, missing means enabled) or with `scripts/events_toggle.py`; a reload is needed after a change.
 - **`wynnpiece/`** — a self-contained, obfuscated puzzle/lore mini-site for a limited-time guild event, with its own Flask blueprint, progression state, and build tooling.
 
 ---
@@ -329,7 +329,7 @@ The dashboard keeps its own state locally and reads the bot's historical data re
 - `data/databases/cemetery.db` — players whose EP was wiped by the death tax.
 - `data/databases/analytics.db` — request/event/error analytics.
 - `data/databases/guild_info.db` — forum edit requests + audit log.
-- `data/*.json` — `shop_items.json`, `events.json`, `applications.json`, `medals.json`, `frontend_metric_masks.json`.
+- `data/*.json` — `shop_items.json`, `events.json`, `event_toggles.json`, `applications.json`, `medals.json`, `frontend_metric_masks.json`.
 - `logs/access.db`, `logs/ip_bans.db` — blocked requests and ban state.
 - `wynnpiece/wynnpiece.db`, `wynnpiece/event_state.json`, `wynnpiece/managers.json`.
 

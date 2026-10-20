@@ -9,8 +9,15 @@ register hooks by exposing these top-level lists:
   mutate an EP balance dict (keys include ``clean_ep``, ``total_ep``,
   ``spendable_clean``).
 
-Import errors in individual files are swallowed so deleting a file never breaks
-the app.
+Each module can be switched off without deleting or editing it, by setting
+``enabled`` to ``false`` for its file name in ``data/event_toggles.json``::
+
+    {"raid_event": {"enabled": false}}
+
+A missing file, or a missing entry, means enabled.  A switched-off module is
+still imported (so it can be inspected and listed) but none of its hooks are
+registered, so the app behaves as if the event did not exist.  Import errors in
+individual files are swallowed so deleting a file never breaks the app.
 """
 
 from __future__ import annotations
@@ -20,20 +27,68 @@ import os
 import pkgutil
 from typing import Any, Callable
 
+from config import _EVENT_TOGGLES_JSON, _load_json_file, _save_json_file
+
 _EVENT_DIR = os.path.dirname(os.path.abspath(__file__))
+_SKIPPED_MODULES = ("__init__", "loader")
 
 LEADERBOARD_ROW_HOOKS: list[Callable[[dict], Any]] = []
 EP_BALANCE_HOOKS: list[Callable[[dict, str, bool], Any]] = []
 
+# every module that imported, switched on or not: {name: module}
+EVENT_MODULES: dict[str, Any] = {}
+
+
+def list_event_modules() -> list[str]:
+    """Return the name of every event module in this package (sorted)."""
+    return sorted(
+        name
+        for _finder, name, _ispkg in pkgutil.iter_modules([_EVENT_DIR])
+        if name not in _SKIPPED_MODULES
+    )
+
+
+def load_toggles() -> dict:
+    """Return the toggle config from ``data/event_toggles.json`` (``{}`` if absent)."""
+    data = _load_json_file(_EVENT_TOGGLES_JSON)
+    return data if isinstance(data, dict) else {}
+
+
+def _entry_enabled(entry: Any) -> bool:
+    if isinstance(entry, dict):
+        return bool(entry.get("enabled", True))
+    if isinstance(entry, bool):
+        return entry
+    return True
+
+
+def is_event_enabled(name: str) -> bool:
+    """Return whether the event module *name* is switched on."""
+    return _entry_enabled(load_toggles().get(name))
+
+
+def set_event_enabled(name: str, enabled: bool) -> dict:
+    """Switch the event module *name* on or off, returning its new entry."""
+    toggles = load_toggles()
+    entry = toggles.get(name)
+    if not isinstance(entry, dict):
+        entry = {}
+    entry["enabled"] = bool(enabled)
+    toggles[name] = entry
+    _save_json_file(_EVENT_TOGGLES_JSON, toggles)
+    return entry
+
 
 def _load_event_modules() -> None:
-    """Import every module in this package and collect declared hook lists."""
-    for _finder, name, _ispkg in pkgutil.iter_modules([_EVENT_DIR]):
-        if name in ("__init__", "loader"):
-            continue
+    """Import every module in this package and collect the enabled hook lists."""
+    toggles = load_toggles()
+    for name in list_event_modules():
         try:
             mod = importlib.import_module(f"events.{name}")
         except Exception:
+            continue
+        EVENT_MODULES[name] = mod
+        if not _entry_enabled(toggles.get(name)):
             continue
 
         lb_hooks = getattr(mod, "leaderboard_row_hooks", None)

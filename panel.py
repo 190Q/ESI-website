@@ -429,12 +429,14 @@ _SCRIPTS_DIR = os.path.join(_BASE_DIR, "scripts")
 
 _SCRIPTS = {
     "ban-ip": {"path": os.path.join(_SCRIPTS_DIR, "ban_ip.py"), "label": "Ban / Blacklist IPs"},
+    "events-toggle": {"path": os.path.join(_SCRIPTS_DIR, "events_toggle.py"), "label": "Events: Toggle On/Off"},
     "gdpr-delete": {"path": os.path.join(_SCRIPTS_DIR, "gdpr_delete.py"), "label": "GDPR: Delete User Data"},
     "gdpr-export": {"path": os.path.join(_SCRIPTS_DIR, "gdpr_export.py"), "label": "GDPR: Export User Data"},
     "gdpr-list": {"path": os.path.join(_SCRIPTS_DIR, "gdpr_list.py"), "label": "GDPR: List Users With Data"},
     "gdpr-rectify": {"path": os.path.join(_SCRIPTS_DIR, "gdpr_rectify.py"), "label": "GDPR: Rectify User Data"},
     "gdpr-restrict": {"path": os.path.join(_SCRIPTS_DIR, "gdpr_restrict.py"), "label": "GDPR: Restrict User Processing"},
     "grant-knight-bonus": {"path": os.path.join(_SCRIPTS_DIR, "grant_knight_bonus.py"), "label": "Grant Knight EP Bonus"},
+    "raid-event-backfill": {"path": os.path.join(_SCRIPTS_DIR, "raid_event_backfill.py"), "label": "Raid Event: Backfill Bonus EP"},
     "raid-event-bonus-report": {"path": os.path.join(_SCRIPTS_DIR, "raid_event_bonus_report.py"), "label": "Raid Event: Bonus EP Report"},
     "raid-event-tickets": {"path": os.path.join(_SCRIPTS_DIR, "raid_event_tickets.py"), "label": "Raid Event: Calculate Tickets"},
     "send-cycle-announcement": {"path": os.path.join(_SCRIPTS_DIR, "send_cycle_announcement.py"), "label": "Send Cycle Announcement"},

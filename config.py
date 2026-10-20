@@ -76,6 +76,7 @@ if sys.platform != "win32":
     os.chmod(_WEBSITE_DATA_DIR, 0o700)
 _APPLICATIONS_JSON      = os.path.join(_WEBSITE_DATA_DIR, "applications.json")
 _EVENTS_JSON            = os.path.join(_WEBSITE_DATA_DIR, "events.json")
+_EVENT_TOGGLES_JSON     = os.path.join(_WEBSITE_DATA_DIR, "event_toggles.json")
 _SHOP_ITEMS_JSON        = os.path.join(_WEBSITE_DATA_DIR, "shop_items.json")
 _SHOP_DB                = os.path.join(_WEBSITE_DATA_DIR, "databases", "shop.db")
 _CEMETERY_DB            = os.path.join(_WEBSITE_DATA_DIR, "databases", "cemetery.db")
