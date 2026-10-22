@@ -24,6 +24,7 @@
   var _checkerHours = _settingsCheckerHours != null ? _settingsCheckerHours : 2;
   var _checkerTab   = _settingsCheckerTab;
   var _players      = []; // all guild members from player_stats
+  var _joinDates    = {}; // lowercased username -> ISO join timestamp
   var _metricsFetchPromises = {};
   var _inacActiveToast = null;
   var _inacLoading = false;
@@ -381,7 +382,10 @@
           var rankGroup = rankEntry[1];
           if (!rankGroup || typeof rankGroup !== 'object') return;
           Object.entries(rankGroup).forEach(function (memberEntry) {
-            wynnMap[memberEntry[0].toLowerCase()] = true;
+            var uLow = memberEntry[0].toLowerCase();
+            wynnMap[uLow] = true;
+            var info = memberEntry[1];
+            if (info && info.joined) _joinDates[uLow] = info.joined;
           });
         });
         _players = localPlayers.filter(function (p) {
@@ -509,6 +513,15 @@
     return Math.max(0, Math.round(sum * 10) / 10);
   }
 
+  // members who joined during or after the selected week are not held to its playtime req
+  function joinedBeforeWeek(username, weekStart) {
+    var joined = _joinDates[username.toLowerCase()];
+    if (!joined) return true; // no join date, keep them in the check
+    var joinedDay = parseLocalDate(String(joined).slice(0, 10));
+    if (isNaN(joinedDay.getTime())) return true;
+    return joinedDay < weekStart;
+  }
+
   function renderCheckerRows(listEl, rows, hoursMap, allPlayers, isPartial) {
     if (!rows.length) {
       if (!isPartial) {
@@ -631,7 +644,10 @@
         }
       });
 
-      var allPlayers = _players.map(function (p) {
+      var weekStart = parseLocalDate(_checkerWeek.split('_')[0]);
+      var allPlayers = _players.filter(function (p) {
+        return joinedBeforeWeek(p.username, weekStart);
+      }).map(function (p) {
         var uLow   = p.username.toLowerCase();
         var ex     = exemptSet[uLow] || null;
         var fullEx = exemptionsList.find(function (e) { return e.username.toLowerCase() === uLow; });
