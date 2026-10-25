@@ -9,7 +9,9 @@ from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
 from config import _SHOP_DB, _POINTS_DB, _SHOP_ITEMS_JSON, _USERNAME_MATCHES_JSON, _get_latest_api_db, _load_json_file as _cfg_load_json
 from shop.items import get_items, reload as _reload_items
-from shop.auction import _resolve_discord_id_for_uuid, _dm_card_in_background
+from shop.auction import (
+    _resolve_discord_id_for_uuid, _dm_card_in_background, _sync_auction_winners,
+)
 
 
 _now = lambda: _dt.now(_tz.utc)
@@ -457,6 +459,7 @@ def admin_auction_detail(auction_id: str) -> dict:
             "bidder_count": bidder_count,
             "min_increment": item.get("min_increment", 1),
             "anti_snipe_seconds": item.get("anti_snipe_seconds", 0) or 0,
+            "winner_count": item.get("winner_count", 1) or 1,
             "recent_bids": [
                 {"bid_id": r["bid_id"], "username": r["username"], "amount": r["amount"],
                  "placed_at": r["placed_at"], "is_winning": bool(r["is_winning"])}
@@ -467,7 +470,11 @@ def admin_auction_detail(auction_id: str) -> dict:
         return {"error": f"Database error: {exc}"}
 
 def admin_remove_bid(bid_id: str, chief_name: str, reason: str | None = None) -> dict:
-    """Remove a bid from an active auction, release its EP reservation, notify the user."""
+    """Remove a winning bid from an active auction and notify the user.
+
+    The next highest bidder is promoted into the freed slot. The removed bidder's
+    EP hold is only released if they are no longer in the winning set.
+    """
     now_iso = _now_iso()
     if not os.path.isfile(_SHOP_DB):
         return {"error": "Shop database unavailable"}
@@ -484,7 +491,7 @@ def admin_remove_bid(bid_id: str, chief_name: str, reason: str | None = None) ->
 
     auction_id = bid["auction_id"]
     auction = conn.execute(
-        "SELECT status, current_highest_bid, current_highest_bidder_uuid "
+        "SELECT status, item_id, current_highest_bid, current_highest_bidder_uuid "
         "FROM auctions WHERE auction_id = ?",
         (auction_id,),
     ).fetchone()
@@ -496,14 +503,9 @@ def admin_remove_bid(bid_id: str, chief_name: str, reason: str | None = None) ->
         return {"error": "Only bids from active auctions can be removed"}
     bidder_uuid = bid["uuid"]
     bid_amount = bid["amount"]
-    is_top_bid = (
-        bool(bid["is_winning"])
-        and bidder_uuid == auction["current_highest_bidder_uuid"]
-        and int(bid_amount or 0) == int(auction["current_highest_bid"] or 0)
-    )
-    if not is_top_bid:
+    if not bool(bid["is_winning"]):
         conn.rollback(); conn.close()
-        return {"error": "Only the current top bid can be removed"}
+        return {"error": "Only a currently winning bid can be removed"}
 
     # Delete the bid
     conn.execute("DELETE FROM bids WHERE bid_id = ?", (bid_id,))
@@ -511,14 +513,10 @@ def admin_remove_bid(bid_id: str, chief_name: str, reason: str | None = None) ->
     # Recalculate the new highest
     new_top = conn.execute(
         "SELECT bid_id, uuid, amount FROM bids "
-        "WHERE auction_id = ? ORDER BY amount DESC LIMIT 1",
+        "WHERE auction_id = ? ORDER BY amount DESC, placed_at ASC LIMIT 1",
         (auction_id,),
     ).fetchone()
     if new_top:
-        conn.execute(
-            "UPDATE bids SET is_winning = 1 WHERE bid_id = ?",
-            (new_top["bid_id"],),
-        )
         conn.execute(
             "UPDATE auctions SET current_highest_bid = ?, current_highest_bidder_uuid = ? "
             "WHERE auction_id = ?",
@@ -531,36 +529,36 @@ def admin_remove_bid(bid_id: str, chief_name: str, reason: str | None = None) ->
             (auction_id,),
         )
 
+    from shop.items import get_item_unfiltered
+    _item = get_item_unfiltered(auction["item_id"]) or {}
+    winners = _sync_auction_winners(
+        conn, auction_id, _item.get("winner_count", 1) or 1, now_iso,
+    )
+    removed_still_winning = any(w["uuid"] == bidder_uuid for w in winners)
+
     conn.commit()
     conn.close()
-
-    # Release EP reservation for this bidder on this auction
-    source = f"auction:{auction_id}"
-    if os.path.isfile(_SHOP_DB):
-        try:
-            shop = sqlite3.connect(_SHOP_DB, timeout=10)
-            shop.execute("PRAGMA journal_mode=WAL")
-            shop.execute(
-                "UPDATE ep_reservations SET released_at = ? "
-                "WHERE uuid = ? AND source = ? AND released_at IS NULL",
-                (now_iso, bidder_uuid, source),
-            )
-            shop.commit()
-            shop.close()
-        except sqlite3.Error as exc:
-            print(f"[ADMIN] Failed to release bid reservation: {exc}", file=sys.stderr)
 
     # Notify the user
     did = _resolve_discord_id_for_uuid(bidder_uuid)
     if did:
+        if removed_still_winning:
+            _refund_txt = "No - still winning"
+            _removed_text = (
+                f"Your top bid of {bid_amount:,} EP was removed by {chief_name}, but you are "
+                f"still in a winning position. Your EP stays reserved."
+            )
+        else:
+            _refund_txt = f"{bid_amount:,} EP"
+            _removed_text = f"Bid of {bid_amount:,} EP removed by {chief_name}. EP released."
         _dm_card_in_background(
             did, "bid_removed", auction_id, bid_amount,
             fields=[
                 ("REMOVED BY", chief_name),
-                ("REFUNDED", f"{bid_amount:,} EP"),
+                ("REFUNDED", _refund_txt),
                 *( [("REASON", reason[:50])] if reason else [] ),
             ],
-            fallback_text=f"Bid of {bid_amount:,} EP removed by {chief_name}. EP released.",
+            fallback_text=_removed_text,
         )
 
     _log_admin_action(

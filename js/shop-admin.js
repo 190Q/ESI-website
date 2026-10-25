@@ -1805,6 +1805,7 @@
       h += '<div class="am-metric"><span class="am-metric-val">' + data.bid_count + '</span><span class="am-metric-label">Total bids</span></div>';
       h += '<div class="am-metric"><span class="am-metric-val">' + data.bidder_count + '</span><span class="am-metric-label">Bidders</span></div>';
       h += '<div class="am-metric"><span class="am-metric-val">' + num(data.min_increment || 1) + ' EP</span><span class="am-metric-label">Min increment</span></div>';
+      h += '<div class="am-metric"><span class="am-metric-val">' + (data.winner_count || 1) + '</span><span class="am-metric-label">Winners</span></div>';
       h += '</div>';
       h += '</div>';
 
@@ -2181,6 +2182,48 @@
       });
   }
 
+  /* Confirm dialog that stacks above the item editor modal */
+  function _ieConfirm(opts) {
+    var overlay  = document.getElementById('saOverlay');
+    var backdrop = document.getElementById('saOverlayBackdrop');
+    if (!overlay || !backdrop) {
+      if (opts.onConfirm) opts.onConfirm();
+      return;
+    }
+
+    overlay.innerHTML =
+      '<button class="modal-close" aria-label="Close" id="ieConfirmClose">' + _svg.close + '</button>' +
+      '<div class="shop-modal-title">' + esc(opts.title || 'Confirm') + '</div>' +
+      '<div class="shop-modal-body">' + (opts.bodyHtml || '') + '</div>' +
+      '<div class="shop-modal-actions">' +
+        '<button class="shop-modal-btn shop-modal-btn--cancel" id="ieConfirmCancel" type="button">' + esc(opts.cancelLabel || 'Cancel') + '</button>' +
+        '<button class="shop-modal-btn shop-modal-btn--confirm" id="ieConfirmOk" type="button"' +
+          (opts.danger ? ' style="background:var(--danger);color:#fff"' : '') + '>' + esc(opts.confirmLabel || 'Confirm') + '</button>' +
+      '</div>';
+    backdrop.classList.add('open');
+
+    function _closeConfirm() {
+      backdrop.classList.remove('open');
+      backdrop.onclick = null;
+      overlay.innerHTML = '';
+    }
+    function _cancel() {
+      _closeConfirm();
+      if (opts.onCancel) opts.onCancel();
+    }
+
+    var cancelBtn = document.getElementById('ieConfirmCancel');
+    var closeBtn  = document.getElementById('ieConfirmClose');
+    var okBtn     = document.getElementById('ieConfirmOk');
+    if (cancelBtn) cancelBtn.addEventListener('click', _cancel);
+    if (closeBtn)  closeBtn.addEventListener('click', _cancel);
+    backdrop.onclick = function (e) { if (e.target === backdrop) _cancel(); };
+    if (okBtn) okBtn.addEventListener('click', function () {
+      _closeConfirm();
+      if (opts.onConfirm) opts.onConfirm();
+    });
+  }
+
   function openItemEditor(item, isNew) {
     var modal = document.getElementById('saModal');
     var bd    = document.getElementById('saModalBackdrop');
@@ -2253,20 +2296,27 @@
 
     modal.classList.add('ie-modal');
     modal.innerHTML = _buildItemEditorHtml(item, isNew);
+    var _initTypeEl = modal.querySelector('#ieType');
+    modal.dataset.iePrevType = _initTypeEl ? _initTypeEl.value : 'bin';
     bd.classList.add('open');
     _ieTypeToggle(modal);
     _bindItemEditorEvents(modal, item, isNew);
-    _iePopulateCreators(modal, item);
+    _iePopulateCreators(modal, {
+      creatorId:   (item && item.creator_discord_id) || '',
+      creatorName: (item && (item.creator_username || item.creator_discord_id)) || '',
+    });
   }
 
-  function _iePopulateCreators(modal, item) {
+  function _iePopulateCreators(modal, opts) {
     var sel = modal.querySelector('#ieCreator');
     if (!sel) return;
-    var curVal = (item && item.creator_discord_id) || '';
+    opts = opts || {};
+    var curVal  = opts.creatorId || '';
+    var curName = opts.creatorName || '';
     function _fill(creators) {
       sel.innerHTML = '<option value="">None</option>';
       var found = false;
-      creators.forEach(function (c) {
+      (creators || []).forEach(function (c) {
         var opt = document.createElement('option');
         opt.value = c.discord_id;
         opt.textContent = c.username;
@@ -2279,19 +2329,20 @@
       if (curVal && !found) {
         var opt = document.createElement('option');
         opt.value = curVal;
-        var prevName = (item && (item.creator_username || item.creator_discord_id)) || curVal;
-        opt.textContent = prevName + ' (Inactive / Removed)';
+        opt.textContent = (curName || curVal) + ' (Inactive / Removed)';
         opt.selected = true;
         sel.insertBefore(opt, sel.children[1] || null);
       }
+      if (sel._cs && sel._cs.refresh) sel._cs.refresh();
     }
+    if (_creatorsCache) _fill(_creatorsCache);
     fetch('/api/admin/shop/creators', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         _creatorsCache = (d && d.creators) || [];
         _fill(_creatorsCache);
       })
-      .catch(function () { /* leave just None */ });
+      .catch(function () { /* keep whatever is already shown */ });
   }
 
   function _v(val, def) {
@@ -2707,9 +2758,12 @@
     // Snapshot / restore General tab state across full rebuilds
     function _snapshotGeneral() {
       function _gv(id) { var el = modal.querySelector('#' + id); return el ? el.value : null; }
+      var _creatorSel = modal.querySelector('#ieCreator');
+      var _creatorOpt = (_creatorSel && _creatorSel.selectedIndex >= 0) ? _creatorSel.options[_creatorSel.selectedIndex] : null;
       var s = {
         name: _gv('ieName'), id: _gv('ieId'), type: _gv('ieType'), active: _gv('ieActive'),
         desc: _gv('ieDesc'), topN: _gv('ieTopN'), creator: _gv('ieCreator'),
+        creatorName: _creatorOpt ? _creatorOpt.textContent : '',
         price: _gv('iePrice'), stock: _gv('ieStock'), maxQty: _gv('ieMaxQty'),
         startBid: _gv('ieStartBid'), minInc: _gv('ieMinInc'),
         durType: _gv('ieDurType'), durHrs: _gv('ieDurHrs'),
@@ -2725,6 +2779,7 @@
     function _restoreGeneral(s) {
       function _sv(id, v) { var el = modal.querySelector('#' + id); if (el && v != null) el.value = v; }
       _sv('ieName', s.name); _sv('ieId', s.id); _sv('ieType', s.type); _sv('ieActive', s.active);
+      if (s.type != null) modal.dataset.iePrevType = s.type;
       _sv('ieDesc', s.desc); _sv('ieTopN', s.topN);
       _sv('iePrice', s.price); _sv('ieStock', s.stock); _sv('ieMaxQty', s.maxQty);
       _sv('ieStartBid', s.startBid); _sv('ieMinInc', s.minInc);
@@ -2777,6 +2832,19 @@
       if (_dT && _dN) _dN.style.display = _dT.value === 'eoc_minus_2' ? 'none' : '';
       _syncEditSubmitButton();
     }
+
+    // Rebuild the editor DOM while keeping General-tab state and the creator list intact
+    function _ieRerender(item, snap, isNewArg) {
+      var _isNew = (isNewArg === undefined) ? isNew : isNewArg;
+      modal.innerHTML = _buildItemEditorHtml(item, _isNew);
+      _ieTypeToggle(modal);
+      _bindItemEditorEvents(modal, item, _isNew);
+      if (snap) _restoreGeneral(snap);
+      _iePopulateCreators(modal, {
+        creatorId:   snap ? snap.creator : ((item && item.creator_discord_id) || ''),
+        creatorName: snap ? snap.creatorName : ((item && (item.creator_username || item.creator_discord_id)) || ''),
+      });
+    }
     var submitBtn = modal.querySelector('#ieSubmit');
     function _serializeEditorState() {
       try { return JSON.stringify(_ieCollect(modal)); }
@@ -2814,25 +2882,31 @@
     // Type toggle (bin/auction sections) + auction variant constraint
     var typeEl = modal.querySelector('#ieType');
     if (typeEl) {
-      var _prevMainType = typeEl.value;
-      typeEl.addEventListener('focus', function () { _prevMainType = typeEl.value; });
       typeEl.addEventListener('change', function () {
         var newType = typeEl.value;
         var isAuction = newType === 'auction';
         if (isAuction && _ieVariants.length > 0) {
-          if (!confirm('Switching to Auction will remove all variants. Continue?')) {
-            typeEl.value = _prevMainType;
-            return;
-          }
-          _ieSaveVariantData(modal);
-          var _sg = _snapshotGeneral();
-          _ieVariants = [];
-          _ieActiveVariant = -1;
-          modal.innerHTML = _buildItemEditorHtml(origItem, isNew);
-          _ieTypeToggle(modal);
-          _bindItemEditorEvents(modal, origItem, isNew);
-          _sg.type = 'auction';
-          _restoreGeneral(_sg);
+          var _variantCount = _ieVariants.length;
+          _ieConfirm({
+            title: 'Switch to Auction',
+            bodyHtml: 'Switching this item to an <strong>Auction</strong> will remove all ' +
+                      '<strong>' + _variantCount + '</strong> variant' + (_variantCount === 1 ? '' : 's') +
+                      '.<br><br>Continue?',
+            confirmLabel: 'Switch to Auction',
+            danger: true,
+            onConfirm: function () {
+              _ieSaveVariantData(modal);
+              var _sg = _snapshotGeneral();
+              _ieVariants = [];
+              _ieActiveVariant = -1;
+              _sg.type = 'auction';
+              _ieRerender(origItem, _sg);
+            },
+            onCancel: function () {
+              typeEl.value = modal.dataset.iePrevType || 'bin';
+              if (typeEl._cs && typeEl._cs.refresh) typeEl._cs.refresh();
+            },
+          });
           return;
         }
         // Switching from auction to non-auction: ensure at least one variant
@@ -2840,14 +2914,11 @@
           var _sg2 = _snapshotGeneral();
           _ieVariants.push({ id: 'v' + Date.now(), label: 'Variant 1', data: { name: '', price: '', stock: '', max_quantity: '', accepts_dirty_ep: 'true', spend_order: 'clean_first', cooldown_type: 'none', cooldown_num: '1', activate_at: '', deactivate_at: '', active: 'true' } });
           _ieActiveVariant = -1;
-          modal.innerHTML = _buildItemEditorHtml(origItem, isNew);
-          _ieTypeToggle(modal);
-          _bindItemEditorEvents(modal, origItem, isNew);
           _sg2.type = newType;
-          _restoreGeneral(_sg2);
+          _ieRerender(origItem, _sg2);
           return;
         }
-        _prevMainType = newType;
+        modal.dataset.iePrevType = newType;
         _ieTypeToggle(modal);
         var addBtn = modal.querySelector('#ieAddVariant');
         if (addBtn) {
@@ -3099,10 +3170,7 @@
       function _rebuildTabBar(item, isNew, skipSave) {
         if (!skipSave) _ieSaveVariantData(modal);
         var _sg = _snapshotGeneral();
-        modal.innerHTML = _buildItemEditorHtml(item || null, isNew || false);
-        _ieTypeToggle(modal);
-        _bindItemEditorEvents(modal, item || null, isNew || false);
-        _restoreGeneral(_sg);
+        _ieRerender(item || null, _sg, isNew || false);
       }
 
       function _removeVariant(ri) {

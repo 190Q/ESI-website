@@ -87,6 +87,13 @@ _TYPES = {
         "action": "OUTBID", "action_bg": "#5a2a1a",
         "amount_color": "#c98a30",
     },
+    "still_winning": {
+        "badge": "STILL WINNING", "badge_color": "#c9a227",
+        "icon": "warning", "icon_color": "#c9a227",
+        "title": "Outbid, Still Winning",
+        "action": "STILL WINNING", "action_bg": "#3a3010",
+        "amount_color": "#c9a227",
+    },
     "auction_won": {
         "badge": "WON", "badge_color": "#c9a227",
         "icon": "trophy", "icon_color": "#c9a227",

@@ -1492,6 +1492,9 @@
     html += (!a.accepts_dirty_ep || a.spend_order === 'clean_only')
       ? '<span class="shop-card-badge shop-card-badge--clean">Clean EP Only</span>'
       : '<span class="shop-card-badge shop-card-badge--any">Any EP</span>';
+    if ((a.winner_count || 1) > 1) {
+      html += '<span class="shop-card-badge shop-card-badge--cat">' + num(a.winner_count) + ' Winners</span>';
+    }
     html += '</div>';
     html += '<div class="shop-card-cats">' + _catBadges(a.item_category) + '</div>';
     html += '</div>'; // card-body
@@ -1911,6 +1914,9 @@
       html += '<span class="detail-pill detail-pill--muted">Auction ended</span>';
     }
     html += '<span class="detail-pill detail-pill--timer">Min +' + num(auction.min_increment) + ' EP</span>';
+    if ((auction.winner_count || 1) > 1) {
+      html += '<span class="detail-pill detail-pill--timer">' + num(auction.winner_count) + ' winners</span>';
+    }
     if (auction.user_bid) {
       html += auction.user_bid.is_winning
         ? '<span class="detail-pill detail-pill--success">' + _svg.check + ' Winning ' + '\u00B7 ' + num(auction.user_bid.amount) + ' EP</span>'

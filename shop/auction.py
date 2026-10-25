@@ -182,6 +182,154 @@ def _compute_extended_hours(row, item) -> int:
     except Exception:
         return 0
 
+def _rank_distinct_bidders(bids: list, limit: int | None = None) -> list:
+    """Return the best bid of each distinct bidder, best first.
+
+    *bids* must already be ordered by ``amount DESC, placed_at ASC``. A bidder is
+    ranked by their highest bid, and the earliest bid at that amount breaks ties.
+    """
+    ranked: list = []
+    seen: set = set()
+    for bid in bids:
+        uuid = bid["uuid"]
+        if uuid in seen:
+            continue
+        seen.add(uuid)
+        ranked.append(bid)
+        if limit is not None and len(ranked) >= limit:
+            break
+    return ranked
+
+
+def _sync_auction_winners(conn: sqlite3.Connection, auction_id: str,
+                          winner_count: int, now_iso: str) -> list:
+    """Point ``bids.is_winning`` and ``ep_reservations`` at the current top-N bidders.
+
+    Auctions can have several winners, so every bidder inside the top N keeps
+    their EP hold - only bidders pushed outside it get released. This is the one
+    place that decides who is winning, so the flag, the holds and
+    ``_cleanup_orphaned_reservations`` can never disagree.
+
+    Returns the winning bid rows, best first.
+    """
+    source = f"auction:{auction_id}"
+    _ensure_ep_reservations_table(conn)
+
+    bids = conn.execute(
+        "SELECT bid_id, uuid, username, amount, clean_ep_used, dirty_ep_used "
+        "FROM bids WHERE auction_id = ? ORDER BY amount DESC, placed_at ASC",
+        (auction_id,),
+    ).fetchall()
+    winners = _rank_distinct_bidders(bids, winner_count)
+    winner_uuids = {w["uuid"] for w in winners}
+
+    # A winner's winning bid is their highest one, so re-point the flag wholesale
+    conn.execute("UPDATE bids SET is_winning = 0 WHERE auction_id = ?", (auction_id,))
+    for w in winners:
+        conn.execute("UPDATE bids SET is_winning = 1 WHERE bid_id = ?", (w["bid_id"],))
+
+    # Drop holds from anyone who is no longer inside the winning set
+    held = conn.execute(
+        "SELECT DISTINCT uuid FROM ep_reservations "
+        "WHERE source = ? AND released_at IS NULL",
+        (source,),
+    ).fetchall()
+    for row in held:
+        if row["uuid"] not in winner_uuids:
+            conn.execute(
+                "UPDATE ep_reservations SET released_at = ? "
+                "WHERE uuid = ? AND source = ? AND released_at IS NULL",
+                (now_iso, row["uuid"], source),
+            )
+
+    # Every winner must hold exactly their winning bid amount
+    for w in winners:
+        held_amount = conn.execute(
+            "SELECT COALESCE(SUM(reserved_amount), 0) FROM ep_reservations "
+            "WHERE uuid = ? AND source = ? AND released_at IS NULL",
+            (w["uuid"], source),
+        ).fetchone()[0]
+        if held_amount == (w["amount"] or 0):
+            continue
+        conn.execute(
+            "UPDATE ep_reservations SET released_at = ? "
+            "WHERE uuid = ? AND source = ? AND released_at IS NULL",
+            (now_iso, w["uuid"], source),
+        )
+        _clean_used = w["clean_ep_used"] or 0
+        _dirty_used = w["dirty_ep_used"] or 0
+        if _clean_used > 0:
+            conn.execute(
+                "INSERT INTO ep_reservations "
+                "(reservation_id, uuid, username, reserved_amount, ep_type, source, created_at) "
+                "VALUES (?, ?, ?, ?, 'clean', ?, ?)",
+                (str(_uuid_mod.uuid4()), w["uuid"], w["username"] or "",
+                 _clean_used, source, now_iso),
+            )
+        if _dirty_used > 0:
+            conn.execute(
+                "INSERT INTO ep_reservations "
+                "(reservation_id, uuid, username, reserved_amount, ep_type, source, created_at) "
+                "VALUES (?, ?, ?, ?, 'dirty', ?, ?)",
+                (str(_uuid_mod.uuid4()), w["uuid"], w["username"] or "",
+                 _dirty_used, source, now_iso),
+            )
+
+    return winners
+
+
+def _own_auction_reservations(uuid: str, auction_id: str) -> tuple[int, int]:
+    """Active ``(clean, dirty)`` reservation totals this bidder holds on one auction."""
+    clean = dirty = 0
+    if not os.path.isfile(_SHOP_DB):
+        return clean, dirty
+    try:
+        conn = sqlite3.connect(_SHOP_DB, timeout=5)
+        rows = conn.execute(
+            "SELECT ep_type, COALESCE(SUM(reserved_amount), 0) FROM ep_reservations "
+            "WHERE uuid = ? AND source = ? AND released_at IS NULL GROUP BY ep_type",
+            (uuid, f"auction:{auction_id}"),
+        ).fetchall()
+        conn.close()
+        for ep_type, amount in rows:
+            if ep_type == "clean":
+                clean = int(amount)
+            elif ep_type == "dirty":
+                dirty = int(amount)
+    except sqlite3.Error:
+        pass
+    return clean, dirty
+
+
+def _available_ep_for_auction(uuid: str, auction_id: str, item: dict) -> int:
+    """EP a bidder can still commit to this auction at settlement time.
+
+    ``fetch_ep_balance`` reports totals plus everything currently reserved, so the
+    bidder's own hold on this auction is added back before checking whether they
+    can still cover their bid. Auctions never outlive their cycle (both start and
+    anti-snipe clamp to the cycle boundary), so a hold can never age into a
+    different bucket between the bid and settlement.
+    """
+    bal = fetch_ep_balance(uuid)
+    clean     = int(bal.get("clean_ep", 0) or 0)
+    dirty     = int(bal.get("dirty_ep", 0) or 0)
+    res_clean = int(bal.get("reserved_clean", 0) or 0)
+    res_dirty = int(bal.get("reserved_dirty", 0) or 0)
+
+    own_clean, own_dirty = _own_auction_reservations(uuid, auction_id)
+    free_clean = clean - max(0, res_clean - own_clean)
+    free_dirty = dirty - max(0, res_dirty - own_dirty)
+
+    spend_order = item.get("spend_order", "clean_first")
+    if not item.get("accepts_dirty_ep", False):
+        spend_order = "clean_only"
+    if spend_order == "clean_only":
+        return free_clean
+    if spend_order == "dirty_only":
+        return free_dirty
+    return free_clean + free_dirty
+
+
 def list_auctions(discord_id: str, user_roles: list | None = None,
                   is_shop_admin: bool = False) -> dict:
     """Return active + recently-closed auctions, enriched for the logged-in user.
@@ -274,6 +422,7 @@ def list_auctions(discord_id: str, user_roles: list | None = None,
                     "item_images":      item.get("images") or [],
                     "active":           item.get("active", True),
                     "auto_start":       bool(item.get("auto_start", False)),
+                    "winner_count":     item.get("winner_count", 1) or 1,
                     "user_bid":         user_bid,
                     "visible_to_user":  visible_to_user,
                 }
@@ -400,6 +549,16 @@ def place_bid(
         # manage EP reservations in shop.db
         _ensure_ep_reservations_table(shop_conn)
 
+        # Who held a winning slot before this bid, so we can tell anyone who
+        # drops out of the winning set that their EP was released.
+        _prev_holders = {
+            r[0] for r in shop_conn.execute(
+                "SELECT DISTINCT uuid FROM ep_reservations "
+                "WHERE source = ? AND released_at IS NULL",
+                (f"auction:{auction_id}",),
+            ).fetchall()
+        }
+
         # Release any prior reservation from this user on this auction
         shop_conn.execute(
             "UPDATE ep_reservations SET released_at = ? "
@@ -425,33 +584,25 @@ def place_bid(
                  f"auction:{auction_id}", now_iso),
             )
 
-        # release the displaced bidder's reservation
-        if current_bidder and current_bidder != mc_uuid:
-            shop_conn.execute(
-                "UPDATE ep_reservations SET released_at = ? "
-                "WHERE uuid = ? AND source = ? AND released_at IS NULL",
-                (now_iso, current_bidder, f"auction:{auction_id}"),
-            )
-
-        # insert bid row
+        # insert bid row (the winning flag is set by _sync_auction_winners below)
         bid_id = str(_uuid_mod.uuid4())
 
         shop_conn.execute(
             "INSERT INTO bids "
             "(bid_id, auction_id, uuid, username, amount, clean_ep_used, dirty_ep_used, "
             " placed_at, is_winning) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)",
             (bid_id, auction_id, mc_uuid, mc_username or "", amount,
              clean_used, dirty_used, now_iso),
         )
 
-        # Un-mark the previous highest bidder's winning flag
-        if current_bidder:
-            shop_conn.execute(
-                "UPDATE bids SET is_winning = 0 "
-                "WHERE auction_id = ? AND uuid = ? AND is_winning = 1",
-                (auction_id, current_bidder),
-            )
+        winner_count = item.get("winner_count", 1) or 1
+        winners = _sync_auction_winners(shop_conn, auction_id, winner_count, now_iso)
+        displaced_uuid = current_bidder if (current_bidder and current_bidder != mc_uuid) else None
+        displaced_still_winning = bool(
+            displaced_uuid and any(w["uuid"] == displaced_uuid for w in winners)
+        )
+        dropped_uuids = _prev_holders - {w["uuid"] for w in winners}
 
         # update auction state
         shop_conn.execute(
@@ -503,42 +654,75 @@ def place_bid(
         _bidder_count = _ctx_conn.execute(
             "SELECT COUNT(DISTINCT uuid) FROM bids WHERE auction_id = ?", (auction_id,),
         ).fetchone()[0]
+        _best_bid_by_uuid = {
+            r[0]: r[1] for r in _ctx_conn.execute(
+                "SELECT uuid, MAX(amount) FROM bids WHERE auction_id = ? GROUP BY uuid",
+                (auction_id,),
+            ).fetchall()
+        }
         _ctx_conn.close()
     except sqlite3.Error:
         _bidder_count = 0
+        _best_bid_by_uuid = {}
 
     # DM: Bid confirmed (receipt)
     bidder_did = _resolve_discord_id_for_uuid(mc_uuid)
     if bidder_did:
+        if winner_count > 1:
+            _status_txt = f"Leading of {winner_count}"
+            _receipt_text = (
+                f"Bid of {amount:,} EP on {item_name} placed. "
+                f"You lead {winner_count} winning positions."
+            )
+        else:
+            _status_txt = "Highest Bidder"
+            _receipt_text = f"Bid of {amount:,} EP on {item_name} placed. You are the highest bidder."
         _dm_card_in_background(
             bidder_did, "bid_placed", item_name, amount,
             fields=[
                 ("BIDDERS", f"{_bidder_count} active"),
                 ("ENDS IN", _ends_str),
                 ("YOUR RANK", "#1"),
-                ("STATUS", "Highest Bidder"),
+                ("STATUS", _status_txt),
             ],
-            fallback_text=f"Bid of {amount:,} EP on {item_name} placed. You are the highest bidder.",
+            fallback_text=_receipt_text,
             low_urgency=True,
         )
 
-    # DM: Outbid notification to displaced bidder
-    if current_bidder and current_bidder != mc_uuid:
-        displaced_did = _resolve_discord_id_for_uuid(current_bidder)
+    if displaced_uuid and displaced_still_winning:
+        displaced_did = _resolve_discord_id_for_uuid(displaced_uuid)
         if displaced_did:
-            # Find the displaced bidder's last bid amount
             _displaced_amount = current_high  # their bid was the previous high
-            _deficit = amount - _displaced_amount
             _dm_card_in_background(
-                displaced_did, "outbid", item_name, amount,
+                displaced_did, "still_winning", item_name, _displaced_amount,
                 fields=[
                     ("YOUR BID", f"{_displaced_amount:,} EP"),
                     ("NEW HIGH", f"{amount:,} EP"),
-                    ("DEFICIT", f"{_deficit:,} EP"),
+                    ("STATUS", f"Still winning ({winner_count})"),
                     ("ENDS IN", _ends_str),
                 ],
-                fallback_text=f"You were outbid on {item_name}. New high: {amount:,} EP.",
+                fallback_text=(
+                    f"You were outbid for first place on {item_name}, but you are still "
+                    f"inside the winning set ({winner_count} winners). Your EP stays reserved."
+                ),
             )
+
+    # Everyone pushed out of the winning set has just had their EP released
+    for uuid in dropped_uuids:
+        dropped_did = _resolve_discord_id_for_uuid(uuid)
+        if not dropped_did:
+            continue
+        _dropped_amount = _best_bid_by_uuid.get(uuid, 0)
+        _dm_card_in_background(
+            dropped_did, "outbid", item_name, amount,
+            fields=[
+                ("YOUR BID", f"{_dropped_amount:,} EP"),
+                ("NEW HIGH", f"{amount:,} EP"),
+                ("DEFICIT", f"{max(0, amount - _dropped_amount):,} EP"),
+                ("ENDS IN", _ends_str),
+            ],
+            fallback_text=f"You were outbid on {item_name}. New high: {amount:,} EP.",
+        )
 
     # DM: Anti-snipe extension notification to all active bidders
     if extended:
@@ -835,34 +1019,29 @@ def _settle_auction(auction: sqlite3.Row, now_iso: str):
             (aid,),
         ).fetchall()
 
-        # Determine candidates (top winner_count distinct UUIDs)
-        candidates = []
-        seen_uuids: set = set()
-        for bid in all_bids:
-            if bid["uuid"] not in seen_uuids and len(candidates) < winner_count:
-                candidates.append(bid)
-                seen_uuids.add(bid["uuid"])
+        ranked_bidders = _rank_distinct_bidders(all_bids)
 
-        # Re-validate each candidate's EP balance at settlement time
         winners: list = []
         disqualified_uuids: set = set()
-        for w in candidates:
-            bal     = fetch_ep_balance(w["uuid"])
-            have    = (bal.get("clean_ep", 0) or 0) + (bal.get("dirty_ep", 0) or 0)
-            need    = w["amount"]
+        for cand in ranked_bidders:
+            if len(winners) >= winner_count:
+                break
+            need = cand["amount"]
+            have = _available_ep_for_auction(cand["uuid"], aid, item)
             if have >= need:
-                winners.append(w)
+                winners.append(cand)
             else:
-                disqualified_uuids.add(w["uuid"])
+                disqualified_uuids.add(cand["uuid"])
                 print(
-                    f"[AUCTION] {aid}: winner {w['username']} has insufficient EP "
-                    f"(need {need}, have {have}) — disqualified at settlement.",
+                    f"[AUCTION] {aid}: bidder {cand['username']} has insufficient EP "
+                    f"(need {need}, available {have}) - disqualified at settlement.",
                     file=sys.stderr,
                 )
 
         winner_uuids = {w["uuid"] for w in winners}
         loser_uuids  = {b["uuid"] for b in all_bids
-                        if b["uuid"] not in winner_uuids}
+                        if b["uuid"] not in winner_uuids
+                        and b["uuid"] not in disqualified_uuids}
 
         # Mark winning bids
         for w in winners:

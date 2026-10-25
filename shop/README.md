@@ -63,13 +63,22 @@ Balance checks for purchases and bids run inside `BEGIN IMMEDIATE` transactions 
 ## Auction lifecycle
 
 1. Admin starts auction → row in `auctions` with `status='active'`
-2. Users place bids → EP reserved in `ep_reservations`, displaced bidder's reservation released
+2. Users place bids → EP reserved in `ep_reservations`. An item can have several
+   winners (`winner_count`), so only bidders pushed outside the top N have their
+   reservation released - anyone still inside the winning set stays committed
 3. Anti-snipe: bids in the last N seconds extend the end time (capped at cycle_end - 2h)
 4. Background worker (`auction_close_loop`) runs every 60s:
    - Sends ending-soon reminders (~6h before close)
-   - Settles expired auctions (winners get `bin_purchases` rows, losers get EP released)
+   - Settles expired auctions: the top `winner_count` bidders who can still cover
+     their bid each get a `bin_purchases` row, everyone else gets EP released. A
+     bidder who can no longer pay is disqualified and the next highest bidder takes
+     their slot instead of leaving the auction short of winners
    - Cleans up orphaned reservations
-5. Admin can cancel auctions or remove individual bids at any time
+5. Admin can cancel auctions or remove any currently winning bid at any time
+
+`bids.is_winning` tracks the current top `winner_count` bidders for the whole
+auction, so the shop UI, the bid DMs and the orphan-reservation cleanup all agree
+on who is winning.
 
 ## DM notification cards
 
