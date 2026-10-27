@@ -24,6 +24,10 @@
         if (!data || data.ready === false) {
           return false;
         }
+        var members = data.members;
+        if (!members || typeof members !== 'object' || !Object.keys(members).length) {
+          return false;
+        }
         applyBulkData(data);
         return true;
       })

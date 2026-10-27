@@ -190,7 +190,10 @@
     canvas.style.width = '0';
     const W = wrap.clientWidth;
     const H = Number.isFinite(opts.height) ? opts.height : 220;
-    if (W === 0) return null;
+    if (W === 0) {
+      canvas.style.removeProperty('width');
+      return null;
+    }
     canvas.width = W * dpr;
     canvas.height = H * dpr;
     canvas.style.width = W + 'px';

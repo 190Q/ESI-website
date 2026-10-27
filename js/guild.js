@@ -244,14 +244,15 @@
     const key = username.toLowerCase();
     const metrics = resp.metrics || {};
     const existing = (window.playtimeCache && window.playtimeCache[key]) || {};
+    const pick = (next, prev) => (Array.isArray(next) && next.length) ? next : (Array.isArray(prev) ? prev : []);
     window.playtimeCache = window.playtimeCache || {};
     window.playtimeCache[key] = Object.assign({}, existing, {
       username: resp.username || existing.username || username,
-      dates: Array.isArray(resp.playtimeDates) ? resp.playtimeDates : (existing.dates || []),
-      metricDates: Array.isArray(resp.metricDates) ? resp.metricDates : (existing.metricDates || []),
-      data: Array.isArray(metrics.playtime) ? metrics.playtime : (existing.data || []),
-      wars: Array.isArray(metrics.wars) ? metrics.wars : (existing.wars || []),
-      guildRaids: Array.isArray(metrics.guildRaids) ? metrics.guildRaids : (existing.guildRaids || []),
+      dates: pick(resp.playtimeDates, existing.dates),
+      metricDates: pick(resp.metricDates, existing.metricDates),
+      data: pick(metrics.playtime, existing.data),
+      wars: pick(metrics.wars, existing.wars),
+      guildRaids: pick(metrics.guildRaids, existing.guildRaids),
     });
   }
 

@@ -19,7 +19,7 @@
   }
 
   /* graph config */
-  const graphState = { data: null, compareData: null, compareUsername: null, compareInGuild: null, compareLoading: false, graphReady: false, graphCache: {}, debugLogged: {}, debugFetchTried: {} };
+  const graphState = { data: null, dataUsername: null, dataUuid: null, compareData: null, compareUsername: null, compareInGuild: null, compareLoading: false, graphReady: false, graphCache: {}, debugLogged: {}, debugFetchTried: {} };
   const GRAPH_METRICS = [
     { key: 'playtime',    label: 'Playtime',      min: 0.5, max: 8,    decimals: 1 },
     { key: 'wars',        label: 'Wars',          min: 0,   max: 10,   decimals: 0 },
@@ -691,7 +691,7 @@
     }
 
     // graph loads independently from the profile API call
-    var graphP = initGraphIndependent(username, skipLoading);
+    var graphP = initGraphIndependent(username, isRefetch);
     if (graphP && state._fetchToast) {
       graphP.then(function (ok) {
         if (state._fetchToast) state._fetchToast.updateItem('graph', ok ? 'success' : 'error');
@@ -1462,7 +1462,25 @@
     state.playerInGuild = isEsiGuildMember(p);
 
     /* re-render metric rows now that guild membership is known */
-    if (graphState.graphReady) renderMetricRows();
+    if (graphState.graphReady) {
+      const graphPlayer = graphState.dataUsername || '';
+      const samePlayer = !!graphPlayer &&
+        graphPlayer.toLowerCase() === (p.username || '').toLowerCase();
+      if (samePlayer && graphState.dataUuid !== (p.uuid || '')) {
+        graphState.dataUuid = p.uuid || '';
+      }
+      const availableMetrics = getAvailableMetrics();
+      let usableMetrics = compareGraph.metrics.filter(function (k) {
+        return availableMetrics.some(function (m) { return m.key === k; });
+      });
+      if (!usableMetrics.length) usableMetrics = [availableMetrics[0].key];
+      if (usableMetrics.length !== compareGraph.metrics.length ||
+          usableMetrics.some(function (k, i) { return k !== compareGraph.metrics[i]; })) {
+        compareGraph.metrics = usableMetrics;
+      }
+      renderMetricRows();
+      if (samePlayer) refreshCompareGraph();
+    }
 
     /* rank history button (ESI members only) */
     const rankHistBtn = document.getElementById('viewRankHistory');
@@ -2565,6 +2583,38 @@
     graphState.debugLogged[key] = true;
   }
 
+  var _bulkRefreshInFlight = null;
+  var _bulkRefreshTs = 0;
+  var BULK_REFRESH_COOLDOWN_MS = 30000;
+  function refreshBulkActivityCache() {
+    if (_bulkRefreshInFlight) return _bulkRefreshInFlight;
+    if (Date.now() - _bulkRefreshTs < BULK_REFRESH_COOLDOWN_MS) return Promise.resolve(false);
+    _bulkRefreshTs = Date.now();
+    _bulkRefreshInFlight = fetch(API_BASE + '/api/guild/activity')
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (payload) {
+        var members = payload && payload.members;
+        if (!members || typeof members !== 'object' || !Object.keys(members).length) return false;
+        window.playtimeCache = members;
+        window.guildStatsCache = payload.guild || window.guildStatsCache || {};
+        DataCache.writeCache('/api/guild/activity', payload);
+        return true;
+      })
+      .catch(function () { return false; })
+      .then(function (ok) {
+        _bulkRefreshInFlight = null;
+        return ok;
+      });
+    return _bulkRefreshInFlight;
+  }
+
+  function isAllZeroGraphData(data) {
+    return Object.keys(data).every(function (k) {
+      var arr = data[k];
+      return !Array.isArray(arr) || !arr.some(function (v) { return Number(v) !== 0; });
+    });
+  }
+
   async function fetchGraphData(username, inGuildExpected) {
     const key = username.toLowerCase();
     if (graphState.graphCache[key]) {
@@ -2574,29 +2624,47 @@
     // wait for the bulk prefetch to finish first
     if (window.playtimePrefetchReady) await window.playtimePrefetchReady;
 
-    const cached = window.playtimeCache && window.playtimeCache[key];
+    let cached = window.playtimeCache && window.playtimeCache[key];
+    if (!cached && await refreshBulkActivityCache()) {
+      cached = window.playtimeCache && window.playtimeCache[key];
+    }
+
     let playtimeArr = [];
+    let fallbackMetrics = {};
 
     if (cached) {
       playtimeArr = cached.data || [];
     } else {
       try {
-        const res = await apiFetch(`/api/player/${encodeURIComponent(username)}/playtime-history`);
-        playtimeArr = res.data || [];
-      } catch (_) {}
+        const res = await apiFetch(`/api/player/${encodeURIComponent(username)}/metrics-history`);
+        fallbackMetrics = (res && res.metrics) || {};
+        playtimeArr = Array.isArray(fallbackMetrics.playtime) ? fallbackMetrics.playtime : [];
+      } catch (_) {
+        try {
+          const res = await apiFetch(`/api/player/${encodeURIComponent(username)}/playtime-history`);
+          playtimeArr = res.data || [];
+        } catch (_) {}
+      }
     }
 
     const data = {};
     GRAPH_METRICS.forEach(m => {
+      const fallback = fallbackMetrics[m.key];
       if (m.key === 'playtime') {
-        data[m.key] = pad60(playtimeArr);
+        data[m.key] = pad60(playtimeArr.length ? playtimeArr : (fallback || []));
       } else if (cached && Array.isArray(cached[m.key]) && cached[m.key].length) {
         data[m.key] = pad60(cached[m.key]);
+      } else if (Array.isArray(fallback) && fallback.length) {
+        data[m.key] = pad60(fallback);
       } else {
         data[m.key] = Array(60).fill(0);
       }
     });
-    graphState.graphCache[key] = data;
+
+    // an empty graph is usually data that was not ready yet, so do not memoise it
+    if (!isAllZeroGraphData(data)) {
+      graphState.graphCache[key] = data;
+    }
     return data;
   }
 
@@ -2684,6 +2752,11 @@
 
     return fetchGraphData(username, true).then(function (data) {
       graphState.data = data;
+      graphState.dataUsername = username;
+      graphState.dataUuid = (state.playerData && state.playerData.username &&
+        state.playerData.username.toLowerCase() === username.toLowerCase())
+        ? (state.playerData.uuid || '')
+        : '';
       compareGraph.days = parseInt(compareGraph.range.value);
       compareGraph.daysLbl.textContent = compareGraph.days + 'd';
       var _allMetricKeys = GRAPH_METRICS.map(function (m) { return m.key; });
@@ -2695,7 +2768,7 @@
         );
         if (requestedMetrics && requestedMetrics.length) {
           var valid = requestedMetrics.filter(function (k) { return _allMetricKeys.indexOf(k) !== -1; });
-          if (valid.length) compareGraph.metrics = valid;
+          if (valid.length) compareGraph.metrics = valid.slice(0, MAX_METRICS);
         }
         renderMetricRows();
       } else {
@@ -2710,7 +2783,7 @@
         }
         if (hasNewMetrics) {
           var valid = requestedMetrics.filter(function (k) { return _allMetricKeys.indexOf(k) !== -1; });
-          if (valid.length) compareGraph.metrics = valid;
+          if (valid.length) compareGraph.metrics = valid.slice(0, MAX_METRICS);
         }
         if (hasNewFocus || hasNewMetrics) renderMetricRows();
       }
@@ -2747,8 +2820,10 @@
   function refreshCompareGraph() {
     if (!graphState.data) return;
     const hasCompare = !!(graphState.compareData && graphState.compareUsername);
-    const mainName   = (state.playerData && state.playerData.username) || 'Player';
-    const mainCtx = playerMaskContextFromPlayer(state.playerData || { username: mainName });
+    const mainName = graphState.dataUsername
+      || (state.playerData && state.playerData.username)
+      || 'Player';
+    const mainCtx = playerMaskContextFromIdentity(mainName, graphState.dataUuid || '');
     const rawSeries  = [];
 
     compareGraph.metrics.forEach((key, i) => {
@@ -3171,7 +3246,7 @@
         seen[k] = true;
         unique.push(k);
       });
-      if (unique.length) metrics = unique.slice(0, 4);
+      if (unique.length) metrics = unique.slice(0, MAX_METRICS);
     }
 
     var range = null;

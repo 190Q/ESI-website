@@ -39,15 +39,23 @@
     if (!username || !payload) return;
     var uLow = username.toLowerCase();
     var metrics = payload.metrics || {};
+    var existing = (window.playtimeCache && window.playtimeCache[uLow]) || {};
+    function pick(next, prev) {
+      return (Array.isArray(next) && next.length) ? next : (Array.isArray(prev) ? prev : []);
+    }
     window.playtimeCache = window.playtimeCache || {};
-    window.playtimeCache[uLow] = {
-      username: payload.username || username,
-      dates: Array.isArray(payload.playtimeDates) ? payload.playtimeDates : (Array.isArray(payload.dates) ? payload.dates : []),
-      metricDates: Array.isArray(payload.metricDates) ? payload.metricDates : (Array.isArray(payload.dates) ? payload.dates : []),
-      data: Array.isArray(metrics.playtime) ? metrics.playtime : [],
-      wars: Array.isArray(metrics.wars) ? metrics.wars : [],
-      guildRaids: Array.isArray(metrics.guildRaids) ? metrics.guildRaids : [],
-    };
+    window.playtimeCache[uLow] = Object.assign({}, existing, {
+      username: payload.username || existing.username || username,
+      dates: Array.isArray(payload.playtimeDates) && payload.playtimeDates.length
+        ? payload.playtimeDates
+        : (Array.isArray(existing.dates) ? existing.dates : (Array.isArray(payload.dates) ? payload.dates : [])),
+      metricDates: Array.isArray(payload.metricDates) && payload.metricDates.length
+        ? payload.metricDates
+        : (Array.isArray(existing.metricDates) ? existing.metricDates : (Array.isArray(payload.dates) ? payload.dates : [])),
+      data: pick(metrics.playtime, existing.data),
+      wars: pick(metrics.wars, existing.wars),
+      guildRaids: pick(metrics.guildRaids, existing.guildRaids),
+    });
   }
 
   function fetchMetricsHistory(username) {
