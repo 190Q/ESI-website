@@ -24,7 +24,12 @@ if _ROOT not in sys.path:
 from config import _POINTS_DB, _get_latest_api_db
 
 RAID_EP = 10
+EP_PER_RAID = 5
 MIN_TICKETS = 1
+
+# Raffle rule: one ticket per five guild raids, capped at 100 tickets.
+RAIDS_PER_TICKET = 5
+MAX_TICKETS = 100
 
 _GUILD_RAID_PREFIX = "guild raid"
 
@@ -147,9 +152,23 @@ def collect_guild_raids(
     return list(out.values())
 
 
-def tickets_for_raids(raids: int, min_tickets: int = MIN_TICKETS) -> int:
-    """One ticket per guild raid, floored at ``min_tickets``."""
-    return max(int(min_tickets or 0), int(raids or 0))
+def tickets_for_raids(
+    raids: int,
+    min_tickets: int = MIN_TICKETS,
+    raids_per_ticket: int = RAIDS_PER_TICKET,
+    max_tickets: int = MAX_TICKETS,
+) -> int:
+    """One ticket per ``raids_per_ticket`` raids, floored at ``min_tickets``.
+
+    A ``raids_per_ticket`` of 0 means no rate (one ticket per raid) and a
+    ``max_tickets`` of 0 means no cap. The floor never lifts a participant over
+    ``max_tickets``.
+    """
+    rate = max(1, int(raids_per_ticket or 0))
+    earned = max(0, int(raids or 0)) // rate
+    tickets = max(int(min_tickets or 0), earned)
+    cap = int(max_tickets or 0)
+    return tickets if cap <= 0 else min(tickets, cap)
 
 
 def load_roster() -> dict[str, dict]:
@@ -178,3 +197,71 @@ def load_roster() -> dict[str, dict]:
             "rank": (rank or "").strip(),
         }
     return out
+
+
+def payout_batch_label(start: datetime, end: datetime) -> str:
+    """Return the payout ledger batch label for one event window."""
+    return f"raid_event:{start.date().isoformat()}:{end.date().isoformat()}"
+
+
+def build_payout(
+    start: datetime,
+    end: datetime,
+    ep_per_raid: int = EP_PER_RAID,
+    high_rank_ep_per_raid: int | None = None,
+    min_tickets: int = MIN_TICKETS,
+    include_non_raiders: bool = False,
+    raids_per_ticket: int = RAIDS_PER_TICKET,
+    max_tickets: int = MAX_TICKETS,
+) -> list[dict]:
+    """Return one payout row per participant, sorted by clean EP desc.
+
+    Each row is ``{username, uuid, rank, is_high_rank, raids, bonus_ep,
+    tickets, total_ep}``, where ``bonus_ep`` is the clean EP owed for the
+    guild raids recorded inside ``[start, end)``.
+    """
+    import events.raid_event as raid_event
+
+    if high_rank_ep_per_raid is None:
+        high_rank_ep_per_raid = ep_per_raid
+
+    roster = load_roster()
+    rows: list[dict] = []
+    seen_uuids: set[str] = set()
+
+    def payout_row(uuid: str | None, username: str, raids: int) -> dict:
+        rank = (roster.get((uuid or "").lower()) or {}).get("rank", "")
+        is_high_rank = raid_event._is_high_rank_row({"rank": rank})
+        per_raid = high_rank_ep_per_raid if is_high_rank else ep_per_raid
+        bonus_ep = int(raids) * int(per_raid)
+        return {
+            "username": username,
+            "uuid": uuid,
+            "rank": rank or None,
+            "is_high_rank": bool(is_high_rank),
+            "raids": int(raids),
+            "bonus_ep": bonus_ep,
+            "tickets": tickets_for_raids(
+                raids, min_tickets, raids_per_ticket, max_tickets
+            ),
+            "total_ep": int(raids) * RAID_EP + bonus_ep,
+        }
+
+    for entry in collect_guild_raids(start, end):
+        uuid = entry.get("uuid")
+        if uuid:
+            seen_uuids.add(uuid.lower())
+        rows.append(payout_row(
+            uuid,
+            entry.get("username") or (uuid or "?"),
+            int(entry.get("raids") or 0),
+        ))
+
+    if include_non_raiders:
+        for uid, info in roster.items():
+            if uid in seen_uuids:
+                continue
+            rows.append(payout_row(uid, info.get("username") or uid, 0))
+
+    rows.sort(key=lambda r: (-r["bonus_ep"], -r["raids"], (r["username"] or "").lower()))
+    return rows
