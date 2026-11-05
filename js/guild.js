@@ -2284,30 +2284,24 @@
     }
   }
 
-  // Returns true if a date/datetime string falls within the active After/Before filters
   function statsDateInRange(value) {
     const after  = guildStatsState.filterAfter;
     const before = guildStatsState.filterBefore;
     if (!after && !before) return true;
     if (!value) return false;
-    // Normalise to a comparable ISO datetime
-    const valueStr = String(value);
-    if (after) {
-      // "after" is exclusive of values strictly before the start-of-day cutoff
-      const afterCutoff = after + 'T00:00:00.000Z';
-      if (valueStr < afterCutoff) return false;
-    }
-    if (before) {
-      // inclusive end-of-day so a value on the same calendar day still passes
-      const beforeCutoff = before + 'T23:59:59.999Z';
-      if (valueStr > beforeCutoff) return false;
-    }
+    const day = String(value).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+    if (after && day < after) return false;
+    if (before && day > before) return false;
     return true;
   }
 
+  function statsFilterMemberByRank(m) {
+    return !guildStatsState.filterRanks.size || guildStatsState.filterRanks.has(m.rank || '');
+  }
+
   function statsFilterMember(m) {
-    if (guildStatsState.filterRanks.size && !guildStatsState.filterRanks.has(m.rank || '')) return false;
-    return statsDateInRange(m.joined);
+    return statsFilterMemberByRank(m) && statsDateInRange(m.joined);
   }
 
   function statsFilterEvent(ev) {
@@ -2403,12 +2397,16 @@
     if (!guildStatsState.data) return;
     const data = guildStatsState.data;
     const allMembers = data.members || [];
-    const filteredMembers = allMembers.filter(statsFilterMember);
+    const rankMembers = allMembers.filter(statsFilterMemberByRank);
+    const joinedMembers = allMembers.filter(statsFilterMember);
 
     const summary = document.getElementById('guildStatsFilterSummary');
     if (summary) {
       const parts = [];
-      parts.push('Showing ' + filteredMembers.length + ' / ' + allMembers.length + ' members');
+      parts.push('Showing ' + rankMembers.length + ' / ' + allMembers.length + ' members');
+      if (guildStatsState.filterAfter || guildStatsState.filterBefore) {
+        parts.push(joinedMembers.length + ' joined in range');
+      }
       if (guildStatsState.filterRanks.size) {
         parts.push('Ranks: ' + Array.from(guildStatsState.filterRanks).map(capFirst).join(', '));
       }
@@ -2417,16 +2415,16 @@
       summary.textContent = parts.join('  \u00b7  ');
     }
 
-    renderStatsRankDistribution(filteredMembers);
+    renderStatsRankDistribution(joinedMembers);
     renderStatsQueue(data.queue);
     renderStatsFlow(data.joins, data.leaves);
     renderStatsLeavesByRank(data.leaves);
     renderStatsLeavesByTenure(data.leaves);
-    renderStatsAverages(filteredMembers);
-    renderStatsEsiPointsByRank(filteredMembers);
-    renderStatsSnipesByRank(filteredMembers);
-    renderStatsSnipeRolesByRank(filteredMembers);
-    renderStatsTopRecruiters(filteredMembers);
+    renderStatsAverages(rankMembers);
+    renderStatsEsiPointsByRank(rankMembers);
+    renderStatsSnipesByRank(rankMembers);
+    renderStatsSnipeRolesByRank(rankMembers);
+    renderStatsTopRecruiters(rankMembers);
   }
 
   function renderStatsRankDistribution(members) {
@@ -2897,7 +2895,8 @@
     if (guildStatsState.data) {
       const data = guildStatsState.data;
       const allMembers = data.members || [];
-      const filteredMembers = allMembers.filter(statsFilterMember);
+      const rankMembers = allMembers.filter(statsFilterMemberByRank);
+      const joinedMembers = allMembers.filter(statsFilterMember);
       const filters = {
         ranks: Array.from(guildStatsState.filterRanks),
         after: guildStatsState.filterAfter || null,
@@ -2905,12 +2904,13 @@
       };
       const summary = {
         totalMembers: allMembers.length,
-        filteredMembers: filteredMembers.length,
+        filteredMembers: rankMembers.length,
+        joinedInRange: joinedMembers.length,
       };
 
       const rankDistribution = {};
       STATS_RANK_ORDER.forEach(function (r) { rankDistribution[r] = 0; });
-      filteredMembers.forEach(function (m) {
+      joinedMembers.forEach(function (m) {
         const r = m.rank || 'recruit';
         rankDistribution[r] = (rankDistribution[r] || 0) + 1;
       });
@@ -2991,7 +2991,7 @@
       const esiCounts = {};
       STATS_RANK_ORDER.forEach(function (r) { esiTotals[r] = 0; esiCounts[r] = 0; });
       let esiGrandTotal = 0;
-      filteredMembers.forEach(function (m) {
+      rankMembers.forEach(function (m) {
         const r = m.rank || 'recruit';
         const pts = Number(m.esi_points) || 0;
         esiTotals[r] = (esiTotals[r] || 0) + pts;
@@ -3011,7 +3011,7 @@
       const snipePoints = {};
       STATS_RANK_ORDER.forEach(function (r) { snipeCounts[r] = 0; snipePoints[r] = 0; });
       let totalSnipes = 0;
-      filteredMembers.forEach(function (m) {
+      rankMembers.forEach(function (m) {
         const r = m.rank || 'recruit';
         const c = Number(m.snipe_count) || 0;
         const p = Number(m.snipe_points) || 0;
@@ -3029,7 +3029,7 @@
       const rolesByRank = {};
       STATS_RANK_ORDER.forEach(function (r) { rolesByRank[r] = {}; });
       let rolesGrandTotal = 0;
-      filteredMembers.forEach(function (m) {
+      rankMembers.forEach(function (m) {
         const rank = m.rank || 'recruit';
         const roles = m.snipe_roles || {};
         Object.keys(roles).forEach(function (role) {
@@ -3059,9 +3059,9 @@
       });
 
       const averages = {};
-      if (filteredMembers.length) {
+      if (rankMembers.length) {
         STATS_METRICS.forEach(function (metric) {
-          const values = filteredMembers.map(function (m) { return Number(m[metric.key]) || 0; });
+          const values = rankMembers.map(function (m) { return Number(m[metric.key]) || 0; });
           averages[metric.key] = {
             label: metric.label,
             average: statsFmt(statsAverage(values), metric.decimals),
@@ -3071,7 +3071,7 @@
         });
       }
 
-      const topRecruiters = filteredMembers
+      const topRecruiters = rankMembers
         .filter(function (m) { return (m.recruited || 0) > 0; })
         .sort(function (a, b) { return (b.recruited || 0) - (a.recruited || 0); })
         .slice(0, 15)
