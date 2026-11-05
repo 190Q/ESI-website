@@ -7892,6 +7892,46 @@ def _statistics_esi_points_by_user():
     return out
 
 
+def _statistics_ep_by_day(uuids):
+    """Per-day EP totals from the ledger tables, keyed by uuid.
+
+    The ledger sums match the per-cycle ``esi_points`` totals, so the same
+    numbers serve both the lifetime and the date-ranged views.
+    """
+    if not uuids or not os.path.exists(_POINTS_DB):
+        return {}
+    try:
+        conn = _sqlite3.connect(_POINTS_DB)
+        tables = {
+            row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+    except _sqlite3.Error:
+        return {}
+    out = {}
+    for uuid in uuids:
+        table = "player_" + uuid.replace("-", "_")
+        if table not in tables:
+            continue
+        try:
+            rows = conn.execute(
+                f'SELECT timestamp, points_gained FROM "{table}"'
+            ).fetchall()
+        except _sqlite3.OperationalError:
+            continue
+        days = {}
+        for ts, pts in rows:
+            day = str(ts or "")[:10]
+            if not day:
+                continue
+            days[day] = days.get(day, 0) + int(pts or 0)
+        if days:
+            out[uuid] = days
+    conn.close()
+    return out
+
+
 def _statistics_queue_history(days=60):
     """Sample queue_stats from up to *days* most recent api_tracking dbs (last snapshot per day)."""
     from datetime import datetime as _dt
@@ -7937,8 +7977,9 @@ def _load_snipes_by_uuid():
     """Aggregate claim_snipes.db rows into per-uuid totals.
 
     Returns a dict ``{uuid: {"snipe_count": int, "total_points": int,
-    "roles": {role: count}}}``. Empty when the snipes DB is missing or empty
-    so callers can safely treat it as a default.
+    "roles": {role: count}, "log": [[day, points, role], ...]}}``. Empty when
+    the snipes DB is missing or empty so callers can safely treat it as a
+    default.
     """
     if not os.path.exists(_SNIPES_DB):
         return {}
@@ -7955,8 +7996,17 @@ def _load_snipes_by_uuid():
             return {}
 
         snipe_points_by_id = {}
-        for r in c.execute("SELECT snipe_id, points FROM snipes").fetchall():
+        snipe_day_by_id = {}
+        try:
+            snipe_rows = c.execute(
+                "SELECT snipe_id, points, timestamp FROM snipes"
+            ).fetchall()
+        except _sqlite3.OperationalError:
+            snipe_rows = c.execute("SELECT snipe_id, points FROM snipes").fetchall()
+        for r in snipe_rows:
             snipe_points_by_id[r["snipe_id"]] = int(r["points"] or 0)
+            day = str(r["timestamp"] or "")[:10] if "timestamp" in r.keys() else ""
+            snipe_day_by_id[r["snipe_id"]] = day
 
         c.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'player_%'"
@@ -7978,12 +8028,15 @@ def _load_snipes_by_uuid():
                 "snipe_count": 0,
                 "total_points": 0,
                 "roles": {},
+                "log": [],
             })
             for r in rows:
                 role = r[1] or "Unknown"
+                points = snipe_points_by_id.get(r[0], 0)
                 entry["snipe_count"] += 1
-                entry["total_points"] += snipe_points_by_id.get(r[0], 0)
+                entry["total_points"] += points
                 entry["roles"][role] = entry["roles"].get(role, 0) + 1
+                entry["log"].append([snipe_day_by_id.get(r[0], ""), points, role])
 
         conn.close()
         return result
@@ -8035,12 +8088,28 @@ def guild_statistics():
 
         # Recruited counts by recruiter UUID
         recruited_counts = {}
+        recruited_days = {}
         try:
             for r in conn.execute(
                 "SELECT recruiter, COUNT(*) FROM recruited GROUP BY recruiter"
             ).fetchall():
                 if r[0]:
                     recruited_counts[r[0]] = int(r[1] or 0)
+        except _sqlite3.OperationalError:
+            pass
+
+        # Recruits per recruiter per day, so the date range can scope them
+        try:
+            for r in conn.execute(
+                "SELECT recruiter, timestamp FROM recruited"
+            ).fetchall():
+                if not r[0]:
+                    continue
+                day = str(r[1] or "")[:10]
+                if not day:
+                    continue
+                days = recruited_days.setdefault(r[0], {})
+                days[day] = days.get(day, 0) + 1
         except _sqlite3.OperationalError:
             pass
 
@@ -8083,6 +8152,8 @@ def guild_statistics():
         return resp
 
     esi_points_by_user = _statistics_esi_points_by_user()
+    ep_by_day = _statistics_ep_by_day([r[1] for r in member_rows if r[1]])
+    ep_totals = {u: sum(days.values()) for u, days in ep_by_day.items()}
     static_graid_offsets = _get_graid_fault_offsets()
     dynamic_graid_offsets, invalid_graid_days = _get_dynamic_graid_offsets_from_activity()
 
@@ -8141,6 +8212,9 @@ def guild_statistics():
             static_graid_offsets,
             dynamic_graid_offsets,
         )
+        esi_points_total = ep_totals.get(uuid)
+        if esi_points_total is None:
+            esi_points_total = esi_points_by_user.get(ulow, 0)
         members.append({
             "username":         username,
             "uuid":             uuid,
@@ -8163,10 +8237,13 @@ def guild_statistics():
             "recruited":        int(recruited_counts.get(uuid, 0)),
             "event_points":     int(event_points.get(ulow, 0)),
             "quest_points":     int(quest_points.get(ulow, 0)),
-            "esi_points":       int(esi_points_by_user.get(ulow, 0)),
+            "esi_points":       int(esi_points_total),
             "snipe_count":      int(snipe_entry.get("snipe_count", 0)),
             "snipe_points":     int(snipe_entry.get("total_points", 0)),
             "snipe_roles":      dict(snipe_entry.get("roles", {})),
+            "snipe_log":        snipe_entry.get("log", []),
+            "ep_days":          ep_by_day.get(uuid, {}),
+            "recruited_days":   recruited_days.get(uuid, {}),
         })
 
     # joins/leaves history - unbounded by what's stored in event_history

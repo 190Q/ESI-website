@@ -2309,6 +2309,41 @@
     return statsDateInRange(ev.timestamp);
   }
 
+  function statsSumDays(days) {
+    if (!days) return 0;
+    let sum = 0;
+    Object.keys(days).forEach(function (day) {
+      if (statsDateInRange(day)) sum += Number(days[day]) || 0;
+    });
+    return sum;
+  }
+
+  function statsWindowSnipes(log) {
+    const out = { count: 0, points: 0, roles: {} };
+    (log || []).forEach(function (entry) {
+      if (!statsDateInRange(entry[0])) return;
+      out.count += 1;
+      out.points += Number(entry[1]) || 0;
+      const role = entry[2] || 'Unknown';
+      out.roles[role] = (out.roles[role] || 0) + 1;
+    });
+    return out;
+  }
+
+  function statsScopeMembers(members) {
+    if (!guildStatsState.filterAfter && !guildStatsState.filterBefore) return members;
+    return members.map(function (m) {
+      const snipes = statsWindowSnipes(m.snipe_log);
+      return Object.assign({}, m, {
+        esi_points:   statsSumDays(m.ep_days),
+        recruited:    statsSumDays(m.recruited_days),
+        snipe_count:  snipes.count,
+        snipe_points: snipes.points,
+        snipe_roles:  snipes.roles,
+      });
+    });
+  }
+
   function statsAverage(values) {
     if (!values.length) return 0;
     let sum = 0;
@@ -2399,6 +2434,7 @@
     const allMembers = data.members || [];
     const rankMembers = allMembers.filter(statsFilterMemberByRank);
     const joinedMembers = allMembers.filter(statsFilterMember);
+    const scopedMembers = statsScopeMembers(rankMembers);
 
     const summary = document.getElementById('guildStatsFilterSummary');
     if (summary) {
@@ -2421,10 +2457,10 @@
     renderStatsLeavesByRank(data.leaves);
     renderStatsLeavesByTenure(data.leaves);
     renderStatsAverages(rankMembers);
-    renderStatsEsiPointsByRank(rankMembers);
-    renderStatsSnipesByRank(rankMembers);
-    renderStatsSnipeRolesByRank(rankMembers);
-    renderStatsTopRecruiters(rankMembers);
+    renderStatsEsiPointsByRank(scopedMembers);
+    renderStatsSnipesByRank(scopedMembers);
+    renderStatsSnipeRolesByRank(scopedMembers);
+    renderStatsTopRecruiters(scopedMembers);
   }
 
   function renderStatsRankDistribution(members) {
@@ -2897,6 +2933,7 @@
       const allMembers = data.members || [];
       const rankMembers = allMembers.filter(statsFilterMemberByRank);
       const joinedMembers = allMembers.filter(statsFilterMember);
+      const scopedMembers = statsScopeMembers(rankMembers);
       const filters = {
         ranks: Array.from(guildStatsState.filterRanks),
         after: guildStatsState.filterAfter || null,
@@ -2991,7 +3028,7 @@
       const esiCounts = {};
       STATS_RANK_ORDER.forEach(function (r) { esiTotals[r] = 0; esiCounts[r] = 0; });
       let esiGrandTotal = 0;
-      rankMembers.forEach(function (m) {
+      scopedMembers.forEach(function (m) {
         const r = m.rank || 'recruit';
         const pts = Number(m.esi_points) || 0;
         esiTotals[r] = (esiTotals[r] || 0) + pts;
@@ -3011,7 +3048,7 @@
       const snipePoints = {};
       STATS_RANK_ORDER.forEach(function (r) { snipeCounts[r] = 0; snipePoints[r] = 0; });
       let totalSnipes = 0;
-      rankMembers.forEach(function (m) {
+      scopedMembers.forEach(function (m) {
         const r = m.rank || 'recruit';
         const c = Number(m.snipe_count) || 0;
         const p = Number(m.snipe_points) || 0;
@@ -3029,7 +3066,7 @@
       const rolesByRank = {};
       STATS_RANK_ORDER.forEach(function (r) { rolesByRank[r] = {}; });
       let rolesGrandTotal = 0;
-      rankMembers.forEach(function (m) {
+      scopedMembers.forEach(function (m) {
         const rank = m.rank || 'recruit';
         const roles = m.snipe_roles || {};
         Object.keys(roles).forEach(function (role) {
@@ -3071,7 +3108,7 @@
         });
       }
 
-      const topRecruiters = rankMembers
+      const topRecruiters = scopedMembers
         .filter(function (m) { return (m.recruited || 0) > 0; })
         .sort(function (a, b) { return (b.recruited || 0) - (a.recruited || 0); })
         .slice(0, 15)
