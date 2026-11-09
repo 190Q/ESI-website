@@ -8,6 +8,7 @@ Runs on port 5001. Handles all /api/* and /auth/* endpoints.
 import re as _re
 import base64 as _base64
 import hashlib as _hashlib
+import importlib
 import os
 import json
 import secrets
@@ -131,6 +132,33 @@ try:
     app.register_blueprint(_wp_bp)
 except ImportError:
     pass
+
+
+# Event modules may expose a Flask blueprint at ``events/<name>/routes.py``.
+# Anything missing or broken is skipped, so deleting an event module never
+# stops this service from starting.
+
+
+def _register_event_blueprints():
+    try:
+        from events import list_event_modules
+    except Exception:
+        return
+    for name in list_event_modules():
+        try:
+            module = importlib.import_module(f"events.{name}.routes")
+        except Exception:
+            continue
+        blueprint = getattr(module, "bp", None)
+        if blueprint is None:
+            continue
+        try:
+            app.register_blueprint(blueprint)
+        except Exception:
+            continue
+
+
+_register_event_blueprints()
 
 
 # Bot permission audit - runs once in a background thread at startup.

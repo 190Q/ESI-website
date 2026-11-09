@@ -970,6 +970,28 @@ for _spa_rule, _spa_endpoint, *_spa_extra in _SPA_ROUTE_DEFS:
     )
 
 
+# Event mini-pages served by the routes service (see events/chess_tournament).
+# The event module is optional: when it is gone the routes service answers 404
+# and that response is passed straight through.
+
+
+@app.route("/events/chess")
+@app.route("/events/chess/")
+def events_chess_page():
+    return _proxy_to_routes_path("/events/chess")
+
+
+@app.route("/events/chess/<path:_path>")
+def events_chess_assets(_path):
+    return _proxy_to_routes_path("/events/chess/" + _path)
+
+
+@app.route("/events/manage/chess")
+@app.route("/events/manage/chess/")
+def events_chess_manage_page():
+    return _proxy_to_routes_path("/events/manage/chess")
+
+
 # Wynn Piece special-event landing page (standalone, not part of the SPA)
 @app.route("/wynnpiece")
 @app.route("/wynnpiece/")

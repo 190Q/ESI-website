@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en" class="theme-preload">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ESI Chess Tournament</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <style id="esi-prepaint-hide">html.theme-preload body { opacity: 0 !important; }</style>
+  <link rel="stylesheet" href="/css/themes.css" />
+  <link rel="stylesheet" href="/css/fonts.css" />
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/events/chess/assets/chess.css" />
+  <script src="/js/theme-config.js"></script>
+  <script src="/js/font-config.js"></script>
+  <script src="/events/chess/assets/appearance.js"></script>
+</head>
+<body class="ch-body">
+  <main class="ch-page">
+    <header class="ch-hero">
+      <img class="ch-emblem" src="/images/guild_emblem.avif" alt="Empire of Sindria emblem" />
+      <div class="ch-kicker">Empire of Sindria</div>
+      <h1 class="ch-title" id="ch-title">Chess Tournament</h1>
+      <p class="ch-description" id="ch-description" hidden></p>
+      <div class="ch-meta-row">
+        <span class="ch-status" id="ch-status">Loading&hellip;</span>
+        <span class="ch-start" id="ch-start"></span>
+      </div>
+      <div class="ch-countdown" id="ch-countdown" hidden>
+        <div class="ch-countdown-unit"><span class="ch-cd-value" id="ch-cd-days">00</span><span class="ch-cd-label">Days</span></div>
+        <div class="ch-countdown-sep">:</div>
+        <div class="ch-countdown-unit"><span class="ch-cd-value" id="ch-cd-hours">00</span><span class="ch-cd-label">Hours</span></div>
+        <div class="ch-countdown-sep">:</div>
+        <div class="ch-countdown-unit"><span class="ch-cd-value" id="ch-cd-minutes">00</span><span class="ch-cd-label">Minutes</span></div>
+        <div class="ch-countdown-sep">:</div>
+        <div class="ch-countdown-unit"><span class="ch-cd-value" id="ch-cd-seconds">00</span><span class="ch-cd-label">Seconds</span></div>
+      </div>
+      <div class="ch-ornament"></div>
+    </header>
+
+    <section class="ch-card" id="ch-empty" hidden>
+      <h2 class="ch-card-title">Brackets</h2>
+      <p class="ch-empty-text">
+        No brackets have been made yet. The pairings will appear here once the
+        organisers have drawn the first round.
+      </p>
+    </section>
+
+    <section class="ch-card" id="ch-standings-card" hidden>
+      <h2 class="ch-card-title">Standings</h2>
+      <p class="ch-card-note">
+        A win is worth 1 point, a draw 1/2 and a loss 0. Players level on
+        points are separated by Buchholz Cut 1.
+      </p>
+      <div class="ch-table-wrap">
+        <table class="ch-table">
+          <thead>
+            <tr>
+              <th class="ch-col-rank">#</th>
+              <th>Player</th>
+              <th class="ch-col-num">Pts</th>
+              <th class="ch-col-num" title="Buchholz Cut 1">Cut 1</th>
+              <th class="ch-col-num">W</th>
+              <th class="ch-col-num">D</th>
+              <th class="ch-col-num">L</th>
+              <th class="ch-col-num">Bye</th>
+            </tr>
+          </thead>
+          <tbody id="ch-standings-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="ch-card" id="ch-rounds-card" hidden>
+      <h2 class="ch-card-title">Rounds</h2>
+      <div class="ch-rounds" id="ch-rounds"></div>
+    </section>
+
+    <p class="ch-error" id="ch-error" hidden></p>
+
+    <footer class="ch-footer">
+      <a class="ch-link" href="/events">All events</a>
+    </footer>
+  </main>
+
+  <script src="/events/chess/assets/chess.js"></script>
+</body>
+</html>

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en" class="theme-preload">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chess Tournament Control</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <style id="esi-prepaint-hide">html.theme-preload body { opacity: 0 !important; }</style>
+  <link rel="stylesheet" href="/css/themes.css" />
+  <link rel="stylesheet" href="/css/fonts.css" />
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/popup.css" />
+  <link rel="stylesheet" href="/events/chess/assets/manage.css" />
+  <script src="/js/theme-config.js"></script>
+  <script src="/js/font-config.js"></script>
+  <script src="/events/chess/assets/appearance.js"></script>
+</head>
+<body class="cm-body">
+  <div class="cm-loading" id="cm-loading">
+    <div class="cm-panel cm-panel-center">
+      <img class="cm-emblem" src="/images/guild_emblem.avif" alt="Empire of Sindria emblem" />
+      <h1 class="cm-loading-title">Tournament Control</h1>
+      <p class="cm-loading-text">Loading the tournament&hellip;</p>
+    </div>
+  </div>
+
+  <div class="cm-app" id="cm-app" hidden>
+    <header class="cm-header">
+      <div class="cm-brand">
+        <img class="cm-emblem-sm" src="/images/guild_emblem.avif" alt="" />
+        <div class="cm-brand-text">
+          <div class="cm-kicker">Empire of Sindria</div>
+          <h1 class="cm-header-title">Chess Tournament Control</h1>
+        </div>
+      </div>
+      <div class="cm-header-right">
+        <span class="cm-status-pill" id="cm-status-pill">Upcoming</span>
+        <a class="cm-btn cm-btn-ghost" href="/events/chess" target="_blank" rel="noopener">Public page</a>
+        <button type="button" class="cm-btn cm-btn-ghost" id="cm-refresh">Refresh</button>
+      </div>
+    </header>
+
+    <main class="cm-content">
+      <section class="cm-stats">
+        <div class="cm-stat">
+          <span class="cm-stat-label">Players</span>
+          <span class="cm-stat-value" id="cm-stat-players">0</span>
+          <span class="cm-stat-sub" id="cm-stat-players-sub">none registered</span>
+        </div>
+        <div class="cm-stat cm-stat-gold">
+          <span class="cm-stat-label">Rounds</span>
+          <span class="cm-stat-value" id="cm-stat-rounds">0</span>
+          <span class="cm-stat-sub" id="cm-stat-rounds-sub">of 3 planned</span>
+        </div>
+        <div class="cm-stat cm-stat-emerald">
+          <span class="cm-stat-label">Boards decided</span>
+          <span class="cm-stat-value" id="cm-stat-boards">0</span>
+          <span class="cm-stat-sub" id="cm-stat-boards-sub">no round generated</span>
+        </div>
+        <div class="cm-stat">
+          <span class="cm-stat-label">Leader</span>
+          <span class="cm-stat-value cm-stat-value-text" id="cm-stat-leader">&ndash;</span>
+          <span class="cm-stat-sub" id="cm-stat-leader-sub">no games played</span>
+        </div>
+      </section>
+
+      <section class="cm-panel">
+        <div class="cm-panel-head">
+          <h2 class="cm-panel-title">Event</h2>
+          <span class="cm-panel-hint">Leave the status on automatic to derive it from the dates and the rounds</span>
+        </div>
+        <form class="cm-form" id="cm-event-form">
+          <label class="cm-field">
+            <span class="cm-label">Title</span>
+            <input class="cm-input" id="cm-event-title" maxlength="80" autocomplete="off" />
+          </label>
+          <label class="cm-field">
+            <span class="cm-label">Description</span>
+            <textarea class="cm-input cm-textarea" id="cm-event-description" maxlength="500" rows="3"></textarea>
+          </label>
+          <div class="cm-field-row">
+            <label class="cm-field">
+              <span class="cm-label">Starts</span>
+              <input class="cm-input" type="datetime-local" id="cm-event-starts" />
+            </label>
+            <label class="cm-field">
+              <span class="cm-label">Ends</span>
+              <input class="cm-input" type="datetime-local" id="cm-event-ends" />
+            </label>
+          </div>
+          <div class="cm-field-row">
+            <label class="cm-field">
+              <span class="cm-label">Planned rounds</span>
+              <input class="cm-input" type="number" min="0" max="20" id="cm-event-rounds" />
+            </label>
+            <div class="cm-field">
+              <span class="cm-label">Status</span>
+              <select class="cm-input sf-select" id="cm-event-status" aria-label="Event status">
+                <option value="">Automatic</option>
+                <option value="upcoming">Upcoming</option>
+                <option value="ongoing">In progress</option>
+                <option value="finished">Finished</option>
+              </select>
+            </div>
+          </div>
+          <p class="cm-hint" id="cm-event-rounds-hint"></p>
+          <div class="cm-actions">
+            <button type="submit" class="cm-btn cm-btn-primary">Save event</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="cm-panel">
+        <div class="cm-panel-head">
+          <h2 class="cm-panel-title">Players</h2>
+          <span class="cm-panel-hint" id="cm-players-hint">0 registered</span>
+        </div>
+        <div class="cm-import">
+          <label class="cm-field">
+            <span class="cm-label">Add players</span>
+            <textarea class="cm-input cm-textarea" id="cm-import-text" rows="5" placeholder="One player per line. Add a rating after a comma if you have one:&#10;NygarDee&#10;habaga, 950"></textarea>
+          </label>
+          <div class="cm-actions">
+            <button type="button" class="cm-btn cm-btn-primary" id="cm-import-btn">Add players</button>
+            <span class="cm-hint">Blank lines are ignored, duplicates are skipped.</span>
+          </div>
+        </div>
+        <div class="cm-table-wrap">
+          <table class="cm-table">
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th class="cm-col-rating">Rating</th>
+                <th class="cm-col-status">Status</th>
+                <th class="cm-col-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="cm-players-body"></tbody>
+          </table>
+        </div>
+        <p class="cm-empty" id="cm-players-empty" hidden>No players registered yet.</p>
+      </section>
+
+      <section class="cm-panel">
+        <div class="cm-panel-head">
+          <h2 class="cm-panel-title">Brackets</h2>
+          <span class="cm-panel-hint" id="cm-rounds-hint"></span>
+        </div>
+        <div class="cm-actions cm-actions-wrap">
+          <button type="button" class="cm-btn cm-btn-primary" id="cm-generate">Generate next round</button>
+          <button type="button" class="cm-btn cm-btn-ghost" id="cm-delete-round">Delete last round</button>
+          <button type="button" class="cm-btn cm-btn-ghost" id="cm-swap-toggle">Move players</button>
+        </div>
+        <div class="cm-swap" id="cm-swap" hidden>
+          <div class="cm-field">
+            <span class="cm-label">Move</span>
+            <select class="cm-input sf-select" id="cm-swap-from" aria-label="Slot to move"></select>
+          </div>
+          <span class="cm-swap-arrow">to</span>
+          <div class="cm-field">
+            <span class="cm-label">Target slot</span>
+            <select class="cm-input sf-select" id="cm-swap-to" aria-label="Target slot"></select>
+          </div>
+          <button type="button" class="cm-btn cm-btn-primary" id="cm-swap-btn">Swap</button>
+        </div>
+        <div class="cm-rounds" id="cm-rounds"></div>
+        <p class="cm-empty" id="cm-rounds-empty" hidden>
+          No brackets yet. Add the players, then generate the first round.
+        </p>
+      </section>
+
+      <section class="cm-panel cm-panel-danger">
+        <div class="cm-panel-head">
+          <h2 class="cm-panel-title cm-title-danger">Danger zone</h2>
+        </div>
+        <div class="cm-danger-row">
+          <div>
+            <strong>Clear every result</strong>
+            <p class="cm-danger-desc">Keeps the players and the pairings, but wipes each board's result.</p>
+          </div>
+          <button type="button" class="cm-btn cm-btn-danger" data-reset="results">Clear results</button>
+        </div>
+        <div class="cm-danger-row">
+          <div>
+            <strong>Reset the tournament</strong>
+            <p class="cm-danger-desc">Removes the players, the brackets and the event settings.</p>
+          </div>
+          <button type="button" class="cm-btn cm-btn-danger" data-reset="all">Reset everything</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="cm-confirm-backdrop">
+    <div class="modal cm-modal">
+      <button type="button" class="modal-close" id="cm-confirm-close" aria-label="Close">&times;</button>
+      <h2 class="cm-modal-title" id="cm-confirm-title">Confirm</h2>
+      <p class="cm-confirm-text" id="cm-confirm-text"></p>
+      <div class="cm-actions cm-actions-end">
+        <button type="button" class="cm-btn cm-btn-ghost" id="cm-confirm-cancel">Cancel</button>
+        <button type="button" class="cm-btn cm-btn-danger" id="cm-confirm-ok">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/popup.js"></script>
+  <script src="/js/toast.js"></script>
+  <script src="/js/custom-select.js"></script>
+  <script src="/events/chess/assets/manage.js"></script>
+</body>
+</html>
