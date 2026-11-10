@@ -226,6 +226,14 @@ def _public_payload(state) -> dict:
             "status": _status(state),
         },
         "has_brackets": bool(rounds),
+        "players": [
+            {
+                "name": player["name"],
+                "rating": player["rating"],
+                "withdrawn": bool(player["withdrawn"]),
+            }
+            for player in state["players"]
+        ],
         "active_players": len(swiss.active_players(state)),
         "rounds_played": len(rounds),
         "rounds_planned": _planned_rounds(state),

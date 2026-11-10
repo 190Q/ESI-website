@@ -127,6 +127,44 @@
     startCountdown(start);
   }
 
+  /* Players */
+
+  function renderPlayers(players) {
+    var card = byId('ch-players-card');
+    var body = byId('ch-players-body');
+    body.textContent = '';
+
+    if (!players || !players.length) {
+      show(card, false);
+      return;
+    }
+    show(card, true);
+
+    players.forEach(function (player, index) {
+      var tr = document.createElement('tr');
+      if (player.withdrawn) tr.className = 'ch-row-withdrawn';
+
+      tr.appendChild(cell('ch-rank', index + 1));
+
+      var nameCell = document.createElement('td');
+      var name = document.createElement('span');
+      name.className = 'ch-player-name';
+      name.textContent = player.name;
+      nameCell.appendChild(name);
+
+      if (player.withdrawn) {
+        var withdrawn = document.createElement('span');
+        withdrawn.className = 'ch-tag';
+        withdrawn.textContent = 'Withdrawn';
+        nameCell.appendChild(withdrawn);
+      }
+      tr.appendChild(nameCell);
+
+      tr.appendChild(cell('ch-num', player.rating || ''));
+      body.appendChild(tr);
+    });
+  }
+
   /* Standings */
 
   function renderStandings(rows) {
@@ -272,6 +310,18 @@
 
   function render(data) {
     renderHeader(data);
+
+    if ((data.event || {}).status === 'upcoming') {
+      // Only the roster is public until the event starts, the pairings stay hidden.
+      show(byId('ch-empty'), !data.has_brackets);
+      show(byId('ch-standings-card'), false);
+      show(byId('ch-rounds-card'), false);
+      renderPlayers(data.players);
+      return;
+    }
+
+    show(byId('ch-players-card'), false);
+
     if (!data.has_brackets) {
       show(byId('ch-empty'), true);
       show(byId('ch-standings-card'), false);
@@ -288,6 +338,7 @@
     text(byId('ch-status'), 'Unavailable');
     show(byId('ch-status'), true);
     show(byId('ch-empty'), false);
+    show(byId('ch-players-card'), false);
     show(byId('ch-standings-card'), false);
     show(byId('ch-rounds-card'), false);
     var node = byId('ch-error');
