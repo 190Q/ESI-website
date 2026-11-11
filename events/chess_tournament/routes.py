@@ -199,6 +199,27 @@ def _player_has_games(state, player_id: str) -> bool:
     return False
 
 
+def _forfeit_open_boards(state, player_id: str) -> int:
+    """Award a forfeit win to the opponents of a withdrawn player.
+
+    Only boards without a result are touched, and byes are left alone, so
+    the round can be completed without the withdrawn player.
+    """
+    awarded = 0
+    for rnd in state.get("rounds") or []:
+        for match in rnd.get("matches") or []:
+            if match.get("bye") or match.get("result"):
+                continue
+            if match.get("white") == player_id and match.get("black"):
+                match["result"] = "black"
+            elif match.get("black") == player_id and match.get("white"):
+                match["result"] = "white"
+            else:
+                continue
+            awarded += 1
+    return awarded
+
+
 def _public_payload(state) -> dict:
     names = {p["id"]: p["name"] for p in state["players"]}
     rounds = []
@@ -419,10 +440,13 @@ def manage_update_player(player_id):
             player["name"] = name
         if "rating" in body:
             player["rating"] = _rating(body.get("rating"))
+        forfeits = 0
         if "withdrawn" in body:
             player["withdrawn"] = bool(body.get("withdrawn"))
+            if player["withdrawn"]:
+                forfeits = _forfeit_open_boards(state, player_id)
         store.save_state(state)
-    return jsonify(_manage_payload(state))
+    return jsonify(_manage_payload(state, {"forfeits": forfeits}))
 
 
 @bp.route("/api/events/chess/manage/players/<player_id>", methods=["DELETE"])

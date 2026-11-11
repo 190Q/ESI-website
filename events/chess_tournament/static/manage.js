@@ -261,8 +261,15 @@
         'cm-btn-ghost cm-btn-mini', function () {
           run('/players/' + encodeURIComponent(player.id), 'PATCH', {
             withdrawn: !player.withdrawn
-          }).then(function () {
-            toast(player.withdrawn ? 'Player is back in the pool.' : 'Player withdrawn.', 'success');
+          }).then(function (data) {
+            if (player.withdrawn) {
+              toast('Player is back in the pool.', 'success');
+            } else if (data && data.forfeits) {
+              toast('Player withdrawn. ' + plural(data.forfeits, 'board') +
+                ' awarded to the opponent.', 'success');
+            } else {
+              toast('Player withdrawn.', 'success');
+            }
           });
         }));
       actionWrap.appendChild(makeButton('Remove', 'cm-btn-ghost cm-btn-mini', function () {
