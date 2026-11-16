@@ -8,8 +8,8 @@ Eligibility is transition-based:
 - The first successful scan baselines current Knight+ members so they do
   not flood the queue.
 
-Fulfill grants dirty EP via ep_adjustments. Reject still consumes
-eligibility so the member never gets another ticket.
+Fulfill grants dirty EP via ep_adjustments and awards each recorded recruiter
+75 clean EP once per recruit. Reject still consumes eligibility.
 """
 
 from __future__ import annotations
@@ -19,22 +19,28 @@ import sqlite3
 import sys
 import threading
 import uuid as _uuid_mod
-from datetime import datetime as _dt, timezone as _tz
+from contextlib import closing
+from datetime import datetime as _dt
+from datetime import timezone as _tz
+from pathlib import Path
 
 import requests
 
 from config import (
+    _CLIENT_CONFIG,
+    _ESI_BOT_DIR,
     _SHOP_DB,
     _USERNAME_MATCHES_JSON,
-    _CLIENT_CONFIG,
     DISCORD_API,
-    DISCORD_TOKEN,
     DISCORD_GUILD_ID,
+    DISCORD_TOKEN,
     _load_json_file,
 )
 
 KNIGHT_BONUS_AMOUNT = 250
 KNIGHT_BONUS_REASON = "Knight promotion bonus"
+RECRUITER_BONUS_AMOUNT = 75
+_RECRUITED_DB = os.path.join(_ESI_BOT_DIR, "databases", "recruited_data.db")
 
 # rankRoles are ordered highest-first (Emperor=0 ... Squire=last).
 _RANK_ROLES = list(_CLIENT_CONFIG.get("rankRoles") or [])
@@ -106,6 +112,66 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS knight_recruiter_bonus_grants (
+            recruited_uuid TEXT COLLATE NOCASE NOT NULL,
+            recruiter_uuid TEXT COLLATE NOCASE NOT NULL,
+            adjustment_id  TEXT NOT NULL UNIQUE,
+            created_at     TEXT NOT NULL,
+            PRIMARY KEY (recruited_uuid, recruiter_uuid)
+        )
+        """
+    )
+
+
+def _grant_recruiter_bonuses(
+    conn: sqlite3.Connection,
+    *,
+    recruited_uuid: str,
+    recruited_username: str,
+    actor: str,
+    now_iso: str,
+) -> int:
+    try:
+        uri = Path(_RECRUITED_DB).resolve().as_uri() + "?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True, timeout=10)) as recruited_conn:
+            recruiters = recruited_conn.execute(
+                "SELECT DISTINCT recruiter FROM recruited "
+                "WHERE recruited = ? COLLATE NOCASE AND TRIM(recruiter) != ''",
+                (recruited_uuid,),
+            ).fetchall()
+    except sqlite3.Error as exc:
+        raise sqlite3.OperationalError(f"Recruitment database unavailable: {exc}") from exc
+
+    granted = 0
+    for (recruiter_uuid,) in recruiters:
+        recruiter_uuid = recruiter_uuid.strip()
+        adjustment_id = str(_uuid_mod.uuid4())
+        result = conn.execute(
+            "INSERT INTO knight_recruiter_bonus_grants "
+            "(recruited_uuid, recruiter_uuid, adjustment_id, created_at) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(recruited_uuid, recruiter_uuid) DO NOTHING",
+            (recruited_uuid, recruiter_uuid, adjustment_id, now_iso),
+        )
+        if result.rowcount == 0:
+            continue
+        conn.execute(
+            "INSERT INTO ep_adjustments "
+            "(id, uuid, amount, ep_type, reason, actor, created_at) "
+            "VALUES (?, ?, ?, 'clean', ?, ?, ?)",
+            (
+                adjustment_id,
+                recruiter_uuid,
+                RECRUITER_BONUS_AMOUNT,
+                f"Recruitment bonus for {recruited_username or recruited_uuid} reaching Knight",
+                actor,
+                now_iso,
+            ),
+        )
+        granted += 1
+    return granted
 
 
 def _rank_tier_from_roles(role_ids) -> int:
@@ -647,18 +713,21 @@ def bulk_grant_knight_bonus(
         from shop.ep_balance import _ensure_ep_adjustments_table
 
         _ensure_ep_adjustments_table(conn)
+        conn.execute("BEGIN IMMEDIATE")
 
         for c in candidates:
             uuid = c["uuid"]
             did = c["discord_id"]
             username = c["username"]
             try:
+                conn.execute("SAVEPOINT knight_bonus_grant")
                 existing = conn.execute(
                     "SELECT ticket_id, status FROM knight_bonus_grants WHERE uuid = ?",
                     (uuid,),
                 ).fetchone()
                 if existing and (existing["status"] or "") == "fulfilled":
                     skipped.append({**c, "reason": "already_fulfilled"})
+                    conn.execute("RELEASE knight_bonus_grant")
                     continue
 
                 ticket_id = None
@@ -680,6 +749,13 @@ def bulk_grant_knight_bonus(
                         actor or "cli",
                         now_iso,
                     ),
+                )
+                recruiter_bonuses = _grant_recruiter_bonuses(
+                    conn,
+                    recruited_uuid=uuid,
+                    recruited_username=username,
+                    actor=actor or "cli",
+                    now_iso=now_iso,
                 )
 
                 if existing:
@@ -728,15 +804,19 @@ def bulk_grant_knight_bonus(
                     now_iso=now_iso,
                 )
 
+                conn.execute("RELEASE knight_bonus_grant")
                 granted.append(
                     {
                         **c,
                         "ticket_id": ticket_id,
                         "adjustment_id": adj_id,
                         "amount": KNIGHT_BONUS_AMOUNT,
+                        "recruiter_bonuses_granted": recruiter_bonuses,
                     }
                 )
             except sqlite3.Error as exc:
+                conn.execute("ROLLBACK TO knight_bonus_grant")
+                conn.execute("RELEASE knight_bonus_grant")
                 errors.append({**c, "error": str(exc)})
 
         conn.commit()
@@ -789,6 +869,9 @@ def bulk_grant_knight_bonus(
                 "skipped": len(skipped),
                 "errors": len(errors),
                 "amount": KNIGHT_BONUS_AMOUNT,
+                "recruiter_bonuses_granted": sum(
+                    g["recruiter_bonuses_granted"] for g in granted
+                ),
                 "note": grant_note,
                 "usernames": [g.get("username") for g in granted[:50]],
             },
@@ -809,6 +892,9 @@ def bulk_grant_knight_bonus(
         "granted": len(granted),
         "skipped": len(skipped),
         "errors": len(errors),
+        "recruiter_bonuses_granted": sum(
+            g["recruiter_bonuses_granted"] for g in granted
+        ),
         "exclude": sorted(exclude_tokens),
         "granted_users": granted,
         "skipped_users": skipped,
@@ -837,6 +923,11 @@ def resolve_knight_bonus(
     try:
         conn.execute("PRAGMA journal_mode=WAL")
         _ensure_tables(conn)
+        if approve:
+            from shop.ep_balance import _ensure_ep_adjustments_table
+
+            _ensure_ep_adjustments_table(conn)
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT * FROM knight_bonus_grants "
             "WHERE ticket_id = ? AND status = 'pending'",
@@ -850,10 +941,8 @@ def resolve_knight_bonus(
         username = row["username"] or ""
         discord_id = row["discord_id"] or ""
 
+        recruiter_bonuses = 0
         if approve:
-            from shop.ep_balance import _ensure_ep_adjustments_table
-
-            _ensure_ep_adjustments_table(conn)
             adj_id = str(_uuid_mod.uuid4())
             conn.execute(
                 "INSERT INTO ep_adjustments "
@@ -867,6 +956,13 @@ def resolve_knight_bonus(
                     chief_name or "system",
                     now_iso,
                 ),
+            )
+            recruiter_bonuses = _grant_recruiter_bonuses(
+                conn,
+                recruited_uuid=uuid,
+                recruited_username=username,
+                actor=chief_name or "system",
+                now_iso=now_iso,
             )
 
         conn.execute(
@@ -943,6 +1039,7 @@ def resolve_knight_bonus(
                 "uuid": uuid,
                 "username": username,
                 "amount": amount,
+                "recruiter_bonuses_granted": recruiter_bonuses,
                 "note": chief_note,
             },
         )
@@ -957,4 +1054,5 @@ def resolve_knight_bonus(
         "resolved_at": now_iso,
         "amount": amount,
         "username": username,
+        "recruiter_bonuses_granted": recruiter_bonuses,
     }

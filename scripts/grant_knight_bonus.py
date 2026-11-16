@@ -1,5 +1,6 @@
 """
 Instantly grant the one-time Knight promotion dirty-EP bonus via CLI.
+Each recorded recruiter also receives 75 clean EP once per recruited player.
 
 By default only current Knights are granted.
 Pass --max-rank to include that rank and every rank below it.
@@ -44,6 +45,7 @@ if ROOT not in sys.path:
 
 from shop.knight_bonus import (  # noqa: E402
     KNIGHT_BONUS_AMOUNT,
+    RECRUITER_BONUS_AMOUNT,
     bulk_grant_knight_bonus,
     list_rank_names,
 )
@@ -152,6 +154,10 @@ def main() -> int:
             f"(max-rank={preview.get('max_rank')!r}"
             f"{', excluded=' + str(preview.get('excluded', 0)) if preview.get('excluded') else ''})."
         )
+        print(
+            f"Eligible recruiters will also receive {RECRUITER_BONUS_AMOUNT} "
+            "clean EP per recruited player."
+        )
         for c in preview.get("candidates") or []:
             print(f"  - {c.get('username') or c.get('uuid')}  (tier {c.get('tier')})")
         for e in preview.get("excluded_users") or []:
@@ -198,6 +204,7 @@ def main() -> int:
                 f"skipped={result.get('skipped', 0)} "
                 f"excluded={result.get('excluded', 0)} "
                 f"errors={result.get('errors', 0)} "
+                f"recruiter-bonuses={result.get('recruiter_bonuses_granted', 0)} "
                 f"matched={result.get('matched', 0)} "
                 f"max-rank={result.get('max_rank')!r} "
                 f"amount={result.get('amount')}"
