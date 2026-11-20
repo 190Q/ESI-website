@@ -41,7 +41,7 @@ export default function Footer() {
             </div>
           </div>
           <p className="site-footer-disclaimer">
-            This is a fan-made project created a member of the Empire of Sindria
+            This is a fan-made project created by a member of the Empire of Sindria
             guild. It is not affiliated with, endorsed by, or sponsored by
             Wynncraft, Mojang Studios, Microsoft, or any of their subsidiaries.
             All trademarks, game content, and assets are the property of their
