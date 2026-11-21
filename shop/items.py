@@ -163,6 +163,9 @@ def _has_valid_creator(item: dict) -> bool:
     except Exception:
         return False
 
+def _is_item_creator(item: dict, discord_id: str) -> bool:
+    return bool(discord_id and item.get("creator_discord_id") == discord_id)
+
 def _is_visible(item: dict, tags: set | None,
                 user_position: int | None = None) -> bool:
     """Check whether a user with *tags* is allowed to see *item*.
@@ -267,22 +270,27 @@ def _resolve_multi_quantity(item: dict) -> dict:
 
 def get_items(tags: set | None = None,
               user_position: int | None = None,
-              include_blocked: bool = False) -> list:
+              include_blocked: bool = False,
+              discord_id: str = "") -> list:
     """Return every catalogue item visible to a user with tags."""
     _ensure_loaded()
     with _items_lock:
-        if include_blocked:
-            result = []
-            for item in _items_list:
+        result = []
+        for item in _items_list:
+            visible = _is_visible(item, tags, user_position)
+            own_item = _is_item_creator(item, discord_id)
+            if not visible:
+                if not include_blocked and not own_item:
+                    continue
                 if not _has_valid_creator(item):
                     continue
-                out = _resolve_multi_quantity(item)
-                if not _is_visible(item, tags, user_position):
-                    out["visibility_blocked"] = True
-                result.append(out)
-            return result
-        return [_resolve_multi_quantity(item) for item in _items_list
-                if _is_visible(item, tags, user_position)]
+            out = _resolve_multi_quantity(item)
+            if not visible:
+                out["visibility_blocked"] = True
+            if own_item:
+                out["is_own_item"] = True
+            result.append(out)
+        return result
 
 def get_item_unfiltered(item_id: str) -> dict | None:
     """Look up a single item by ID with no visibility check."""

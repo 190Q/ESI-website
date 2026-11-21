@@ -17,7 +17,7 @@ from config import (
     _ROLE_CITIZEN, _PARLIAMENT_PLUS, _CHIEF_PLUS,
     _USERNAME_MATCHES_JSON, _load_json_file as _cfg_load_json,
 )
-from shop.items import reload as _reload_items, get_item_unfiltered
+from shop.items import reload as _reload_items, get_item_unfiltered, _is_item_creator
 from shop.ep_balance import resolve_uuid_for_user
 from shop.admin import (
     _log_admin_action, _json_write_lock, _atomic_write_json,
@@ -1270,6 +1270,18 @@ def get_creator_items(discord_id: str) -> dict:
     if os.path.isfile(_SHOP_DB):
         try:
             conn = _get_conn()
+            try:
+                live_auctions = {
+                    row["item_id"]: row["auction_id"]
+                    for row in conn.execute(
+                        "SELECT item_id, auction_id FROM auctions WHERE status = 'active'"
+                    ).fetchall()
+                }
+            except sqlite3.OperationalError:
+                live_auctions = {}
+            for item in own_items:
+                if item.get("id") in live_auctions:
+                    item["active_auction_id"] = live_auctions[item["id"]]
             _ensure_creator_item_requests_table(conn)
             rows = conn.execute(
                 "SELECT id, item_id, changes, status, submitted_at, "
@@ -1299,6 +1311,28 @@ def get_creator_items(discord_id: str) -> dict:
             pass
 
     return {"items": own_items, "requests": pending}
+
+def owns_auction(discord_id: str, auction_id: str, bid_id: str | None = None) -> bool:
+    if not discord_id or not os.path.isfile(_SHOP_DB):
+        return False
+    try:
+        conn = _get_conn()
+        try:
+            if bid_id is None:
+                row = conn.execute(
+                    "SELECT item_id FROM auctions WHERE auction_id = ?", (auction_id,),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT a.item_id FROM auctions a JOIN bids b ON b.auction_id = a.auction_id "
+                    "WHERE a.auction_id = ? AND b.bid_id = ?", (auction_id, bid_id),
+                ).fetchone()
+        finally:
+            conn.close()
+        item = get_item_unfiltered(row["item_id"]) if row else None
+        return bool(item and _is_item_creator(item, discord_id))
+    except sqlite3.Error:
+        return False
 
 def get_creator_orders(discord_id: str) -> dict:
     """Return purchases made on this creator's items (all statuses)."""

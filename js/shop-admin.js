@@ -1758,23 +1758,52 @@
   }
 
   /* Auction Manage Modal */
-  function _openAuctionManageModal(aid) {
-    var modal = document.getElementById('saModal');
-    var bd = document.getElementById('saModalBackdrop');
+  function _openAuctionManageModal(aid, options) {
+    options = options || {};
+    var modal = document.getElementById(options.modalId || 'saModal');
+    var bd = document.getElementById(options.backdropId || 'saModalBackdrop');
+    var base = options.creator ? '/api/shop/creator/auctions/' : '/api/admin/shop/auctions/';
     modal.classList.add('am-modal');
     modal.innerHTML = '<div class="shop-loading" style="padding:24px"><span class="loading-spinner"></span> Loading\u2026</div>';
     bd.classList.add('open');
-    fetch('/api/admin/shop/auctions/' + encodeURIComponent(aid) + '/detail', { credentials: 'same-origin' })
+    fetch(base + encodeURIComponent(aid) + '/detail', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         if (!data || !data.ok) { modal.innerHTML = '<button class="modal-close" aria-label="Close">' + _svg.close + '</button><div class="shop-modal-body" style="color:var(--text-faint)">Could not load auction.</div>'; return; }
-        _renderAuctionManageModal(modal, data);
+        _renderAuctionManageModal(modal, data, options);
       })
       .catch(function () { modal.innerHTML = '<button class="modal-close" aria-label="Close">' + _svg.close + '</button><div class="shop-modal-body" style="color:var(--text-faint)">Network error.</div>'; });
   }
 
-  function _renderAuctionManageModal(modal, data) {
+  window.openCreatorAuctionManageModal = function (aid, canEdit) {
+    _openAuctionManageModal(aid, {
+      creator: true, canEdit: canEdit,
+      modalId: 'csModal', backdropId: 'csModalBackdrop',
+      overlayId: 'csOverlay', overlayBackdropId: 'csOverlayBackdrop',
+    });
+  };
+
+  function _renderAuctionManageModal(modal, data, options) {
     var aid = data.auction_id;
+    var base = (options.creator ? '/api/shop/creator/auctions/' : '/api/admin/shop/auctions/') + encodeURIComponent(aid);
+    function canEdit() {
+      return options.creator ? options.canEdit : _canParliamentEditShopAdmin('items', 'items_edit');
+    }
+    function refresh() {
+      if (!options.creator) {
+        _auctions = [];
+        renderItems(document.getElementById('saContent'));
+      }
+      _notifyShopUpdated();
+    }
+    function closeAuctionModal() {
+      if (options.creator) {
+        modal.classList.remove('am-modal');
+        document.getElementById(options.backdropId).classList.remove('open');
+      } else {
+        closeModal();
+      }
+    }
     var _pendingHours = 0;
     var statusLabel = data.status === 'active' ? 'Live' : data.status === 'closed' ? 'Closed' : 'Cancelled';
     var statusClass = data.status === 'active' ? 'am-status--live' : 'am-status--closed';
@@ -1821,7 +1850,7 @@
           h += '<span class="am-bid-time">' + fmtDate(b.placed_at) + '</span>';
           h += '<span class="am-bid-actions">';
           if (b.is_winning) h += '<span class="am-bid-status am-bid-status--win">Winning</span> ';
-          if (data.status === 'active' && b.is_winning && _canParliamentEditShopAdmin('items', 'items_edit')) h += '<button class="am-bid-remove" data-remove-bid="' + esc(b.bid_id) + '" aria-label="Remove bid">' + _svg.close + '</button>';
+          if (data.status === 'active' && b.is_winning && canEdit()) h += '<button class="am-bid-remove" data-remove-bid="' + esc(b.bid_id) + '" aria-label="Remove bid">' + _svg.close + '</button>';
           h += '</span>';
           h += '</div>';
         });
@@ -1858,8 +1887,8 @@
       h += '<span>' + fmtDate(data.ends_at) + '</span>';
       h += '</div></div>';
 
-      // Adjust end time (Parliament only)
-    if (_canParliamentEditShopAdmin('items', 'items_edit')) {
+      // Adjust end time
+      if (canEdit() && data.status === 'active') {
         var curExt = data.extended_hours || 0;
         h += '<div class="am-adjust">';
         h += '<span class="am-tl-label" style="min-width:auto">Adjust end time</span>';
@@ -1879,8 +1908,8 @@
       }
       h += '</div>';
 
-      // Cancel auction (Parliament only)
-      if (_canParliamentEditShopAdmin('items', 'items_edit')) {
+      // Cancel auction
+      if (canEdit() && data.status === 'active') {
         h += '<div class="am-cancel-row">';
         h += '<button class="am-cancel-btn" id="amCancel">' + _svg.close + ' Cancel auction</button>';
         h += '</div>';
@@ -1891,8 +1920,8 @@
     }
 
     function _bindModalEvents() {
-      var inp      = document.getElementById('amHoursInput');
-      var applyBtn = document.getElementById('amApply');
+      var inp      = modal.querySelector('#amHoursInput');
+      var applyBtn = modal.querySelector('#amApply');
       var curExt   = data.extended_hours || 0; // used even when inputs aren't rendered
 
       function _showApply() {
@@ -1914,8 +1943,8 @@
           _showApply();
         });
       }
-      var incBtn = document.getElementById('amInc');
-      var decBtn = document.getElementById('amDec');
+      var incBtn = modal.querySelector('#amInc');
+      var decBtn = modal.querySelector('#amDec');
       if (incBtn) incBtn.addEventListener('click', function () {
         var v = parseInt(inp.value, 10) || 0;
         inp.value = v + 1;
@@ -1931,7 +1960,7 @@
         var delta = target - curExt;
         if (delta === 0) return;
         applyBtn.disabled = true; applyBtn.textContent = 'Applying\u2026';
-        apiPost('/api/admin/shop/auctions/' + encodeURIComponent(aid) + '/extend', { hours: delta })
+        apiPost(base + '/extend', { hours: delta })
           .then(function (res) {
             if (res.ok && res.data.ok) {
               var appliedTarget = (typeof res.data.new_extended_hours === 'number') ? res.data.new_extended_hours : target;
@@ -1948,7 +1977,7 @@
               var newRemaining = Math.floor((newEndsMs - Date.now()) / 3600000);
               _minAdjust = data.extended_hours - Math.max(0, newRemaining - 2);
               render();
-              _auctions = []; renderItems(document.getElementById('saContent')); _notifyShopUpdated();
+              refresh();
             } else {
               showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
               applyBtn.disabled = false; applyBtn.textContent = 'Apply';
@@ -1962,8 +1991,8 @@
           var row = btn.closest('.am-bid-row');
           var bidUser = row ? row.querySelector('.am-bid-user').textContent : '';
           var bidAmt = row ? row.querySelector('.am-bid-amt').textContent : '';
-          var overlay = document.getElementById('saOverlay');
-          var overlayBd = document.getElementById('saOverlayBackdrop');
+          var overlay = document.getElementById(options.overlayId || 'saOverlay');
+          var overlayBd = document.getElementById(options.overlayBackdropId || 'saOverlayBackdrop');
           overlay.innerHTML =
             '<button class="modal-close" id="saOverlayClose">\u2715</button>' +
             '<div class="shop-modal-title">Remove Bid</div>' +
@@ -1975,22 +2004,24 @@
               '<button class="shop-modal-btn shop-modal-btn--cancel" id="amRemoveConfirm" style="color:var(--danger);border-color:var(--danger);">Remove Bid</button>' +
             '</div>';
           overlayBd.classList.add('open');
-          document.getElementById('saOverlayClose').addEventListener('click', function () {
+          overlay.querySelector('#saOverlayClose').addEventListener('click', function () {
             overlayBd.classList.remove('open');
           });
           overlayBd.addEventListener('click', function (e) {
             if (e.target === overlayBd) overlayBd.classList.remove('open');
           });
-          document.getElementById('amRemoveConfirm').addEventListener('click', function () {
-            var reason = document.getElementById('amRemoveReason').value.trim();
+          overlay.querySelector('#amRemoveConfirm').addEventListener('click', function () {
+            var reason = overlay.querySelector('#amRemoveReason').value.trim();
             var cfm = this; cfm.disabled = true; cfm.textContent = 'Removing\u2026';
-            apiPost('/api/admin/shop/bids/' + encodeURIComponent(bidId) + '/remove', { reason: reason || null })
+            var bidUrl = options.creator ? base + '/bids/' + encodeURIComponent(bidId) + '/remove'
+              : '/api/admin/shop/bids/' + encodeURIComponent(bidId) + '/remove';
+            apiPost(bidUrl, { reason: reason || null })
               .then(function (res) {
                 if (res.ok && res.data.ok) {
                   showToast('\u2713 Bid removed.', 'success');
                   overlayBd.classList.remove('open');
-                  _notifyShopUpdated();
-                  _openAuctionManageModal(aid);
+                  refresh();
+                  _openAuctionManageModal(aid, options);
                 } else {
                   showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn');
                   cfm.disabled = false; cfm.textContent = 'Remove Bid';
@@ -1999,7 +2030,7 @@
           });
         });
       });
-      var cancelBtn = document.getElementById('amCancel');
+      var cancelBtn = modal.querySelector('#amCancel');
       if (cancelBtn) cancelBtn.addEventListener('click', function () {
         var body = 'This auction has <strong>' + data.bid_count + ' bid' + (data.bid_count !== 1 ? 's' : '') +
           '</strong> from <strong>' + data.bidder_count + ' bidder' + (data.bidder_count !== 1 ? 's' : '') + '</strong>.';
@@ -2012,11 +2043,11 @@
           '<div class="shop-modal-actions">' +
             '<button class="shop-modal-btn shop-modal-btn--cancel" id="amCancelConfirm" style="color:var(--danger);border-color:var(--danger);">Cancel Auction</button>' +
           '</div>';
-        document.getElementById('amCancelConfirm').addEventListener('click', function () {
+        modal.querySelector('#amCancelConfirm').addEventListener('click', function () {
           var cfm = this; cfm.disabled = true; cfm.textContent = 'Cancelling\u2026';
-          apiPost('/api/admin/shop/auctions/' + encodeURIComponent(aid) + '/close', {})
+          apiPost(base + '/close', {})
             .then(function (res) {
-              if (res.ok && res.data.ok) { showToast('\u2713 Auction cancelled.', 'success'); closeModal(); _auctions = []; renderItems(document.getElementById('saContent')); _notifyShopUpdated(); }
+              if (res.ok && res.data.ok) { showToast('\u2713 Auction cancelled.', 'success'); closeAuctionModal(); refresh(); }
               else { showToast('\u26a0 ' + (res.data.error || 'Failed'), 'warn'); cfm.disabled = false; cfm.textContent = 'Cancel Auction'; }
             }).catch(function () { showToast('\u26a0 Network error', 'warn'); cfm.disabled = false; cfm.textContent = 'Cancel Auction'; });
         });

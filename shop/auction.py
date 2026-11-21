@@ -17,7 +17,7 @@ from shop.ep_balance import (
     resolve_uuid_for_user, fetch_ep_balance, resolve_spend, InsufficientFunds,
     _ensure_ep_reservations_table,
 )
-from shop.items import get_item, get_item_unfiltered, _is_visible
+from shop.items import get_item, get_item_unfiltered, _is_visible, _is_item_creator
 from shop.bin import build_user_tags, PurchaseError, _get_cycle_id, _get_cycle_bounds
 from shop.cycle_announcement import announce_previous_cycle_if_due
 from shop.leaderboard import get_user_cycle_position
@@ -394,9 +394,10 @@ def list_auctions(discord_id: str, user_roles: list | None = None,
                 ext_hours = _compute_extended_hours(row, item)
                 # check visibility (rank + top-N)
                 visible_to_user = _is_visible(item, tags, user_position)
+                own_item = _is_item_creator(item, discord_id)
 
                 # For non-admins, skip auctions they can't see
-                if not visible_to_user and not is_shop_admin:
+                if not visible_to_user and not is_shop_admin and not own_item:
                     continue
 
                 entry = {
@@ -428,6 +429,8 @@ def list_auctions(discord_id: str, user_roles: list | None = None,
                 }
                 if not visible_to_user:
                     entry["visibility_blocked"] = True
+                if own_item:
+                    entry["is_own_item"] = True
                 auctions.append(entry)
             conn.close()
         except sqlite3.Error as exc:
@@ -500,19 +503,26 @@ def place_bid(
         if not _has_valid_creator(item):
             shop_conn.rollback()
             raise PurchaseError("This auction item is currently unavailable", 400)
+        if _is_item_creator(item, discord_id):
+            shop_conn.rollback()
+            raise PurchaseError("You cannot bid on your own item", 403)
         if not item.get("active", True):
             shop_conn.rollback()
             raise PurchaseError("This auction is currently paused", 409)
 
         # top-N visibility check (enforce on bids)
+        user_position = get_user_cycle_position(mc_uuid)
         top_n = item.get("visible_to_top_n")
         if top_n is not None and isinstance(top_n, int) and top_n > 0:
-            _bid_pos = get_user_cycle_position(mc_uuid)
-            if _bid_pos is None or _bid_pos > top_n:
+            if user_position is None or user_position > top_n:
                 shop_conn.rollback()
                 raise PurchaseError(
                     "This auction is restricted to top players from the previous cycle", 403
                 )
+        tags = build_user_tags(user_roles) or None
+        if not _is_visible(item, tags, user_position):
+            shop_conn.rollback()
+            raise PurchaseError("This auction is restricted to other ranks", 403)
 
         min_increment = item.get("min_increment", 1)
         current_high = arow["current_highest_bid"]
@@ -998,6 +1008,9 @@ def _settle_auction(auction: sqlite3.Row, now_iso: str):
         _cancel_orphaned_auction(aid, item_id, now_iso)
         return
     winner_count = item.get("winner_count", 1) or 1
+    creator_id = item.get("creator_discord_id")
+    creator_uuid, _ = resolve_uuid_for_user(creator_id) if creator_id else (None, None)
+    creator_uuid = (creator_uuid or "").replace("-", "").lower()
 
     shop_conn = sqlite3.connect(_SHOP_DB, timeout=10)
     shop_conn.row_factory = sqlite3.Row
@@ -1023,9 +1036,14 @@ def _settle_auction(auction: sqlite3.Row, now_iso: str):
 
         winners: list = []
         disqualified_uuids: set = set()
+        creator_bid_uuids: set = set()
         for cand in ranked_bidders:
             if len(winners) >= winner_count:
                 break
+            if creator_uuid and (cand["uuid"] or "").replace("-", "").lower() == creator_uuid:
+                creator_bid_uuids.add(cand["uuid"])
+                disqualified_uuids.add(cand["uuid"])
+                continue
             need = cand["amount"]
             have = _available_ep_for_auction(cand["uuid"], aid, item)
             if have >= need:
@@ -1163,17 +1181,18 @@ def _settle_auction(auction: sqlite3.Row, now_iso: str):
                     ),
                 )
 
-        # DM: Disqualified due to insufficient EP at settlement
+        # DM: Disqualified at settlement
         for uuid in disqualified_uuids:
             did = _resolve_discord_id_for_uuid(uuid)
             if did:
+                reason = "Own item" if uuid in creator_bid_uuids else "Insufficient EP"
                 _dm_card_in_background(
                     did, "disqualified", item_name, 0,
                     fields=[
-                        ("REASON", "Insufficient EP"),
+                        ("REASON", reason),
                         ("REFUNDED", "Yes"),
                     ],
-                    fallback_text=f"Your winning bid on {item_name} was disqualified (insufficient EP). EP released.",
+                    fallback_text=f"Your bid on {item_name} was disqualified ({reason.lower()}). EP released.",
                 )
     else:
         # DM: Auction closed with no winner — notify all bidders (if any)

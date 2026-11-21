@@ -6,7 +6,7 @@ from datetime import datetime as _dt, timezone as _tz, timedelta as _td
 
 from config import _SHOP_DB, _CLIENT_CONFIG
 from shop.ep_balance import resolve_uuid_for_user, fetch_ep_balance, resolve_spend, InsufficientFunds
-from shop.items import get_items, get_item, parse_duration, reload as _reload_items
+from shop.items import get_items, get_item, parse_duration, reload as _reload_items, _is_item_creator
 from shop.leaderboard import get_user_cycle_position
 
 
@@ -123,7 +123,7 @@ def list_bin_items(user_roles: list, discord_id: str,
     mc_uuid, mc_username = resolve_uuid_for_user(discord_id) if discord_id else (None, None)
     user_position = get_user_cycle_position(mc_uuid) if mc_uuid else None
     all_items = get_items(tags=tags, user_position=user_position,
-                          include_blocked=is_shop_admin)
+                          include_blocked=is_shop_admin, discord_id=discord_id)
     bin_items = [i for i in all_items if i.get("type") in ("bin", "donate")]
     balance = fetch_ep_balance(mc_uuid) if mc_uuid else {
         "spendable_clean": 0, "spendable_dirty": 0,
@@ -298,6 +298,8 @@ def execute_cart_checkout(
         item = get_item(item_id, tags=tags, user_position=user_position)
         if item is None:
             raise PurchaseError(f"Item {item_id!r} not found or not visible to your rank", 404)
+        if _is_item_creator(item, discord_id):
+            raise PurchaseError("You cannot purchase your own item", 403)
         if item.get("type") != "bin":
             raise PurchaseError(f"Item {item_id!r} is not a bin item", 400)
         if not item.get("active", False):
@@ -642,6 +644,8 @@ def execute_bin_purchase(
     item = get_item(item_id, tags=tags, user_position=user_position)
     if item is None:
         raise PurchaseError("Item not found or not visible to your rank", 404)
+    if _is_item_creator(item, discord_id):
+        raise PurchaseError("You cannot purchase your own item", 403)
     if item.get("type") != "bin":
         raise PurchaseError("Item is not a bin item", 400)
     if not item.get("active", False):

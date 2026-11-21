@@ -256,6 +256,9 @@
       '<div id="csContent"></div>' +
       '<div class="shop-modal-backdrop" id="csModalBackdrop">' +
         '<div class="shop-modal" id="csModal"></div>' +
+      '</div>' +
+      '<div class="shop-modal-backdrop sa-overlay-backdrop" id="csOverlayBackdrop">' +
+        '<div class="shop-modal sa-overlay-modal" id="csOverlay"></div>' +
       '</div>';
     _syncCreatorTabsVisibility();
 
@@ -279,7 +282,7 @@
 
   function _closeModal() {
     var m = document.getElementById('csModal');
-    if (m) m.classList.remove('ie-modal');
+    if (m) { m.classList.remove('ie-modal'); m.classList.remove('am-modal'); }
     document.getElementById('csModalBackdrop').classList.remove('open');
   }
 
@@ -288,6 +291,7 @@
     _fetchJson('/api/shop/creator/my-items', { credentials: 'same-origin' })
       .then(function (res) {
         var d = (res && res.ok) ? res.data : null;
+        if (d) _ingestMaintenancePayload(d);
         if (_isMaintenanceRestrictedPayload(res && res.data)) {
           _handleMaintenanceRestriction(res.data, { notify: false, rerender: false });
           _data = { items: [], requests: [] };
@@ -378,13 +382,22 @@
           '</label></span>';
 
         // Stock input
-        var stockVal = item.stock != null ? item.stock : '';
-        html += '<span data-label="Stock"><input type="number" min="0" max="99999" class="sa-stock-input" ' +
-          'data-cs-stock="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="\u221E"' +
-          (canEditItems ? '' : ' disabled') + ' /></span>';
+        if (item.type === 'auction') {
+          html += '<span data-label="Stock" style="color:var(--text-faint)">N/A</span>';
+        } else {
+          var stockVal = item.stock != null ? item.stock : '';
+          html += '<span data-label="Stock"><input type="number" min="0" max="99999" class="sa-stock-input" ' +
+            'data-cs-stock="' + esc(item.id) + '" value="' + esc(stockVal) + '" placeholder="\u221E"' +
+            (canEditItems ? '' : ' disabled') + ' /></span>';
+        }
 
         // Actions
         html += '<span class="sa-actions-cell" data-label="Actions">';
+        if (item.type === 'auction' && item.active_auction_id) {
+          html += '<button class="sa-action-btn sa-pill sa-pill--auction" data-cs-manage-auction="' + esc(item.active_auction_id) + '">Manage</button>';
+        } else if (item.type === 'auction' && canEditItems && isActive) {
+          html += '<button class="sa-action-btn" data-cs-start-auction="' + esc(item.id) + '">Start</button>';
+        }
         if (hasEditPending) {
           html += '<span class="sa-pill sa-pill--pending" style="font-size:0.6rem">Edit pending</span>';
         } else if (!canEditItems) {
@@ -403,6 +416,43 @@
     c.innerHTML = html;
 
     /* wire events */
+    c.querySelectorAll('[data-cs-manage-auction]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        window.openCreatorAuctionManageModal(btn.dataset.csManageAuction, canEditItems);
+      });
+    });
+    c.querySelectorAll('[data-cs-start-auction]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var itemId = btn.dataset.csStartAuction;
+        var modal = document.getElementById('csModal');
+        modal.innerHTML =
+          '<button class="modal-close" aria-label="Close">' + _closeSvg + '</button>' +
+          '<div class="shop-modal-title">Start Auction</div>' +
+          '<div class="shop-modal-body">Start a new auction for <strong>' + esc(itemId) + '</strong>?</div>' +
+          '<div class="shop-modal-actions"><button class="shop-modal-btn shop-modal-btn--confirm" id="csStartConfirm">Start Auction</button></div>';
+        document.getElementById('csModalBackdrop').classList.add('open');
+        document.getElementById('csStartConfirm').addEventListener('click', function () {
+          var confirm = this;
+          confirm.disabled = true;
+          apiPost('/api/shop/creator/auctions/start', { item_id: itemId }).then(function (res) {
+            if (res.ok && res.data && res.data.ok) {
+              _closeModal();
+              window.showToast('\u2713 Auction started.', 'success');
+              window.dispatchEvent(new CustomEvent('shop:items-updated'));
+            } else {
+              if (!_handleMaintenanceRestriction(res.data, { rerender: false })) {
+                window.showToast('\u26a0 ' + ((res.data && res.data.error) || 'Failed to start auction'), 'warn');
+              }
+              confirm.disabled = false;
+            }
+          }).catch(function () {
+            window.showToast('\u26a0 Network error', 'warn');
+            confirm.disabled = false;
+          });
+        });
+      });
+    });
+
     var newItemBtn = document.getElementById('csNewItem');
     if (newItemBtn) {
       newItemBtn.addEventListener('click', function () {

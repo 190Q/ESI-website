@@ -336,10 +336,12 @@
     var itemMap = {};
     (binItems || []).forEach(function (it) { itemMap[it.id] = it; });
     var next = {};
+    var removedOwnItem = false;
     (entries || []).forEach(function (entry) {
       if (!entry || !_isCartItemKey(entry.item_id)) return;
       var item = itemMap[entry.item_id];
       if (!item) return;
+      if (item.is_own_item) { removedOwnItem = true; return; }
       var vi = entry.variant_index;
       if (vi != null) vi = parseInt(vi, 10);
       if (isNaN(vi)) vi = null;
@@ -354,6 +356,7 @@
       if (!_isCartItemKey(id)) next[id] = _cart[id];
     });
     _cart = next;
+    return removedOwnItem;
   }
   function syncCart() {
     if (!_cartLoaded || !_canInteract) return;
@@ -376,14 +379,15 @@
     fetch('/api/shop/cart', { credentials: 'same-origin' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
-        if (data && data.ok && data.items) {
-          _applyPersistedCart(data.items, binItems || []);
-        }
+        var removedOwnItem = data && data.ok && data.items
+          ? _applyPersistedCart(data.items, (_binData && _binData.items) || binItems || [])
+          : false;
         _cartLoaded = true;
         var badge = document.getElementById('shopCartBadge');
         var btn   = document.getElementById('shopCartBtn');
         var total = cartTotal();
         if (badge) badge.textContent = total;
+        if (removedOwnItem && _shopEnabled !== false) syncCart();
         if (total > 0) renderContent();
       })
       .catch(function () { _cartLoaded = true; });
@@ -582,6 +586,26 @@
           _syncAccessFromPayload(data);
           setTopActionsDisabled(_shopEnabled === false && !_shopMaintenanceViewOnly);
           _binData = data;
+          if (_cartLoaded && _shopEnabled !== false && data.shop_enabled !== false) {
+            var refreshedItems = {};
+            (data.items || []).forEach(function (item) { refreshedItems[item.id] = item; });
+            var removedOwnItem = false;
+            _cartEntries().forEach(function (entry) {
+              var item = refreshedItems[entry.item.id];
+              if (!item) return;
+              if (item.is_own_item) {
+                delete _cart[entry.item.id];
+                removedOwnItem = true;
+              } else {
+                entry.item = item;
+              }
+            });
+            if (removedOwnItem) {
+              updateCartBadge();
+              var backdrop = document.getElementById('shopModalBackdrop');
+              if (backdrop && backdrop.classList.contains('cart-open')) renderCartModal();
+            }
+          }
           if (data.maintenance_settings) {
             _setMaintenanceSettings(data.maintenance_settings, _shopMaintenanceViewOnly);
           }
@@ -763,12 +787,12 @@
     if (entry.kind === 'bin') {
       var it = entry.data;
       if (!it.active) return true;
-      if (it.visibility_blocked) return true;
+      if (it.visibility_blocked || it.is_own_item) return true;
       if (it.type !== 'donate' && it.on_cooldown) return true;
       return false;
     }
     var a = entry.data;
-    return a.status !== 'active' || a.active === false || !!a.visibility_blocked;
+    return a.status !== 'active' || a.active === false || !!a.visibility_blocked || !!a.is_own_item;
   }
 
   function _computePriceRange() {
@@ -1079,14 +1103,14 @@
     if (entry.kind === 'bin') {
       var it = entry.data;
       if (!it.active) return true;
-      if (it.visibility_blocked) return true;
+      if (it.visibility_blocked || it.is_own_item) return true;
       if (it.type !== 'donate' && it.on_cooldown) return true;
       if (it.stock != null && it.stock <= 0) return true;
       return false;
     }
     // auction
     var a = entry.data;
-    return a.status !== 'active' || a.active === false || !!a.visibility_blocked;
+    return a.status !== 'active' || a.active === false || !!a.visibility_blocked || !!a.is_own_item;
   }
 
   /* Unified content renderer */
@@ -1142,8 +1166,8 @@
       });
       if (_filterEP === 'clean') fBin = fBin.filter(function (it) { return !it.accepts_dirty_ep || it.spend_order === 'clean_only'; });
       else if (_filterEP === 'any') fBin = fBin.filter(function (it) { return it.accepts_dirty_ep && it.spend_order !== 'clean_only'; });
-      if (_filterAvail === 'available') fBin = fBin.filter(function (it) { return it.active && !it.on_cooldown && (it.stock == null || it.stock > 0); });
-      else if (_filterAvail === 'unavailable') fBin = fBin.filter(function (it) { return !it.active || it.on_cooldown || (it.stock != null && it.stock <= 0); });
+      if (_filterAvail === 'available') fBin = fBin.filter(function (it) { return !_isItemUnavailable({ kind: 'bin', data: it }); });
+      else if (_filterAvail === 'unavailable') fBin = fBin.filter(function (it) { return _isItemUnavailable({ kind: 'bin', data: it }); });
       if (_filterStock === 'instock') fBin = fBin.filter(function (it) { return it.stock == null || it.stock > 0; });
       else if (_filterStock === 'outstock') fBin = fBin.filter(function (it) { return it.stock != null && it.stock <= 0; });
       if (_filterCooldown === 'has') fBin = fBin.filter(function (it) { return !!it.cooldown; });
@@ -1166,8 +1190,8 @@
       });
       if (_filterEP === 'clean') fAuc = fAuc.filter(function (a) { return !a.accepts_dirty_ep || a.spend_order === 'clean_only'; });
       else if (_filterEP === 'any') fAuc = fAuc.filter(function (a) { return a.accepts_dirty_ep && a.spend_order !== 'clean_only'; });
-      if (_filterAvail === 'available') fAuc = fAuc.filter(function (a) { return a.status === 'active' && a.active !== false; });
-      else if (_filterAvail === 'unavailable') fAuc = fAuc.filter(function (a) { return a.status !== 'active' || a.active === false; });
+      if (_filterAvail === 'available') fAuc = fAuc.filter(function (a) { return !_isItemUnavailable({ kind: 'auction', data: a }); });
+      else if (_filterAvail === 'unavailable') fAuc = fAuc.filter(function (a) { return _isItemUnavailable({ kind: 'auction', data: a }); });
     }
 
     // Merge bin + auction cards in JSON item order
@@ -1301,7 +1325,7 @@
     var onCooldown = item.on_cooldown;
     // Pending schedule activation
     var schedPending = inactive && item.activate_at && new Date(item.activate_at).getTime() > Date.now();
-    var disabled   = inactive || visBlocked || onCooldown || schedPending || (item.stock != null && item.stock <= 0);
+    var disabled   = inactive || visBlocked || item.is_own_item || onCooldown || schedPending || (item.stock != null && item.stock <= 0);
     var label;
     if (visBlocked) { label = 'Restricted';
     } else if (schedPending) {
@@ -1367,7 +1391,7 @@
     var onCooldown = !shopDisabled && !isDonate && !visBlocked && item.on_cooldown;
     var inCart = !isDonate && !visBlocked && !!_cart[item.id];
     var schedPending = inactive && item.activate_at && new Date(item.activate_at).getTime() > Date.now();
-    var showUnavailable = (inactive || visBlocked) && !shopDisabled && !schedPending;
+    var showUnavailable = (inactive || visBlocked || item.is_own_item) && !shopDisabled && !schedPending;
     var maintenanceLine1 = '';
     var maintenanceLine2 = '';
     if (shopDisabled) {
@@ -1460,7 +1484,7 @@
     var isActive = a.status === 'active';
     var itemInactive = a.active === false;
     var visBlocked = !!a.visibility_blocked;
-    var showUnavailable = (a.status === 'closed') || ((itemInactive || visBlocked) && !shopDisabled);
+    var showUnavailable = (a.status === 'closed') || ((itemInactive || visBlocked || a.is_own_item) && !shopDisabled);
     var maintenanceLine1 = '';
     var maintenanceLine2 = '';
     if (shopDisabled) {
@@ -1697,7 +1721,7 @@
     var visBlocked = !!item.visibility_blocked;
     var onCooldown = !shopDisabled && !visBlocked && item.on_cooldown;
     var schedPending = inactive && item.activate_at && new Date(item.activate_at).getTime() > Date.now();
-    var disabled   = shopDisabled || inactive || visBlocked || onCooldown || (item.stock != null && item.stock <= 0);
+    var disabled   = shopDisabled || inactive || visBlocked || item.is_own_item || onCooldown || (item.stock != null && item.stock <= 0);
     var html = '<button class="modal-close" aria-label="Close">' + _svg.close + '</button>';
     var detailImgs = _getItemImages(item);
     if (detailImgs.length) html += _buildCarousel(detailImgs);
@@ -1765,9 +1789,11 @@
     // For multi-variant, disabled state is per-variant
     var _effStock = _mIsMultiV && _mSelIdx != null ? _mVariants[_mSelIdx].stock : item.stock;
     var _effActive = _mIsMultiV && _mSelIdx != null ? _mVariants[_mSelIdx].active !== false : true;
-    var btnDisabled = !_canInteract || shopDisabled || inactive || visBlocked || onCooldown || (!_effActive) || (_effStock != null && _effStock <= 0);
+    var btnDisabled = !_canInteract || shopDisabled || inactive || visBlocked || item.is_own_item || onCooldown || (!_effActive) || (_effStock != null && _effStock <= 0);
     if (!_canInteract) { btnLabel = interactionBtnLabel(); }
     else if (shopDisabled) { btnLabel = disabledMessage(); }
+    else if (item.is_own_item) { btnLabel = 'Your Item'; }
+    else if (visBlocked) { btnLabel = 'Restricted'; }
     else if (schedPending) {
       var _mdiff = new Date(item.activate_at).getTime() - Date.now();
       var _mH = Math.ceil(_mdiff / 3600000);
@@ -1875,7 +1901,7 @@
     var myUuid   = (_auctionData && _auctionData.uuid) ? _auctionData.uuid : '';
     var isActive = auction.status === 'active';
     var itemActive = auction.active !== false;
-    var canBid = _canInteract && !shopDisabled && isActive && itemActive;
+    var canBid = _canInteract && !shopDisabled && isActive && itemActive && !auction.visibility_blocked && !auction.is_own_item;
     var isHighest = _canInteract && auction.current_highest_bidder_uuid === myUuid;
     var bal = (_auctionData && _auctionData.balance) || (_binData && _binData.balance);
     var minBid = auction.current_highest_bid > 0
@@ -1955,7 +1981,7 @@
       html += '<div class="shop-modal-actions">';
       var abtnLabel = !_canInteract
         ? interactionBtnLabel()
-        : (shopDisabled ? disabledMessage() : (!isActive ? 'Auction Ended' : !itemActive ? 'Auction Paused' : 'Unavailable'));
+        : (shopDisabled ? disabledMessage() : (auction.is_own_item ? 'Your Item' : auction.visibility_blocked ? 'Restricted' : !isActive ? 'Auction Ended' : !itemActive ? 'Auction Paused' : 'Unavailable'));
       html += '<button class="shop-modal-btn shop-modal-btn--confirm" disabled>' + abtnLabel + '</button>';
       html += '</div>';
     }

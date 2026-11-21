@@ -1715,6 +1715,7 @@ from shop.creator import (
     approve_application as _creator_approve_application,
     reject_application as _creator_reject_application,
     get_creator_items as _creator_get_items,
+    owns_auction as _creator_owns_auction,
     submit_item_request as _creator_submit_item_request,
     list_item_requests as _creator_list_item_requests,
     approve_item_request as _creator_approve_item_request,
@@ -4082,7 +4083,91 @@ def shop_creator_my_items():
     user, err = _require_creator(maintenance_scope="items")
     if err:
         return err
-    return jsonify(_creator_get_items(user.get("id", "")))
+    data = _creator_get_items(user.get("id", ""))
+    data["admin_maintenance_settings"] = _admin_maintenance_settings_for_user(
+        _shop_get_admin_maintenance_settings() or {}, user,
+    )
+    data["maintenance_settings"] = _maintenance_settings_for_user(
+        _shop_get_maintenance_settings() or {}, user,
+    )
+    return jsonify(data)
+
+
+@app.route("/api/shop/creator/auctions/start", methods=["POST"])
+@rate_limit(10)
+def shop_creator_start_auction():
+    user, err = _require_creator(maintenance_scope="items", maintenance_action="items_edit")
+    if err:
+        return err
+    body = request.get_json(silent=True) or {}
+    item_id = (body.get("item_id") or "").strip()
+    from shop.items import get_item_unfiltered, _is_item_creator
+    item = get_item_unfiltered(item_id)
+    if not item or not _is_item_creator(item, user.get("id", "")):
+        return jsonify({"error": "Item not found"}), 404
+    actor = user.get("nick") or user.get("username", "")
+    result = admin_start_auction(item_id, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/shop/creator/auctions/<auction_id>/detail")
+@rate_limit(30)
+def shop_creator_auction_detail(auction_id):
+    user, err = _require_creator(maintenance_scope="items")
+    if err:
+        return err
+    if not _creator_owns_auction(user.get("id", ""), auction_id):
+        return jsonify({"error": "Auction not found"}), 404
+    result = admin_auction_detail(auction_id)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/shop/creator/auctions/<auction_id>/bids/<bid_id>/remove", methods=["POST"])
+@rate_limit(10)
+def shop_creator_remove_bid(auction_id, bid_id):
+    user, err = _require_creator(maintenance_scope="items", maintenance_action="items_edit")
+    if err:
+        return err
+    if not _creator_owns_auction(user.get("id", ""), auction_id, bid_id):
+        return jsonify({"error": "Bid not found"}), 404
+    body = request.get_json(silent=True) or {}
+    reason = (body.get("reason") or "").strip()[:50] or None
+    actor = user.get("nick") or user.get("username", "")
+    result = admin_remove_bid(bid_id, actor, reason)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/shop/creator/auctions/<auction_id>/close", methods=["POST"])
+@rate_limit(10)
+def shop_creator_close_auction(auction_id):
+    user, err = _require_creator(maintenance_scope="items", maintenance_action="items_edit")
+    if err:
+        return err
+    if not _creator_owns_auction(user.get("id", ""), auction_id):
+        return jsonify({"error": "Auction not found"}), 404
+    actor = user.get("nick") or user.get("username", "")
+    result = admin_cancel_auction(auction_id, actor)
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route("/api/shop/creator/auctions/<auction_id>/extend", methods=["POST"])
+@rate_limit(10)
+def shop_creator_extend_auction(auction_id):
+    user, err = _require_creator(maintenance_scope="items", maintenance_action="items_edit")
+    if err:
+        return err
+    if not _creator_owns_auction(user.get("id", ""), auction_id):
+        return jsonify({"error": "Auction not found"}), 404
+    body = request.get_json(silent=True) or {}
+    try:
+        hours = int(body.get("hours", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "hours must be an integer"}), 400
+    if hours == 0:
+        return jsonify({"error": "hours must be non-zero"}), 400
+    actor = user.get("nick") or user.get("username", "")
+    result = admin_extend_auction(auction_id, hours, actor=actor)
+    return jsonify(result), 200 if result.get("ok") else 400
 
 
 @app.route("/api/shop/creator/my-requests")
